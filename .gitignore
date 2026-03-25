@@ -1,0 +1,33 @@
+# Never commit secrets
+.env
+*.env
+**/.env
+**/*.env
+
+# Authelia sensitive config
+authelia/config/users_database.yml
+authelia/config/configuration.yml
+authelia/config/notifications.txt
+
+# Stirling PDF sensitive/generated data
+stirling-pdf/extraConfigs/backup/
+stirling-pdf/extraConfigs/*.db
+stirling-pdf/extraConfigs/*.mv.db
+stirling-pdf/logs/
+
+# Syncthing data (actual synced files, not config)
+syncthing/data/
+syncthing/config/
+
+# Claude Code local settings
+**/.claude/
+
+# Keys and certs
+**/*.key
+**/*.pub
+**/*.pem
+
+# SQL dumps and backups
+**/*.sql
+**/*.gz
+**/*.dump

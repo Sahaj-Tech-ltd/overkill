@@ -1,0 +1,81 @@
+services:
+  authelia:
+    image: authelia/authelia:latest
+    container_name: authelia
+    restart: unless-stopped
+    volumes:
+      - ./config:/config
+    environment:
+      - TZ=America/New_York
+    expose:
+      - 9091
+    depends_on:
+      - authelia-redis
+      - authelia-postgres
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9091/api/health > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  authelia-redis:
+    image: redis:alpine
+    container_name: authelia-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    environment:
+      - TZ=America/New_York
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  authelia-postgres:
+    image: postgres:16-alpine
+    container_name: authelia-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=authelia
+      - POSTGRES_USER=authelia
+      - POSTGRES_PASSWORD=asdfghjk2003@P
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authelia -d authelia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:alpine
+    container_name: authelia-caddy
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+    ports:
+      - "127.0.0.1:8888:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - open-webui_default
+      - syncthing_default
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis-data:
+  postgres-data:
+  caddy-data:
+
+networks:
+  open-webui_default:
+    external: true
+  syncthing_default:
+    external: true

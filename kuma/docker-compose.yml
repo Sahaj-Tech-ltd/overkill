@@ -1,0 +1,19 @@
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma
+    container_name: uptime-kuma
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - uptime-kuma:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:3001 > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  uptime-kuma:
+    external: true
+    name: uptime-kuma

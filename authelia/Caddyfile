@@ -1,0 +1,66 @@
+{
+  admin off
+  auto_https off
+}
+
+(protected) {
+  forward_auth authelia:9091 {
+    uri /api/verify?rd=https://auth.databunker.uk
+    copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+    header_up X-Forwarded-Proto https
+  }
+}
+
+:80 {
+  @auth host auth.databunker.uk
+  handle @auth {
+    reverse_proxy authelia:9091
+  }
+
+  @chat host chat.databunker.uk
+  handle @chat {
+    import protected
+    reverse_proxy open-webui:8080
+  }
+
+  @status host status.databunker.uk
+  handle @status {
+    reverse_proxy host.docker.internal:3001
+  }
+
+  @dash host dash.databunker.uk
+  handle @dash {
+    import protected
+    reverse_proxy host.docker.internal:3002
+  }
+
+  @affine host affine.databunker.uk
+  handle @affine {
+    reverse_proxy host.docker.internal:3010
+  }
+
+  @pdf host pdf.databunker.uk
+  handle @pdf {
+    import protected
+    reverse_proxy host.docker.internal:8080
+  }
+
+  @bar host bar.databunker.uk
+  handle @bar {
+    import protected
+    reverse_proxy host.docker.internal:8090
+  }
+
+  @bar-api host bar-api.databunker.uk
+  handle @bar-api {
+    reverse_proxy host.docker.internal:8091
+  }
+
+  @sync host sync.databunker.uk
+  handle @sync {
+    import protected
+    reverse_proxy syncthing:8384 {
+      header_up Host localhost
+    }
+  }
+}

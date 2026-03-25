@@ -1,0 +1,31 @@
+services:
+  adguard:
+    image: adguard/adguardhome:latest
+    container_name: adguard_home
+    ports:
+      - "0.0.0.0:53:53/tcp"
+      - "0.0.0.0:53:53/udp"
+      - "0.0.0.0:80:80/tcp"
+      - "0.0.0.0:443:443/tcp"
+      - "0.0.0.0:3000:3000/tcp"
+      - "0.0.0.0:853:853/tcp"
+      - "0.0.0.0:853:853/udp"
+    volumes:
+      - adguard_work:/opt/adguardhome/work
+      - adguard_conf:/opt/adguardhome/conf
+    restart: unless-stopped
+    networks:
+      - adguard_net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 53"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  adguard_work:
+  adguard_conf:
+
+networks:
+  adguard_net:
+    driver: bridge

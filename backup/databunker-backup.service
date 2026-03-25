@@ -1,0 +1,11 @@
+[Unit]
+Description=Databunker homelab backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/harsh/docker/backup/backup.sh
+StandardOutput=journal
+StandardError=journal
+User=harsh

@@ -1,0 +1,74 @@
+volumes:
+  bar_data:
+  meilisearch_data:
+
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.15
+    environment:
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_MASTER_KEY=$MEILI_MASTER_KEY
+      - MEILI_ENV=production
+    restart: unless-stopped
+    volumes:
+      - meilisearch_data:/meili_data
+    ports:
+      - "8092:7700"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:7700/health > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis
+    container_name: bar-redis
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  bar-assistant:
+    image: barassistant/server:v5
+    depends_on:
+      - meilisearch
+      - redis
+    environment:
+      - APP_URL=$API_URL
+      - MEILISEARCH_KEY=$MEILI_MASTER_KEY
+      - MEILISEARCH_HOST=http://meilisearch:7700
+      - REDIS_HOST=redis
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+      - ALLOW_REGISTRATION=true
+    restart: unless-stopped
+    ports:
+      - "8091:8080"
+    volumes:
+      - bar_data:/var/www/cocktails/storage/bar-assistant
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080 > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  salt-rim:
+    image: barassistant/salt-rim:v4
+    depends_on:
+      - bar-assistant
+    environment:
+      - API_URL=$API_URL
+      - MEILISEARCH_URL=$MEILISEARCH_URL
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080 > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

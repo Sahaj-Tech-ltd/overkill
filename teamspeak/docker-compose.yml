@@ -1,0 +1,63 @@
+services:
+  teamspeak_postgres:
+    image: postgres:16
+    container_name: teamspeak_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - teamspeak_postgres_data:/var/lib/postgresql/data
+    networks:
+      - teamspeak_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  teamspeak:
+    image: teamspeak:latest
+    container_name: teamspeak_server
+    depends_on:
+      teamspeak_postgres:
+        condition: service_healthy
+    environment:
+      TS3SERVER_LICENSE: ${TS3SERVER_LICENSE}
+      TS3_DB_PLUGIN: pgsql
+      TS3_DB_HOST: ${POSTGRES_HOST}
+      TS3_DB_PORT: ${POSTGRES_PORT}
+      TS3_DB_NAME: ${POSTGRES_DB}
+      TS3_DB_USER: ${POSTGRES_USER}
+      TS3_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      TS3_DB_WAITUNTILREADY: 1
+    ports:
+      - "9987:9987/udp"
+      - "10011:10011/tcp"
+      - "10022:10022/tcp"
+      - "30033:30033/tcp"
+    volumes:
+      - teamspeak_data:/var/ts3server
+    networks:
+      - teamspeak_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "10011"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  teamspeak_postgres_data:
+  teamspeak_data:
+
+networks:
+  teamspeak_net:
+    driver: bridge
