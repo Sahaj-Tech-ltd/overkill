@@ -45,34 +45,57 @@ Internet → cloudflared (host network) → Caddy (authelia stack, 127.0.0.1:888
 |---|---|---|---|
 | authelia | 9091 | auth.databunker.uk | No |
 | open-webui | 127.0.0.1:3030→8080 | chat.databunker.uk | Yes |
-| grafana | 3002 | dash.databunker.uk | Yes |
 | stirling-pdf | 8080 | pdf.databunker.uk | Yes |
 | bar-assistant (UI) | 8090 | bar.databunker.uk | Yes |
 | bar-assistant (API) | 8091 | bar-api.databunker.uk | No |
-| affine | 3010 | affine.databunker.uk | No |
+| affine | 3010 | affine.databunker.uk | No (has own auth) |
 | uptime-kuma | 3001 (host) | status.databunker.uk | No |
-| prometheus | 9090 | — | — |
 | adguard | 53/80/443/3000/853 | — | — |
 
 ### Key Cross-Stack Dependencies
 
 - The `caddy` container in the `authelia` stack joins the `open-webui_default` network so it can proxy to `open-webui:8080` by container name.
-- Uptime-Kuma and Grafana run on `host` network or a fixed host port; Caddy reaches them via `host.docker.internal`.
+- Uptime-Kuma runs on host network; Caddy reaches it via `host.docker.internal:3001`.
+- Most other services Caddy proxies via `host.docker.internal:<port>` — these ports are blocked from external access by iptables DOCKER-USER rules (see Security section below).
 - **autoheal** watches all containers (`AUTOHEAL_CONTAINER_LABEL=all`) and auto-restarts any that become unhealthy.
 
 ### Authelia Stack (`authelia/`)
 
 Contains four containers: `authelia`, `authelia-redis`, `authelia-postgres`, and `caddy`. The `Caddyfile` defines all virtual host routing and which routes require forward-auth. User accounts are in `config/users_database.yml`.
 
-### Monitoring Stack
-
-- **Prometheus** scrapes itself and Uptime-Kuma metrics (via bearer token) at 30s intervals.
-- **Grafana** connects to Prometheus as a datasource for dashboards.
-
 ### Affine (`affine/`)
 
-Requires both `postgres` (pgvector/pg16) and `redis`. Runs a migration job (`affine_migration`) before starting the main server.
+Requires both `postgres` (pgvector/pg16) and `redis`. Runs a migration job (`affine_migration`) before starting the main server. Data lives at `/root/.affine/self-host/` (use absolute path — `~` expands differently under sudo). Daily backup cron at 3 AM to `/opt/backups/affine/`.
 
 ### Bar Assistant (`bar-assistant/`)
 
 Three containers: `meilisearch` (search engine), `redis` (cache/session), `bar-assistant` (API server), and `salt-rim` (frontend UI). Configuration via `.env`.
+
+## Security
+
+### Docker bypasses UFW — critical to understand
+
+Docker injects iptables rules that bypass UFW entirely. Any container port bound to `0.0.0.0` is publicly reachable even if UFW has no ALLOW rule for it. **Do not assume UFW protects Docker-exposed ports.**
+
+To block external access to a port exposed by Docker, rules must be added to the `DOCKER-USER` iptables chain. A systemd service (`docker-block-external.service`) applies these rules on every boot after Docker starts:
+
+```bash
+# View/edit blocked ports
+sudo cat /usr/local/bin/docker-block-external.sh
+
+# Re-apply rules after changes
+sudo systemctl restart docker-block-external.service
+
+# Check rules are active
+sudo iptables -L DOCKER-USER -n -v
+```
+
+Ports currently blocked from external access: `3000 3001 3002 3010 8080 8081 8090 8091 8092 9090 9100`
+
+### `.env` files contain secrets — never commit them
+
+All `.env` files are gitignored. When adding a new service, copy from `.env.example` and fill in values manually. The git repo tracks compose files only.
+
+### SSH
+
+Password authentication is disabled. Pubkey only. Root login disabled.
