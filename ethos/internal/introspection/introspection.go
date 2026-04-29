@@ -1,0 +1,133 @@
+package introspection
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+)
+
+type FileType string
+
+const (
+	FileCodebase    FileType = "CODEBASE.md"
+	FileModelCard   FileType = "MODEL_CARD.md"
+	FileKnownIssues FileType = "KNOWN_ISSUES.md"
+	FileArchitecture FileType = "ARCHITECTURE.md"
+)
+
+type IntrospectionFile struct {
+	Type      FileType `json:"type"`
+	Path      string   `json:"path"`
+	Content   string   `json:"content"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Exists    bool     `json:"exists"`
+}
+
+type Introspector struct {
+	dir      string
+	provider providers.Provider
+	model    string
+}
+
+func NewIntrospector(dir string, provider providers.Provider, model string) *Introspector {
+	return &Introspector{
+		dir:      dir,
+		provider: provider,
+		model:    model,
+	}
+}
+
+func (i *Introspector) Get(fileType FileType) (*IntrospectionFile, error) {
+	path := filepath.Join(i.dir, string(fileType))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &IntrospectionFile{
+				Type:   fileType,
+				Path:   path,
+				Exists: false,
+			}, nil
+		}
+		return nil, fmt.Errorf("introspection: read %s: %w", fileType, err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("introspection: stat %s: %w", fileType, err)
+	}
+
+	return &IntrospectionFile{
+		Type:      fileType,
+		Path:      path,
+		Content:   string(data),
+		UpdatedAt: info.ModTime(),
+		Exists:    true,
+	}, nil
+}
+
+func (i *Introspector) Generate(ctx context.Context, fileType FileType) (*IntrospectionFile, error) {
+	var generator func(context.Context, providers.Provider, string, string) (*IntrospectionFile, error)
+
+	switch fileType {
+	case FileCodebase:
+		generator = generateCodebase
+	case FileModelCard:
+		generator = generateModelCard
+	case FileKnownIssues:
+		generator = generateKnownIssues
+	case FileArchitecture:
+		generator = generateArchitecture
+	default:
+		return nil, fmt.Errorf("introspection: unknown file type: %s", fileType)
+	}
+
+	f, err := generator(ctx, i.provider, i.model, i.dir)
+	if err != nil {
+		return nil, fmt.Errorf("introspection: generate %s: %w", fileType, err)
+	}
+
+	return f, nil
+}
+
+func (i *Introspector) GenerateAll(ctx context.Context) ([]IntrospectionFile, error) {
+	types := []FileType{FileCodebase, FileModelCard, FileKnownIssues, FileArchitecture}
+	results := make([]IntrospectionFile, 0, len(types))
+
+	for _, ft := range types {
+		f, err := i.Generate(ctx, ft)
+		if err != nil {
+			return nil, fmt.Errorf("introspection: generate all (%s): %w", ft, err)
+		}
+		results = append(results, *f)
+	}
+
+	return results, nil
+}
+
+func (i *Introspector) IsStale(fileType FileType, maxAge time.Duration) bool {
+	f, err := i.Get(fileType)
+	if err != nil || !f.Exists {
+		return true
+	}
+
+	return time.Since(f.UpdatedAt) > maxAge
+}
+
+func (i *Introspector) List() ([]IntrospectionFile, error) {
+	types := []FileType{FileCodebase, FileModelCard, FileKnownIssues, FileArchitecture}
+	results := make([]IntrospectionFile, 0, len(types))
+
+	for _, ft := range types {
+		f, err := i.Get(ft)
+		if err != nil {
+			return nil, fmt.Errorf("introspection: list: %w", err)
+		}
+		results = append(results, *f)
+	}
+
+	return results, nil
+}

@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package ethos.bridge;
+
+option go_package = "github.com/Sahaj-Tech-ltd/ethos/bridge/proto";
+
+service EthosBridge {
+  rpc Embed(EmbedRequest) returns (EmbedResponse);
+  rpc EmbedBatch(EmbedBatchRequest) returns (EmbedBatchResponse);
+  rpc Rerank(RerankRequest) returns (RerankResponse);
+  rpc StoreVector(StoreVectorRequest) returns (StoreVectorResponse);
+  rpc SearchVectors(SearchVectorsRequest) returns (SearchVectorsResponse);
+  rpc DeleteVector(DeleteVectorRequest) returns (DeleteVectorResponse);
+  rpc Compact(CompactRequest) returns (CompactResponse);
+  rpc Ping(PingRequest) returns (PongResponse);
+}
+
+message EmbedRequest {
+  string text = 1;
+  string model = 2;
+}
+
+message EmbedBatchRequest {
+  repeated string texts = 1;
+  string model = 2;
+}
+
+message EmbedResponse {
+  repeated float embedding = 1;
+  int32 tokens = 2;
+}
+
+message EmbedBatchResponse {
+  repeated EmbedResult results = 1;
+}
+
+message EmbedResult {
+  repeated float embedding = 1;
+  int32 tokens = 2;
+}
+
+message RerankRequest {
+  string query = 1;
+  repeated string documents = 2;
+  string model = 3;
+  int32 top_n = 4;
+}
+
+message RerankResult {
+  int32 index = 1;
+  double relevance_score = 2;
+  string text = 3;
+}
+
+message RerankResponse {
+  repeated RerankResult results = 1;
+}
+
+message VectorEntry {
+  string id = 1;
+  repeated float embedding = 2;
+  string content = 3;
+  map<string, string> metadata = 4;
+}
+
+message StoreVectorRequest {
+  VectorEntry entry = 1;
+  string backend = 2;
+}
+
+message StoreVectorResponse {
+  string id = 1;
+  bool success = 2;
+}
+
+message SearchVectorsRequest {
+  repeated float query = 1;
+  int32 top_k = 2;
+  double threshold = 3;
+  string backend = 4;
+  map<string, string> filters = 5;
+}
+
+message SearchResult {
+  string id = 1;
+  double score = 2;
+  string content = 3;
+  map<string, string> metadata = 4;
+}
+
+message SearchVectorsResponse {
+  repeated SearchResult results = 1;
+}
+
+message DeleteVectorRequest {
+  string id = 1;
+  string backend = 2;
+}
+
+message DeleteVectorResponse {
+  bool success = 1;
+}
+
+message CompactRequest {
+  string content = 1;
+  string model = 2;
+  int32 target_tokens = 3;
+  string style = 4;
+}
+
+message CompactResponse {
+  string summary = 1;
+  int32 original_tokens = 2;
+  int32 summary_tokens = 3;
+  bool success = 4;
+}
+
+message PingRequest {}
+
+message PongResponse {
+  string status = 1;
+  string version = 2;
+}

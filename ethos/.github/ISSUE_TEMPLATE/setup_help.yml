@@ -1,0 +1,55 @@
+name: Setup Help
+description: Get help with installation or configuration issues
+title: "[Setup]: "
+labels: [question, setup]
+assignees: [xyzmr114]
+body:
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installation Method
+      description: How did you install Ethos?
+      options:
+        - curl script
+        - Docker
+        - go install
+        - From source
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What OS are you running?
+      options:
+        - Linux (x86_64)
+        - Linux (ARM64)
+        - macOS (Intel)
+        - macOS (Apple Silicon)
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-went-wrong
+    attributes:
+      label: What Went Wrong
+      description: Describe the issue you encountered during setup
+    validations:
+      required: true
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Error Output
+      description: Paste the full error message or terminal output
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration (Redacted)
+      description: Paste your config file with any secrets removed or redacted
+      render: yaml
+    validations:
+      required: false

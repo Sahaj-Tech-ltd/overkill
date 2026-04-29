@@ -1,0 +1,47 @@
+agent-loop:
+  - changed-files:
+      - any-glob-to-any-file: internal/agent/**
+security:
+  - changed-files:
+      - any-glob-to-any-file: internal/security/**
+compaction:
+  - changed-files:
+      - any-glob-to-any-file:
+        - internal/compaction/**
+        - bridge/compaction/**
+TUI:
+  - changed-files:
+      - any-glob-to-any-file: pkg/tui/**
+routing:
+  - changed-files:
+      - any-glob-to-any-file: internal/routing/**
+memory:
+  - changed-files:
+      - any-glob-to-any-file:
+        - internal/memory/**
+        - bridge/memory/**
+tools:
+  - changed-files:
+      - any-glob-to-any-file: internal/tools/**
+skills:
+  - changed-files:
+      - any-glob-to-any-file:
+        - skills/**
+        - optional-skills/**
+bridge:
+  - changed-files:
+      - any-glob-to-any-file: bridge/**
+CI:
+  - changed-files:
+      - any-glob-to-any-file: .github/**
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+        - docs/**
+        - "*.md"
+personality:
+  - changed-files:
+      - any-glob-to-any-file: internal/personality/**
+automation:
+  - changed-files:
+      - any-glob-to-any-file: internal/automation/**

@@ -1,0 +1,44 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature]: "
+labels: [enhancement, triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem are you trying to solve? What is the pain point or limitation you are experiencing?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your ideal solution to the problem above
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches or workarounds have you considered?
+    validations:
+      required: false
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Estimated Scope
+      description: How large do you expect this feature to be?
+      options:
+        - S - Small (minor addition or tweak)
+        - M - Medium (new feature, moderate effort)
+        - L - Large (significant architectural change)
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, references, or links that help explain the request
+    validations:
+      required: false

@@ -1,0 +1,7 @@
+* @xyzmr114
+/.github/CODEOWNERS @xyzmr114
+/SECURITY.md @xyzmr114
+/internal/security/ @xyzmr114
+/bridge/ @xyzmr114
+/.github/workflows/docker-publish.yml @xyzmr114
+/scripts/release* @xyzmr114

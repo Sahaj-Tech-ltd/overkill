@@ -1,0 +1,74 @@
+package config
+
+type Config struct {
+	Version    int               `toml:"version"`
+	Agent      AgentConfig       `toml:"agent"`
+	Providers  []ProviderConfig  `toml:"providers"`
+	Personality PersonalityConfig `toml:"personality"`
+	Security   SecurityConfig    `toml:"security"`
+	Session    SessionConfig     `toml:"session"`
+	Cost       CostConfig        `toml:"cost"`
+	Compaction CompactionConfig  `toml:"compaction"`
+}
+
+type AgentConfig struct {
+	Name            string `toml:"name"`
+	DefaultProvider string `toml:"default_provider"`
+	DefaultModel    string `toml:"default_model"`
+	MaxTurns        int    `toml:"max_turns"`
+	SpecDriven      bool   `toml:"spec_driven"`
+}
+
+type ProviderConfig struct {
+	Name    string            `toml:"name"`
+	Type    string            `toml:"type"`
+	APIKey  string            `toml:"api_key"`
+	BaseURL string            `toml:"base_url"`
+	Models  []ModelConfig     `toml:"models"`
+	Headers map[string]string `toml:"headers"`
+}
+
+type ModelConfig struct {
+	ID           string  `toml:"id"`
+	Name         string  `toml:"name"`
+	MaxTokens    int     `toml:"max_tokens"`
+	CostIn       float64 `toml:"cost_in"`
+	CostOut      float64 `toml:"cost_out"`
+	CostCacheIn  float64 `toml:"cost_cache_in"`
+	CostCacheOut float64 `toml:"cost_cache_out"`
+}
+
+type PersonalityConfig struct {
+	Level    string `toml:"level"`
+	Language string `toml:"language"`
+}
+
+type SecurityConfig struct {
+	AutonomyLevel  string   `toml:"autonomy_level"`
+	DenyPatterns   []string `toml:"deny_patterns"`
+	ForbiddenPaths []string `toml:"forbidden_paths"`
+	MaxCommandLen  int      `toml:"max_command_len"`
+	SandboxEnabled bool     `toml:"sandbox_enabled"`
+}
+
+type SessionConfig struct {
+	AutoTitle   bool `toml:"auto_title"`
+	MaxSessions int  `toml:"max_sessions"`
+	DataDir     string `toml:"data_dir"`
+}
+
+type CostConfig struct {
+	DailyLimitUSD    float64 `toml:"daily_limit_usd"`
+	PerTaskLimitUSD  float64 `toml:"per_task_limit_usd"`
+	RollingWindowHrs int     `toml:"rolling_window_hrs"`
+	WarnAtPercent    int     `toml:"warn_at_percent"`
+}
+
+type CompactionConfig struct {
+	SoftTriggerPercent int `toml:"soft_trigger_percent"`
+	HardTriggerPercent int `toml:"hard_trigger_percent"`
+	PreserveMessages   int `toml:"preserve_messages"`
+	MaxSummaryTokens   int `toml:"max_summary_tokens"`
+}
+
+const CurrentVersion = 1

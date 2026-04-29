@@ -1,0 +1,71 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go
+go.work
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+credentials.json
+service-account.json
+
+# Inspiration repos (shallow clones, gitignored)
+inspiration/
+
+# Research papers (large PDFs)
+research/papers/*.pdf
+research/awesome-ai-agent-papers/
+
+# BadgerDB data
+data/
+
+# Session data
+sessions/
+
+# Build artifacts
+*.tar.gz
+*.zip
+
+# Test artifacts
+coverage.out
+coverage.html
+*.prof
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Source planning doc (local only)
+Wants and a to do list.html
+
+# Ethos runtime
+.ethos/
+mattpocock-skills

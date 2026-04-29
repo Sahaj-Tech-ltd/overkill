@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  ethos:
+    build: .
+    container_name: ethos
+    environment:
+      - ETHOS_CONFIG=/workspace/.ethos/config.toml
+    volumes:
+      - .:/workspace
+      - ethos-data:/home/ethos/.ethos
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ethos-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    profiles:
+      - vector
+
+volumes:
+  ethos-data:
+  qdrant-data:
