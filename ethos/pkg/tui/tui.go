@@ -611,6 +611,15 @@ func (m *appModel) registerCommands() {
 		{ID: "sync", Title: "/sync", Description: "push/pull session sync to remote backend"},
 		{ID: "share", Title: "/share", Description: "share current session as a public URL"},
 		{ID: "acp", Title: "/acp", Description: "show ACP server status & token"},
+		{ID: "walls", Title: "/walls", Description: "run safety walls (architecture/test-quality/ouroboros)"},
+		{ID: "routine", Title: "/routine", Description: "list automation routines"},
+		{ID: "cron", Title: "/cron", Description: "list scheduled cron jobs"},
+		{ID: "introspect", Title: "/introspect", Description: "regenerate codebase wiki snippet"},
+		{ID: "slice", Title: "/slice", Description: "decompose a spec into vertical slices"},
+		{ID: "diagnose", Title: "/diagnose", Description: "run diagnostic file analyzer on cwd"},
+		{ID: "plan", Title: "/plan", Description: "draft a plan from the current goal"},
+		{ID: "journal", Title: "/journal", Description: "search the flight-recorder journal"},
+		{ID: "redteam", Title: "/redteam", Description: "run red-team checks on the active session"},
 	} {
 		m.cmdDialog.RegisterCommand(c)
 	}
@@ -2285,6 +2294,24 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return m.runShare()
 	case "acp":
 		return m.runACPStatus()
+	case "walls":
+		return m.runWalls()
+	case "routine":
+		return m.runRoutines()
+	case "cron":
+		return m.runCron()
+	case "introspect":
+		return m.runIntrospect()
+	case "slice":
+		return m.runSlice()
+	case "diagnose":
+		return m.runDiagnose()
+	case "plan":
+		return m.runPlan()
+	case "journal":
+		return m.runJournal()
+	case "redteam":
+		return m.runRedteam()
 	}
 	return nil
 }
