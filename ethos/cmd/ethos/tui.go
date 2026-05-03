@@ -197,6 +197,8 @@ func buildTUIApp() *tui.App {
 	toolReg.Register(tools.NewDelegateTool(app.Subagent))
 	toolReg.Register(tools.NewSubagentStatusTool(app.Subagent))
 	toolReg.Register(tools.NewSubagentWaitTool(app.Subagent))
+	// driverFactory is wired below once the parent agent exists, since
+	// children currently share the parent's provider/registry.
 
 	if app.Tags != nil {
 		toolReg.Register(tools.NewTagAddTool(app.Tags))
@@ -364,6 +366,13 @@ func buildTUIApp() *tui.App {
 	}
 
 	app.Agent = a
+
+	// Sub-agent driver factory: contracts spawned via delegate_task drive
+	// the parent agent through an autonomous loop. (Future: build a fresh
+	// child agent per spawn for true isolation; today we share state.)
+	app.Subagent.SetDriverFactory(func(c *subagent.Contract) (subagent.StepDriver, error) {
+		return agent.NewContractDriver(a, c, cwd), nil
+	})
 
 	// Flight recorder — persists every tool call / error to ~/.ethos/journal
 	// so /journal search and post-mortem reports have data to read. Failure to

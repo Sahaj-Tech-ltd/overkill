@@ -41,6 +41,41 @@ type Manager struct {
 
 	// Contract-based autonomous children, keyed by contract.ID.
 	autonomous map[string]*autonomousEntry
+
+	// driverFactory builds a fresh StepDriver for a given contract. When
+	// nil the contract path on delegate_task returns an error.
+	driverFactory func(*Contract) (StepDriver, error)
+}
+
+// SetDriverFactory wires a per-contract StepDriver builder. cmd/ethos calls
+// this once at startup with a closure that constructs a clean child agent.
+func (m *Manager) SetDriverFactory(f func(*Contract) (StepDriver, error)) {
+	m.mu.Lock()
+	m.driverFactory = f
+	m.mu.Unlock()
+}
+
+// HasDriverFactory reports whether a factory has been configured.
+func (m *Manager) HasDriverFactory() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.driverFactory != nil
+}
+
+// SpawnFromFactory uses the configured factory to build a driver and then
+// SpawnContract under it. Returns an error if no factory is set.
+func (m *Manager) SpawnFromFactory(ctx context.Context, c *Contract, workdir string) (string, error) {
+	m.mu.RLock()
+	f := m.driverFactory
+	m.mu.RUnlock()
+	if f == nil {
+		return "", fmt.Errorf("subagent: no driver factory configured")
+	}
+	d, err := f(c)
+	if err != nil {
+		return "", fmt.Errorf("subagent: driver build: %w", err)
+	}
+	return m.SpawnContract(ctx, c, d, workdir, nil)
 }
 
 // autonomousEntry tracks one in-flight or completed contract-based child.

@@ -10,9 +10,12 @@ import (
 
 // delegateInput models the JSON input accepted by the delegate_task tool.
 type delegateInput struct {
-	Goal    string            `json:"goal"`
-	Context string            `json:"context"`
-	Tasks   []delegateSubTask `json:"tasks"`
+	Goal     string             `json:"goal"`
+	Context  string             `json:"context"`
+	Tasks    []delegateSubTask  `json:"tasks"`
+	Contract *subagent.Contract `json:"contract,omitempty"`
+	Wait     bool               `json:"wait,omitempty"`
+	Workdir  string             `json:"workdir,omitempty"`
 }
 
 // delegateSubTask represents a single entry in the tasks array for batch mode.
@@ -50,6 +53,11 @@ func (d *DelegateTool) Execute(ctx context.Context, input json.RawMessage) (json
 		return errorJSON("delegation is not configured"), nil
 	}
 
+	// Contract mode: drive an autonomous child against a frozen contract.
+	if in.Contract != nil {
+		return d.executeContract(ctx, in.Contract, in.Wait, in.Workdir)
+	}
+
 	// Determine mode: batch or single.
 	if len(in.Tasks) > 0 {
 		return d.executeBatch(ctx, in.Tasks)
@@ -60,6 +68,32 @@ func (d *DelegateTool) Execute(ctx context.Context, input json.RawMessage) (json
 	}
 
 	return errorJSON("goal is required"), nil
+}
+
+// executeContract spawns a contract-driven autonomous child via the manager's
+// driver factory. When wait=true the call blocks until the child finishes
+// and returns the FinalReport; otherwise it returns {id, status:"spawned"}.
+func (d *DelegateTool) executeContract(ctx context.Context, c *subagent.Contract, wait bool, workdir string) (json.RawMessage, error) {
+	if !d.manager.HasDriverFactory() {
+		return errorJSON("contract delegation requires a driver factory; pass goal/context for legacy mode"), nil
+	}
+	id, err := d.manager.SpawnFromFactory(ctx, c, workdir)
+	if err != nil {
+		return errorJSON(err.Error()), nil
+	}
+	if !wait {
+		out, _ := json.Marshal(map[string]any{"id": id, "status": "spawned"})
+		return out, nil
+	}
+	rep, err := d.manager.AutonomousWait(ctx, id)
+	if err != nil {
+		return errorJSON(err.Error()), nil
+	}
+	out, mErr := json.Marshal(map[string]any{"id": id, "final_report": rep})
+	if mErr != nil {
+		return nil, fmt.Errorf("delegate_task: marshal: %w", mErr)
+	}
+	return out, nil
 }
 
 // executeSingle spawns a single GenericTask and returns the marshalled Result.
