@@ -56,6 +56,20 @@ type Agent struct {
 	// falls back to its legacy single-LLM-call summary path.
 	compactor    HistoryCompactor
 	useCompactor bool
+
+	// userInputObserver, if set, is invoked once per Run with the raw user
+	// input before scanners or rewriter. Used by the frustration detector
+	// (and anything else that wants a non-blocking peek). Best-effort:
+	// panics are recovered.
+	userInputObserver func(input string)
+}
+
+// SetUserInputObserver wires a callback fired once per Run with the user's
+// raw text. Pass nil to clear.
+func (a *Agent) SetUserInputObserver(fn func(input string)) {
+	a.mu.Lock()
+	a.userInputObserver = fn
+	a.mu.Unlock()
 }
 
 // HistoryCompactor abstracts the compaction strategy used by Agent.Compact.
@@ -197,6 +211,13 @@ type RunResult struct {
 }
 
 func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
+	if obs := a.userInputObserver; obs != nil {
+		func() {
+			defer func() { _ = recover() }()
+			obs(userInput)
+		}()
+	}
+
 	for _, scanner := range a.scanners {
 		result, err := scanner.Scan(userInput)
 		if err != nil {

@@ -36,6 +36,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/walls"
 	syncpkg "github.com/Sahaj-Tech-ltd/ethos/internal/sync"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/tags"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/tokenizer"
@@ -230,6 +231,17 @@ func buildTUIApp() *tui.App {
 			toolReg.Register(tools.NewMemoryRecallTool(memOrch))
 			toolReg.Register(tools.NewMemoryForgetTool(memOrch))
 		}
+
+		// Behavioral regression bank (master plan §6.5 Wall 3). Per-user
+		// Badger at ~/.ethos/regressions; tools surface record/list/verify.
+		regDir := filepath.Join(home, ".ethos", "regressions")
+		_ = os.MkdirAll(regDir, 0o755)
+		if rdb, err := badger.Open(badger.DefaultOptions(regDir).WithLoggingLevel(badger.ERROR)); err == nil {
+			bank := walls.NewRegressionBank(walls.NewBadgerRegressionStore(rdb), nil)
+			toolReg.Register(tools.NewRegressionRecordTool(bank))
+			toolReg.Register(tools.NewRegressionListTool(bank))
+			toolReg.Register(tools.NewRegressionVerifyTool(bank))
+		}
 	}
 
 	if app.Tags != nil {
@@ -262,6 +274,11 @@ func buildTUIApp() *tui.App {
 		toolReg.Register(tools.NewBrowserEvalTool(bm, policy))
 		toolReg.Register(tools.NewBrowserWaitTool(bm, policy))
 	}
+
+	// dev-browser as the third browser flavor (master plan §7.3). Always
+	// registered; degrades to a clear "binary not on PATH" error when the
+	// user hasn't installed it. No config gate.
+	toolReg.Register(tools.NewBrowserDevTool())
 
 	// MCP: spin up configured servers in the background. Tools become
 	// available to the agent as they finish handshaking.
@@ -440,6 +457,11 @@ func buildTUIApp() *tui.App {
 		te.SetAlertSink(alertSink, sid)
 		bs := personality.NewBlindSpotDetector()
 		bs.SetAlertSink(alertSink, sid)
+
+		// Frustration detector — observes raw user input and fires
+		// AlertFrustration via the same sink (master plan §4.16).
+		fd := personality.NewFrustrationDetector(alertSink, sid)
+		a.SetUserInputObserver(func(input string) { fd.Observe(input) })
 		// Stash on app for downstream personality runtime to consume.
 		_ = te
 		_ = bs
