@@ -111,3 +111,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/dependency-review-action@v4
+
+  # Supply-chain hygiene: catch suspicious files/patterns and audit Python
+  # dependencies. Folded in from the retired supply-chain-audit.yml.
+  supply-chain:
+    name: supply chain audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check for .pth files in dependencies
+        run: |
+          if find . -name "*.pth" -not -path "./.git/*" | grep -q .; then
+            echo "::error::Found .pth file in dependencies"
+            exit 1
+          fi
+          echo "No .pth files found"
+      - name: Check for base64+exec patterns in Python deps
+        run: |
+          if grep -r -l "base64" bridge/ --include="*.py" 2>/dev/null | xargs -r grep -l "exec\|eval" 2>/dev/null; then
+            echo "::error::Found base64+exec patterns"
+            exit 1
+          fi
+          echo "No suspicious base64+exec patterns found"
+      - name: Check for suspicious install hooks
+        run: |
+          if find . -name "package.json" -not -path "./.git/*" -exec grep -l "preinstall\|postinstall" {} \; | grep -q .; then
+            echo "::error::Found suspicious install hooks"
+            exit 1
+          fi
+          echo "No suspicious install hooks found"
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: Run pip-audit
+        working-directory: bridge
+        run: pip-audit -r requirements.txt

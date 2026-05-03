@@ -39,8 +39,13 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./...
-      - name: Test (race)
-        run: go test -race -count=1 -timeout=5m ./...
+      - name: Test (race + coverage)
+        run: go test -race -count=1 -timeout=5m -coverprofile=coverage.out ./...
+      - name: Upload Go coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: coverage.out
 
   # Cross-compile sanity check on the other supported targets.
   cross-build:
@@ -71,3 +76,24 @@ jobs:
         run: |
           go build -trimpath -ldflags="-s -w -X main.Version=ci-${{ github.sha }}" \
             -o /tmp/ethos-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/ethos
+
+  # Python bridge tests + coverage.
+  python-tests:
+    name: Python tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r bridge/requirements.txt
+      - name: Run Python tests
+        working-directory: bridge
+        run: pytest --cov=. --cov-report=xml -q
+      - name: Upload Python coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage
+          path: bridge/coverage.xml

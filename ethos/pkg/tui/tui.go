@@ -1668,6 +1668,7 @@ func (m *appModel) refreshBackendIndicators() {
 	if m.app.LSP != nil {
 		m.statusBar.SetLSPCount(m.app.LSP.ConnectedCount())
 	}
+	m.statusBar.SetBrowserActive(m.app.Browser != nil && m.app.Browser.IsActive())
 }
 
 // worktreeList delegates to internal/worktree.List, kept as a wrapper so

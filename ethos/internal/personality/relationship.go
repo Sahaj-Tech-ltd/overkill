@@ -39,6 +39,7 @@ type RelationshipState struct {
 type RelationshipTracker struct {
 	mu    sync.RWMutex
 	state RelationshipState
+	now   func() time.Time
 }
 
 func NewRelationshipTracker() *RelationshipTracker {
@@ -48,7 +49,18 @@ func NewRelationshipTracker() *RelationshipTracker {
 			Milestones: make(map[BeatType]bool),
 			Notes:      []string{},
 		},
+		now: time.Now,
 	}
+}
+
+// SetClock overrides the clock used by the tracker. Intended for tests.
+func (r *RelationshipTracker) SetClock(now func() time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if now == nil {
+		now = time.Now
+	}
+	r.now = now
 }
 
 func (r *RelationshipTracker) RecordBeat(beatType BeatType, context string, sessionID string) {
@@ -144,7 +156,11 @@ func (r *RelationshipTracker) Opener(agentName string, userName string, currentC
 		}
 	}
 
-	now := time.Now()
+	nowFn := r.now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	now := nowFn()
 	if now.Hour() >= 0 && now.Hour() < 5 {
 		return "Still up? Respect the grind."
 	}

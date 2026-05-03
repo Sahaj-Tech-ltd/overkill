@@ -189,6 +189,8 @@ func TestRelationshipTracker_Opener_Returning(t *testing.T) {
 	rt := NewRelationshipTracker()
 	rt.IncrementSession()
 	rt.RecordBeat(BeatFirstSuccess, "deployed", "s1")
+	// Pin clock to mid-day so the late-night opener doesn't fire.
+	rt.SetClock(func() time.Time { return time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC) })
 
 	got := rt.Opener("Butter", "Alice", "auth module")
 	assert.Contains(t, got, "auth module")
@@ -215,6 +217,10 @@ func TestRelationshipTracker_Opener_AfterMilestone(t *testing.T) {
 	rt := NewRelationshipTracker()
 	rt.IncrementSession()
 	rt.RecordBeat(BeatFirstPR, "merged PR #1", "s1")
+	// Pin clock to mid-day so the late-night opener doesn't fire, and pass an
+	// empty currentContext so we skip the "back at X" branch and reach the
+	// milestone branch.
+	rt.SetClock(func() time.Time { return time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC) })
 
 	got := rt.Opener("Butter", "Alice", "")
 	assert.Contains(t, got, "shipped a PR")

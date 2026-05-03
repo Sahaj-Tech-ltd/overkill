@@ -53,6 +53,14 @@ func (m *Manager) Get(ctx context.Context) (*Browser, error) {
 	return b, nil
 }
 
+// IsActive reports whether the manager has a live, open browser. Cheap and
+// safe to poll from the TUI.
+func (m *Manager) IsActive() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.browser != nil && m.browser.IsOpen()
+}
+
 // Close tears down the browser if it is open.
 func (m *Manager) Close() {
 	m.mu.Lock()

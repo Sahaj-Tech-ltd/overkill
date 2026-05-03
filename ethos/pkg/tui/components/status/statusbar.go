@@ -41,6 +41,12 @@ type StatusBarModel struct {
 	mcpOK        int
 	mcpFailed    int
 	lspCount     int
+	browserOn    bool
+}
+
+// SetBrowserActive toggles the [browser] indicator in the footer.
+func (m *StatusBarModel) SetBrowserActive(on bool) {
+	m.browserOn = on
 }
 
 // SetMCPCount updates the footer MCP indicator. Connected = green ⊙;
@@ -203,6 +209,10 @@ func (m StatusBarModel) renderRight(t theme.Theme) string {
 	if m.lspCount > 0 {
 		dot := lipgloss.NewStyle().Foreground(t.Success()).Render("•")
 		parts = append(parts, fmt.Sprintf("%s %s", dot, lipgloss.NewStyle().Foreground(t.Text()).Render(fmt.Sprintf("%d LSP", m.lspCount))))
+	}
+
+	if m.browserOn {
+		parts = append(parts, lipgloss.NewStyle().Foreground(t.Accent()).Render("[browser]"))
 	}
 
 	if m.inputTokens+m.outputTokens > 0 {
