@@ -12,8 +12,8 @@ var sessionCmd = &cobra.Command{
 }
 
 var sessionListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List sessions",
+	Use:     "list",
+	Short:   "List sessions",
 	Aliases: []string{"ls"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%sSession listing not yet implemented%s\n", colorYellow, colorReset)
@@ -32,10 +32,10 @@ var sessionShowCmd = &cobra.Command{
 }
 
 var sessionDeleteCmd = &cobra.Command{
-	Use:   "delete <id>",
-	Short: "Delete a session",
+	Use:     "delete <id>",
+	Short:   "Delete a session",
 	Aliases: []string{"rm"},
-	Args:  cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%sSession deletion not yet implemented (id: %s)%s\n", colorYellow, args[0], colorReset)
 		return nil

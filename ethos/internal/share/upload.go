@@ -103,7 +103,7 @@ func (g *gistUploader) Upload(ctx context.Context, htmlContent string) (string, 
 		return "", fmt.Errorf("share/gist: status %d: %s", resp.StatusCode, string(b))
 	}
 	var out struct {
-		HTMLURL string                 `json:"html_url"`
+		HTMLURL string `json:"html_url"`
 		Files   map[string]struct {
 			RawURL string `json:"raw_url"`
 		} `json:"files"`

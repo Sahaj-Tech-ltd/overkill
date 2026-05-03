@@ -113,8 +113,8 @@ func TestOpenAI_Complete_WithTools(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":     "chatcmpl-tools123",
-			"model":  "gpt-4o",
+			"id":    "chatcmpl-tools123",
+			"model": "gpt-4o",
 			"choices": []map[string]any{{
 				"index": 0,
 				"message": map[string]any{
@@ -170,8 +170,8 @@ func TestOpenAI_Complete_WithSystemPrompt(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&receivedBody)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":     "chatcmpl-sys",
-			"model":  "gpt-4o",
+			"id":    "chatcmpl-sys",
+			"model": "gpt-4o",
 			"choices": []map[string]any{{
 				"index": 0,
 				"message": map[string]any{
@@ -208,8 +208,8 @@ func TestOpenAI_Complete_NoToolsOmitted(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&receivedBody)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":     "chatcmpl-notools",
-			"model":  "gpt-4o",
+			"id":    "chatcmpl-notools",
+			"model": "gpt-4o",
 			"choices": []map[string]any{{
 				"index": 0,
 				"message": map[string]any{
@@ -358,13 +358,13 @@ func TestAnthropic_Complete(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":      "msg_test123",
-			"type":    "message",
-			"role":    "assistant",
-			"content": []map[string]any{{"type": "text", "text": "Hello! How can I help?"}},
-			"model":   "claude-sonnet-4-20250514",
+			"id":          "msg_test123",
+			"type":        "message",
+			"role":        "assistant",
+			"content":     []map[string]any{{"type": "text", "text": "Hello! How can I help?"}},
+			"model":       "claude-sonnet-4-20250514",
 			"stop_reason": "end_turn",
-			"usage":   map[string]any{"input_tokens": 20, "output_tokens": 8},
+			"usage":       map[string]any{"input_tokens": 20, "output_tokens": 8},
 		})
 	}))
 	defer server.Close()
@@ -579,8 +579,8 @@ func TestOllama_Complete(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":     "ollama-resp-1",
-			"model":  "llama3.1:8b",
+			"id":    "ollama-resp-1",
+			"model": "llama3.1:8b",
 			"choices": []map[string]any{{
 				"index": 0,
 				"message": map[string]any{
@@ -642,8 +642,8 @@ func TestOpenAICompat_CustomEndpoint(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":     "custom-resp",
-			"model":  "deepseek-chat",
+			"id":    "custom-resp",
+			"model": "deepseek-chat",
 			"choices": []map[string]any{{
 				"index": 0,
 				"message": map[string]any{
@@ -869,7 +869,7 @@ func TestMessageConversion_Gemini(t *testing.T) {
 		{Role: "user", Content: "How are you?"},
 	}
 
-	converted := 	geminiMessages(msgs)
+	converted := geminiMessages(msgs)
 	assert.Len(t, converted, 3)
 
 	assert.Equal(t, "user", converted[0].Role)
@@ -993,11 +993,11 @@ func TestOpenAI_Complete_SendsTemperature(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&receivedBody)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":     "chatcmpl-temp",
-			"model":  "gpt-4o",
+			"id":    "chatcmpl-temp",
+			"model": "gpt-4o",
 			"choices": []map[string]any{{
-				"index":   0,
-				"message": map[string]any{"role": "assistant", "content": "ok"},
+				"index":         0,
+				"message":       map[string]any{"role": "assistant", "content": "ok"},
 				"finish_reason": "stop",
 			}},
 			"usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 2},

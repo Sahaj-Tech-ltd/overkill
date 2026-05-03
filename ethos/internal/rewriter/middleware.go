@@ -8,12 +8,12 @@ import (
 
 type AnalysisResult struct {
 	Complexity     Complexity `json:"complexity"`
-	HasFiller      bool      `json:"has_filler"`
-	HasVagueness   bool      `json:"has_vagueness"`
-	HasSpecificity bool      `json:"has_specificity"`
-	WordCount      int       `json:"word_count"`
-	Confidence     float64   `json:"confidence"`
-	Issues         []string  `json:"issues"`
+	HasFiller      bool       `json:"has_filler"`
+	HasVagueness   bool       `json:"has_vagueness"`
+	HasSpecificity bool       `json:"has_specificity"`
+	WordCount      int        `json:"word_count"`
+	Confidence     float64    `json:"confidence"`
+	Issues         []string   `json:"issues"`
 }
 
 type Middleware struct {
@@ -60,9 +60,9 @@ func NewMiddleware() *Middleware {
 			regexp.MustCompile(`(?i)\bthe problem\b`),
 			regexp.MustCompile(`(?i)\bthat error\b`),
 		},
-		pathPattern: regexp.MustCompile(`[\w./\-]+\.\w+`),
-		lineRefPattern: regexp.MustCompile(`(?i)\bline\s*\d+`),
-		simpleVerbPattern: regexp.MustCompile(`(?i)^(fix|add|remove|update|delete|rename|move|change)\b`),
+		pathPattern:        regexp.MustCompile(`[\w./\-]+\.\w+`),
+		lineRefPattern:     regexp.MustCompile(`(?i)\bline\s*\d+`),
+		simpleVerbPattern:  regexp.MustCompile(`(?i)^(fix|add|remove|update|delete|rename|move|change)\b`),
 		complexVerbPattern: regexp.MustCompile(`(?i)\b(build|implement|design|architect|create|develop|construct|engineer)\b`),
 	}
 	return m

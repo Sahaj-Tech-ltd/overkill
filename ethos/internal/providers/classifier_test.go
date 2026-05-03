@@ -11,9 +11,9 @@ func TestClassifier_AuthErrors(t *testing.T) {
 	c := NewErrorClassifier()
 
 	cases := []struct {
-		errMsg     string
-		retryable  bool
-		cooldown   time.Duration
+		errMsg    string
+		retryable bool
+		cooldown  time.Duration
 	}{
 		{"HTTP 401: unauthorized access", false, 0},
 		{"HTTP 403: forbidden", false, 0},

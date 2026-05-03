@@ -30,15 +30,15 @@ type Client struct {
 
 	bridge HostBridge
 
-	mu               sync.RWMutex
-	connected        bool
-	manifest         Manifest
-	tools            map[string]ToolDecl
-	commands         map[string]CommandDecl
-	events           map[string]struct{}
-	hasContext       bool
-	lastErr          error
-	disabled         bool
+	mu         sync.RWMutex
+	connected  bool
+	manifest   Manifest
+	tools      map[string]ToolDecl
+	commands   map[string]CommandDecl
+	events     map[string]struct{}
+	hasContext bool
+	lastErr    error
+	disabled   bool
 
 	// staticManifest, when set (from plugin.toml), is compared against the
 	// manifest the plugin returns from initialize; mismatches mark the
@@ -128,10 +128,10 @@ func (c *Client) Start(ctx context.Context) error {
 	initParams := map[string]any{
 		"host_version": HostVersion,
 		"capabilities": map[string]any{
-			"tools":             true,
-			"commands":          true,
-			"events":            true,
-			"context_provider":  true,
+			"tools":            true,
+			"commands":         true,
+			"events":           true,
+			"context_provider": true,
 		},
 	}
 	initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

@@ -13,9 +13,9 @@ import (
 )
 
 type snapshotData struct {
-	Version int                        `json:"version"`
-	Created time.Time                  `json:"created"`
-	Entries []snapshotEntry            `json:"entries"`
+	Version int             `json:"version"`
+	Created time.Time       `json:"created"`
+	Entries []snapshotEntry `json:"entries"`
 }
 
 type snapshotEntry struct {

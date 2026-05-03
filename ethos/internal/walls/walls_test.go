@@ -184,8 +184,8 @@ func TestArchitecture_LoadRules(t *testing.T) {
 func TestArchitecture_DBAccessInRepoFile(t *testing.T) {
 	w := NewArchitectureWall(ArchitectureConfig{Enabled: true})
 	res, err := w.Check(context.Background(), map[string]string{
-		"store.go":    "badger.Open(\"/tmp/db\")",
-		"handler.go":  "badger.Open(\"/tmp/db2\")",
+		"store.go":   "badger.Open(\"/tmp/db\")",
+		"handler.go": "badger.Open(\"/tmp/db2\")",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

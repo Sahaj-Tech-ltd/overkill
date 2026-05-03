@@ -15,9 +15,9 @@ type ArchitectureConfig struct {
 }
 
 type ArchRule struct {
-	ID          string `json:"id"`
-	Description string `json:"description"`
-	Pattern     string `json:"pattern"`
+	ID          string   `json:"id"`
+	Description string   `json:"description"`
+	Pattern     string   `json:"pattern"`
 	Severity    Severity `json:"severity"`
 }
 
@@ -28,7 +28,7 @@ type ArchitectureWall struct {
 
 func NewArchitectureWall(cfg ArchitectureConfig) *ArchitectureWall {
 	w := &ArchitectureWall{
-		config: cfg,
+		config:    cfg,
 		archRules: builtinArchRules(),
 	}
 	return w

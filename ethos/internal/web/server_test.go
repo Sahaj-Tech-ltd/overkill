@@ -35,8 +35,8 @@ func (f *fakeAgent) Stream(ctx context.Context, in string) (<-chan agent.StreamE
 	}()
 	return out, nil
 }
-func (f *fakeAgent) Model() string         { return f.model }
-func (f *fakeAgent) SessionID() string     { return f.sessionID }
+func (f *fakeAgent) Model() string          { return f.model }
+func (f *fakeAgent) SessionID() string      { return f.sessionID }
 func (f *fakeAgent) SetSessionID(id string) { f.sessionID = id }
 
 func newTestServer(t *testing.T, token string) (*Server, *httptest.Server) {

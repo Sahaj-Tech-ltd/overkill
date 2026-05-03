@@ -20,20 +20,20 @@ const (
 )
 
 type Beat struct {
-	Type      BeatType `json:"type"`
+	Type      BeatType  `json:"type"`
 	Timestamp time.Time `json:"timestamp"`
-	Context   string   `json:"context"`
-	SessionID string   `json:"session_id"`
+	Context   string    `json:"context"`
+	SessionID string    `json:"session_id"`
 }
 
 type RelationshipState struct {
-	TotalSessions     int             `json:"total_sessions"`
-	TotalInteractions int             `json:"total_interactions"`
-	FirstSeen         time.Time       `json:"first_seen"`
-	LastSeen          time.Time       `json:"last_seen"`
-	Beats             []Beat          `json:"beats"`
+	TotalSessions     int               `json:"total_sessions"`
+	TotalInteractions int               `json:"total_interactions"`
+	FirstSeen         time.Time         `json:"first_seen"`
+	LastSeen          time.Time         `json:"last_seen"`
+	Beats             []Beat            `json:"beats"`
 	Milestones        map[BeatType]bool `json:"milestones"`
-	Notes             []string        `json:"notes"`
+	Notes             []string          `json:"notes"`
 }
 
 type RelationshipTracker struct {
@@ -149,7 +149,7 @@ func (r *RelationshipTracker) Opener(agentName string, userName string, currentC
 		return "Still up? Respect the grind."
 	}
 
-	if r.state.LastSeen.After(now.Add(-24 * time.Hour)) && currentContext != "" {
+	if r.state.LastSeen.After(now.Add(-24*time.Hour)) && currentContext != "" {
 		return fmt.Sprintf("Back at %s huh? Want me to actually plan this time?", currentContext)
 	}
 

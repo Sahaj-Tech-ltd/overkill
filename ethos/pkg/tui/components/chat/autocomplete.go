@@ -22,10 +22,10 @@ type AutocompleteEntry struct {
 
 // Autocomplete is the dropdown model.
 type Autocomplete struct {
-	entries  []AutocompleteEntry
-	all      []AutocompleteEntry
-	cursor   int
-	visible  bool
+	entries []AutocompleteEntry
+	all     []AutocompleteEntry
+	cursor  int
+	visible bool
 }
 
 // NewAutocomplete builds a fresh dropdown over the given command universe.

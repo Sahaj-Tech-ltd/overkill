@@ -13,7 +13,7 @@ import (
 type Role int
 
 const (
-	RoleWorker       Role = iota
+	RoleWorker Role = iota
 	RoleOrchestrator
 )
 
@@ -100,9 +100,9 @@ func (t *SessionNameTask) Goal() string {
 	return "Generate a concise session title (max 10 words) that captures the main topic of this conversation."
 }
 
-func (t *SessionNameTask) Context() string  { return t.FirstMessage }
-func (t *SessionNameTask) Toolset() []string { return nil }
-func (t *SessionNameTask) Model() string     { return "" }
+func (t *SessionNameTask) Context() string    { return t.FirstMessage }
+func (t *SessionNameTask) Toolset() []string  { return nil }
+func (t *SessionNameTask) Model() string      { return "" }
 func (t *SessionNameTask) MaxIterations() int { return 5 }
 
 func (t *SessionNameTask) Validate() error {
@@ -182,11 +182,11 @@ type GenericTask struct {
 	MaxStepsVal int
 }
 
-func (t GenericTask) Goal() string        { return t.GoalStr }
-func (t GenericTask) Context() string     { return t.ContextStr }
-func (t GenericTask) Toolset() []string   { return t.ToolsetVal }
-func (t GenericTask) Model() string       { return t.ModelVal }
-func (t GenericTask) MaxIterations() int  { return t.MaxStepsVal }
+func (t GenericTask) Goal() string       { return t.GoalStr }
+func (t GenericTask) Context() string    { return t.ContextStr }
+func (t GenericTask) Toolset() []string  { return t.ToolsetVal }
+func (t GenericTask) Model() string      { return t.ModelVal }
+func (t GenericTask) MaxIterations() int { return t.MaxStepsVal }
 func (t GenericTask) Validate() error {
 	if t.GoalStr == "" {
 		return fmt.Errorf("goal is required")

@@ -13,12 +13,12 @@ import (
 )
 
 type anthropicContentBlock struct {
-	Type  string `json:"type"`
-	Text  string `json:"text,omitempty"`
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
 
-	ID       string `json:"id,omitempty"`
-	Name     string `json:"name,omitempty"`
-	Input    any    `json:"input,omitempty"`
+	ID    string `json:"id,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Input any    `json:"input,omitempty"`
 
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   any    `json:"content,omitempty"`
@@ -30,12 +30,12 @@ type anthropicMessage struct {
 }
 
 type anthropicRequest struct {
-	Model     string          `json:"model"`
+	Model     string             `json:"model"`
 	Messages  []anthropicMessage `json:"messages"`
-	System    string          `json:"system,omitempty"`
-	MaxTokens int             `json:"max_tokens"`
-	Tools     []anthropicTool `json:"tools,omitempty"`
-	Stream    bool            `json:"stream,omitempty"`
+	System    string             `json:"system,omitempty"`
+	MaxTokens int                `json:"max_tokens"`
+	Tools     []anthropicTool    `json:"tools,omitempty"`
+	Stream    bool               `json:"stream,omitempty"`
 }
 
 type anthropicTool struct {
@@ -45,13 +45,13 @@ type anthropicTool struct {
 }
 
 type anthropicResponse struct {
-	ID         string                   `json:"id"`
-	Type       string                   `json:"type"`
-	Role       string                   `json:"role"`
-	Content    []anthropicContentBlock  `json:"content"`
-	Model      string                   `json:"model"`
-	StopReason string                   `json:"stop_reason"`
-	Usage      anthropicUsageResp       `json:"usage"`
+	ID         string                  `json:"id"`
+	Type       string                  `json:"type"`
+	Role       string                  `json:"role"`
+	Content    []anthropicContentBlock `json:"content"`
+	Model      string                  `json:"model"`
+	StopReason string                  `json:"stop_reason"`
+	Usage      anthropicUsageResp      `json:"usage"`
 }
 
 type anthropicUsageResp struct {
@@ -60,23 +60,23 @@ type anthropicUsageResp struct {
 }
 
 type anthropicStreamMessage struct {
-	Type    string                   `json:"type"`
-	Index   int                      `json:"index,omitempty"`
-	Message *anthropicStreamMsgWrap  `json:"message,omitempty"`
-	Delta   *anthropicStreamDelta    `json:"delta,omitempty"`
-	Usage   *anthropicUsageResp      `json:"usage,omitempty"`
-	ContentBlock *anthropicContentBlock `json:"content_block,omitempty"`
+	Type         string                  `json:"type"`
+	Index        int                     `json:"index,omitempty"`
+	Message      *anthropicStreamMsgWrap `json:"message,omitempty"`
+	Delta        *anthropicStreamDelta   `json:"delta,omitempty"`
+	Usage        *anthropicUsageResp     `json:"usage,omitempty"`
+	ContentBlock *anthropicContentBlock  `json:"content_block,omitempty"`
 }
 
 type anthropicStreamMsgWrap struct {
-	ID      string              `json:"id"`
-	Model   string              `json:"model"`
-	Usage   anthropicUsageResp  `json:"usage"`
+	ID    string             `json:"id"`
+	Model string             `json:"model"`
+	Usage anthropicUsageResp `json:"usage"`
 }
 
 type anthropicStreamDelta struct {
-	Type  string `json:"type"`
-	Text  string `json:"text,omitempty"`
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
 	StopReason string `json:"stop_reason,omitempty"`
 }
 

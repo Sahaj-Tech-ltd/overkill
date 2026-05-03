@@ -59,7 +59,7 @@ var (
 )
 
 const (
-	maxCacheEntries = 100
+	maxCacheEntries  = 100
 	toolPreviewLines = 3
 )
 

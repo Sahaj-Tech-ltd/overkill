@@ -93,9 +93,9 @@ func TestFormatConfidence_Unknown(t *testing.T) {
 
 func TestConfidenceLevel_String(t *testing.T) {
 	cases := map[ConfidenceLevel]string{
-		ConfidenceHigh:   "high",
-		ConfidenceMedium: "medium",
-		ConfidenceLow:    "low",
+		ConfidenceHigh:    "high",
+		ConfidenceMedium:  "medium",
+		ConfidenceLow:     "low",
 		ConfidenceUnknown: "unknown",
 	}
 	for level, want := range cases {

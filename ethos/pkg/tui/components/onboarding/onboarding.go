@@ -45,8 +45,8 @@ type Model struct {
 	Width  int
 	Height int
 
-	step  Step
-	cfg   *config.Config
+	step    Step
+	cfg     *config.Config
 	homeDir string
 
 	// Step 2 — Pick a model.
@@ -54,14 +54,14 @@ type Model struct {
 	providers      []providerOption
 
 	// Step 3 — API key.
-	apiKey  string
+	apiKey    string
 	apiCursor int // 0 = key field, 1 = back, 2 = next
 
 	// Step 4 — Optional features (3 checkboxes).
-	optCursor int
-	enableSync     bool
-	enableACP      bool
-	enablePlugins  bool
+	optCursor     int
+	enableSync    bool
+	enableACP     bool
+	enablePlugins bool
 }
 
 type providerOption struct {
@@ -318,8 +318,8 @@ func HasOnboarded(homeDir string) bool {
 // markerPayload is the JSON written into the marker file. Lets future versions
 // distinguish a clean completion from a skip and ratchet on schema bumps.
 type markerPayload struct {
-	Version   int       `json:"version"`
-	Skipped   bool      `json:"skipped"`
+	Version     int       `json:"version"`
+	Skipped     bool      `json:"skipped"`
 	CompletedAt time.Time `json:"completed_at"`
 }
 

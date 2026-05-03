@@ -4,14 +4,14 @@ package diagnostic
 import "time"
 
 type DiagnosticReport struct {
-	Error          string     `json:"error"`
-	ErrorType      string     `json:"error_type"`
-	AffectedFiles  []FileInfo `json:"affected_files"`
+	Error          string      `json:"error"`
+	ErrorType      string      `json:"error_type"`
+	AffectedFiles  []FileInfo  `json:"affected_files"`
 	RootCauses     []RootCause `json:"root_causes"`
-	Approaches     []Approach `json:"approaches"`
-	Confidence     float64    `json:"confidence"`
-	Recommendation string     `json:"recommendation"`
-	Timestamp      time.Time  `json:"timestamp"`
+	Approaches     []Approach  `json:"approaches"`
+	Confidence     float64     `json:"confidence"`
+	Recommendation string      `json:"recommendation"`
+	Timestamp      time.Time   `json:"timestamp"`
 }
 
 type FileInfo struct {

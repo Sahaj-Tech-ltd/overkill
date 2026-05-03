@@ -28,9 +28,9 @@ type MetricsHook struct {
 func NewMetricsHook() *MetricsHook {
 	m := &MetricsHook{}
 	m.Hook = Hook{
-		Name:  "builtin.metrics",
-		Point: BeforeToolCall,
-		Fn:    m.record,
+		Name:     "builtin.metrics",
+		Point:    BeforeToolCall,
+		Fn:       m.record,
 		Priority: 999,
 	}
 	return m

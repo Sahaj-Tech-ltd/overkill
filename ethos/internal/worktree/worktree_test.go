@@ -10,7 +10,7 @@ func TestParsePorcelain(t *testing.T) {
 	}{
 		{
 			name: "single main worktree",
-			in: "worktree /home/u/repo\nHEAD abcdef\nbranch refs/heads/main\n\n",
+			in:   "worktree /home/u/repo\nHEAD abcdef\nbranch refs/heads/main\n\n",
 			want: []Worktree{{Path: "/home/u/repo", HEAD: "abcdef", Branch: "refs/heads/main"}},
 		},
 		{
@@ -26,7 +26,7 @@ func TestParsePorcelain(t *testing.T) {
 		},
 		{
 			name: "bare repository",
-			in: "worktree /home/u/bare.git\nbare\n\n",
+			in:   "worktree /home/u/bare.git\nbare\n\n",
 			want: []Worktree{{Path: "/home/u/bare.git", Bare: true}},
 		},
 		{
@@ -36,7 +36,7 @@ func TestParsePorcelain(t *testing.T) {
 		},
 		{
 			name: "trailing without blank line",
-			in: "worktree /tmp/x\nHEAD aaa\nbranch refs/heads/x\n",
+			in:   "worktree /tmp/x\nHEAD aaa\nbranch refs/heads/x\n",
 			want: []Worktree{{Path: "/tmp/x", HEAD: "aaa", Branch: "refs/heads/x"}},
 		},
 	}

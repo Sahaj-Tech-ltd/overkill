@@ -15,14 +15,14 @@ type FSTool struct {
 }
 
 type FSInput struct {
-	Action   string `json:"action"`
-	Path     string `json:"path"`
-	Content  string `json:"content"`
-	Old      string `json:"old"`
-	New      string `json:"new"`
-	Pattern  string `json:"pattern"`
-	Offset   int    `json:"offset"`
-	Limit    int    `json:"limit"`
+	Action  string `json:"action"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Old     string `json:"old"`
+	New     string `json:"new"`
+	Pattern string `json:"pattern"`
+	Offset  int    `json:"offset"`
+	Limit   int    `json:"limit"`
 }
 
 func NewFSTool(rootDir string) *FSTool {

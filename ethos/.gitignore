@@ -5,6 +5,13 @@ bin/
 *.dll
 *.so
 *.dylib
+# Top-level dev build artifact
+/ethos
+# Built example plugin binaries (live alongside their sources)
+/examples/plugins/notes/notes
+/examples/plugins/git-stats/git-stats
+# Release artifacts
+dist/
 
 # Go
 go.work

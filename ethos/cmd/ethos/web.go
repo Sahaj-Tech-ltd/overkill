@@ -160,8 +160,8 @@ type webAgentAdapter struct{ a *agent.Agent }
 func (x *webAgentAdapter) Stream(ctx context.Context, in string) (<-chan agent.StreamEvent, error) {
 	return x.a.Stream(ctx, in)
 }
-func (x *webAgentAdapter) Model() string         { return x.a.Model() }
-func (x *webAgentAdapter) SessionID() string     { return x.a.SessionID() }
+func (x *webAgentAdapter) Model() string          { return x.a.Model() }
+func (x *webAgentAdapter) SessionID() string      { return x.a.SessionID() }
 func (x *webAgentAdapter) SetSessionID(id string) { x.a.SetSessionID(id) }
 
 func init() {

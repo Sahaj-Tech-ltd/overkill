@@ -24,7 +24,7 @@ type rwCloser struct {
 
 func (c *rwCloser) Read(p []byte) (int, error)  { return c.r.Read(p) }
 func (c *rwCloser) Write(p []byte) (int, error) { return c.w.Write(p) }
-func (c *rwCloser) Close() error                 { c.r.Close(); return c.w.Close() }
+func (c *rwCloser) Close() error                { c.r.Close(); return c.w.Close() }
 
 // fakePlugin runs a minimal in-process plugin against the host conn. It
 // auto-registers any tools/commands/events provided and answers tool.call

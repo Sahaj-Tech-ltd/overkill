@@ -79,7 +79,7 @@ func (p CostPanel) View(width, height int) string {
 
 	bar := formatBudgetBar(p.budget.DailyPercent, barWidth)
 	pctStr := fmt.Sprintf("%.0f%%", p.budget.DailyPercent*100)
-	barLine := labelStyle.Render("Daily ")+lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render("["+bar+"] ")+valueStyle.Render(pctStr)
+	barLine := labelStyle.Render("Daily ") + lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render("["+bar+"] ") + valueStyle.Render(pctStr)
 	lines = append(lines, barLine)
 
 	if p.budget.TaskLimit > 0 {

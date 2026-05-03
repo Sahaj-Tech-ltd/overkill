@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	dataPrefix      = "memory:"
+	dataPrefix       = "memory:"
 	sessionIdxPrefix = "memory_idx:session:"
 	typeIdxPrefix    = "memory_idx:type:"
 	tagIdxPrefix     = "memory_idx:tag:"

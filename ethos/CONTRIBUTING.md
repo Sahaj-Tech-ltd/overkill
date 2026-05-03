@@ -2,11 +2,28 @@
 
 Thanks for your interest in Ethos! This guide covers everything you need to contribute effectively.
 
+## Dev Setup
+
+```bash
+git clone https://github.com/Sahaj-Tech-ltd/ethos.git
+cd ethos
+make build      # → bin/ethos with version embedded via -ldflags
+make test       # → go test ./...
+make lint       # → golangci-lint + ruff
+make install-all  # → installs to $HOME/go/bin/ethos
+```
+
+The `Version` constant in `cmd/ethos/root.go` is overridden at link time
+via `-ldflags="-X main.Version=$(VERSION)"`. The `Makefile` pulls
+`VERSION` from `git describe` by default; release builds inject the tag
+name. See [docs/RELEASING.md](docs/RELEASING.md) for the full release
+runbook.
+
 ## Quick Start
 
 ```bash
 go build ./...
-go test ./...
+go test -race ./...
 golangci-lint run
 ruff check bridge/
 ```
@@ -48,11 +65,21 @@ security(tools): add path traversal blocking
 
 ## Pull Request Process
 
-1. **One concern per PR** — mixing refactors with features makes review harder
-2. **Max 5 open PRs per author** — helps us review faster
-3. **Fill out the PR template** — especially validation evidence and security impact
-4. **No refactor-only PRs** unless explicitly requested by maintainers
-5. **AI-assisted PRs must disclose** and include `Co-Authored-By` trailer
+1. **Open as draft first**, mark *Ready for review* once CI is green.
+2. **One concern per PR** — mixing refactors with features makes review harder.
+3. **Max 5 open PRs per author** — helps us review faster.
+4. **Fill out the PR template** — especially validation evidence and security impact.
+5. **No refactor-only PRs** unless explicitly requested by maintainers.
+6. **AI-assisted PRs must disclose** and include a `Co-Authored-By` trailer.
+7. **Security-sensitive paths** (`internal/security/`, `internal/auth/`,
+   `.github/workflows/**`, `SECURITY.md`) require approval from a
+   `CODEOWNERS` reviewer for the relevant team. See
+   [.github/CODEOWNERS](.github/CODEOWNERS).
+
+## Reporting Security Issues
+
+Please **do not** open a public issue for security vulnerabilities.
+Follow the disclosure process in [SECURITY.md](SECURITY.md).
 
 ### Pre-PR Checklist
 

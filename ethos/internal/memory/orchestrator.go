@@ -87,7 +87,7 @@ func (o *Orchestrator) Summarize(ctx context.Context, memories []Memory) (string
 
 func (o *Orchestrator) ExtractMemories(ctx context.Context, content string, sessionID string) ([]Memory, error) {
 	resp, err := o.provider.Complete(ctx, providers.Request{
-		Model: o.model,
+		Model:        o.model,
 		SystemPrompt: `Extract notable memories from this conversation. For each memory provide: type (episodic, semantic, or procedural), content (concise description), and tags (relevant labels). Output a JSON array of objects with "type", "content", and "tags" fields. If nothing notable, return an empty array.`,
 		Messages: []providers.Message{
 			{Role: "user", Content: content},

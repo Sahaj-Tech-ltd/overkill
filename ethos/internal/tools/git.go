@@ -18,14 +18,14 @@ type GitTool struct {
 }
 
 type GitInput struct {
-	Action   string `json:"action"`
-	Staged   bool   `json:"staged"`
-	Stat     bool   `json:"stat"`
-	Count    int    `json:"count"`
-	Paths    []string `json:"paths"`
-	Message  string `json:"message"`
-	Ref      string `json:"ref"`
-	StashAction string `json:"stash_action"`
+	Action      string   `json:"action"`
+	Staged      bool     `json:"staged"`
+	Stat        bool     `json:"stat"`
+	Count       int      `json:"count"`
+	Paths       []string `json:"paths"`
+	Message     string   `json:"message"`
+	Ref         string   `json:"ref"`
+	StashAction string   `json:"stash_action"`
 }
 
 func NewGitTool(workingDir string) *GitTool {

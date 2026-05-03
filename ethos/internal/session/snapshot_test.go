@@ -14,11 +14,11 @@ import (
 
 type SnapshotSuite struct {
 	suite.Suite
-	store *BadgerStore
-	dir   string
+	store   *BadgerStore
+	dir     string
 	snapDir string
-	ctx   context.Context
-	sm    *SnapshotManager
+	ctx     context.Context
+	sm      *SnapshotManager
 }
 
 func (s *SnapshotSuite) SetupTest() {

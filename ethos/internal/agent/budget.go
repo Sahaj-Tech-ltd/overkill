@@ -8,15 +8,15 @@ import (
 )
 
 type BudgetReport struct {
-	SystemPromptTokens  int     `json:"system_prompt_tokens"`
-	HistoryTokens       int     `json:"history_tokens"`
-	ToolDefTokens       int     `json:"tool_def_tokens"`
-	EstimatedResponse   int     `json:"estimated_response_tokens"`
-	TotalEstimate       int     `json:"total_estimate"`
-	MaxTokens           int     `json:"max_tokens"`
-	Utilization         float64 `json:"utilization"`
-	ShouldCompact       bool    `json:"should_compact"`
-	ShouldWarn          bool    `json:"should_warn"`
+	SystemPromptTokens int     `json:"system_prompt_tokens"`
+	HistoryTokens      int     `json:"history_tokens"`
+	ToolDefTokens      int     `json:"tool_def_tokens"`
+	EstimatedResponse  int     `json:"estimated_response_tokens"`
+	TotalEstimate      int     `json:"total_estimate"`
+	MaxTokens          int     `json:"max_tokens"`
+	Utilization        float64 `json:"utilization"`
+	ShouldCompact      bool    `json:"should_compact"`
+	ShouldWarn         bool    `json:"should_warn"`
 }
 
 type BudgetEstimator struct {
@@ -59,15 +59,15 @@ func (be *BudgetEstimator) Estimate(history []providers.Message, systemPrompt st
 	}
 
 	return &BudgetReport{
-		SystemPromptTokens:  systemTokens,
-		HistoryTokens:       historyTokens,
-		ToolDefTokens:       toolTokens,
-		EstimatedResponse:   responseTokens,
-		TotalEstimate:       total,
-		MaxTokens:           be.maxTokens,
-		Utilization:         utilization,
-		ShouldCompact:       utilization >= be.softThreshold,
-		ShouldWarn:          utilization >= 0.8,
+		SystemPromptTokens: systemTokens,
+		HistoryTokens:      historyTokens,
+		ToolDefTokens:      toolTokens,
+		EstimatedResponse:  responseTokens,
+		TotalEstimate:      total,
+		MaxTokens:          be.maxTokens,
+		Utilization:        utilization,
+		ShouldCompact:      utilization >= be.softThreshold,
+		ShouldWarn:         utilization >= 0.8,
 	}
 }
 

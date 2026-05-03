@@ -8,12 +8,12 @@ import (
 
 // WorkerConfig holds the configuration for a single child task worker.
 type WorkerConfig struct {
-	Goal       string
-	Context    string
-	MaxSteps   int
-	Timeout    time.Duration
-	TaskIndex  int
-	NoAPICalls bool     // for 0-API-call diagnostic testing
+	Goal         string
+	Context      string
+	MaxSteps     int
+	Timeout      time.Duration
+	TaskIndex    int
+	NoAPICalls   bool     // for 0-API-call diagnostic testing
 	FilesRead    []string // pre-set file tracking
 	FilesWritten []string // pre-set file tracking
 }

@@ -22,10 +22,10 @@ type geminiContent struct {
 }
 
 type geminiRequest struct {
-	Contents         []geminiContent    `json:"contents"`
-	SystemInstruction *geminiContent    `json:"systemInstruction,omitempty"`
-	Tools            []geminiToolDecl   `json:"tools,omitempty"`
-	GenerationConfig *geminiGenConfig   `json:"generationConfig,omitempty"`
+	Contents          []geminiContent  `json:"contents"`
+	SystemInstruction *geminiContent   `json:"systemInstruction,omitempty"`
+	Tools             []geminiToolDecl `json:"tools,omitempty"`
+	GenerationConfig  *geminiGenConfig `json:"generationConfig,omitempty"`
 }
 
 type geminiToolDecl struct {

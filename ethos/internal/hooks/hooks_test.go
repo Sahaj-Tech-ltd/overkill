@@ -72,7 +72,7 @@ func TestRegistry_RegisterNilFn(t *testing.T) {
 	r := NewRegistry()
 
 	hook := Hook{
-		Name: "nil-fn",
+		Name:  "nil-fn",
 		Point: BeforeToolCall,
 	}
 
@@ -110,8 +110,8 @@ func TestRegistry_PriorityOrdering(t *testing.T) {
 	for _, prio := range []int{30, 10, 20} {
 		p := prio
 		require.NoError(t, r.Register(Hook{
-			Name:     fmt.Sprintf("hook-%d", p),
-			Point:    BeforeToolCall,
+			Name:  fmt.Sprintf("hook-%d", p),
+			Point: BeforeToolCall,
 			Fn: func(ctx context.Context, event Event) (context.Context, error) {
 				mu.Lock()
 				order = append(order, p)
@@ -278,12 +278,12 @@ func TestRegistry_List(t *testing.T) {
 
 	require.NoError(t, r.Register(Hook{
 		Name: "h1", Point: BeforeToolCall,
-		Fn: func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
+		Fn:       func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
 		Priority: 10,
 	}))
 	require.NoError(t, r.Register(Hook{
 		Name: "h2", Point: AfterToolCall,
-		Fn: func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
+		Fn:       func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
 		Priority: 10,
 	}))
 
@@ -301,12 +301,12 @@ func TestRegistry_ListAll(t *testing.T) {
 
 	require.NoError(t, r.Register(Hook{
 		Name: "h1", Point: BeforeToolCall,
-		Fn: func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
+		Fn:       func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
 		Priority: 10,
 	}))
 	require.NoError(t, r.Register(Hook{
 		Name: "h2", Point: AfterToolCall,
-		Fn: func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
+		Fn:       func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
 		Priority: 10,
 	}))
 
@@ -321,7 +321,7 @@ func TestRegistry_ListReturnsCopy(t *testing.T) {
 
 	require.NoError(t, r.Register(Hook{
 		Name: "h1", Point: BeforeToolCall,
-		Fn: func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
+		Fn:       func(ctx context.Context, event Event) (context.Context, error) { return ctx, nil },
 		Priority: 10,
 	}))
 
@@ -366,9 +366,9 @@ func TestNewMetricsHook_MultiplePoints(t *testing.T) {
 	require.NoError(t, r.Register(m.Hook))
 
 	require.NoError(t, r.Register(Hook{
-		Name:  "metrics-after",
-		Point: AfterToolCall,
-		Fn:    m.record,
+		Name:     "metrics-after",
+		Point:    AfterToolCall,
+		Fn:       m.record,
 		Priority: 999,
 	}))
 

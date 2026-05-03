@@ -163,9 +163,9 @@ func trimExt(s, ext string) string {
 // empty session info and rejects all config reads.
 type doctorBridge struct{}
 
-func (doctorBridge) SessionInfo() plugin.SessionInfo            { return plugin.SessionInfo{ID: "doctor"} }
-func (doctorBridge) ConfigValue(string) (any, bool)             { return nil, false }
-func (doctorBridge) Toast(kind, text string)                    { fmt.Printf("[toast %s] %s\n", kind, text) }
+func (doctorBridge) SessionInfo() plugin.SessionInfo { return plugin.SessionInfo{ID: "doctor"} }
+func (doctorBridge) ConfigValue(string) (any, bool)  { return nil, false }
+func (doctorBridge) Toast(kind, text string)         { fmt.Printf("[toast %s] %s\n", kind, text) }
 
 // Reference json.RawMessage so go imports it (used elsewhere in package).
 var _ = json.RawMessage(nil)

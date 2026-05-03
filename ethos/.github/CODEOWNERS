@@ -1,7 +1,14 @@
-* @xyzmr114
-/.github/CODEOWNERS @xyzmr114
-/SECURITY.md @xyzmr114
-/internal/security/ @xyzmr114
-/bridge/ @xyzmr114
-/.github/workflows/docker-publish.yml @xyzmr114
-/scripts/release* @xyzmr114
+# Code owners for ethos.
+# Each line maps a path glob to one or more owning teams or users.
+# Order matters — the *last* matching pattern wins.
+
+*                       @Sahaj-Tech-ltd/maintainers
+
+/internal/security/     @Sahaj-Tech-ltd/security
+/internal/auth/         @Sahaj-Tech-ltd/security
+/SECURITY.md            @Sahaj-Tech-ltd/security
+
+/.github/               @Sahaj-Tech-ltd/admins
+/scripts/release*       @Sahaj-Tech-ltd/admins
+
+/bridge/                @Sahaj-Tech-ltd/maintainers

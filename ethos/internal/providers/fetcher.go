@@ -348,19 +348,19 @@ func sanitizeModelFileName(id string) string {
 }
 
 type modelTOML struct {
-	Name             string            `toml:"name"`
-	Family           string            `toml:"family"`
-	ReleaseDate      string            `toml:"release_date,omitempty"`
-	LastUpdated      string            `toml:"last_updated,omitempty"`
-	Attachment       bool              `toml:"attachment"`
-	Reasoning        bool              `toml:"reasoning"`
-	Temperature      bool              `toml:"temperature"`
-	Knowledge        string            `toml:"knowledge,omitempty"`
-	ToolCall         bool              `toml:"tool_call"`
-	StructuredOutput bool              `toml:"structured_output"`
-	OpenWeights      bool              `toml:"open_weights"`
-	Cost             modelTOMLCost     `toml:"cost"`
-	Limit            modelTOMLLimit    `toml:"limit"`
+	Name             string              `toml:"name"`
+	Family           string              `toml:"family"`
+	ReleaseDate      string              `toml:"release_date,omitempty"`
+	LastUpdated      string              `toml:"last_updated,omitempty"`
+	Attachment       bool                `toml:"attachment"`
+	Reasoning        bool                `toml:"reasoning"`
+	Temperature      bool                `toml:"temperature"`
+	Knowledge        string              `toml:"knowledge,omitempty"`
+	ToolCall         bool                `toml:"tool_call"`
+	StructuredOutput bool                `toml:"structured_output"`
+	OpenWeights      bool                `toml:"open_weights"`
+	Cost             modelTOMLCost       `toml:"cost"`
+	Limit            modelTOMLLimit      `toml:"limit"`
 	Modalities       modelTOMLModalities `toml:"modalities"`
 }
 

@@ -152,8 +152,8 @@ func TestSycophancy_Detect(t *testing.T) {
 	s := NewSycophancyReducer()
 
 	tests := []struct {
-		name      string
-		input     string
+		name       string
+		input      string
 		wantDetect bool
 	}{
 		{"great idea however", "Great idea! However, there's a better approach.", true},
@@ -404,9 +404,9 @@ func TestMiddleware_SpecificityTriggers(t *testing.T) {
 	m := NewMiddleware()
 
 	tests := []struct {
-		name     string
-		input    string
-		wantInj  int
+		name    string
+		input   string
+		wantInj int
 	}{
 		{"fix without file", "fix the bug", 1},
 		{"test without file", "add a test for the function", 1},

@@ -100,7 +100,9 @@ func RegisterBridge(r *doctor.Runner, d Deps) {
 		ID:       "bridge.python",
 		Name:     "Python bridge",
 		Category: doctor.CatBackend,
-		Fn:       func(ctx context.Context) doctor.Result { return info("python bridge not configured (deferred per master plan)") },
+		Fn: func(ctx context.Context) doctor.Result {
+			return info("python bridge not configured (deferred per master plan)")
+		},
 	})
 }
 

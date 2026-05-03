@@ -290,8 +290,8 @@ func TestAnalyze_WithLLM(t *testing.T) {
 
 	analyzer := NewAnalyzer(mock, "test-model")
 	report, err := analyzer.Analyze(context.Background(), AnalyzeRequest{
-		Error:       "panic: nil pointer dereference",
-		ErrorOutput: "panic: nil pointer dereference\ngoroutine 1 [running]:\nmain.main()\n\thandler.go:42",
+		Error:         "panic: nil pointer dereference",
+		ErrorOutput:   "panic: nil pointer dereference\ngoroutine 1 [running]:\nmain.main()\n\thandler.go:42",
 		ModifiedFiles: []string{"handler.go"},
 		FileContents: map[string]string{
 			"handler.go": "package main\n\nfunc main() {\n\tvar h *Handler\n\th.Process()\n}\n",

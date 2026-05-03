@@ -2,7 +2,10 @@
 
 BINARY=bin/ethos
 GO=go
-GOFLAGS=-trimpath -ldflags="-s -w"
+# VERSION may be overridden: `make build VERSION=v1.2.3`. Defaults to git
+# describe so local builds carry a meaningful identifier.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GOFLAGS=-trimpath -ldflags="-s -w -X main.Version=$(VERSION)"
 
 build:
 	$(GO) build $(GOFLAGS) -o $(BINARY) ./cmd/ethos

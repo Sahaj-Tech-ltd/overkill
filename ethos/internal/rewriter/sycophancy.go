@@ -13,10 +13,10 @@ type SycophancyReport struct {
 }
 
 type SycophancyReducer struct {
-	patterns           []*regexp.Regexp
-	hedgingPattern     *regexp.Regexp
-	standalonePattern  *regexp.Regexp
-	enthusiasmPattern  *regexp.Regexp
+	patterns          []*regexp.Regexp
+	hedgingPattern    *regexp.Regexp
+	standalonePattern *regexp.Regexp
+	enthusiasmPattern *regexp.Regexp
 }
 
 func NewSycophancyReducer() *SycophancyReducer {
@@ -38,7 +38,7 @@ func NewSycophancyReducer() *SycophancyReducer {
 			regexp.MustCompile(`(?i)\bgreat question[!]?`),
 			regexp.MustCompile(`(?i)\bgood question[!]?`),
 		},
-		hedgingPattern: regexp.MustCompile(`(?i)(great idea|excellent choice|brilliant|fantastic|you're absolutely right|you are absolutely right|that's correct|that is correct|I completely agree|absolutely)[^.!?\n]*\b(however|but|actually)\b`),
+		hedgingPattern:    regexp.MustCompile(`(?i)(great idea|excellent choice|brilliant|fantastic|you're absolutely right|you are absolutely right|that's correct|that is correct|I completely agree|absolutely)[^.!?\n]*\b(however|but|actually)\b`),
 		standalonePattern: regexp.MustCompile(`(?i)^(absolutely|of course!|sure thing!|happy to help!|great question|good question)[\s.!?]*$`),
 		enthusiasmPattern: regexp.MustCompile(`(?i)^(of course!|sure thing!|happy to help!)\s*`),
 	}

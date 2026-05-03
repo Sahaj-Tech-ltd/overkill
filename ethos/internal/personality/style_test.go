@@ -116,8 +116,8 @@ func TestSetBaseline_IsolatesMutation(t *testing.T) {
 	terms := []string{"alpha", "beta"}
 
 	si.SetBaseline(&WorkingStyle{
-		Communication:  CommDirect,
-		DomainTerms:    terms,
+		Communication: CommDirect,
+		DomainTerms:   terms,
 	})
 
 	terms[0] = "modified"

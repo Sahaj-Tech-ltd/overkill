@@ -9,9 +9,9 @@ import (
 )
 
 type Registry struct {
-	mu     sync.RWMutex
-	hooks  map[HookPoint][]Hook
-	names  map[string]bool
+	mu    sync.RWMutex
+	hooks map[HookPoint][]Hook
+	names map[string]bool
 }
 
 func NewRegistry() *Registry {

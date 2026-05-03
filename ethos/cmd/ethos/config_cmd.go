@@ -19,8 +19,8 @@ var configCmd = &cobra.Command{
 }
 
 var configShowCmd = &cobra.Command{
-	Use:   "show",
-	Short: "Print current config with secrets masked",
+	Use:     "show",
+	Short:   "Print current config with secrets masked",
 	Aliases: []string{"cat"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		masked := cfg.MaskSecrets()

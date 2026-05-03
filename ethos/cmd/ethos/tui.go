@@ -15,7 +15,6 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/acp"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
-	syncpkg "github.com/Sahaj-Tech-ltd/ethos/internal/sync"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/journal"
@@ -26,6 +25,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
+	syncpkg "github.com/Sahaj-Tech-ltd/ethos/internal/sync"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/tags"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/tokenizer"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/tools"

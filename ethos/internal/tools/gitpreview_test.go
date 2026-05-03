@@ -223,7 +223,7 @@ func TestGitFormatPreview_NoSecrets(t *testing.T) {
 		Commits: []CommitInfo{
 			{Hash: "def5678901234", Message: "chore: cleanup", Author: "Test", Date: "2026-04-30"},
 		},
-		Files:    []FileDiff{},
+		Files:      []FileDiff{},
 		HasSecrets: false,
 		SecretHits: nil,
 	}

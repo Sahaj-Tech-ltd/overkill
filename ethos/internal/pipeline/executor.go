@@ -36,7 +36,7 @@ func (e *Executor) Run(ctx context.Context, request string) (*PipelineResult, er
 	start := time.Now()
 
 	stages := []struct {
-		stage Stage
+		stage  Stage
 		prompt string
 	}{
 		{StageSpec, specPrompt()},

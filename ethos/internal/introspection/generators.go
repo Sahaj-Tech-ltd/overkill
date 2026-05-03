@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	systemPromptCodebase = "Generate a codebase map for a Go project. List: directory structure, key packages, public interfaces, dependencies. Format as markdown with code blocks. Be comprehensive but concise."
-	systemPromptModelCard = "Generate a model card documenting current AI model capabilities, limitations, pricing, and context windows. Format as markdown table."
-	systemPromptKnownIssues = "Generate a known issues document. Common gotchas, workarounds, frequently encountered errors. Format as markdown checklist."
+	systemPromptCodebase     = "Generate a codebase map for a Go project. List: directory structure, key packages, public interfaces, dependencies. Format as markdown with code blocks. Be comprehensive but concise."
+	systemPromptModelCard    = "Generate a model card documenting current AI model capabilities, limitations, pricing, and context windows. Format as markdown table."
+	systemPromptKnownIssues  = "Generate a known issues document. Common gotchas, workarounds, frequently encountered errors. Format as markdown checklist."
 	systemPromptArchitecture = "Generate an architecture decision record. Document key architectural decisions, patterns used, trade-offs made. Format as markdown with ADR-style entries."
 )
 

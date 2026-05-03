@@ -186,7 +186,7 @@ func TestUpdate_StoresFingerprint(t *testing.T) {
 func TestContextWindow_KnownModels(t *testing.T) {
 	ft := NewFingerprintTracker()
 	cases := []struct {
-		modelID   string
+		modelID    string
 		wantWindow int
 	}{
 		{"claude-3-opus-20240229", 200000},

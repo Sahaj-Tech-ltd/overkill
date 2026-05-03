@@ -9,10 +9,10 @@ import (
 type SOPMode int
 
 const (
-	ModeAuto         SOPMode = iota
-	ModeSupervised   SOPMode = iota
-	ModeStepByStep   SOPMode = iota
-	ModePriority     SOPMode = iota
+	ModeAuto          SOPMode = iota
+	ModeSupervised    SOPMode = iota
+	ModeStepByStep    SOPMode = iota
+	ModePriority      SOPMode = iota
 	ModeDeterministic SOPMode = iota
 )
 

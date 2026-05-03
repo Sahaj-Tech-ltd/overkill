@@ -49,20 +49,20 @@ type CatalogProvider struct {
 
 // CatalogModel is one model entry under a provider.
 type CatalogModel struct {
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	Family      string             `json:"family,omitempty"`
-	Attachment  bool               `json:"attachment,omitempty"`
-	Reasoning   bool               `json:"reasoning,omitempty"`
-	ToolCall    bool               `json:"tool_call,omitempty"`
-	Temperature bool               `json:"temperature,omitempty"`
-	OpenWeights bool               `json:"open_weights,omitempty"`
-	Knowledge   string             `json:"knowledge,omitempty"`
-	ReleaseDate string             `json:"release_date,omitempty"`
-	LastUpdated string             `json:"last_updated,omitempty"`
-	Modalities  CatalogModalities  `json:"modalities,omitempty"`
-	Cost        CatalogCost        `json:"cost,omitempty"`
-	Limit       CatalogLimit       `json:"limit,omitempty"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Family      string            `json:"family,omitempty"`
+	Attachment  bool              `json:"attachment,omitempty"`
+	Reasoning   bool              `json:"reasoning,omitempty"`
+	ToolCall    bool              `json:"tool_call,omitempty"`
+	Temperature bool              `json:"temperature,omitempty"`
+	OpenWeights bool              `json:"open_weights,omitempty"`
+	Knowledge   string            `json:"knowledge,omitempty"`
+	ReleaseDate string            `json:"release_date,omitempty"`
+	LastUpdated string            `json:"last_updated,omitempty"`
+	Modalities  CatalogModalities `json:"modalities,omitempty"`
+	Cost        CatalogCost       `json:"cost,omitempty"`
+	Limit       CatalogLimit      `json:"limit,omitempty"`
 }
 
 type CatalogModalities struct {

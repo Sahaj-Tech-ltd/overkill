@@ -1,47 +1,49 @@
-agent-loop:
-  - changed-files:
-      - any-glob-to-any-file: internal/agent/**
-security:
-  - changed-files:
-      - any-glob-to-any-file: internal/security/**
-compaction:
-  - changed-files:
-      - any-glob-to-any-file:
-        - internal/compaction/**
-        - bridge/compaction/**
-TUI:
+# Auto-label PRs by changed file paths. Consumed by .github/workflows/labeler.yml.
+
+tui:
   - changed-files:
       - any-glob-to-any-file: pkg/tui/**
-routing:
+
+agent:
   - changed-files:
-      - any-glob-to-any-file: internal/routing/**
-memory:
+      - any-glob-to-any-file: internal/agent/**
+
+providers:
   - changed-files:
-      - any-glob-to-any-file:
-        - internal/memory/**
-        - bridge/memory/**
+      - any-glob-to-any-file: internal/providers/**
+
 tools:
   - changed-files:
       - any-glob-to-any-file: internal/tools/**
+
+plugins:
+  - changed-files:
+      - any-glob-to-any-file:
+        - internal/plugin/**
+        - examples/plugins/**
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+        - "**/*.md"
+        - docs/**
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: .github/**
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+        - internal/security/**
+        - internal/auth/**
+
+bridge:
+  - changed-files:
+      - any-glob-to-any-file: bridge/**
+
 skills:
   - changed-files:
       - any-glob-to-any-file:
         - skills/**
         - optional-skills/**
-bridge:
-  - changed-files:
-      - any-glob-to-any-file: bridge/**
-CI:
-  - changed-files:
-      - any-glob-to-any-file: .github/**
-docs:
-  - changed-files:
-      - any-glob-to-any-file:
-        - docs/**
-        - "*.md"
-personality:
-  - changed-files:
-      - any-glob-to-any-file: internal/personality/**
-automation:
-  - changed-files:
-      - any-glob-to-any-file: internal/automation/**

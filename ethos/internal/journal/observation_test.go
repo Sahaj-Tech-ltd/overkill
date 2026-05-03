@@ -136,13 +136,13 @@ func TestObservationStore_Store_Dedup(t *testing.T) {
 	}
 
 	dup := &Observation{
-		ID:            "different-id",
-		Type:          obs.Type,
-		Title:         obs.Title,
-		Narrative:     obs.Narrative,
-		SessionID:     obs.SessionID,
-		Timestamp:     obs.Timestamp,
-		ContentHash:   obs.ContentHash,
+		ID:          "different-id",
+		Type:        obs.Type,
+		Title:       obs.Title,
+		Narrative:   obs.Narrative,
+		SessionID:   obs.SessionID,
+		Timestamp:   obs.Timestamp,
+		ContentHash: obs.ContentHash,
 	}
 
 	if err := s.Store(dup); err != nil {

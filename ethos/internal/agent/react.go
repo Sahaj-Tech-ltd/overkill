@@ -70,9 +70,9 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 
 		if a.hooks != nil {
 			a.hooks.Fire(ctx, hooks.BeforeToolCall, hooks.Event{
-				ToolName:   tc.Name,
-				ToolInput:  json.RawMessage(tc.Arguments),
-				SessionID:  a.sessionID,
+				ToolName:  tc.Name,
+				ToolInput: json.RawMessage(tc.Arguments),
+				SessionID: a.sessionID,
 			})
 		}
 
@@ -113,10 +113,10 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 				hookOutput = json.RawMessage(fmt.Sprintf(`{"error":"%s"}`, toolErr.Error()))
 			}
 			a.hooks.Fire(ctx, hooks.AfterToolCall, hooks.Event{
-				ToolName:    tc.Name,
-				ToolInput:   input,
-				ToolOutput:  hookOutput,
-				SessionID:   a.sessionID,
+				ToolName:   tc.Name,
+				ToolInput:  input,
+				ToolOutput: hookOutput,
+				SessionID:  a.sessionID,
 			})
 		}
 

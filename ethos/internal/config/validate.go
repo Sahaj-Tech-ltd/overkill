@@ -57,12 +57,12 @@ func (c *Config) Validate() []error {
 			errs = append(errs, fmt.Errorf("config: providers[%d].type is required", i))
 		}
 		validTypes := map[string]bool{
-			"openai":      true,
-			"anthropic":   true,
-			"gemini":      true,
-			"ollama":      true,
-			"openrouter":  true,
-			"custom":      true,
+			"openai":     true,
+			"anthropic":  true,
+			"gemini":     true,
+			"ollama":     true,
+			"openrouter": true,
+			"custom":     true,
 		}
 		if p.Type != "" && !validTypes[p.Type] {
 			errs = append(errs, fmt.Errorf("config: providers[%d].type %q is not a valid provider type", i, p.Type))

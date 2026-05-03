@@ -150,4 +150,3 @@ func TestDeviceFlowDenied(t *testing.T) {
 		t.Fatal("expected denied error")
 	}
 }
-

@@ -443,11 +443,11 @@ func (a *Agent) Inject(msg providers.Message) {
 
 // CompactResult summarizes the outcome of a Compact call.
 type CompactResult struct {
-	TokensBefore int    `json:"tokens_before"`
-	TokensAfter  int    `json:"tokens_after"`
-	Summary      string `json:"summary"`
-	MessagesBefore int  `json:"messages_before"`
-	MessagesAfter  int  `json:"messages_after"`
+	TokensBefore   int    `json:"tokens_before"`
+	TokensAfter    int    `json:"tokens_after"`
+	Summary        string `json:"summary"`
+	MessagesBefore int    `json:"messages_before"`
+	MessagesAfter  int    `json:"messages_after"`
 }
 
 // Compact summarizes the current conversation history into a single message,

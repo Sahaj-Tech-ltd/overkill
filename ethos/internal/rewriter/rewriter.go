@@ -25,13 +25,13 @@ func (c Complexity) String() string {
 }
 
 type RewriteResult struct {
-	Original   string   `json:"original"`
-	Rewritten  string   `json:"rewritten"`
+	Original   string     `json:"original"`
+	Rewritten  string     `json:"rewritten"`
 	Complexity Complexity `json:"complexity"`
-	Changed    bool     `json:"changed"`
-	Injected   []string `json:"injected"`
-	Stripped   []string `json:"stripped"`
-	Confidence float64  `json:"confidence"`
+	Changed    bool       `json:"changed"`
+	Injected   []string   `json:"injected"`
+	Stripped   []string   `json:"stripped"`
+	Confidence float64    `json:"confidence"`
 }
 
 type Rewriter interface {

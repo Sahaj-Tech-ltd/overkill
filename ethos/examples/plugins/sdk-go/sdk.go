@@ -89,10 +89,10 @@ type ContextHandler func(ctx context.Context, promptSoFar, sessionID string) []C
 type Plugin struct {
 	manifest Manifest
 
-	tools    []ToolDecl
-	cmds     []CommandDecl
-	events   []string
-	hasCtx   bool
+	tools  []ToolDecl
+	cmds   []CommandDecl
+	events []string
+	hasCtx bool
 
 	toolHandlers map[string]ToolHandler
 	cmdHandlers  map[string]CommandHandler
@@ -119,7 +119,7 @@ func New(m Manifest) *Plugin {
 }
 
 // RegisterTool declares a tool. Pair with OnTool to handle invocations.
-func (p *Plugin) RegisterTool(t ToolDecl)   { p.tools = append(p.tools, t) }
+func (p *Plugin) RegisterTool(t ToolDecl)           { p.tools = append(p.tools, t) }
 func (p *Plugin) OnTool(name string, h ToolHandler) { p.toolHandlers[name] = h }
 
 // RegisterCommand declares a slash-command. Pair with OnCommand.

@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	nameRegex  = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
+	nameRegex   = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
 	semverRegex = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 )
 

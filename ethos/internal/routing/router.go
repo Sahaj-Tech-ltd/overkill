@@ -9,7 +9,7 @@ import (
 type ComplexityLevel int
 
 const (
-	ComplexitySimple   ComplexityLevel = iota
+	ComplexitySimple ComplexityLevel = iota
 	ComplexityModerate
 	ComplexityComplex
 	ComplexityCritical
@@ -31,10 +31,10 @@ func (l ComplexityLevel) String() string {
 }
 
 type ComplexityScore struct {
-	Level       ComplexityLevel `json:"level"`
-	Score       float64         `json:"score"`
+	Level       ComplexityLevel    `json:"level"`
+	Score       float64            `json:"score"`
 	Factors     map[string]float64 `json:"factors"`
-	Explanation string          `json:"explanation"`
+	Explanation string             `json:"explanation"`
 }
 
 type Router interface {
@@ -52,15 +52,15 @@ type RouteRequest struct {
 }
 
 type RouteResult struct {
-	ModelID      string         `json:"model_id"`
-	ModelName    string         `json:"model_name"`
-	Provider     string         `json:"provider"`
+	ModelID      string          `json:"model_id"`
+	ModelName    string          `json:"model_name"`
+	Provider     string          `json:"provider"`
 	Complexity   ComplexityScore `json:"complexity"`
-	CostEstimate float64        `json:"cost_estimate"`
-	Reason       string         `json:"reason"`
+	CostEstimate float64         `json:"cost_estimate"`
+	Reason       string          `json:"reason"`
 }
 
 type ProviderModels struct {
-	ProviderName string           `json:"provider_name"`
+	ProviderName string            `json:"provider_name"`
 	Models       []providers.Model `json:"models"`
 }

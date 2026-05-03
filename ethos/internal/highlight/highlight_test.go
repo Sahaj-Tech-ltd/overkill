@@ -27,11 +27,11 @@ func TestHighlightUnknownLangPassthrough(t *testing.T) {
 
 func TestLangFromFence(t *testing.T) {
 	cases := map[string]string{
-		"```go":            "go",
-		"go":               "go",
-		"```ts {linenos}":  "ts",
-		"```python\nfoo":   "python",
-		"":                 "",
+		"```go":           "go",
+		"go":              "go",
+		"```ts {linenos}": "ts",
+		"```python\nfoo":  "python",
+		"":                "",
 	}
 	for in, want := range cases {
 		if got := LangFromFence(in); got != want {

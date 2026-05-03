@@ -14,18 +14,18 @@ import (
 type FileType string
 
 const (
-	FileCodebase    FileType = "CODEBASE.md"
-	FileModelCard   FileType = "MODEL_CARD.md"
-	FileKnownIssues FileType = "KNOWN_ISSUES.md"
+	FileCodebase     FileType = "CODEBASE.md"
+	FileModelCard    FileType = "MODEL_CARD.md"
+	FileKnownIssues  FileType = "KNOWN_ISSUES.md"
 	FileArchitecture FileType = "ARCHITECTURE.md"
 )
 
 type IntrospectionFile struct {
-	Type      FileType `json:"type"`
-	Path      string   `json:"path"`
-	Content   string   `json:"content"`
+	Type      FileType  `json:"type"`
+	Path      string    `json:"path"`
+	Content   string    `json:"content"`
 	UpdatedAt time.Time `json:"updated_at"`
-	Exists    bool     `json:"exists"`
+	Exists    bool      `json:"exists"`
 }
 
 type Introspector struct {

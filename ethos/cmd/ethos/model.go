@@ -12,8 +12,8 @@ var modelCmd = &cobra.Command{
 }
 
 var modelListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List available models from all providers",
+	Use:     "list",
+	Short:   "List available models from all providers",
 	Aliases: []string{"ls"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(cfg.Providers) == 0 {

@@ -307,5 +307,3 @@ func (s *Scheduler) NextRunTime(job *Job) (time.Time, error) {
 func jobKey(id string) []byte {
 	return []byte("cron:job:" + id)
 }
-
-

@@ -125,10 +125,10 @@ func (c *Client) Start(ctx context.Context, rootDir string) error {
 		"rootUri":   rootURI,
 		"capabilities": map[string]any{
 			"textDocument": map[string]any{
-				"definition":      map[string]any{"linkSupport": false},
-				"references":      map[string]any{},
-				"hover":           map[string]any{"contentFormat": []string{"markdown", "plaintext"}},
-				"documentSymbol":  map[string]any{},
+				"definition":     map[string]any{"linkSupport": false},
+				"references":     map[string]any{},
+				"hover":          map[string]any{"contentFormat": []string{"markdown", "plaintext"}},
+				"documentSymbol": map[string]any{},
 			},
 			"workspace": map[string]any{
 				"symbol": map[string]any{},

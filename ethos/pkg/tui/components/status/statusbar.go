@@ -133,7 +133,7 @@ func (m StatusBarModel) Update(msg tea.Msg) (StatusBarModel, tea.Cmd) {
 
 // View renders an opencode-style single-line footer:
 //
-//   ~/cwd/path                              ⠋ tool · • model · ⊙ provider · ↑↓42K · $0.12
+//	~/cwd/path                              ⠋ tool · • model · ⊙ provider · ↑↓42K · $0.12
 func (m StatusBarModel) View() string {
 	t := theme.CurrentTheme()
 

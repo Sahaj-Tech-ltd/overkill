@@ -431,9 +431,9 @@ func TestFailover_CanceledContext(t *testing.T) {
 
 func TestRequest_Types(t *testing.T) {
 	req := Request{
-		Model:       "gpt-4o",
-		MaxTokens:   4096,
-		Temperature: 0.7,
+		Model:        "gpt-4o",
+		MaxTokens:    4096,
+		Temperature:  0.7,
 		SystemPrompt: "You are helpful.",
 		Messages: []Message{
 			{Role: "user", Content: "Hello"},
@@ -473,13 +473,13 @@ func TestResponse_Usage(t *testing.T) {
 
 func TestModel_CostFields(t *testing.T) {
 	m := Model{
-		ID:           "claude-3-opus",
-		Name:         "Claude 3 Opus",
-		MaxTokens:    200000,
-		CostIn:       0.015,
-		CostOut:      0.075,
-		CostCacheIn:  0.001875,
-		CostCacheOut: 0.075,
+		ID:                "claude-3-opus",
+		Name:              "Claude 3 Opus",
+		MaxTokens:         200000,
+		CostIn:            0.015,
+		CostOut:           0.075,
+		CostCacheIn:       0.001875,
+		CostCacheOut:      0.075,
 		SupportsTools:     true,
 		SupportsStreaming: true,
 		SupportsVision:    true,

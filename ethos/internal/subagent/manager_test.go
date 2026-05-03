@@ -75,10 +75,10 @@ func TestManager_SpawnBatch(t *testing.T) {
 
 func TestManager_DepthLimit(t *testing.T) {
 	m := NewManager(Config{
-		MaxDepth:      2,
-		MaxChildren:   5,
-		ChildTimeout:  5 * time.Second,
-		CurrentDepth:  2,
+		MaxDepth:     2,
+		MaxChildren:  5,
+		ChildTimeout: 5 * time.Second,
+		CurrentDepth: 2,
 	})
 
 	task := &SessionNameTask{FirstMessage: "Should not run"}

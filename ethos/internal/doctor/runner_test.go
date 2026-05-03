@@ -84,7 +84,9 @@ func TestSummary_GroupsByCategory(t *testing.T) {
 func TestPrettyPrint_RendersCategories(t *testing.T) {
 	r := NewRunner()
 	r.Register(SubsystemCheck{ID: "x", Name: "Core check", Category: CatCore, Fn: func(ctx context.Context) Result { return Result{Status: SevOK, Detail: "fine"} }})
-	r.Register(SubsystemCheck{ID: "y", Name: "Bad check", Category: CatProvider, Fn: func(ctx context.Context) Result { return Result{Status: SevFail, Detail: "broken", Fix: "do something"} }})
+	r.Register(SubsystemCheck{ID: "y", Name: "Bad check", Category: CatProvider, Fn: func(ctx context.Context) Result {
+		return Result{Status: SevFail, Detail: "broken", Fix: "do something"}
+	}})
 	s := r.Run(context.Background())
 
 	var sb strings.Builder

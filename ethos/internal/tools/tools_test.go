@@ -87,15 +87,15 @@ func TestShellTool(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:    "working dir",
-			command: "pwd",
+			name:     "working dir",
+			command:  "pwd",
 			wantCode: 0,
 		},
 		{
-			name:    "env vars",
-			command: "echo $ETHOS_TEST_VAR",
-			env:     map[string]string{"ETHOS_TEST_VAR": "test_value"},
-			wantOut: "test_value",
+			name:     "env vars",
+			command:  "echo $ETHOS_TEST_VAR",
+			env:      map[string]string{"ETHOS_TEST_VAR": "test_value"},
+			wantOut:  "test_value",
 			wantCode: 0,
 		},
 	}

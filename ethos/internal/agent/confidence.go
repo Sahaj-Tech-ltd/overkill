@@ -10,7 +10,7 @@ import (
 type ConfidenceLevel int
 
 const (
-	ConfidenceHigh    ConfidenceLevel = iota
+	ConfidenceHigh ConfidenceLevel = iota
 	ConfidenceMedium
 	ConfidenceLow
 	ConfidenceUnknown

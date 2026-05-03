@@ -1,46 +1,27 @@
 ## Summary
-<!-- 2-5 bullet points -->
+<!-- 2-5 bullets covering the why and the what. -->
 
-## Change Type
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Refactor
-- [ ] Security fix
-- [ ] Documentation
-- [ ] Skill addition
-
-## Scope
-- [ ] agent-loop
-- [ ] security
-- [ ] compaction
-- [ ] TUI
-- [ ] routing
-- [ ] memory
-- [ ] tools
-- [ ] CI
-
-## Validation Evidence
-<!-- Paste literal test output -->
-
-```bash
-go test ./...
+## Test Plan
+<!-- Concrete commands run + their results. Paste literal output. -->
+```
+go test -race ./...
 golangci-lint run
-ruff check bridge/
 ```
 
-## Security & Privacy Impact
+## Risk
+<!-- Blast radius. What breaks if this is wrong? Rollback plan? -->
+
+## Linked Issues
+<!-- Closes #123, refs #456. -->
+
+---
+
+### Security & Privacy Impact
 - [ ] No credentials or secrets introduced
 - [ ] No user data exposed in logs
 - [ ] No new outbound network calls
 - [ ] Filesystem operations scoped to workspace
 - [ ] No privilege escalation risk
 
-## Compatibility & Migration
-<!-- Breaking changes? Config migration needed? -->
-
-## Rollback Plan
-<!-- Required for medium/high risk changes -->
-
-## AI Assistance
-- [ ] This PR was generated with AI assistance
-<!-- If checked, add Co-Authored-By trailer -->
+### AI Assistance
+- [ ] This PR was generated with AI assistance (if checked, include `Co-Authored-By` trailer)

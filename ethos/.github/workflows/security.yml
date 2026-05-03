@@ -2,33 +2,100 @@ name: Security
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
   schedule:
+    # Weekly Sunday 00:00 UTC.
     - cron: "0 0 * * 0"
 
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.25"
+
 jobs:
-  codeql:
+  gosec:
+    name: gosec
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
-      actions: read
       contents: read
       security-events: write
-    strategy:
-      matrix:
-        language: [go, python]
     steps:
       - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: actions/setup-go@v5
         with:
-          languages: ${{ matrix.language }}
-      - uses: github/codeql-action/analyze@v3
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+      - name: Run gosec
+        run: |
+          # `.gosec-ignore` lists rule IDs (one per line, # for comments) to skip.
+          excludes=""
+          if [ -f .gosec-ignore ]; then
+            ids=$(grep -v '^\s*#' .gosec-ignore | grep -v '^\s*$' | paste -sd, -)
+            [ -n "$ids" ] && excludes="-exclude=$ids"
+          fi
+          gosec -no-fail -fmt=sarif -out=gosec.sarif $excludes ./... || true
+          gosec $excludes ./... || true
+      - name: Upload SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          category: "/language:${{ matrix.language }}"
+          sarif_file: gosec.sarif
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Run govulncheck
+        run: |
+          # `.govulncheck-ignore` lists vulnerability IDs (e.g. GO-2024-1234)
+          # to filter out of the failure set, one per line.
+          if [ -f .govulncheck-ignore ]; then
+            ignored=$(grep -v '^\s*#' .govulncheck-ignore | grep -v '^\s*$' || true)
+          else
+            ignored=""
+          fi
+          govulncheck -json ./... > govulncheck.json || true
+          # Surface findings, but only fail when an unignored vuln is found.
+          fail=0
+          while IFS= read -r line; do
+            id=$(echo "$line" | jq -r '.osv.id // empty' 2>/dev/null || true)
+            [ -z "$id" ] && continue
+            if echo "$ignored" | grep -Fxq "$id"; then
+              echo "::notice::Ignoring $id (listed in .govulncheck-ignore)"
+              continue
+            fi
+            echo "::error::Vulnerability $id"
+            fail=1
+          done < <(jq -c 'select(.osv) // empty' govulncheck.json 2>/dev/null || true)
+          # Always print human report for context.
+          govulncheck ./... || true
+          exit $fail
+
+  codeql-trigger:
+    # Marker job that always passes; CodeQL has its own workflow now.
+    name: codeql trigger
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CodeQL runs in codeql.yml"
 
   gitleaks:
+    name: gitleaks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,6 +105,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   dependency-review:
+    name: dependency review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:

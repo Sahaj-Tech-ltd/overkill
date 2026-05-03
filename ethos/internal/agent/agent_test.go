@@ -18,11 +18,11 @@ import (
 )
 
 type mockProvider struct {
-	mu         sync.Mutex
-	responses  []providers.Response
-	callCount  int
-	models     []providers.Model
-	streamErr  error
+	mu        sync.Mutex
+	responses []providers.Response
+	callCount int
+	models    []providers.Model
+	streamErr error
 }
 
 func (m *mockProvider) Complete(_ context.Context, _ providers.Request) (providers.Response, error) {
@@ -85,8 +85,8 @@ func (t *mockTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 }
 
 type mockScanner struct {
-	name    string
-	scanFn  func(input string) (*security.ScanResult, error)
+	name   string
+	scanFn func(input string) (*security.ScanResult, error)
 }
 
 func (s *mockScanner) Scan(input string) (*security.ScanResult, error) {

@@ -10,10 +10,10 @@ import (
 type Stage int
 
 const (
-	StageSpec      Stage = iota
-	StageTest      Stage = iota
-	StageCode      Stage = iota
-	StageRefactor  Stage = iota
+	StageSpec     Stage = iota
+	StageTest     Stage = iota
+	StageCode     Stage = iota
+	StageRefactor Stage = iota
 )
 
 func (s Stage) String() string {
@@ -36,12 +36,12 @@ func (s Stage) MarshalJSON() ([]byte, error) {
 }
 
 type StageResult struct {
-	Stage    Stage            `json:"stage"`
-	Content  string           `json:"content"`
+	Stage    Stage             `json:"stage"`
+	Content  string            `json:"content"`
 	Files    map[string]string `json:"files,omitempty"`
-	Passed   bool             `json:"passed"`
-	Errors   []string         `json:"errors,omitempty"`
-	Duration time.Duration    `json:"duration"`
+	Passed   bool              `json:"passed"`
+	Errors   []string          `json:"errors,omitempty"`
+	Duration time.Duration     `json:"duration"`
 }
 
 type PipelineResult struct {

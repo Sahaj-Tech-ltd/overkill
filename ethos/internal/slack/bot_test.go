@@ -203,10 +203,10 @@ func TestBot_AllowList(t *testing.T) {
 
 func TestStripMention(t *testing.T) {
 	cases := map[string]string{
-		"<@UBOT> hello world":  "hello world",
-		"   <@UBOT>   hi":      "hi",
-		"no mention":           "no mention",
-		"<@UBOT>":              "",
+		"<@UBOT> hello world": "hello world",
+		"   <@UBOT>   hi":     "hi",
+		"no mention":          "no mention",
+		"<@UBOT>":             "",
 	}
 	for in, want := range cases {
 		if got := stripMention(in); got != want {

@@ -114,7 +114,7 @@ func TestHistory_MaxEntriesCap(t *testing.T) {
 	h := NewHistory()
 	for i := 0; i < maxHistoryEntries+25; i++ {
 		// distinct values so dedup doesn't drop them
-		h.Append(string(rune('a' + (i % 26))) + ":" + string(rune('A' + (i % 26))) + ":" + itoa(i))
+		h.Append(string(rune('a'+(i%26))) + ":" + string(rune('A'+(i%26))) + ":" + itoa(i))
 	}
 	if len(h.Entries()) != maxHistoryEntries {
 		t.Fatalf("expected %d entries (cap), got %d", maxHistoryEntries, len(h.Entries()))

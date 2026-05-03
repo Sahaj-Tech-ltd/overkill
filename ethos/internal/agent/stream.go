@@ -13,7 +13,7 @@ import (
 type EventType int
 
 const (
-	EventToken     EventType = iota
+	EventToken EventType = iota
 	EventToolStart
 	EventToolOutput
 	EventDone
@@ -211,8 +211,8 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 					}
 
 					out <- StreamEvent{
-						Type:    EventToolOutput,
-						Content: call.Name,
+						Type:     EventToolOutput,
+						Content:  call.Name,
 						ToolCall: &call,
 						Metadata: map[string]interface{}{
 							"output": string(output),

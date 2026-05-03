@@ -12,9 +12,9 @@ import (
 // need real session state to confirm a plugin starts and responds.
 type noopBridge struct{}
 
-func (noopBridge) SessionInfo() plugin.SessionInfo  { return plugin.SessionInfo{ID: "doctor"} }
-func (noopBridge) ConfigValue(string) (any, bool)   { return nil, false }
-func (noopBridge) Toast(string, string)             {}
+func (noopBridge) SessionInfo() plugin.SessionInfo { return plugin.SessionInfo{ID: "doctor"} }
+func (noopBridge) ConfigValue(string) (any, bool)  { return nil, false }
+func (noopBridge) Toast(string, string)            {}
 
 // RegisterPlugins runs the doctor handshake (mirrors `ethos plugin doctor`)
 // against every plugin discovered under ~/.ethos/plugins. We deliberately

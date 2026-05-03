@@ -14,11 +14,11 @@ import (
 
 func newTestSOP(id string, steps []Step, mode SOPMode) *SOP {
 	return &SOP{
-		ID:        id,
-		Name:      "test-" + id,
-		Mode:      mode,
-		Steps:     steps,
-		Metadata:  make(map[string]string),
+		ID:       id,
+		Name:     "test-" + id,
+		Mode:     mode,
+		Steps:    steps,
+		Metadata: make(map[string]string),
 	}
 }
 
@@ -442,9 +442,9 @@ func TestAlarmClock_Pending(t *testing.T) {
 		Cancelled: true,
 	}))
 	require.NoError(t, clock.Set(&Alarm{
-		ID:    "a4",
+		ID:     "a4",
 		FireAt: now.Add(1 * time.Second),
-		Fired: true,
+		Fired:  true,
 	}))
 
 	pending := clock.Pending()

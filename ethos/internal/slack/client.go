@@ -29,9 +29,9 @@ import (
 // inbound frames and writes unmasked outbound frames); RFC 6455 requires
 // the opposite for clients, so we keep the two implementations separate.
 type SocketClient struct {
-	APIBaseURL string       // override for tests; default https://slack.com/api
-	AppToken   string       // xapp-...
-	HTTP       *http.Client // for the connections.open call
+	APIBaseURL string                                                            // override for tests; default https://slack.com/api
+	AppToken   string                                                            // xapp-...
+	HTTP       *http.Client                                                      // for the connections.open call
 	Dial       func(ctx context.Context, network, addr string) (net.Conn, error) // override for tests
 
 	conn   net.Conn

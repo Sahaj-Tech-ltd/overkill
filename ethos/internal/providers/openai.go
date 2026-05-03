@@ -13,10 +13,10 @@ import (
 )
 
 type openaiMessage struct {
-	Role       string            `json:"role"`
-	Content    string            `json:"content"`
-	ToolCalls  []openaiToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string            `json:"tool_call_id,omitempty"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content"`
+	ToolCalls  []openaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
 
 type openaiToolCall struct {
@@ -58,9 +58,9 @@ type openaiResponse struct {
 }
 
 type openaiChoice struct {
-	Index        int            `json:"index"`
-	Message      openaiMessage  `json:"message"`
-	FinishReason string         `json:"finish_reason"`
+	Index        int           `json:"index"`
+	Message      openaiMessage `json:"message"`
+	FinishReason string        `json:"finish_reason"`
 }
 
 type openaiStreamChunk struct {
@@ -76,9 +76,9 @@ type openaiStreamChoice struct {
 }
 
 type openaiStreamDelta struct {
-	Role      string            `json:"role,omitempty"`
-	Content   string            `json:"content,omitempty"`
-	ToolCalls []openaiToolCall  `json:"tool_calls,omitempty"`
+	Role      string           `json:"role,omitempty"`
+	Content   string           `json:"content,omitempty"`
+	ToolCalls []openaiToolCall `json:"tool_calls,omitempty"`
 }
 
 type openaiUsageResp struct {

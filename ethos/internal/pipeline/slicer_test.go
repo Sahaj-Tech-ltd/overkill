@@ -447,9 +447,9 @@ func TestFormatPRD_Readable(t *testing.T) {
 		UserStories: []UserStory{
 			{Actor: "devops", Want: "faster deploys", Benefit: "shorter feedback loops"},
 		},
-		ImplDecisions:  []string{"Use Go pipelines", "BadgerDB for state"},
-		TestDecisions:  []string{"Integration tests for each stage"},
-		OutOfScope:     []string{"Kubernetes integration"},
+		ImplDecisions: []string{"Use Go pipelines", "BadgerDB for state"},
+		TestDecisions: []string{"Integration tests for each stage"},
+		OutOfScope:    []string{"Kubernetes integration"},
 	}
 
 	out := FormatPRD(prd)

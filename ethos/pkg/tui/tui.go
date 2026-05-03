@@ -14,14 +14,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
-	mcppkg "github.com/Sahaj-Tech-ltd/ethos/internal/mcp"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/share"
-	syncpkg "github.com/Sahaj-Tech-ltd/ethos/internal/sync"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	mcppkg "github.com/Sahaj-Tech-ltd/ethos/internal/mcp"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/personality"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/plugin"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/share"
+	syncpkg "github.com/Sahaj-Tech-ltd/ethos/internal/sync"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/workspace"
 	wt "github.com/Sahaj-Tech-ltd/ethos/internal/worktree"
 	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/chat"
@@ -129,8 +129,8 @@ type appModel struct {
 	currentSession *session.Session
 
 	// connection status: 0 unknown, 1 ok, 2 retrying, 3 down
-	connState   int
-	failStreak  int
+	connState  int
+	failStreak int
 
 	// firstRunSetup is true when no providers are configured at startup.
 	firstRunSetup bool
@@ -154,40 +154,40 @@ type appModel struct {
 
 func New(app *App) tea.Model {
 	m := &appModel{
-		boot:             BootModel{visible: true},
-		showSidebar:      true,
-		statusBar:        status.NewStatusBar(),
-		sidebar:          sidebar.NewSidebar(),
-		toast:            status.NewToastModel(),
-		setupDialog:      dialog.NewSetupDialog(),
-		cmdDialog:        dialog.NewCommandDialog(),
-		modelDialog:      dialog.NewModelDialog(),
-		sessionDialog:    dialog.NewSessionDialog(),
-		themeDialog:      dialog.NewThemeDialog(),
-		helpDialog:       dialog.NewHelpDialog(),
-		statusDialog:     dialog.NewStatusDialog(),
-		permissionDialog: dialog.NewPermissionDialog(),
-		timelineDialog:   dialog.NewTimelineDialog(),
-		renameDialog:     dialog.NewSessionRenameDialog(),
-		stashDialog:      dialog.NewStashDialog(),
-		fileMentionDlg:   dialog.NewFileMentionDialog(),
-		questionDialog:   dialog.NewQuestionDialog(),
-		diffDialog:       dialog.NewDiffDialog(),
-		mcpDialog:        dialog.NewMCPDialog(),
-		worktreeDialog:   dialog.NewWorktreeDialog(),
-		permLedgerDlg:    dialog.NewPermissionsLedgerDialog(),
-		tagDialog:        dialog.NewTagDialog(),
-		variantDialog:    dialog.NewVariantDialog(),
-		workspaceDialog:  dialog.NewWorkspaceDialog(),
-		subagentFullDlg:  dialog.NewSubagentFullDialog(),
-		skillDialog:      dialog.NewSkillDialog(),
-		provSetupDialog:  dialog.NewProviderSetupDialog(),
-		overrideDialog:   dialog.NewOverrideConfirmDialog(),
-		pluginsDialog:    dialog.NewPluginsDialog(),
+		boot:                 BootModel{visible: true},
+		showSidebar:          true,
+		statusBar:            status.NewStatusBar(),
+		sidebar:              sidebar.NewSidebar(),
+		toast:                status.NewToastModel(),
+		setupDialog:          dialog.NewSetupDialog(),
+		cmdDialog:            dialog.NewCommandDialog(),
+		modelDialog:          dialog.NewModelDialog(),
+		sessionDialog:        dialog.NewSessionDialog(),
+		themeDialog:          dialog.NewThemeDialog(),
+		helpDialog:           dialog.NewHelpDialog(),
+		statusDialog:         dialog.NewStatusDialog(),
+		permissionDialog:     dialog.NewPermissionDialog(),
+		timelineDialog:       dialog.NewTimelineDialog(),
+		renameDialog:         dialog.NewSessionRenameDialog(),
+		stashDialog:          dialog.NewStashDialog(),
+		fileMentionDlg:       dialog.NewFileMentionDialog(),
+		questionDialog:       dialog.NewQuestionDialog(),
+		diffDialog:           dialog.NewDiffDialog(),
+		mcpDialog:            dialog.NewMCPDialog(),
+		worktreeDialog:       dialog.NewWorktreeDialog(),
+		permLedgerDlg:        dialog.NewPermissionsLedgerDialog(),
+		tagDialog:            dialog.NewTagDialog(),
+		variantDialog:        dialog.NewVariantDialog(),
+		workspaceDialog:      dialog.NewWorkspaceDialog(),
+		subagentFullDlg:      dialog.NewSubagentFullDialog(),
+		skillDialog:          dialog.NewSkillDialog(),
+		provSetupDialog:      dialog.NewProviderSetupDialog(),
+		overrideDialog:       dialog.NewOverrideConfirmDialog(),
+		pluginsDialog:        dialog.NewPluginsDialog(),
 		subagentFooterCursor: -1,
 		filesPanel:           sidebar.NewFilesPanel(),
-		costPanel:        sidebar.NewCostPanel(),
-		sessionPanel:     sidebar.NewSessionPanel(),
+		costPanel:            sidebar.NewCostPanel(),
+		sessionPanel:         sidebar.NewSessionPanel(),
 	}
 
 	m.helpDialog.SetBindings(AllBindings())

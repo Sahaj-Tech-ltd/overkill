@@ -1,23 +1,23 @@
 package config
 
 type Config struct {
-	Version    int               `toml:"version"`
-	Agent      AgentConfig       `toml:"agent"`
-	Providers  []ProviderConfig  `toml:"providers"`
+	Version     int               `toml:"version"`
+	Agent       AgentConfig       `toml:"agent"`
+	Providers   []ProviderConfig  `toml:"providers"`
 	Personality PersonalityConfig `toml:"personality"`
-	Security   SecurityConfig    `toml:"security"`
-	Session    SessionConfig     `toml:"session"`
-	Cost       CostConfig        `toml:"cost"`
-	Compaction CompactionConfig  `toml:"compaction"`
-	MCP        MCPConfig         `toml:"mcp"`
-	LSP        LSPConfig         `toml:"lsp"`
-	Skills     SkillsConfig      `toml:"skills"`
-	UI         UIConfig          `toml:"ui"`
-	Sync       SyncConfig        `toml:"sync"`
-	Share      ShareConfig       `toml:"share"`
-	ACP        ACPConfig         `toml:"acp"`
-	Plugins    PluginsConfig     `toml:"plugins"`
-	Slack      SlackConfig       `toml:"slack"`
+	Security    SecurityConfig    `toml:"security"`
+	Session     SessionConfig     `toml:"session"`
+	Cost        CostConfig        `toml:"cost"`
+	Compaction  CompactionConfig  `toml:"compaction"`
+	MCP         MCPConfig         `toml:"mcp"`
+	LSP         LSPConfig         `toml:"lsp"`
+	Skills      SkillsConfig      `toml:"skills"`
+	UI          UIConfig          `toml:"ui"`
+	Sync        SyncConfig        `toml:"sync"`
+	Share       ShareConfig       `toml:"share"`
+	ACP         ACPConfig         `toml:"acp"`
+	Plugins     PluginsConfig     `toml:"plugins"`
+	Slack       SlackConfig       `toml:"slack"`
 }
 
 // SlackConfig governs the optional Slack bot daemon (`ethos slack`).
@@ -25,8 +25,8 @@ type Config struct {
 // SLACK_BOT_TOKEN env vars at runtime.
 type SlackConfig struct {
 	Enabled         bool     `toml:"enabled"`
-	AppToken        string   `toml:"app_token"`         // xapp-... (Socket Mode)
-	BotToken        string   `toml:"bot_token"`         // xoxb-... (Web API)
+	AppToken        string   `toml:"app_token"`        // xapp-... (Socket Mode)
+	BotToken        string   `toml:"bot_token"`        // xoxb-... (Web API)
 	AllowedChannels []string `toml:"allowed_channels"` // empty = all where invited
 }
 
@@ -156,8 +156,8 @@ type SecurityConfig struct {
 }
 
 type SessionConfig struct {
-	AutoTitle   bool `toml:"auto_title"`
-	MaxSessions int  `toml:"max_sessions"`
+	AutoTitle   bool   `toml:"auto_title"`
+	MaxSessions int    `toml:"max_sessions"`
 	DataDir     string `toml:"data_dir"`
 }
 

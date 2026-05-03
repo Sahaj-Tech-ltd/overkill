@@ -10,7 +10,10 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
 )
 
-const Version = "0.1.0-dev"
+// Version is the build-time version string. Override with:
+//
+//	go build -ldflags="-X main.Version=vX.Y.Z" ./cmd/ethos
+var Version = "0.1.0-dev"
 
 const (
 	colorReset  = "\033[0m"

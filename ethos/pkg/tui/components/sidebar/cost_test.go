@@ -62,5 +62,3 @@ func TestCostPanel_Empty(t *testing.T) {
 		t.Error("should show empty state")
 	}
 }
-
-

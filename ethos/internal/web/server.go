@@ -49,9 +49,9 @@ type Server struct {
 	cfg     Config
 	httpSrv *http.Server
 
-	bus      *eventBus
-	mu       sync.Mutex
-	streams  map[string]context.CancelFunc // sessionID -> cancel of in-flight stream
+	bus     *eventBus
+	mu      sync.Mutex
+	streams map[string]context.CancelFunc // sessionID -> cancel of in-flight stream
 }
 
 // NewServer wires the routes; Start binds the listener.
@@ -135,10 +135,12 @@ func (s *Server) Token() string { return s.cfg.Token }
 func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.NoAuth || s.cfg.Token == "" {
-			h(w, r); return
+			h(w, r)
+			return
 		}
 		if tokenFromRequest(r) == s.cfg.Token {
-			h(w, r); return
+			h(w, r)
+			return
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}
@@ -169,7 +171,8 @@ func cacheStatic(h http.Handler) http.Handler {
 func (s *Server) handleIndex(sub fs.FS) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
-			http.NotFound(w, r); return
+			http.NotFound(w, r)
+			return
 		}
 		// First-load token plumbing: ?t=… sets the cookie before app.js runs.
 		if t := r.URL.Query().Get("t"); t != "" {
@@ -181,7 +184,10 @@ func (s *Server) handleIndex(sub fs.FS) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		f, err := sub.Open("index.html")
-		if err != nil { http.Error(w, "missing index", 500); return }
+		if err != nil {
+			http.Error(w, "missing index", 500)
+			return
+		}
 		defer f.Close()
 		_, _ = io.Copy(w, f)
 	}
@@ -199,8 +205,8 @@ type infoResponse struct {
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	out := infoResponse{
-		Provider: s.cfg.Provider,
-		Version:  s.cfg.Version,
+		Provider:     s.cfg.Provider,
+		Version:      s.cfg.Version,
 		Capabilities: []string{"send", "stream", "cancel", "sessions", "models"},
 	}
 	if s.cfg.Agent != nil {
@@ -229,7 +235,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		list, err := s.cfg.Store.List(r.Context(), session.ListOptions{Limit: 200})
 		if err != nil {
-			http.Error(w, err.Error(), 500); return
+			http.Error(w, err.Error(), 500)
+			return
 		}
 		out := make([]sessionRow, 0, len(list))
 		for _, s := range list {
@@ -245,7 +252,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		ns := session.NewSession(body.Folder)
 		ns.Title = body.Title
 		if err := s.cfg.Store.Create(r.Context(), ns); err != nil {
-			http.Error(w, err.Error(), 500); return
+			http.Error(w, err.Error(), 500)
+			return
 		}
 		writeJSON(w, http.StatusCreated, ns)
 	default:
@@ -254,21 +262,31 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSessionSub(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.Store == nil { http.NotFound(w, r); return }
+	if s.cfg.Store == nil {
+		http.NotFound(w, r)
+		return
+	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
 	parts := strings.Split(strings.Trim(rest, "/"), "/")
-	if len(parts) == 0 || parts[0] == "" { http.NotFound(w, r); return }
+	if len(parts) == 0 || parts[0] == "" {
+		http.NotFound(w, r)
+		return
+	}
 	id := parts[0]
 
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodGet:
 			sess, err := s.cfg.Store.Load(r.Context(), id)
-			if err != nil { http.Error(w, err.Error(), 404); return }
+			if err != nil {
+				http.Error(w, err.Error(), 404)
+				return
+			}
 			writeJSON(w, http.StatusOK, sess)
 		case http.MethodDelete:
 			if err := s.cfg.Store.Delete(r.Context(), id); err != nil {
-				http.Error(w, err.Error(), 500); return
+				http.Error(w, err.Error(), 500)
+				return
 			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -280,12 +298,17 @@ func (s *Server) handleSessionSub(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Title string }
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		sess, err := s.cfg.Store.Load(r.Context(), id)
-		if err != nil { http.Error(w, err.Error(), 404); return }
+		if err != nil {
+			http.Error(w, err.Error(), 404)
+			return
+		}
 		sess.Title = body.Title
 		if err := s.cfg.Store.Save(r.Context(), sess); err != nil {
-			http.Error(w, err.Error(), 500); return
+			http.Error(w, err.Error(), 500)
+			return
 		}
-		writeJSON(w, http.StatusOK, sess); return
+		writeJSON(w, http.StatusOK, sess)
+		return
 	}
 	http.NotFound(w, r)
 }
@@ -303,17 +326,31 @@ type sendResponse struct {
 }
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost { http.Error(w, "POST only", 405); return }
-	if s.cfg.Agent == nil { http.Error(w, "no agent", 503); return }
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	if s.cfg.Agent == nil {
+		http.Error(w, "no agent", 503)
+		return
+	}
 	var req sendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", 400); return
+		http.Error(w, "bad request", 400)
+		return
 	}
-	if req.Text == "" { http.Error(w, "text required", 400); return }
+	if req.Text == "" {
+		http.Error(w, "text required", 400)
+		return
+	}
 
 	sid := req.SessionID
-	if sid == "" { sid = s.cfg.Agent.SessionID() }
-	if sid == "" { sid = "default" }
+	if sid == "" {
+		sid = s.cfg.Agent.SessionID()
+	}
+	if sid == "" {
+		sid = "default"
+	}
 	// Best-effort: align the agent's session id with the one the browser
 	// asked for so persisted history lands in the right bucket.
 	s.cfg.Agent.SetSessionID(sid)
@@ -322,7 +359,9 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 
 	// Cancel any in-flight stream for this session before launching a new one.
 	s.mu.Lock()
-	if cancel, ok := s.streams[sid]; ok { cancel() }
+	if cancel, ok := s.streams[sid]; ok {
+		cancel()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.streams[sid] = cancel
 	s.mu.Unlock()
@@ -333,11 +372,14 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
-	var body struct{ SessionID string `json:"sessionId"` }
+	var body struct {
+		SessionID string `json:"sessionId"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	s.mu.Lock()
 	if cancel, ok := s.streams[body.SessionID]; ok {
-		cancel(); delete(s.streams, body.SessionID)
+		cancel()
+		delete(s.streams, body.SessionID)
 	}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
@@ -345,7 +387,9 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) runStream(ctx context.Context, sid, msgID, text string) {
 	defer func() {
-		s.mu.Lock(); delete(s.streams, sid); s.mu.Unlock()
+		s.mu.Lock()
+		delete(s.streams, sid)
+		s.mu.Unlock()
 	}()
 	ch, err := s.cfg.Agent.Stream(ctx, text)
 	if err != nil {
@@ -366,13 +410,17 @@ func (s *Server) runStream(ctx context.Context, sid, msgID, text string) {
 			}
 		case agent.EventToolOutput:
 			out.Type = "tool_output"
-			if ev.ToolCall != nil { out.ToolName = ev.ToolCall.Name }
+			if ev.ToolCall != nil {
+				out.ToolName = ev.ToolCall.Name
+			}
 			out.Content = ev.Content
 		case agent.EventDone:
 			out.Type = "done"
 		case agent.EventError:
 			out.Type = "error"
-			if ev.Error != nil { out.Error = ev.Error.Error() }
+			if ev.Error != nil {
+				out.Error = ev.Error.Error()
+			}
 		default:
 			continue
 		}
@@ -390,7 +438,8 @@ type modelRow struct {
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Catalog == nil {
-		writeJSON(w, http.StatusOK, []modelRow{}); return
+		writeJSON(w, http.StatusOK, []modelRow{})
+		return
 	}
 	flat := s.cfg.Catalog.All()
 	out := make([]modelRow, 0, len(flat))
@@ -416,7 +465,8 @@ type wsEvent struct {
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgradeWS(w, r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest); return
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	defer conn.Close()
 
@@ -438,12 +488,20 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-readDone:
 			return
 		case <-ping.C:
-			if err := conn.WritePing(); err != nil { return }
+			if err := conn.WritePing(); err != nil {
+				return
+			}
 		case ev, ok := <-sub.ch:
-			if !ok { return }
+			if !ok {
+				return
+			}
 			data, err := json.Marshal(ev)
-			if err != nil { continue }
-			if err := conn.WriteText(data); err != nil { return }
+			if err != nil {
+				continue
+			}
+			if err := conn.WriteText(data); err != nil {
+				return
+			}
 		}
 	}
 }

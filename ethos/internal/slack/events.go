@@ -6,33 +6,33 @@ package slack
 // SocketEnvelope wraps every payload Slack sends over Socket Mode.
 // envelope_id must be echoed back as the ack so Slack stops retrying.
 type SocketEnvelope struct {
-	Type                   string         `json:"type"`         // "hello" | "events_api" | "disconnect" | "interactive" | ...
-	EnvelopeID             string         `json:"envelope_id"`  // omitted for "hello"
-	AcceptsResponsePayload bool           `json:"accepts_response_payload"`
+	Type                   string           `json:"type"`        // "hello" | "events_api" | "disconnect" | "interactive" | ...
+	EnvelopeID             string           `json:"envelope_id"` // omitted for "hello"
+	AcceptsResponsePayload bool             `json:"accepts_response_payload"`
 	Payload                EventsAPIPayload `json:"payload"`
-	Reason                 string         `json:"reason"` // for "disconnect"
+	Reason                 string           `json:"reason"` // for "disconnect"
 }
 
 // EventsAPIPayload is the inner envelope for the "events_api" type.
 type EventsAPIPayload struct {
-	Type     string  `json:"type"`     // "event_callback"
-	TeamID   string  `json:"team_id"`
-	APIAppID string  `json:"api_app_id"`
-	Event    Event   `json:"event"`
-	EventID  string  `json:"event_id"`
+	Type     string `json:"type"` // "event_callback"
+	TeamID   string `json:"team_id"`
+	APIAppID string `json:"api_app_id"`
+	Event    Event  `json:"event"`
+	EventID  string `json:"event_id"`
 }
 
 // Event covers app_mention and message events. Slack uses a single shape
 // with a discriminator field; we type the union and let downstream code
 // switch on Type/ChannelType.
 type Event struct {
-	Type        string `json:"type"`         // "app_mention" | "message" | "assistant_thread_started"
-	Subtype     string `json:"subtype"`      // "bot_message" etc — we ignore non-empty subtypes
+	Type        string `json:"type"`    // "app_mention" | "message" | "assistant_thread_started"
+	Subtype     string `json:"subtype"` // "bot_message" etc — we ignore non-empty subtypes
 	User        string `json:"user"`
-	BotID       string `json:"bot_id"`       // present on bot-authored messages — skip those
+	BotID       string `json:"bot_id"` // present on bot-authored messages — skip those
 	Text        string `json:"text"`
 	TS          string `json:"ts"`
-	ThreadTS    string `json:"thread_ts"`    // empty for top-level posts
+	ThreadTS    string `json:"thread_ts"` // empty for top-level posts
 	Channel     string `json:"channel"`
 	ChannelType string `json:"channel_type"` // "im" for DMs, "channel"/"group" otherwise
 }

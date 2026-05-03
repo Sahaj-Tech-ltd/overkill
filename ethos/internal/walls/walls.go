@@ -4,9 +4,9 @@ package walls
 type WallID int
 
 const (
-	WallOuroboros WallID = iota
+	WallOuroboros    WallID = iota
 	WallArchitecture WallID = iota
-	WallTestQuality WallID = iota
+	WallTestQuality  WallID = iota
 )
 
 func (w WallID) String() string {
@@ -25,9 +25,9 @@ func (w WallID) String() string {
 type Severity int
 
 const (
-	SeverityInfo Severity = iota
+	SeverityInfo    Severity = iota
 	SeverityWarning Severity = iota
-	SeverityBlock Severity = iota
+	SeverityBlock   Severity = iota
 )
 
 func (s Severity) String() string {

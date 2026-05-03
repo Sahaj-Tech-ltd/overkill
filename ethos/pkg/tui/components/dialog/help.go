@@ -43,18 +43,18 @@ type HelpDialog struct {
 	Dialog
 
 	// Section sources — filled by the parent before showing.
-	Commands  []Command
-	Bindings  []key.Binding
-	Dialogs   []HelpEntry
-	Plugins   []HelpEntry
-	MCP       []HelpEntry
-	LSP       []HelpEntry
-	About     HelpAbout
+	Commands []Command
+	Bindings []key.Binding
+	Dialogs  []HelpEntry
+	Plugins  []HelpEntry
+	MCP      []HelpEntry
+	LSP      []HelpEntry
+	About    HelpAbout
 
 	// Search & navigation state.
-	Query    string
-	cursor   int
-	entries  []HelpEntry // flattened, filtered list
+	Query   string
+	cursor  int
+	entries []HelpEntry // flattened, filtered list
 }
 
 func NewHelpDialog() HelpDialog {

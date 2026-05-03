@@ -15,8 +15,8 @@ type Manager struct {
 	mu      sync.RWMutex
 	cfg     config.LSPConfig
 	rootDir string
-	clients map[string]*Client            // language -> client
-	byExt   map[string]string             // extension (with dot) -> language
+	clients map[string]*Client // language -> client
+	byExt   map[string]string  // extension (with dot) -> language
 }
 
 // NewManager builds a manager. Use defaultLSPConfig() for sensible defaults.

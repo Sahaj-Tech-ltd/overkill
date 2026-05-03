@@ -544,9 +544,9 @@ func TestValidate_MissingName(t *testing.T) {
 
 func TestValidate_InvalidName(t *testing.T) {
 	tests := []struct {
-		name       string
-		skillName  string
-		expectErr  bool
+		name      string
+		skillName string
+		expectErr bool
 	}{
 		{"spaces", "has spaces", true},
 		{"uppercase", "Uppercase", true},

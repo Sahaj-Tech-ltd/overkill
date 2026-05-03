@@ -28,7 +28,7 @@ func NewBlindSpotDetector() *BlindSpotDetector {
 }
 
 func (bsd *BlindSpotDetector) Observe(taskType string) {
-bsd.patterns[taskType]++
+	bsd.patterns[taskType]++
 }
 
 func (bsd *BlindSpotDetector) Check() (string, bool) {

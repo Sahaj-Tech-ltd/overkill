@@ -200,7 +200,7 @@ func TestClassifier_Clamping(t *testing.T) {
 
 	t.Run("score never below 0.0", func(t *testing.T) {
 		score := c.Classify(RouteRequest{
-			UserInput:   "what is this",
+			UserInput:      "what is this",
 			HasAttachments: false,
 		})
 		assert.GreaterOrEqual(t, score.Score, 0.0)
@@ -229,8 +229,8 @@ func TestSmartRouter_RouteComplex(t *testing.T) {
 func TestSmartRouter_RouteCritical(t *testing.T) {
 	r := newTestRouter()
 	result, err := r.Route(context.Background(), RouteRequest{
-		UserInput:       "describe this screenshot",
-		HasAttachments:  true,
+		UserInput:      "describe this screenshot",
+		HasAttachments: true,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, ComplexityCritical, result.Complexity.Level)
@@ -242,8 +242,8 @@ func TestSmartRouter_CostPriority(t *testing.T) {
 	r.SetCostPriority(true)
 
 	result, err := r.Route(context.Background(), RouteRequest{
-		UserInput:       "refactor this",
-		CodeBlockCount:  3,
+		UserInput:      "refactor this",
+		CodeBlockCount: 3,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, ComplexityComplex, result.Complexity.Level)

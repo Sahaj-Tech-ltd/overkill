@@ -36,11 +36,11 @@ func ApplyTo(b *Buffer, s string) {
 }
 
 type parserState struct {
-	buf      *Buffer
-	cx, cy   int
-	saveX    int
-	saveY    int
-	style    Cell // FG/BG/Attr currently active
+	buf    *Buffer
+	cx, cy int
+	saveX  int
+	saveY  int
+	style  Cell // FG/BG/Attr currently active
 }
 
 func (p *parserState) run(s string) {

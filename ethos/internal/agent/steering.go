@@ -20,10 +20,10 @@ type SteeredMessage struct {
 }
 
 type SteeringQueue struct {
-	queue []SteeredMessage
-	mode  SteeringMode
-	mu    sync.Mutex
-	cond  *sync.Cond
+	queue  []SteeredMessage
+	mode   SteeringMode
+	mu     sync.Mutex
+	cond   *sync.Cond
 	closed bool
 }
 

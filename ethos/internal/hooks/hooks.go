@@ -20,13 +20,13 @@ const (
 type HookFunc func(ctx context.Context, event Event) (context.Context, error)
 
 type Event struct {
-	Point      HookPoint        `json:"point"`
-	ToolName   string           `json:"tool_name,omitempty"`
-	ToolInput  json.RawMessage  `json:"tool_input,omitempty"`
-	ToolOutput json.RawMessage  `json:"tool_output,omitempty"`
-	Error      error            `json:"-"`
-	SessionID  string           `json:"session_id,omitempty"`
-	Metadata   map[string]any   `json:"metadata,omitempty"`
+	Point      HookPoint       `json:"point"`
+	ToolName   string          `json:"tool_name,omitempty"`
+	ToolInput  json.RawMessage `json:"tool_input,omitempty"`
+	ToolOutput json.RawMessage `json:"tool_output,omitempty"`
+	Error      error           `json:"-"`
+	SessionID  string          `json:"session_id,omitempty"`
+	Metadata   map[string]any  `json:"metadata,omitempty"`
 }
 
 type Hook struct {

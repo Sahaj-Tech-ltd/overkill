@@ -11,26 +11,26 @@ import (
 )
 
 type TOMLModel struct {
-	Name             string                        `toml:"name"`
-	Family           string                        `toml:"family"`
-	MaxTokens        int                           `toml:"max_tokens"`
-	Reasoning        bool                          `toml:"reasoning"`
-	ToolCall         bool                          `toml:"tool_call"`
-	StructuredOutput bool                          `toml:"structured_output"`
-	Temperature      bool                          `toml:"temperature"`
-	Attachment       bool                          `toml:"attachment"`
-	OpenWeights      bool                          `toml:"open_weights"`
-	Modalities       TOMLModalities                `toml:"modalities"`
-	Cost             TOMLCost                      `toml:"cost"`
-	Extends          *TOMLExtends                  `toml:"extends"`
-	ReleaseDate      string                        `toml:"release_date"`
-	LastUpdated      string                        `toml:"last_updated"`
-	Knowledge        string                        `toml:"knowledge"`
-	Status           string                        `toml:"status"`
-	Interleaved       any                        `toml:"interleaved"`
-	Limit             TOMLLimit                  `toml:"limit"`
-	Experimental      *TOMLExperimental          `toml:"experimental,omitempty"`
-	ProviderOverride  *TOMLProviderOverride      `toml:"provider,omitempty"`
+	Name             string                `toml:"name"`
+	Family           string                `toml:"family"`
+	MaxTokens        int                   `toml:"max_tokens"`
+	Reasoning        bool                  `toml:"reasoning"`
+	ToolCall         bool                  `toml:"tool_call"`
+	StructuredOutput bool                  `toml:"structured_output"`
+	Temperature      bool                  `toml:"temperature"`
+	Attachment       bool                  `toml:"attachment"`
+	OpenWeights      bool                  `toml:"open_weights"`
+	Modalities       TOMLModalities        `toml:"modalities"`
+	Cost             TOMLCost              `toml:"cost"`
+	Extends          *TOMLExtends          `toml:"extends"`
+	ReleaseDate      string                `toml:"release_date"`
+	LastUpdated      string                `toml:"last_updated"`
+	Knowledge        string                `toml:"knowledge"`
+	Status           string                `toml:"status"`
+	Interleaved      any                   `toml:"interleaved"`
+	Limit            TOMLLimit             `toml:"limit"`
+	Experimental     *TOMLExperimental     `toml:"experimental,omitempty"`
+	ProviderOverride *TOMLProviderOverride `toml:"provider,omitempty"`
 }
 
 type TOMLModalities struct {
@@ -291,28 +291,28 @@ func (mc *ModelCatalog) toModel(id string, t *TOMLModel) *Model {
 	defaultMaxTokens := t.Limit.Output
 
 	m := &Model{
-		ID:                id,
-		Name:              t.Name,
-		Family:            t.Family,
-		MaxTokens:         t.MaxTokens,
-		ContextWindow:     contextWindow,
-		DefaultMaxTokens:  defaultMaxTokens,
-		SupportsTools:     t.ToolCall,
-		Reasoning:         t.Reasoning,
-		StructuredOutput:  t.StructuredOutput,
-		Temperature:       t.Temperature,
-		Attachment:        t.Attachment,
-		OpenWeights:       t.OpenWeights,
-		CostIn:            t.Cost.Input,
-		CostOut:           t.Cost.Output,
-		CostCacheIn:       t.Cost.CacheRead,
-		CostCacheOut:      t.Cost.CacheWrite,
-		InputModalities:   t.Modalities.Input,
-		OutputModalities:  t.Modalities.Output,
-		ReleaseDate:       t.ReleaseDate,
-		LastUpdated:       t.LastUpdated,
-		Knowledge:         t.Knowledge,
-		Status:            t.Status,
+		ID:               id,
+		Name:             t.Name,
+		Family:           t.Family,
+		MaxTokens:        t.MaxTokens,
+		ContextWindow:    contextWindow,
+		DefaultMaxTokens: defaultMaxTokens,
+		SupportsTools:    t.ToolCall,
+		Reasoning:        t.Reasoning,
+		StructuredOutput: t.StructuredOutput,
+		Temperature:      t.Temperature,
+		Attachment:       t.Attachment,
+		OpenWeights:      t.OpenWeights,
+		CostIn:           t.Cost.Input,
+		CostOut:          t.Cost.Output,
+		CostCacheIn:      t.Cost.CacheRead,
+		CostCacheOut:     t.Cost.CacheWrite,
+		InputModalities:  t.Modalities.Input,
+		OutputModalities: t.Modalities.Output,
+		ReleaseDate:      t.ReleaseDate,
+		LastUpdated:      t.LastUpdated,
+		Knowledge:        t.Knowledge,
+		Status:           t.Status,
 	}
 
 	if t.Modalities.Input != nil {
