@@ -123,6 +123,11 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		if app != nil && app.Browser != nil {
 			app.Browser.Close()
 		}
+		// Master plan §6.3: fire on_session_end so user hooks can run
+		// cleanup (e.g. push session sync, prune snapshots).
+		if app != nil && app.Agent != nil {
+			app.Agent.FireSessionEnd(context.Background())
+		}
 	}()
 
 	if _, err := prog.Run(); err != nil {
@@ -139,6 +144,12 @@ func buildTUIApp() *tui.App {
 		Config:     cfg,
 		Hooks:      hooks.NewRegistry(),
 		ConfigPath: resolvedCfgPath,
+	}
+
+	// Master plan §6.3: load user-defined shell hooks under
+	// ~/.ethos/hooks/<point>/*.sh. Best-effort — missing dir is fine.
+	if home, err := os.UserHomeDir(); err == nil {
+		_, _ = hooks.LoadFromDir(app.Hooks, filepath.Join(home, ".ethos", "hooks"))
 	}
 
 	// Per-user BadgerDB session store. Failure is non-fatal — TUI degrades
@@ -331,6 +342,12 @@ func buildTUIApp() *tui.App {
 	// SKILL.md files at ~/.ethos/skills/<name>/.
 	toolReg.Register(tools.NewSkillExtractTool(""))
 
+	// Self-learning trigger (master plan §6.2). Records per-class success
+	// counts; once 3 accumulate, fires a "save as skill?" suggestion.
+	learnTrigger := skills.NewLearnTrigger(skills.SuggestThreshold, nil)
+	toolReg.Register(tools.NewLearnRecordTool(learnTrigger))
+	app.Learn = learnTrigger
+
 	// Spider-Man test agent (master plan §4.12). Spec-isolated test
 	// generator + validator — it never sees the parent's history.
 	testAgent := agent.NewTestAgent(provider, modelName)
@@ -503,6 +520,10 @@ func buildTUIApp() *tui.App {
 	}
 
 	app.Agent = a
+
+	// Master plan §6.3: fire on_session_start once the agent is wired so
+	// user hooks see a consistent session ID.
+	a.FireSessionStart(context.Background())
 
 	// Privilege gate (master plan §4.3): start in writer mode for backward
 	// compatibility; user flips with /mode reader|writer.

@@ -119,6 +119,30 @@ func (a *Agent) SetUserInputObserver(fn func(input string)) {
 	a.mu.Unlock()
 }
 
+// FireSessionStart fires the on_session_start hook (master plan §6.3). Safe
+// to call repeatedly; callers (cmd/ethos) typically fire once on agent boot.
+func (a *Agent) FireSessionStart(ctx context.Context) {
+	if a == nil || a.hooks == nil {
+		return
+	}
+	_, _ = a.hooks.Fire(ctx, hooks.OnSessionStart, hooks.Event{
+		Point:     hooks.OnSessionStart,
+		SessionID: a.sessionID,
+	})
+}
+
+// FireSessionEnd fires the on_session_end hook. Wired into the TUI's quit
+// path so user-defined cleanup scripts get a chance to run.
+func (a *Agent) FireSessionEnd(ctx context.Context) {
+	if a == nil || a.hooks == nil {
+		return
+	}
+	_, _ = a.hooks.Fire(ctx, hooks.OnSessionEnd, hooks.Event{
+		Point:     hooks.OnSessionEnd,
+		SessionID: a.sessionID,
+	})
+}
+
 // HistoryCompactor abstracts the compaction strategy used by Agent.Compact.
 // Tiny on purpose — keeps the agent free of the compaction package import.
 type HistoryCompactor interface {
@@ -673,6 +697,22 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 
 	if len(history) == 0 {
 		return &CompactResult{}, nil
+	}
+
+	// Master plan §6.3: before/after compaction hooks.
+	if a.hooks != nil {
+		_, _ = a.hooks.Fire(ctx, hooks.BeforeCompaction, hooks.Event{
+			Point:     hooks.BeforeCompaction,
+			SessionID: a.sessionID,
+			Metadata:  map[string]any{"messages": len(history)},
+		})
+		defer func(messagesBefore int) {
+			_, _ = a.hooks.Fire(ctx, hooks.AfterCompaction, hooks.Event{
+				Point:     hooks.AfterCompaction,
+				SessionID: a.sessionID,
+				Metadata:  map[string]any{"messages_before": messagesBefore},
+			})
+		}(len(history))
 	}
 
 	tokensBefore := 0

@@ -44,6 +44,7 @@ type App struct {
 	Browser        *browser.Manager
 	Checkpoints    *checkpoint.Manager
 	StandingOrders *automation.OrdersFile
+	Learn          *skills.LearnTrigger
 
 	// Phase-3 polish features. Each is nil-safe — TUI checks before use.
 	Tags      *tags.Manager
