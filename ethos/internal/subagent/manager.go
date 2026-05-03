@@ -193,3 +193,15 @@ func (m *Manager) CostSummary() RollupSummary {
 func (m *Manager) FileState() *FileStateTracker {
 	return m.fileState
 }
+
+// ActiveChildren returns a snapshot of currently running children. Safe for
+// concurrent use; the returned slice is owned by the caller.
+func (m *Manager) ActiveChildren() []ChildRef {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]ChildRef, 0, len(m.children))
+	for _, c := range m.children {
+		out = append(out, *c)
+	}
+	return out
+}

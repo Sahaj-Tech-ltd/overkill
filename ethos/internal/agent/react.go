@@ -76,6 +76,17 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 			})
 		}
 
+		if !a.checkToolApproval(tc.Name, tc.Arguments) {
+			deniedErr := fmt.Errorf("tool %q denied by user", tc.Name)
+			result.ToolResults = append(result.ToolResults, ToolResult{
+				ToolCallID: tc.ID,
+				ToolName:   tc.Name,
+				Error:      deniedErr,
+			})
+			a.appendToolResultMessage(tc.ID, tc.Name, json.RawMessage(`{}`), deniedErr)
+			continue
+		}
+
 		var input json.RawMessage
 		if tc.Arguments != "" {
 			input = json.RawMessage(tc.Arguments)
@@ -83,6 +94,17 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 			input = json.RawMessage("{}")
 		}
 
+		// Forethought: assess the impact of this tool call BEFORE execution
+		// so subscribers (plugins, journal, telemetry) can flag protected-path
+		// edits, dangerous shell, etc. Defensive — never panics the loop.
+		a.emitImpact(tc.Name, input)
+
+		// Notify subscribers (plugins, journal) before execution.
+		a.emit("tool_call", map[string]any{
+			"tool":       tc.Name,
+			"input":      string(input),
+			"session_id": a.sessionID,
+		})
 		toolResult, toolErr := a.executeTool(ctx, tc.Name, input)
 
 		if a.hooks != nil {
@@ -109,6 +131,33 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 	}
 
 	return result, nil
+}
+
+// checkToolApproval gates a tool call on the user's permission decision.
+// Tools are considered risky if their name or arguments match common destructive
+// patterns; everything else is auto-allowed.
+func (a *Agent) checkToolApproval(toolName, args string) bool {
+	risk := classifyToolRisk(toolName, args)
+	if risk == "low" {
+		return true
+	}
+	return a.approvalCheck(toolName, args, risk)
+}
+
+// classifyToolRisk returns a coarse risk label for permission UX. Anything
+// touching the shell, filesystem writes, or network mutations is at least medium.
+func classifyToolRisk(toolName, args string) string {
+	switch toolName {
+	case "shell", "bash":
+		return "high"
+	case "fs_write", "write_file", "edit_file", "fs_delete", "patch":
+		return "medium"
+	case "git":
+		return "medium"
+	case "web_fetch":
+		return "low"
+	}
+	return "low"
 }
 
 func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage) (json.RawMessage, error) {

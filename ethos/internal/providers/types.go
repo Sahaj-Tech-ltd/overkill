@@ -63,14 +63,28 @@ type Chunk struct {
 }
 
 type Model struct {
-	ID                 string
-	Name               string
-	MaxTokens          int
-	CostIn             float64
-	CostOut            float64
-	CostCacheIn        float64
-	CostCacheOut       float64
-	SupportsTools      bool
-	SupportsStreaming  bool
-	SupportsVision     bool
+	ID                string
+	Name              string
+	Family            string
+	MaxTokens         int
+	ContextWindow     int
+	DefaultMaxTokens  int
+	CostIn            float64
+	CostOut           float64
+	CostCacheIn       float64
+	CostCacheOut      float64
+	SupportsTools     bool
+	SupportsStreaming bool
+	SupportsVision    bool
+	Reasoning         bool
+	StructuredOutput  bool
+	Temperature       bool
+	Attachment        bool
+	OpenWeights       bool
+	ReleaseDate       string
+	LastUpdated       string
+	Knowledge         string
+	Status            string
+	InputModalities   []string
+	OutputModalities  []string
 }

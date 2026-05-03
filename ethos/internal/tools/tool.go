@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,7 @@ type ExecutionOptions struct {
 }
 
 type Registry struct {
+	mu    sync.RWMutex
 	tools map[string]Tool
 }
 
@@ -43,6 +45,8 @@ func (r *Registry) Register(tool Tool) error {
 	if name == "" {
 		return fmt.Errorf("tool: cannot register tool with empty name")
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if _, exists := r.tools[name]; exists {
 		return fmt.Errorf("tool: %s already registered", name)
 	}
@@ -50,7 +54,21 @@ func (r *Registry) Register(tool Tool) error {
 	return nil
 }
 
+// Has reports whether a tool with the given name is already registered.
+// Used by callers that want idempotent registration (e.g. MCP rescans).
+func (r *Registry) Has(name string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.tools[name]
+	return ok
+}
+
 func (r *Registry) Get(name string) (Tool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	t, ok := r.tools[name]
 	if !ok {
 		return nil, fmt.Errorf("tool: %s not found", name)
@@ -59,6 +77,8 @@ func (r *Registry) Get(name string) (Tool, error) {
 }
 
 func (r *Registry) List() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	names := make([]string, 0, len(r.tools))
 	for name := range r.tools {
 		names = append(names, name)

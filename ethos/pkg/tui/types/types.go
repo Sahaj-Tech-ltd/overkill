@@ -1,8 +1,17 @@
 package types
 
 import (
+	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
 )
+
+// ModelCatalogLoadedMsg is emitted when a live/cache/baked catalog has been
+// loaded, ready for the model picker dialog to consume.
+type ModelCatalogLoadedMsg struct {
+	Catalog *providers.Catalog
+	Source  string // "live" | "cache" | "baked"
+	Err     error
+}
 
 type SendMsg struct {
 	Text        string
@@ -22,8 +31,12 @@ type AgentResponseMsg struct {
 }
 
 type AgentStreamMsg struct {
-	Chunk  string
-	Tokens int
+	Chunk      string
+	Tokens     int
+	ToolName   string
+	ToolOutput string
+	Done       bool
+	Err        error
 }
 
 type SessionLoadedMsg struct {
@@ -65,8 +78,52 @@ type SessionListMsg struct {
 }
 
 type ModelSelectedMsg struct {
-	ModelID string
+	ModelID  string
+	Provider string
 }
+
+// ToastMsg is a transient on-screen notification.
+type ToastMsg struct {
+	Text string
+	Kind string // info|success|warning|error
+}
+
+// PermissionRequestMsg asks the TUI to display the permission dialog and
+// returns the user's decision via Reply (must be buffered so the agent
+// goroutine can deliver synchronously without deadlock).
+type PermissionRequestMsg struct {
+	ToolName string
+	Args     string
+	Risk     string
+	Reply    chan<- PermissionReply
+}
+
+// PermissionReply is sent back from the dialog to the waiting agent goroutine.
+type PermissionReply struct {
+	Allow   bool
+	Persist bool
+}
+
+// QuestionRequestMsg asks the TUI to display the question dialog. The user's
+// response flows back via Reply (must be buffered).
+type QuestionRequestMsg struct {
+	Prompt  string
+	Choices []string
+	Reply   chan<- QuestionReply
+}
+
+// QuestionReply is sent back from the dialog to the waiting agent goroutine.
+type QuestionReply struct {
+	Text   string
+	Index  int
+	Cancel bool
+}
+
+// SubagentTickMsg is emitted on a periodic tick to refresh the subagent footer.
+type SubagentTickMsg struct{}
+
+// SidebarRefreshMsg drives periodic sidebar (files, cost, sessions) refresh.
+type SidebarRefreshMsg struct{}
 
 type StatusState int
 

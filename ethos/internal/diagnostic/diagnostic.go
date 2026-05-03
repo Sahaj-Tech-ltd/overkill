@@ -1,3 +1,4 @@
+// orphan: agent self-debugging (master plan §5.7); to be invoked from error-recovery flow once a result-channel is plumbed
 package diagnostic
 
 import "time"

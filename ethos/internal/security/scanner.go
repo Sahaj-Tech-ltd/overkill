@@ -8,6 +8,7 @@ import (
 )
 
 type denyPattern struct {
+	id          string
 	regex       *regexp.Regexp
 	description string
 	level       ThreatLevel
@@ -15,17 +16,34 @@ type denyPattern struct {
 }
 
 type CommandScanner struct {
-	patterns []denyPattern
-	mu       sync.Mutex
-	window   time.Duration
-	maxCmds  int
-	timestamps []time.Time
+	patterns    []denyPattern
+	mu          sync.Mutex
+	window      time.Duration
+	maxCmds     int
+	timestamps  []time.Time
+	permissions *PermissionManager
+	projectPath string
 }
 
-func NewCommandScanner() *CommandScanner {
-	return &CommandScanner{
+type CommandScannerOption func(*CommandScanner)
+
+func WithPermissionManager(pm *PermissionManager) CommandScannerOption {
+	return func(s *CommandScanner) {
+		s.permissions = pm
+	}
+}
+
+func WithProjectPath(path string) CommandScannerOption {
+	return func(s *CommandScanner) {
+		s.projectPath = path
+	}
+}
+
+func NewCommandScanner(opts ...CommandScannerOption) *CommandScanner {
+	s := &CommandScanner{
 		patterns: []denyPattern{
 			{
+				id:          "rm_rf_root",
 				regex:       regexp.MustCompile(`(?i)rm\s+-rf\s+/`),
 				description: "recursive force delete root",
 				level:       ThreatCritical,
@@ -90,6 +108,11 @@ func NewCommandScanner() *CommandScanner {
 		maxCmds:    100,
 		timestamps: make([]time.Time, 0),
 	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *CommandScanner) Name() string {
@@ -143,6 +166,22 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 	s.recordCall()
 
 	blocked := maxLevel >= ThreatHigh || rateLimited
+
+	if s.permissions != nil && blocked {
+		for _, p := range s.patterns {
+			status := s.permissions.Check(p.id, input, s.projectPath)
+			if status.Action == ActionAllowOnce || status.Action == ActionAllowProject {
+				findings = append(findings, Finding{
+					Type:        "permission_override",
+					Level:       ThreatNone,
+					Description: fmt.Sprintf("blocked by %s, but allowed by permission", p.id),
+					Confidence:  1.0,
+				})
+				blocked = false
+				break
+			}
+		}
+	}
 
 	return &ScanResult{
 		Findings:  findings,

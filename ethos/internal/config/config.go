@@ -9,6 +9,98 @@ type Config struct {
 	Session    SessionConfig     `toml:"session"`
 	Cost       CostConfig        `toml:"cost"`
 	Compaction CompactionConfig  `toml:"compaction"`
+	MCP        MCPConfig         `toml:"mcp"`
+	LSP        LSPConfig         `toml:"lsp"`
+	Skills     SkillsConfig      `toml:"skills"`
+	UI         UIConfig          `toml:"ui"`
+	Sync       SyncConfig        `toml:"sync"`
+	Share      ShareConfig       `toml:"share"`
+	ACP        ACPConfig         `toml:"acp"`
+	Plugins    PluginsConfig     `toml:"plugins"`
+}
+
+// PluginsConfig governs the subprocess plugin runtime. Disabled is a list
+// of plugin names to skip during discovery (used by /plugins toggle).
+type PluginsConfig struct {
+	Disabled []string `toml:"disabled"`
+	Dir      string   `toml:"dir"`
+}
+
+// SyncConfig governs cross-machine session sync. Backend can be one of
+// "" (disabled), "file", "s3", or "git".
+type SyncConfig struct {
+	Backend  string         `toml:"backend"`
+	AutoPush bool           `toml:"auto_push"`
+	S3       SyncS3Config   `toml:"s3"`
+	Git      SyncGitConfig  `toml:"git"`
+	File     SyncFileConfig `toml:"file"`
+}
+
+type SyncS3Config struct {
+	Endpoint  string `toml:"endpoint"`
+	Bucket    string `toml:"bucket"`
+	Region    string `toml:"region"`
+	AccessKey string `toml:"access_key"`
+	SecretKey string `toml:"secret_key"`
+	Prefix    string `toml:"prefix"`
+	UseSSL    bool   `toml:"use_ssl"`
+}
+
+type SyncGitConfig struct {
+	RemoteURL string `toml:"remote_url"`
+	Branch    string `toml:"branch"`
+	LocalDir  string `toml:"local_dir"`
+}
+
+type SyncFileConfig struct {
+	Path string `toml:"path"`
+}
+
+// ShareConfig governs the /share command and `ethos share` CLI.
+type ShareConfig struct {
+	Backend     string `toml:"backend"`      // "gist" | "transfer-sh"
+	GitHubToken string `toml:"github_token"` // PAT with gist scope
+}
+
+// ACPConfig governs the Agent Communication Protocol server.
+type ACPConfig struct {
+	Listen         string   `toml:"listen"`
+	Token          string   `toml:"token"`
+	AllowedOrigins []string `toml:"allowed_origins"`
+	Enabled        bool     `toml:"enabled"`
+}
+
+// UIConfig controls TUI-level cosmetics. Animations is a soft kill-switch for
+// every animated component — useful over slow SSH or in dumb terminals.
+type UIConfig struct {
+	Animations bool `toml:"animations"`
+}
+
+type SkillsConfig struct {
+	Enabled []string `toml:"enabled"`
+}
+
+type MCPConfig struct {
+	Servers []MCPServer `toml:"servers"`
+}
+
+type MCPServer struct {
+	Name    string            `toml:"name"`
+	Command string            `toml:"command"`
+	Args    []string          `toml:"args"`
+	Env     map[string]string `toml:"env"`
+	Enabled bool              `toml:"enabled"`
+}
+
+type LSPConfig struct {
+	Servers []LSPServer `toml:"servers"`
+}
+
+type LSPServer struct {
+	Language  string   `toml:"language"`
+	Command   string   `toml:"command"`
+	Args      []string `toml:"args"`
+	Filetypes []string `toml:"filetypes"`
 }
 
 type AgentConfig struct {
@@ -20,12 +112,13 @@ type AgentConfig struct {
 }
 
 type ProviderConfig struct {
-	Name    string            `toml:"name"`
-	Type    string            `toml:"type"`
-	APIKey  string            `toml:"api_key"`
-	BaseURL string            `toml:"base_url"`
-	Models  []ModelConfig     `toml:"models"`
-	Headers map[string]string `toml:"headers"`
+	Name     string            `toml:"name"`
+	Type     string            `toml:"type"`
+	APIKey   string            `toml:"api_key"`
+	AuthType string            `toml:"auth_type"`
+	BaseURL  string            `toml:"base_url"`
+	Models   []ModelConfig     `toml:"models"`
+	Headers  map[string]string `toml:"headers"`
 }
 
 type ModelConfig struct {

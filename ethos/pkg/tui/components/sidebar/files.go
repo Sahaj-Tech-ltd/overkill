@@ -14,6 +14,15 @@ type fileEntry struct {
 	Status  string
 }
 
+// FileEntry is the public counterpart of fileEntry, exported so external
+// callers (sidebar wiring) can populate the panel without reflection.
+type FileEntry = fileEntry
+
+// UpdateFilesPublic accepts the exported FileEntry alias.
+func (f *FilesPanel) UpdateFilesPublic(entries []FileEntry) {
+	f.UpdateFiles(entries)
+}
+
 type FilesPanel struct {
 	files  []fileEntry
 	width  int

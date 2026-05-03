@@ -1,3 +1,4 @@
+// orphan: LLM prompt rewriter middleware (master plan §6.x); not enabled by default
 package rewriter
 
 import "context"

@@ -1,0 +1,7 @@
+name = "notes"
+version = "0.1.0"
+entry = "./notes"
+description = "Quick note capture from chat"
+
+[permissions]
+events = []

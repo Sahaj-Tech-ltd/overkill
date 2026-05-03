@@ -2,34 +2,53 @@ package chat
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 
+	"github.com/Sahaj-Tech-ltd/ethos/internal/highlight"
 	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/styles"
+	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
 )
 
+// highlightFencedBlocks finds ```lang ... ``` blocks and replaces their body
+// with ANSI-highlighted output. Used during streaming where Glamour isn't
+// run on every chunk for performance.
+func highlightFencedBlocks(content string) string {
+	lines := strings.Split(content, "\n")
+	var out []string
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			lang := highlight.LangFromFence(line)
+			out = append(out, line)
+			i++
+			start := i
+			for i < len(lines) && !strings.HasPrefix(strings.TrimSpace(lines[i]), "```") {
+				i++
+			}
+			body := strings.Join(lines[start:i], "\n")
+			if body != "" {
+				body = highlight.Highlight(body, lang, highlight.DefaultTheme)
+			}
+			out = append(out, body)
+			if i < len(lines) {
+				out = append(out, lines[i])
+				i++
+			}
+			continue
+		}
+		out = append(out, line)
+		i++
+	}
+	return strings.Join(out, "\n")
+}
+
 var (
-	userStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#89b4fa")).
-			Bold(true)
-
-	assistantStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#a6e3a1")).
-			Bold(true)
-
-	toolStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#6c7086"))
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#f38ba8")).
-			Bold(true)
-
-	contentStyle = lipgloss.NewStyle()
-
 	renderCache = struct {
 		sync.RWMutex
 		entries map[string]string
@@ -39,7 +58,10 @@ var (
 	}
 )
 
-const maxCacheEntries = 100
+const (
+	maxCacheEntries = 100
+	toolPreviewLines = 3
+)
 
 func ClearCache() {
 	renderCache.Lock()
@@ -55,6 +77,10 @@ type Message struct {
 	ToolName  string
 	Timestamp time.Time
 	Width     int
+	// Streaming is true while content is still being appended. While true,
+	// assistant messages render as plain text — Glamour markdown re-renders
+	// per chunk are too expensive over SSH and cause perceived lag.
+	Streaming bool
 }
 
 func NewMessage(role, content string) Message {
@@ -70,12 +96,15 @@ func (m Message) CacheKey() string {
 	return fmt.Sprintf("%s-%d", m.ID, m.Width)
 }
 
+// View renders the message in opencode-style: minimal labels, no boxes.
 func (m Message) View(width int) string {
 	if width <= 0 {
 		width = 80
 	}
-
-	key := fmt.Sprintf("%s-%d", m.ID, width)
+	// Include content length + streaming flag so streaming updates to the
+	// same message ID don't return a stale earlier render and so the final
+	// non-streaming render is cached separately from the in-flight one.
+	key := fmt.Sprintf("%s-%d-%d-%t", m.ID, width, len(m.Content), m.Streaming)
 
 	renderCache.RLock()
 	if cached, ok := renderCache.entries[key]; ok {
@@ -84,45 +113,107 @@ func (m Message) View(width int) string {
 	}
 	renderCache.RUnlock()
 
-	var label, body string
+	t := theme.CurrentTheme()
+	var rendered string
 
 	switch m.Role {
 	case "user":
-		label = userStyle.Render("[You]")
-		body = m.Content
+		rendered = renderUser(t, m.Content, width)
 	case "assistant":
-		label = assistantStyle.Render("[Ethos]")
-		body = styles.RenderMarkdown(m.Content, width)
+		rendered = renderAssistant(t, m.Content, width, m.Streaming)
 	case "tool":
-		toolLabel := fmt.Sprintf("[Tool: %s]", m.ToolName)
-		label = toolStyle.Render(toolLabel)
-		body = m.Content
+		rendered = renderTool(t, m.ToolName, m.Content, width)
 	case "error":
-		label = errorStyle.Render("[Error]")
-		body = m.Content
+		rendered = renderError(t, m.Content, width)
 	default:
-		label = fmt.Sprintf("[%s]", m.Role)
-		body = m.Content
+		rendered = renderGeneric(t, m.Role, m.Content, width)
 	}
 
-	if body == "" {
-		placeholder := fmt.Sprintf("(%s)", m.Role)
-		result := fmt.Sprintf("%s %s", label, contentStyle.Render(placeholder))
-		cachePut(key, result)
-		return result
+	cachePut(key, rendered)
+	return rendered
+}
+
+func renderUser(t theme.Theme, content string, width int) string {
+	label := lipgloss.NewStyle().
+		Foreground(t.Primary()).
+		Bold(true).
+		Render("you")
+	body := lipgloss.NewStyle().
+		Foreground(t.Text()).
+		Width(width).
+		Align(lipgloss.Right).
+		Render(content)
+	labelLine := lipgloss.NewStyle().
+		Width(width).
+		Align(lipgloss.Right).
+		Render(label)
+	return labelLine + "\n" + body
+}
+
+func renderAssistant(t theme.Theme, content string, width int, streaming bool) string {
+	label := lipgloss.NewStyle().
+		Foreground(t.Accent()).
+		Bold(true).
+		Render("ethos")
+	var body string
+	if streaming {
+		// Plain text while streaming — markdown parsing on every token
+		// chunk burns CPU and floods SSH with rewrites. We still apply a
+		// lightweight syntax-highlight pass over any complete fenced blocks
+		// so even mid-stream code reads cleanly.
+		highlighted := highlightFencedBlocks(content)
+		body = lipgloss.NewStyle().
+			Foreground(t.Text()).
+			Width(width).
+			Render(highlighted)
+	} else {
+		body = styles.RenderMarkdown(content, width)
+		body = strings.TrimRight(body, "\n")
+	}
+	return label + "\n" + body
+}
+
+func renderTool(t theme.Theme, name, content string, width int) string {
+	header := lipgloss.NewStyle().
+		Foreground(t.TextMuted()).
+		Render("→ " + name)
+
+	if strings.TrimSpace(content) == "" {
+		return header
 	}
 
-	plainLabelLen := ansi.StringWidth(label) + 1
-	contentWidth := width - plainLabelLen
-	if contentWidth < 10 {
-		contentWidth = 10
+	indent := "  "
+	lines := strings.Split(content, "\n")
+	hidden := 0
+	if len(lines) > toolPreviewLines {
+		hidden = len(lines) - toolPreviewLines
+		lines = lines[:toolPreviewLines]
 	}
 
-	rendered := contentStyle.Render(ansi.Truncate(body, contentWidth, "…"))
-	result := fmt.Sprintf("%s %s", label, rendered)
+	bodyStyle := lipgloss.NewStyle().Foreground(t.TextMuted())
+	var rendered []string
+	for _, line := range lines {
+		rendered = append(rendered, bodyStyle.Render(indent+line))
+	}
+	if hidden > 0 {
+		rendered = append(rendered, bodyStyle.Italic(true).Render(
+			fmt.Sprintf("%s(%d more lines)", indent, hidden),
+		))
+	}
+	return header + "\n" + strings.Join(rendered, "\n")
+}
 
-	cachePut(key, result)
-	return result
+func renderError(t theme.Theme, content string, width int) string {
+	style := lipgloss.NewStyle().Foreground(t.Error()).Bold(true)
+	return style.Render("✗ " + content)
+}
+
+func renderGeneric(t theme.Theme, role, content string, width int) string {
+	label := lipgloss.NewStyle().Foreground(t.TextMuted()).Render(role)
+	if content == "" {
+		return label
+	}
+	return label + "\n" + content
 }
 
 func cachePut(key, value string) {

@@ -1,3 +1,4 @@
+// orphan: vertical slicer (master plan §5.4); needs /slice slash command
 package pipeline
 
 import (

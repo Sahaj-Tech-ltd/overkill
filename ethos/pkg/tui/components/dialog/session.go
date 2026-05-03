@@ -15,6 +15,15 @@ type ShowSessionDialogMsg struct{}
 type CloseSessionDialogMsg struct{}
 type SessionSelectedMsg struct{ Session *session.Session }
 
+// SessionRenameRequestMsg is emitted when the user presses 'r' in the list.
+type SessionRenameRequestMsg struct{ Session *session.Session }
+
+// SessionDeleteRequestMsg is emitted when the user presses 'd' in the list.
+type SessionDeleteRequestMsg struct{ Session *session.Session }
+
+// SessionNewRequestMsg is emitted when the user presses 'n' in the list.
+type SessionNewRequestMsg struct{}
+
 type SessionDialog struct {
 	Dialog
 	Sessions   []*session.Session
@@ -51,6 +60,16 @@ func (s SessionDialog) Update(msg tea.Msg) (SessionDialog, tea.Cmd) {
 				sel := s.Sessions[s.Cursor]
 				return s, func() tea.Msg { return SessionSelectedMsg{Session: sel} }
 			}
+		case "r":
+			if s.Cursor < len(s.Sessions) {
+				return s, func() tea.Msg { return SessionRenameRequestMsg{Session: s.Sessions[s.Cursor]} }
+			}
+		case "d":
+			if s.Cursor < len(s.Sessions) {
+				return s, func() tea.Msg { return SessionDeleteRequestMsg{Session: s.Sessions[s.Cursor]} }
+			}
+		case "n":
+			return s, func() tea.Msg { return SessionNewRequestMsg{} }
 		case "esc":
 			return s, func() tea.Msg { return CloseSessionDialogMsg{} }
 		}
@@ -83,6 +102,8 @@ func (s SessionDialog) View(totalWidth, totalHeight int) string {
 		}
 		lines = append(lines, fmt.Sprintf("%s%s - %s - %d msgs", prefix, name, ago, sess.TurnCount))
 	}
+	lines = append(lines, "")
+	lines = append(lines, "enter: switch · n: new · r: rename · d: delete · esc")
 	content := strings.Join(lines, "\n")
 	return s.BaseView(content, totalWidth, totalHeight)
 }

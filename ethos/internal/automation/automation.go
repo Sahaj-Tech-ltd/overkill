@@ -1,3 +1,4 @@
+// orphan: Phase 2 SOP/routine engine (master plan §5.3); not yet wired into a /routine slash command
 package automation
 
 import (

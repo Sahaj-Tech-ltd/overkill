@@ -5,6 +5,9 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
 )
 
 type Command struct {
@@ -99,16 +102,60 @@ func (c CommandDialog) View(totalWidth, totalHeight int) string {
 	if !c.Show {
 		return ""
 	}
-	var lines []string
-	for i, cmd := range c.Filtered {
-		prefix := "  "
-		if i == c.Cursor {
-			prefix = "> "
-		}
-		lines = append(lines, fmt.Sprintf("%s%s — %s", prefix, cmd.Title, cmd.Description))
+	t := theme.CurrentTheme()
+
+	// Render every row at the same width, padded with background color, so
+	// cursor moves don't leave trailing characters from the previous row's
+	// render. Highlight the active row with the dialog's accent background.
+	const rowWidth = 50
+
+	rowStyle := lipgloss.NewStyle().Width(rowWidth).Foreground(t.DialogText())
+	cursorStyle := lipgloss.NewStyle().
+		Width(rowWidth).
+		Foreground(t.DialogBackground()).
+		Background(t.DialogAccent()).
+		Bold(true)
+
+	// Compute window: leave room for borders, padding, title, and the two
+	// "N more" hint lines. Floor at 5 so we always show *something*.
+	maxRows := totalHeight - 8
+	if maxRows > 15 {
+		maxRows = 15
 	}
+	if maxRows < 5 {
+		maxRows = 5
+	}
+
+	// Build display strings first, then window them.
+	rendered := make([]string, len(c.Filtered))
+	for i, cmd := range c.Filtered {
+		text := fmt.Sprintf("  %s — %s", cmd.Title, cmd.Description)
+		if i == c.Cursor {
+			rendered[i] = cursorStyle.Render(text)
+		} else {
+			rendered[i] = rowStyle.Render(text)
+		}
+	}
+	visible, before, after := Window(rendered, c.Cursor, maxRows)
+
+	hintStyle := lipgloss.NewStyle().Width(rowWidth).Foreground(t.DialogText()).Faint(true)
+
+	var lines []string
+	if before > 0 {
+		lines = append(lines, hintStyle.Render(fmt.Sprintf("  ↑ %d more", before)))
+	}
+	lines = append(lines, visible...)
+	if after > 0 {
+		lines = append(lines, hintStyle.Render(fmt.Sprintf("  ↓ %d more", after)))
+	}
+
 	if len(c.Filtered) == 0 {
-		lines = append(lines, "No matching commands")
+		muted := lipgloss.NewStyle().
+			Width(rowWidth).
+			Foreground(t.DialogText()).
+			Italic(true).
+			Render("  no matching commands")
+		lines = []string{muted}
 	}
 	content := strings.Join(lines, "\n")
 	return c.BaseView(content, totalWidth, totalHeight)

@@ -1,3 +1,4 @@
+// orphan: LCM + prompt-compress middleware (master plan §4.x); awaiting providers-side wiring when cfg.Compaction.PromptCompress is true
 package compaction
 
 import (

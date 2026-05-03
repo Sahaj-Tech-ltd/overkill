@@ -1,3 +1,4 @@
+// orphan: embeddings-backed recall (master plan §6.x); needs Python bridge for semantic search
 package memory
 
 import (

@@ -35,15 +35,15 @@ type BridgeStatusMsg = tuitypes.BridgeStatusMsg
 type SessionListMsg = tuitypes.SessionListMsg
 type ModelSelectedMsg = tuitypes.ModelSelectedMsg
 type StatusState = tuitypes.StatusState
+type ToastMsg = tuitypes.ToastMsg
+type PermissionRequestMsg = tuitypes.PermissionRequestMsg
+type PermissionReply = tuitypes.PermissionReply
+type SubagentTickMsg = tuitypes.SubagentTickMsg
+type SidebarRefreshMsg = tuitypes.SidebarRefreshMsg
 
 const (
-	StatusIdle      = tuitypes.StatusIdle
-	StatusThinking  = tuitypes.StatusThinking
+	StatusIdle       = tuitypes.StatusIdle
+	StatusThinking   = tuitypes.StatusThinking
 	StatusGenerating = tuitypes.StatusGenerating
-	StatusToolCall  = tuitypes.StatusToolCall
+	StatusToolCall   = tuitypes.StatusToolCall
 )
-
-type BootCompleteMsg struct {
-	FunFact string
-	SoulMD  string
-}

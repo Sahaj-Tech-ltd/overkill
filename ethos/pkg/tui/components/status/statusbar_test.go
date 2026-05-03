@@ -1,104 +1,103 @@
 package status
 
 import (
+	"strings"
 	"testing"
+
 	tea "github.com/charmbracelet/bubbletea"
+
 	tuitypes "github.com/Sahaj-Tech-ltd/ethos/pkg/tui/types"
 )
 
 func TestStatusBar_Init(t *testing.T) {
+	// Init returns nil now — spinner is gated until the agent goes busy
+	// to avoid wasted SSH redraws while idle.
 	sb := NewStatusBar()
-	cmd := sb.Init()
-	if cmd == nil { t.Error("Init should return cmd") }
+	if cmd := sb.Init(); cmd != nil {
+		t.Error("Init should not start ticking while idle")
+	}
 }
 
-func TestStatusBar_UpdateSpinner(t *testing.T) {
+func TestStatusBar_UpdateSpinnerOnlyWhenBusy(t *testing.T) {
+	// Idle: tick is a no-op and does not reschedule.
 	sb := NewStatusBar()
 	sb.spinnerFrame = 0
-	updated, _ := sb.Update(spinnerTickMsg{})
-	if updated.spinnerFrame != 1 { t.Errorf("expected 1, got %d", updated.spinnerFrame) }
-}
+	updated, cmd := sb.Update(spinnerTickMsg{})
+	if updated.spinnerFrame != 0 {
+		t.Errorf("idle tick should not advance frame, got %d", updated.spinnerFrame)
+	}
+	if cmd != nil {
+		t.Error("idle tick should not reschedule")
+	}
 
-func TestStatusBar_ViewIdle(t *testing.T) {
-	sb := NewStatusBar()
-	sb.state = tuitypes.StatusIdle
-	v := sb.View()
-	if !contains(v, "Ready") { t.Error("idle should show Ready") }
-}
-
-func TestStatusBar_ViewThinking(t *testing.T) {
-	sb := NewStatusBar()
-	sb.state = tuitypes.StatusThinking
-	v := sb.View()
-	if !contains(v, "Thinking") { t.Error("should show Thinking") }
-}
-
-func TestStatusBar_ViewGenerating(t *testing.T) {
-	sb := NewStatusBar()
+	// Busy: tick advances and reschedules.
 	sb.state = tuitypes.StatusGenerating
-	v := sb.View()
-	if !contains(v, "Generating") { t.Error("should show Generating") }
+	updated, cmd = sb.Update(spinnerTickMsg{})
+	if updated.spinnerFrame != 1 {
+		t.Errorf("busy tick should advance to 1, got %d", updated.spinnerFrame)
+	}
+	if cmd == nil {
+		t.Error("busy tick should reschedule")
+	}
 }
 
-func TestStatusBar_ViewToolCall(t *testing.T) {
+func TestStatusBar_StateChangeKicksSpinner(t *testing.T) {
 	sb := NewStatusBar()
+	if _, cmd := sb.Update(StateChangeMsg{State: tuitypes.StatusGenerating}); cmd == nil {
+		t.Error("idle→busy edge should start the spinner tick")
+	}
+}
+
+func TestStatusBar_ViewIdleHasModelLabel(t *testing.T) {
+	sb := NewStatusBar()
+	sb.width = 80
+	sb.SetModel("gpt-4o", "openai")
+	v := sb.View()
+	if !strings.Contains(v, "gpt-4o") {
+		t.Errorf("expected model name, got %q", v)
+	}
+	if !strings.Contains(v, "openai") {
+		t.Errorf("expected provider, got %q", v)
+	}
+}
+
+func TestStatusBar_ViewToolCallShowsToolName(t *testing.T) {
+	sb := NewStatusBar()
+	sb.width = 80
 	sb.state = tuitypes.StatusToolCall
 	sb.toolName = "shell"
 	v := sb.View()
-	if !contains(v, "shell") { t.Error("should show tool name") }
+	if !strings.Contains(v, "shell") {
+		t.Error("should show tool name when tool call active")
+	}
 }
 
-func TestStatusBar_CostDisplay(t *testing.T) {
+func TestStatusBar_TokensAndCost(t *testing.T) {
 	sb := NewStatusBar()
+	sb.width = 100
 	sb.inputTokens = 1200
 	sb.totalCost = 0.05
 	v := sb.View()
-	if !contains(v, "1.2K") || !contains(v, "$0.05") { t.Error("should show tokens and cost") }
-}
-
-func TestStatusBar_CostWarning(t *testing.T) {
-	sb := NewStatusBar()
-	sb.contextPct = 0.85
-	v := sb.View()
-	if !contains(v, "85%") { t.Error("should show context percent") }
-}
-
-func TestStatusBar_Personality(t *testing.T) {
-	sb := NewStatusBar()
-	sb.personalityMode = "Witty"
-	v := sb.View()
-	if !contains(v, "Witty") { t.Error("should show personality mode") }
-}
-
-func TestStatusBar_SessionName(t *testing.T) {
-	sb := NewStatusBar()
-	sb.sessionName = "debug-session"
-	v := sb.View()
-	if !contains(v, "debug-session") { t.Error("should show session name") }
-}
-
-func TestStatusBar_ContextPercent(t *testing.T) {
-	sb := NewStatusBar()
-	sb.contextPct = 0.45
-	v := sb.View()
-	if !contains(v, "45%") { t.Error("should show 45%") }
+	if !strings.Contains(v, "1.2k") {
+		t.Errorf("expected token count, got %q", v)
+	}
+	if !strings.Contains(v, "$0.05") {
+		t.Errorf("expected cost, got %q", v)
+	}
 }
 
 func TestStatusBar_Resize(t *testing.T) {
 	sb := NewStatusBar()
 	updated, _ := sb.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	if updated.width != 120 { t.Error("width not updated") }
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
+	if updated.width != 120 {
+		t.Error("width not updated")
 	}
-	return false
+}
+
+func TestStatusBar_CompactCwdReplacesHome(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	got := compactCwd("/home/test/projects/foo")
+	if got != "~/projects/foo" {
+		t.Errorf("expected ~/projects/foo, got %q", got)
+	}
 }

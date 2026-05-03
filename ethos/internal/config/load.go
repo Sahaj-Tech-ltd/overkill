@@ -58,6 +58,9 @@ func Default() *Config {
 			PreserveMessages:   20,
 			MaxSummaryTokens:   2048,
 		},
+		UI: UIConfig{
+			Animations: true,
+		},
 	}
 }
 

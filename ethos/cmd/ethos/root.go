@@ -87,7 +87,7 @@ var rootCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runAgent(cmd, args)
+		return runTUI(cmd, args)
 	},
 }
 

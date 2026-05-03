@@ -1,3 +1,4 @@
+// orphan: quality-gate runner (master plan §5.6); needs /walls slash command
 package walls
 
 type WallID int

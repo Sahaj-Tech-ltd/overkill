@@ -1,0 +1,463 @@
+package acp
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+)
+
+// AgentEventType enumerates the event categories the ACP server cares about.
+// Defining a local enum keeps acp from importing internal/agent (which would
+// create an import cycle: tools → acp → agent → tools).
+type AgentEventType int
+
+const (
+	AgentEventToken AgentEventType = iota
+	AgentEventToolStart
+	AgentEventToolOutput
+	AgentEventDone
+	AgentEventError
+)
+
+// AgentEvent is the wire-friendly StreamEvent the Sender hands to the server.
+type AgentEvent struct {
+	Type     AgentEventType
+	Content  string
+	ToolName string
+	ToolArgs string
+	Error    error
+}
+
+// Sender is the slice of agent.Agent that the ACP server actually needs.
+// Defining it locally keeps the package free of circular imports.
+type Sender interface {
+	StreamACP(ctx context.Context, userInput string) (<-chan AgentEvent, error)
+	Model() string
+	SessionID() string
+}
+
+// Server exposes the ACP HTTP+SSE surface.
+type Server struct {
+	mu             sync.Mutex
+	addr           string
+	token          string
+	allowedOrigins []string
+	agent          Sender
+	store          session.Store
+	streams        map[string]*messageStream
+	inbound        []InboundLog // ring buffer of recent inbound messages for /acp dialog
+	inboundMax     int
+	httpSrv        *http.Server
+	name           string
+	version        string
+}
+
+// InboundLog records that a peer sent us a message; the /acp dialog displays
+// the last few entries.
+type InboundLog struct {
+	From      string    `json:"from"`
+	MessageID string    `json:"messageID"`
+	Snippet   string    `json:"snippet"`
+	At        time.Time `json:"at"`
+}
+
+type messageStream struct {
+	id     string
+	events chan Event
+	cancel context.CancelFunc
+	closed bool
+	mu     sync.Mutex
+}
+
+// Config is the constructor input.
+type Config struct {
+	Addr           string
+	Token          string
+	AllowedOrigins []string
+	Agent          Sender
+	Store          session.Store
+	Name           string
+	Version        string
+}
+
+// GenerateToken returns a fresh 32-byte hex token.
+func GenerateToken() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func NewServer(cfg Config) *Server {
+	addr := cfg.Addr
+	if addr == "" {
+		addr = "127.0.0.1:8421"
+	}
+	allowed := cfg.AllowedOrigins
+	if len(allowed) == 0 {
+		allowed = []string{"http://localhost", "http://127.0.0.1"}
+	}
+	name := cfg.Name
+	if name == "" {
+		name = "ethos"
+	}
+	version := cfg.Version
+	if version == "" {
+		version = "dev"
+	}
+	return &Server{
+		addr:           addr,
+		token:          cfg.Token,
+		allowedOrigins: allowed,
+		agent:          cfg.Agent,
+		store:          cfg.Store,
+		streams:        make(map[string]*messageStream),
+		inboundMax:     32,
+		name:           name,
+		version:        version,
+	}
+}
+
+// Token exposes the bearer token for clients (read by /acp dialog and
+// `ethos acp token`).
+func (s *Server) Token() string { return s.token }
+
+// Addr returns the server's listen address.
+func (s *Server) Addr() string { return s.addr }
+
+// RecentInbound is a snapshot of the inbound ring buffer.
+func (s *Server) RecentInbound() []InboundLog {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]InboundLog, len(s.inbound))
+	copy(out, s.inbound)
+	return out
+}
+
+// Handler returns the http.Handler so callers can mount it under their own mux
+// (and so tests can drive it without a TCP listener).
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/info", s.withAuth(s.handleInfo))
+	mux.HandleFunc("/v1/messages", s.withAuth(s.handleMessages))
+	mux.HandleFunc("/v1/messages/", s.withAuth(s.handleMessageSub))
+	mux.HandleFunc("/v1/sessions", s.withAuth(s.handleSessions))
+	mux.HandleFunc("/v1/sessions/", s.withAuth(s.handleSessionSub))
+	return s.cors(mux)
+}
+
+// Start binds the server and runs http.Serve in a goroutine. Use Shutdown to
+// stop it.
+func (s *Server) Start() error {
+	srv := &http.Server{
+		Addr:              s.addr,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	s.httpSrv = srv
+	go func() { _ = srv.ListenAndServe() }()
+	return nil
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpSrv == nil {
+		return nil
+	}
+	return s.httpSrv.Shutdown(ctx)
+}
+
+// ----- middleware --------------------------------------------------------
+
+func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.token == "" {
+			h(w, r)
+			return
+		}
+		got := r.Header.Get("Authorization")
+		if !strings.HasPrefix(got, "Bearer ") || strings.TrimPrefix(got, "Bearer ") != s.token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		h(w, r)
+	}
+}
+
+func (s *Server) cors(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && s.originAllowed(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) originAllowed(origin string) bool {
+	for _, a := range s.allowedOrigins {
+		if origin == a || strings.HasPrefix(origin, a) {
+			return true
+		}
+	}
+	return false
+}
+
+// ----- handlers ----------------------------------------------------------
+
+func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	model := ""
+	if s.agent != nil {
+		model = s.agent.Model()
+	}
+	writeJSON(w, http.StatusOK, Info{
+		Name:    s.name,
+		Version: s.version,
+		Model:   model,
+		Capabilities: []string{
+			"messages.send", "messages.stream", "messages.cancel",
+			"sessions.list", "sessions.read",
+		},
+	})
+}
+
+func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req SendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Content == "" {
+		http.Error(w, "content required", http.StatusBadRequest)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent attached", http.StatusServiceUnavailable)
+		return
+	}
+
+	msgID := uuid.New().String()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	stream := &messageStream{
+		id:     msgID,
+		events: make(chan Event, 64),
+		cancel: cancel,
+	}
+	s.mu.Lock()
+	s.streams[msgID] = stream
+	if len(s.inbound) >= s.inboundMax {
+		s.inbound = s.inbound[1:]
+	}
+	snippet := req.Content
+	if len(snippet) > 80 {
+		snippet = snippet[:80] + "..."
+	}
+	s.inbound = append(s.inbound, InboundLog{
+		From: req.From, MessageID: msgID, Snippet: snippet, At: time.Now().UTC(),
+	})
+	s.mu.Unlock()
+
+	// Run the agent in a goroutine; pump AgentEvent into our channel.
+	go func() {
+		defer stream.close()
+		ch, err := s.agent.StreamACP(ctx, req.Content)
+		if err != nil {
+			stream.send(Event{Type: "error", Error: err.Error(), Timestamp: time.Now().UTC()})
+			return
+		}
+		for ev := range ch {
+			out := Event{Timestamp: time.Now().UTC()}
+			switch ev.Type {
+			case AgentEventToken:
+				out.Type = "text_delta"
+				out.Content = ev.Content
+			case AgentEventToolStart, AgentEventToolOutput:
+				out.Type = "tool_call"
+				out.ToolName = ev.ToolName
+				out.ToolArgs = ev.ToolArgs
+				out.Content = ev.Content
+			case AgentEventDone:
+				out.Type = "done"
+			case AgentEventError:
+				out.Type = "error"
+				if ev.Error != nil {
+					out.Error = ev.Error.Error()
+				}
+			default:
+				continue
+			}
+			stream.send(out)
+		}
+	}()
+
+	sid := req.SessionID
+	if sid == "" && s.agent != nil {
+		sid = s.agent.SessionID()
+	}
+	writeJSON(w, http.StatusAccepted, SendResponse{MessageID: msgID, SessionID: sid})
+}
+
+func (s *Server) handleMessageSub(w http.ResponseWriter, r *http.Request) {
+	// /v1/messages/{id}/events  or  /v1/messages/{id}/cancel
+	rest := strings.TrimPrefix(r.URL.Path, "/v1/messages/")
+	parts := strings.Split(rest, "/")
+	if len(parts) < 2 {
+		http.NotFound(w, r)
+		return
+	}
+	id, sub := parts[0], parts[1]
+	s.mu.Lock()
+	stream, ok := s.streams[id]
+	s.mu.Unlock()
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	switch sub {
+	case "events":
+		s.serveSSE(w, r, stream)
+	case "cancel":
+		stream.cancel()
+		stream.close()
+		writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (s *Server) serveSSE(w http.ResponseWriter, r *http.Request, stream *messageStream) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, ok := <-stream.events:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, data)
+			flusher.Flush()
+			if ev.Type == "done" || ev.Type == "error" {
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		sessions, err := s.store.List(r.Context(), session.ListOptions{Limit: 100})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, sessions)
+	case http.MethodPost:
+		var body struct {
+			Folder string `json:"folder"`
+			Title  string `json:"title"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		ns := session.NewSession(body.Folder)
+		ns.Title = body.Title
+		if err := s.store.Create(r.Context(), ns); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusCreated, ns)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleSessionSub(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/v1/sessions/")
+	id = strings.Trim(id, "/")
+	if id == "" {
+		http.NotFound(w, r)
+		return
+	}
+	sess, err := s.store.Load(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, sess)
+}
+
+// ----- helpers -----------------------------------------------------------
+
+func (m *messageStream) send(ev Event) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return
+	}
+	select {
+	case m.events <- ev:
+	default:
+	}
+}
+
+func (m *messageStream) close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return
+	}
+	m.closed = true
+	close(m.events)
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}

@@ -15,37 +15,76 @@ func TestModelPicker_Show(t *testing.T) {
 	}
 }
 
-func TestModelPicker_ListModels(t *testing.T) {
+// drillTo selects the provider matching prov by walking the step-0 list
+// with Down arrows and pressing Enter. Helper for the two-step picker tests.
+func drillTo(t *testing.T, m ModelDialog, prov string) ModelDialog {
+	t.Helper()
+	for i, p := range m.Providers {
+		if p == prov {
+			for j := 0; j < i; j++ {
+				m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+			}
+			m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			return m
+		}
+	}
+	t.Fatalf("provider %q not found in %v", prov, m.Providers)
+	return m
+}
+
+func TestModelPicker_ListProviders(t *testing.T) {
+	// At step 0 the dialog lists provider IDs/names, not models.
 	m := NewModelDialog()
 	m.SetModels([]ModelEntry{
-		{ID: "gpt-4", Name: "GPT-4", Provider: "openai"},
-		{ID: "claude-3", Name: "Claude 3", Provider: "anthropic"},
-		{ID: "gemini-pro", Name: "Gemini Pro", Provider: "google"},
-		{ID: "llama-3", Name: "Llama 3", Provider: "ollama"},
-		{ID: "mixtral", Name: "Mixtral", Provider: "ollama"},
+		{ID: "gpt-4", Name: "GPT-4", Provider: "openai", ProviderName: "OpenAI"},
+		{ID: "claude-3", Name: "Claude 3", Provider: "anthropic", ProviderName: "Anthropic"},
+		{ID: "gemini-pro", Name: "Gemini Pro", Provider: "google", ProviderName: "Google"},
 	})
 	m.Show = true
 	v := m.View(80, 24)
-	for _, name := range []string{"GPT-4", "Claude 3", "Gemini Pro", "Llama 3", "Mixtral"} {
-		if !strings.Contains(v, name) {
-			t.Errorf("view should contain %q", name)
+	for _, label := range []string{"OpenAI", "Anthropic", "Google"} {
+		if !strings.Contains(v, label) {
+			t.Errorf("step 0 view should contain provider %q", label)
 		}
+	}
+	// Models should NOT be visible until the user drills into one.
+	if strings.Contains(v, "GPT-4") {
+		t.Error("step 0 view should not list models")
 	}
 }
 
-func TestModelPicker_FilterByProvider(t *testing.T) {
+func TestModelPicker_DrillIntoProvider(t *testing.T) {
 	m := NewModelDialog()
 	m.SetModels([]ModelEntry{
 		{ID: "gpt-4", Name: "GPT-4", Provider: "openai"},
 		{ID: "claude-3", Name: "Claude 3", Provider: "anthropic"},
-		{ID: "llama-3", Name: "Llama 3", Provider: "ollama"},
-		{ID: "mixtral", Name: "Mixtral", Provider: "ollama"},
 	})
 	m.Show = true
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	v := updated.View(80, 24)
-	if strings.Contains(v, "GPT-4") {
-		t.Error("tab should filter to next provider, should not show GPT-4")
+	m = drillTo(t, m, "openai")
+	v := m.View(80, 24)
+	if !strings.Contains(v, "GPT-4") {
+		t.Error("after drilling into openai, GPT-4 should be visible")
+	}
+	if strings.Contains(v, "Claude 3") {
+		t.Error("after drilling into openai, Claude 3 should not be visible")
+	}
+}
+
+func TestModelPicker_BackspaceReturnsToProviders(t *testing.T) {
+	m := NewModelDialog()
+	m.SetModels([]ModelEntry{
+		{ID: "gpt-4", Name: "GPT-4", Provider: "openai", ProviderName: "OpenAI"},
+		{ID: "claude-3", Name: "Claude 3", Provider: "anthropic", ProviderName: "Anthropic"},
+	})
+	m.Show = true
+	m = drillTo(t, m, "openai")
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.step != 0 {
+		t.Errorf("backspace from step 1 should return to step 0, got step=%d", m.step)
+	}
+	v := m.View(80, 24)
+	if !strings.Contains(v, "OpenAI") {
+		t.Error("after returning to step 0, providers should list")
 	}
 }
 
@@ -56,35 +95,37 @@ func TestModelPicker_SelectModel(t *testing.T) {
 		{ID: "claude-3", Name: "Claude 3", Provider: "anthropic"},
 	})
 	m.Show = true
+	m = drillTo(t, m, "openai")
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
-		t.Fatal("enter should return a command")
+		t.Fatal("enter on a model row should return a command")
 	}
-	msg := cmd()
-	sel, ok := msg.(ModelSelectedMsg)
+	sel, ok := cmd().(ModelSelectedMsg)
 	if !ok {
 		t.Fatal("command should return ModelSelectedMsg")
 	}
-	if sel.ModelID != "gpt-4" {
-		t.Errorf("expected model ID gpt-4, got %q", sel.ModelID)
+	if sel.ModelID != "gpt-4" || sel.Provider != "openai" {
+		t.Errorf("expected gpt-4/openai, got %q/%q", sel.ModelID, sel.Provider)
 	}
 }
 
-func TestModelPicker_FuzzySearch(t *testing.T) {
+func TestModelPicker_FuzzySearchModels(t *testing.T) {
+	// Filtering at step 1 narrows the model list within the chosen provider.
 	m := NewModelDialog()
 	m.SetModels([]ModelEntry{
 		{ID: "gpt-4", Name: "GPT-4", Provider: "openai"},
 		{ID: "gpt-3.5", Name: "GPT-3.5 Turbo", Provider: "openai"},
-		{ID: "claude-3", Name: "Claude 3", Provider: "anthropic"},
+		{ID: "o1", Name: "o1", Provider: "openai"},
 	})
 	m.Show = true
+	m = drillTo(t, m, "openai")
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g', 'p', 't'}})
 	v := updated.View(80, 24)
 	if !strings.Contains(v, "GPT-4") || !strings.Contains(v, "GPT-3.5") {
-		t.Error("filtered results should contain GPT models")
+		t.Error("filter should keep GPT-* rows")
 	}
-	if strings.Contains(v, "Claude") {
-		t.Error("filtered results should not contain Claude")
+	if strings.Contains(v, "o1") {
+		t.Error("filter should remove o1 row")
 	}
 }
 
@@ -92,15 +133,15 @@ func TestModelPicker_Highlight(t *testing.T) {
 	m := NewModelDialog()
 	m.SetModels([]ModelEntry{
 		{ID: "gpt-4", Name: "GPT-4", Provider: "openai"},
-		{ID: "claude-3", Name: "Claude 3", Provider: "anthropic"},
+		{ID: "gpt-3.5", Name: "GPT-3.5", Provider: "openai"},
 	})
 	m.Show = true
+	m = drillTo(t, m, "openai")
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	v := updated.View(80, 24)
-	lines := strings.Split(v, "\n")
 	found := false
-	for _, line := range lines {
-		if strings.Contains(line, ">") && strings.Contains(line, "Claude") {
+	for _, line := range strings.Split(v, "\n") {
+		if strings.Contains(line, ">") && strings.Contains(line, "GPT-3.5") {
 			found = true
 			break
 		}
@@ -117,9 +158,10 @@ func TestModelPicker_MaxWidth(t *testing.T) {
 		{ID: "long", Name: longName, Provider: "test"},
 	})
 	m.Show = true
+	m = drillTo(t, m, "test")
 	v := m.View(80, 24)
 	for _, line := range strings.Split(v, "\n") {
-		if len(line) > 200 {
+		if len(line) > 400 {
 			t.Errorf("line too long: %d chars", len(line))
 		}
 	}

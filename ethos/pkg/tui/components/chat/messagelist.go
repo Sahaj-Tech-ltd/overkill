@@ -34,6 +34,30 @@ func (m *MessageListModel) Append(msg Message) {
 	m.offset = maxOffset
 }
 
+// UpdateLastAssistant rewrites the most recent assistant message in place. Used
+// while streaming a response so we don't append a new bubble per token.
+func (m *MessageListModel) UpdateLastAssistant(content string) {
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		if m.messages[i].Role == "assistant" {
+			m.messages[i].Content = content
+			m.messages[i].Streaming = true
+			return
+		}
+	}
+}
+
+// FinalizeLastAssistant marks the most recent assistant message as no longer
+// streaming so the next render uses the markdown renderer instead of plain
+// text. Called once on stream Done.
+func (m *MessageListModel) FinalizeLastAssistant() {
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		if m.messages[i].Role == "assistant" {
+			m.messages[i].Streaming = false
+			return
+		}
+	}
+}
+
 func (m MessageListModel) Update(msg tea.Msg) (MessageListModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -77,7 +101,7 @@ func (m MessageListModel) View() string {
 	var result string
 	for i, line := range lines {
 		if i > 0 {
-			result += "\n"
+			result += "\n\n"
 		}
 		result += line
 	}

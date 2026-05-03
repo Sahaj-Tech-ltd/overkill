@@ -7,13 +7,20 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"strings"
 	"time"
 )
 
-var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+var (
+	ansiRe          = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	markerTextRe    = regexp.MustCompile(`\s*__ETHOS_DONE__\s*`)
+	trailingBlankRe = regexp.MustCompile(`\n+$`)
+)
+
+const ethosDoneMarker = "__ETHOS_DONE__"
 
 type ShellTool struct {
-	maxTimeout       time.Duration
+	maxTimeout        time.Duration
 	defaultWorkingDir string
 }
 
@@ -25,15 +32,16 @@ type ShellInput struct {
 }
 
 type ShellOutput struct {
-	ExitCode int    `json:"exit_code"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	TimedOut bool   `json:"timed_out"`
+	ExitCode  int    `json:"exit_code"`
+	Stdout    string `json:"stdout"`
+	Stderr    string `json:"stderr"`
+	TimedOut  bool   `json:"timed_out"`
+	Completed bool   `json:"completed"`
 }
 
 func NewShellTool(opts ...func(*ShellTool)) *ShellTool {
 	t := &ShellTool{
-		maxTimeout:       120 * time.Second,
+		maxTimeout:        120 * time.Second,
 		defaultWorkingDir: "",
 	}
 	for _, opt := range opts {
@@ -46,13 +54,34 @@ func (s *ShellTool) Name() string {
 	return "shell"
 }
 
+func appendMarker(cmd string) string {
+	trimmed := strings.TrimSpace(cmd)
+	if strings.Contains(trimmed, ethosDoneMarker) {
+		return trimmed
+	}
+	return trimmed + " && echo " + ethosDoneMarker
+}
+
+func stripMarker(output string) (string, bool) {
+	found := strings.Contains(output, ethosDoneMarker)
+	if !found {
+		return output, false
+	}
+	cleaned := markerTextRe.ReplaceAllString(output, "")
+	cleaned = trailingBlankRe.ReplaceAllString(cleaned, "")
+	if cleaned != "" {
+		cleaned += "\n"
+	}
+	return cleaned, true
+}
+
 func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	var in ShellInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return nil, fmt.Errorf("shell: %w", err)
 	}
 
-	if in.Command == "" {
+	if strings.TrimSpace(in.Command) == "" {
 		return nil, fmt.Errorf("shell: command is required")
 	}
 
@@ -67,7 +96,9 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "sh", "-c", in.Command)
+	command := appendMarker(in.Command)
+
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
 
 	if in.WorkingDir != "" {
 		cmd.Dir = in.WorkingDir
@@ -85,11 +116,15 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 
 	err := cmd.Run()
 
+	raw := ansiRe.ReplaceAllString(combined.String(), "")
+	stdout, markerFound := stripMarker(raw)
+
 	output := ShellOutput{
-		ExitCode: 0,
-		Stdout:   ansiRe.ReplaceAllString(combined.String(), ""),
-		Stderr:   "",
-		TimedOut: false,
+		ExitCode:  0,
+		Stdout:    stdout,
+		Stderr:    "",
+		TimedOut:  false,
+		Completed: markerFound,
 	}
 
 	if err != nil {
@@ -97,20 +132,24 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 			output.TimedOut = true
 			output.ExitCode = -1
 			output.Stderr = fmt.Sprintf("command timed out after %s", timeout)
+			output.Completed = false
 		} else {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				output.ExitCode = exitErr.ExitCode()
 			} else {
 				output.ExitCode = -1
 			}
+			if !markerFound {
+				output.Completed = false
+			}
 		}
 	}
 
-	raw, err := json.Marshal(output)
+	rawOut, err := json.Marshal(output)
 	if err != nil {
 		return nil, fmt.Errorf("shell: %w", err)
 	}
-	return raw, nil
+	return rawOut, nil
 }
 
 func envSlice(env map[string]string) []string {

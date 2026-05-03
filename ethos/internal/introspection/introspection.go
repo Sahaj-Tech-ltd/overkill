@@ -1,3 +1,4 @@
+// orphan: on-demand CODEBASE.md generator (master plan §5.8); needs /introspect slash command
 package introspection
 
 import (

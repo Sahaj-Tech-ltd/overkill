@@ -74,6 +74,8 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 			default:
 			}
 
+			a.checkBudget()
+
 			req := a.buildRequest()
 
 			ch, err := a.provider.Stream(ctx, req)
@@ -84,6 +86,7 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 						SessionID: a.sessionID,
 					})
 				}
+				a.emitRecovery(err)
 				out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: stream: %w", err)}
 				return
 			}
@@ -126,6 +129,7 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 					Content: contentBuf,
 				})
 
+				runResult.Confidence = a.assessTurnConfidence(userInput)
 				out <- StreamEvent{Type: EventDone, Result: runResult}
 				return
 			}
@@ -159,6 +163,23 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 						})
 					}
 
+					if !a.checkToolApproval(call.Name, call.Arguments) {
+						deniedErr := fmt.Errorf("tool %q denied by user", call.Name)
+						toolResults[idx] = ToolResult{
+							ToolCallID: call.ID,
+							ToolName:   call.Name,
+							Output:     json.RawMessage(`{}`),
+							Error:      deniedErr,
+						}
+						out <- StreamEvent{
+							Type:     EventToolOutput,
+							Content:  call.Name,
+							ToolCall: &call,
+							Metadata: map[string]interface{}{"output": "", "error": deniedErr},
+						}
+						return
+					}
+
 					var input json.RawMessage
 					if call.Arguments != "" {
 						input = json.RawMessage(call.Arguments)
@@ -166,6 +187,7 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 						input = json.RawMessage("{}")
 					}
 
+					a.emitImpact(call.Name, input)
 					output, toolErr := a.executeTool(ctx, call.Name, input)
 
 					toolResults[idx] = ToolResult{

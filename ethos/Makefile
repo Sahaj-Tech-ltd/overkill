@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install docker run dev
+.PHONY: build test lint clean install docker run dev install-all plugins
 
 BINARY=bin/ethos
 GO=go
@@ -27,8 +27,11 @@ lint-fix:
 clean:
 	rm -rf bin/ coverage.out
 
-install: build
-	cp $(BINARY) /usr/local/bin/ethos
+install:
+	go install ./cmd/ethos
+
+install-global: build
+	sudo cp $(BINARY) /usr/local/bin/ethos
 
 docker:
 	docker build -t ethos:latest .
@@ -54,3 +57,13 @@ proto:
 		bridge/proto/*.proto
 
 all: lint test build
+
+install-all:
+	$(GO) build $(GOFLAGS) -o $(HOME)/go/bin/ethos ./cmd/ethos
+	@echo "ethos installed to $(HOME)/go/bin/ethos"
+
+# Build the bundled example plugins into examples/plugins/<name>/<name>.
+plugins:
+	$(GO) build -o examples/plugins/notes/notes ./examples/plugins/notes
+	$(GO) build -o examples/plugins/git-stats/git-stats ./examples/plugins/git-stats
+	@echo "plugins built — copy or symlink directories into ~/.ethos/plugins/ to install"

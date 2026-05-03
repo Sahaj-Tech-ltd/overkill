@@ -4,22 +4,25 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
 )
 
 type Session struct {
-	ID         string            `json:"id"`
-	Title      string            `json:"title"`
-	Folder     string            `json:"folder"`
-	ParentID   string            `json:"parent_id,omitempty"`
-	CreatedAt  time.Time         `json:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at"`
-	Model      string            `json:"model"`
-	Provider   string            `json:"provider"`
-	TokenCount int64             `json:"token_count"`
-	CostUSD    float64           `json:"cost_usd"`
-	TurnCount  int               `json:"turn_count"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
-	Status     string            `json:"status"`
+	ID         string              `json:"id"`
+	Title      string              `json:"title"`
+	Folder     string              `json:"folder"`
+	ParentID   string              `json:"parent_id,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
+	UpdatedAt  time.Time           `json:"updated_at"`
+	Model      string              `json:"model"`
+	Provider   string              `json:"provider"`
+	TokenCount int64               `json:"token_count"`
+	CostUSD    float64             `json:"cost_usd"`
+	TurnCount  int                 `json:"turn_count"`
+	Metadata   map[string]string   `json:"metadata,omitempty"`
+	Status     string              `json:"status"`
+	Messages   []providers.Message `json:"messages,omitempty"`
 }
 
 func NewSession(folder string) *Session {

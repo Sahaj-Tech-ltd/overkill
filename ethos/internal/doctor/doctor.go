@@ -1,3 +1,4 @@
+// orphan: 'ethos doctor' command runs subset; remaining checks here pending integration into cmd/ethos/doctor.go
 package doctor
 
 import "encoding/json"

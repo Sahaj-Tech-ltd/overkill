@@ -1,3 +1,4 @@
+// orphan: scheduled-task runner (master plan §5.5); awaiting /cron slash command + 'ethos cron run' daemon mode
 package cron
 
 import (

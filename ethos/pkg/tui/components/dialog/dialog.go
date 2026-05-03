@@ -35,69 +35,48 @@ func (d *Dialog) HideDialog() {
 	d.Show = false
 }
 
+// BaseView returns ONLY the bordered dialog box (no full-screen background
+// fill). The parent appModel.View() composites it onto the chat via
+// layout.PlaceOverlay. Building a full-screen bg here meant the parent then
+// overlaid an opaque bg onto chat, doubling the overlay work and producing
+// the rendering glitches users were seeing.
+//
+// totalWidth/totalHeight are kept in the signature for API compat but only
+// used as upper bounds — the dialog never grows beyond a sensible cap.
 func (d *Dialog) BaseView(content string, totalWidth, totalHeight int) string {
-	t := theme.CurrentTheme()
+	_ = strings.TrimSpace // kept for layout import companions
+	_ = layout.PlaceOverlay
 
-	borderColor := t.DialogBorder()
-	backgroundColor := t.DialogBackground()
+	t := theme.CurrentTheme()
 
 	dialogStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Background(backgroundColor).
+		BorderForeground(t.DialogBorder()).
+		Background(t.DialogBackground()).
 		Foreground(t.DialogText()).
 		Padding(1, 2)
 
-	contentLines := strings.Split(content, "\n")
-	maxLineWidth := 0
-	for _, line := range contentLines {
-		if len(line) > maxLineWidth {
-			maxLineWidth = len(line)
-		}
-	}
-
-	boxWidth := maxLineWidth + 4
-	boxHeight := len(contentLines) + 2
-
 	if d.Title != "" {
-		dialogStyle = dialogStyle.Bold(true)
-		content = d.Title + "\n\n" + content
+		titleLine := lipgloss.NewStyle().
+			Foreground(t.DialogAccent()).
+			Background(t.DialogBackground()).
+			Bold(true).
+			Render(d.Title)
+		content = titleLine + "\n\n" + content
 	}
 
-	rendered := dialogStyle.Render(content)
-
-	if totalWidth <= 0 || totalHeight <= 0 {
-		return rendered
-	}
-
-	renderedLines := strings.Split(rendered, "\n")
-	actualWidth := 0
-	for _, line := range renderedLines {
-		if lipgloss.Width(line) > actualWidth {
-			actualWidth = lipgloss.Width(line)
+	// Cap dialog width so it doesn't bleed past terminal edges. Do NOT cap
+	// height: lipgloss's MaxHeight silently truncates content (this is what
+	// caused only ~3 of 23 slash commands to render). Long dialogs are
+	// expected to use Window() for in-dialog scrolling instead.
+	if totalWidth > 0 {
+		maxW := totalWidth - 4
+		if maxW > 0 {
+			dialogStyle = dialogStyle.MaxWidth(maxW)
 		}
 	}
-	actualHeight := len(renderedLines)
 
-	col := (totalWidth - actualWidth) / 2
-	row := (totalHeight - actualHeight) / 2
-	if col < 0 {
-		col = 0
-	}
-	if row < 0 {
-		row = 0
-	}
-
-	bg := lipgloss.NewStyle().
-		Width(totalWidth).
-		Height(totalHeight).
-		Background(backgroundColor).
-		Render("")
-
-	_ = boxWidth
-	_ = boxHeight
-
-	return layout.PlaceOverlay(col, row, rendered, bg, true)
+	return dialogStyle.Render(content)
 }
 
 func CloseOnEsc(msg tea.Msg) bool {
