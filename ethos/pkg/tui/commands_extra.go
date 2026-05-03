@@ -22,6 +22,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/introspection"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/pipeline"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/walls"
 	"github.com/dgraph-io/badger/v4"
 )
@@ -252,6 +253,26 @@ func (m *appModel) runJournal() tea.Cmd {
 		return m.toastCmd("journal: "+err.Error(), "error")
 	}
 	return m.toastCmd(fmt.Sprintf("journal: %d entries in session %s", len(entries), sid), "info")
+}
+
+// runMode toggles the agent's privilege mode (reader ↔ writer). Master plan
+// §4.3: reader mode blocks every write-like tool call so the planning phase
+// can run without surprise mutations.
+func (m *appModel) runMode() tea.Cmd {
+	if m.app == nil || m.app.Agent == nil {
+		return m.toastCmd("mode: agent not running", "warning")
+	}
+	cur := m.app.Agent.PrivilegeMode()
+	switch cur {
+	case security.ModeReader:
+		m.app.Agent.SetPrivilegeMode(security.ModeWriter)
+		return m.toastCmd("mode: writer (writes allowed)", "success")
+	case security.ModeWriter:
+		m.app.Agent.SetPrivilegeMode(security.ModeReader)
+		return m.toastCmd("mode: reader (writes BLOCKED)", "warning")
+	default:
+		return m.toastCmd("mode: privilege gate not configured", "warning")
+	}
 }
 
 // runOrders lists active standing orders. Mutation lives in the CLI

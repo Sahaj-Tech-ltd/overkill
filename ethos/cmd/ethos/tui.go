@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"path/filepath"
+	"strings"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/acp"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
@@ -297,6 +298,22 @@ func buildTUIApp() *tui.App {
 	// Diagnostic ladder (master plan §4.13).
 	toolReg.Register(tools.NewDiagnoseNextTierTool())
 
+	// Autocommit (master plan §4.8). Off by default — user enables stages
+	// via env vars or future config; the tool surface lets the agent fire
+	// commits at named milestones.
+	autocommit := automation.NewAutoCommitter(cwd, nil, nil)
+	if v := os.Getenv("ETHOS_AUTOCOMMIT"); v != "" {
+		// "test-pass,build-green,lint-clean,patch-applied"
+		for _, s := range strings.Split(v, ",") {
+			autocommit.SetEnabled(strings.TrimSpace(s), true)
+		}
+	}
+	toolReg.Register(tools.NewAutocommitStageTool(autocommit))
+
+	// Skill auto-creation (master plan §6.2 Voyager). Writes user-scoped
+	// SKILL.md files at ~/.ethos/skills/<name>/.
+	toolReg.Register(tools.NewSkillExtractTool(""))
+
 	// dev-browser as the third browser flavor (master plan §7.3). Always
 	// registered; degrades to a clear "binary not on PATH" error when the
 	// user hasn't installed it. No config gate.
@@ -459,6 +476,10 @@ func buildTUIApp() *tui.App {
 	}
 
 	app.Agent = a
+
+	// Privilege gate (master plan §4.3): start in writer mode for backward
+	// compatibility; user flips with /mode reader|writer.
+	a.SetPrivilegeGate(security.NewPrivilegeGate(security.ModeWriter))
 
 	// Sub-agent driver factory: contracts spawned via delegate_task drive
 	// the parent agent through an autonomous loop. (Future: build a fresh

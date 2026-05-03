@@ -8,6 +8,7 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
 )
 
 type StepResult struct {
@@ -188,6 +189,15 @@ func classifyToolRisk(toolName, args string) string {
 func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage) (json.RawMessage, error) {
 	if a.toolRegistry == nil {
 		return nil, fmt.Errorf("no tool registry configured")
+	}
+
+	// Privilege gate (master plan §4.3): in reader mode, write-like calls
+	// are denied with a structured error the model can see and react to
+	// (e.g. ask the user to flip mode).
+	if a.privilege != nil {
+		if ok, why := a.privilege.Allow(name, input); !ok {
+			return nil, fmt.Errorf("%w: %s", security.ErrWriteDenied, why)
+		}
 	}
 
 	t, err := a.toolRegistry.Get(name)

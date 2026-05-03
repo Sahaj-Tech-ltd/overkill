@@ -38,6 +38,7 @@ type Agent struct {
 	allowedTools    map[string]bool
 	questionFn      QuestionFunc
 	permLedger      *security.Ledger
+	privilege       *security.PrivilegeGate
 	// contextProviderFn, if set, is invoked once per turn before the model
 	// call. The returned snippet is appended to the system prompt. Used by
 	// plugins (and anything else) to inject per-turn context like git status,
@@ -735,6 +736,35 @@ func (a *Agent) SetPermissionLedger(l *security.Ledger) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.permLedger = l
+}
+
+// SetPrivilegeGate wires a privilege gate that pre-checks every tool call.
+// Pass nil to disable (default). When wired in ReaderMode, write-like calls
+// return security.ErrWriteDenied without ever reaching the tool.
+func (a *Agent) SetPrivilegeGate(g *security.PrivilegeGate) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.privilege = g
+}
+
+// PrivilegeMode returns the gate's current mode, or empty when no gate is wired.
+func (a *Agent) PrivilegeMode() security.PrivilegeMode {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.privilege == nil {
+		return ""
+	}
+	return a.privilege.Mode()
+}
+
+// SetPrivilegeMode flips the gate's mode if a gate is wired. No-op otherwise.
+func (a *Agent) SetPrivilegeMode(m security.PrivilegeMode) {
+	a.mu.RLock()
+	g := a.privilege
+	a.mu.RUnlock()
+	if g != nil {
+		g.SetMode(m)
+	}
 }
 
 // PermissionLog returns a snapshot of decisions for the active session.
