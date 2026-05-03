@@ -115,6 +115,18 @@ Everything below ships in the current tree. Nothing aspirational.
 - Roughly 215× byte reduction over SSH for typical incremental frames
   vs naive full-screen redraw
 
+### Web UI
+- `ethos web --open` — serves a single-page browser UI on
+  `127.0.0.1:8420` and opens it in the default browser.
+- Same agent backend as the TUI, same BadgerDB session store.
+- LAN access: `ethos web --listen 0.0.0.0:8420`. Always keep the bearer
+  token (`~/.ethos/web-token`) private — anyone with the token can drive
+  the agent. The startup banner prints a URL with the token embedded as a
+  one-time `?t=…` query that the page promotes to a cookie.
+- `--no-auth` is allowed but only for localhost binds.
+- Mobile-first responsive layout; works down to 360 px wide. Future:
+  emit a QR code for the URL so phones can join without typing the token.
+
 ### Providers
 - First-class adapters: OpenAI, Anthropic, Google Gemini, DeepSeek, Ollama,
   OpenRouter
