@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 type Config struct {
 	Version     int               `toml:"version"`
 	Agent       AgentConfig       `toml:"agent"`
@@ -18,6 +20,19 @@ type Config struct {
 	ACP         ACPConfig         `toml:"acp"`
 	Plugins     PluginsConfig     `toml:"plugins"`
 	Slack       SlackConfig       `toml:"slack"`
+	Browser     BrowserConfig     `toml:"browser"`
+}
+
+// BrowserConfig governs the agentic browser. Off by default — tools are not
+// registered when Enabled is false.
+type BrowserConfig struct {
+	Enabled      bool          `toml:"enabled"`
+	Headless     bool          `toml:"headless"`
+	ChromePath   string        `toml:"chrome_path"`
+	UserAgent    string        `toml:"user_agent"`
+	AllowedHosts []string      `toml:"allowed_hosts"`
+	BlockedHosts []string      `toml:"blocked_hosts"`
+	Timeout      time.Duration `toml:"timeout"`
 }
 
 // SlackConfig governs the optional Slack bot daemon (`ethos slack`).

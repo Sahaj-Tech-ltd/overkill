@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
@@ -156,6 +157,30 @@ func classifyToolRisk(toolName, args string) string {
 		return "medium"
 	case "web_fetch":
 		return "low"
+	case "browser_eval":
+		return "high"
+	case "browser_click", "browser_fill", "browser_select":
+		return "medium"
+	case "browser_open", "browser_screenshot", "browser_text",
+		"browser_markdown", "browser_wait":
+		return "low"
+	case "browser_navigate":
+		var a struct {
+			URL string `json:"url"`
+		}
+		_ = json.Unmarshal([]byte(args), &a)
+		if a.URL == "" {
+			return "low"
+		}
+		s := strings.ToLower(a.URL)
+		switch {
+		case strings.HasPrefix(s, "javascript:"), strings.HasPrefix(s, "chrome:"):
+			return "high"
+		case strings.HasPrefix(s, "file:"), strings.HasPrefix(s, "ftp:"):
+			return "medium"
+		default:
+			return "low"
+		}
 	}
 	return "low"
 }

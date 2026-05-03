@@ -71,6 +71,7 @@ const (
 	dialogProviderSetup
 	dialogOverrideConfirm
 	dialogPlugins
+	dialogBrowser
 )
 
 type appModel struct {
@@ -110,6 +111,7 @@ type appModel struct {
 	provSetupDialog  dialog.ProviderSetupDialog
 	overrideDialog   dialog.OverrideConfirmDialog
 	pluginsDialog    dialog.PluginsDialog
+	browserDialog    dialog.BrowserDialog
 	splitView        *viewer.FileView
 	splitOpen        bool
 	splitFocused     bool
@@ -184,6 +186,7 @@ func New(app *App) tea.Model {
 		provSetupDialog:      dialog.NewProviderSetupDialog(),
 		overrideDialog:       dialog.NewOverrideConfirmDialog(),
 		pluginsDialog:        dialog.NewPluginsDialog(),
+		browserDialog:        dialog.NewBrowserDialog(),
 		subagentFooterCursor: -1,
 		filesPanel:           sidebar.NewFilesPanel(),
 		costPanel:            sidebar.NewCostPanel(),
@@ -582,6 +585,7 @@ func (m *appModel) registerCommands() {
 		{ID: "stash", Title: "/stash", Description: "stash the current draft (or 'list' to browse)"},
 		{ID: "diff", Title: "/diff", Description: "show a unified diff for a path"},
 		{ID: "mcp", Title: "/mcp", Description: "show MCP server status & tools"},
+		{ID: "browser", Title: "/browser", Description: "show agentic browser status"},
 		{ID: "plugins", Title: "/plugins", Description: "show installed plugins & status"},
 		{ID: "worktree", Title: "/worktree", Description: "manage git worktrees"},
 		{ID: "permissions", Title: "/permissions", Description: "view permission ledger"},
@@ -794,12 +798,31 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openDialog = dialogNone
 		return m, nil
 
-	case dialog.CloseMCPDialogMsg, dialog.CloseWorktreeDialogMsg:
+	case dialog.CloseMCPDialogMsg, dialog.CloseWorktreeDialogMsg, dialog.CloseBrowserDialogMsg:
 		m.openDialog = dialogNone
 		return m, nil
 
 	case dialog.MCPRescanMsg:
 		return m, m.applyMCPRescan()
+
+	case dialog.BrowserCloseMsg:
+		if m.app != nil && m.app.Browser != nil {
+			m.app.Browser.Close()
+			m.browserDialog.SetStatus(m.app.Browser.Status())
+		}
+		return m, m.toastCmd("browser: closed", "success")
+
+	case dialog.BrowserRefreshMsg:
+		if m.app != nil && m.app.Browser != nil {
+			if err := m.app.Browser.Refresh(); err != nil {
+				return m, m.toastCmd("browser: "+err.Error(), "warning")
+			}
+			m.browserDialog.SetStatus(m.app.Browser.Status())
+		}
+		return m, nil
+
+	case dialog.BrowserScreenshotMsg:
+		return m, m.toastCmd("use: ethos browser test <url> for one-shot capture", "info")
 
 	case dialog.WorktreeAddRequestMsg:
 		// Surface a hint instead of inline input — `/worktree add` is the
@@ -1845,6 +1868,11 @@ func (m *appModel) routeDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mcpDialog = d
 			m.openDialog = dialogNone
 			return m, cmd
+		case dialogBrowser:
+			d, cmd := m.browserDialog.Update(msg)
+			m.browserDialog = d
+			m.openDialog = dialogNone
+			return m, cmd
 		case dialogWorktree:
 			d, cmd := m.worktreeDialog.Update(msg)
 			m.worktreeDialog = d
@@ -1961,6 +1989,10 @@ func (m *appModel) routeDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case dialogMCP:
 		d, cmd := m.mcpDialog.Update(msg)
 		m.mcpDialog = d
+		return m, cmd
+	case dialogBrowser:
+		d, cmd := m.browserDialog.Update(msg)
+		m.browserDialog = d
 		return m, cmd
 	case dialogWorktree:
 		d, cmd := m.worktreeDialog.Update(msg)
@@ -2213,6 +2245,8 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return m.runDiff()
 	case "mcp":
 		return m.openMCPDialog()
+	case "browser":
+		return m.openBrowserDialog()
 	case "plugins":
 		return m.openPluginsDialog()
 	case "worktree":
@@ -2425,6 +2459,17 @@ func (m *appModel) openMCPDialog() tea.Cmd {
 	m.mcpDialog.SetData(m.app.MCP.Status(), m.app.MCP.Tools())
 	m.mcpDialog.Show = true
 	m.openDialog = dialogMCP
+	return nil
+}
+
+// openBrowserDialog snapshots the browser manager state and opens the dialog.
+func (m *appModel) openBrowserDialog() tea.Cmd {
+	if m.app == nil || m.app.Browser == nil {
+		return m.toastCmd("browser: not enabled (set [browser] enabled = true)", "info")
+	}
+	m.browserDialog.SetStatus(m.app.Browser.Status())
+	m.browserDialog.Show = true
+	m.openDialog = dialogBrowser
 	return nil
 }
 
@@ -2824,6 +2869,8 @@ func (m *appModel) dialogView() string {
 		return m.diffDialog.View(m.width, m.height)
 	case dialogMCP:
 		return m.mcpDialog.View(m.width, m.height)
+	case dialogBrowser:
+		return m.browserDialog.View(m.width, m.height)
 	case dialogWorktree:
 		return m.worktreeDialog.View(m.width, m.height)
 	case dialogPermissionsLedger:

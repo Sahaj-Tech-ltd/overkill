@@ -15,6 +15,7 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/acp"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/browser"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/journal"
@@ -76,6 +77,12 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	}
 	prog := tea.NewProgram(tui.New(app), opts...)
 	tui.SetProgram(prog)
+
+	defer func() {
+		if app != nil && app.Browser != nil {
+			app.Browser.Close()
+		}
+	}()
 
 	if _, err := prog.Run(); err != nil {
 		return fmt.Errorf("tui exited: %w", err)
@@ -172,6 +179,31 @@ func buildTUIApp() *tui.App {
 		toolReg.Register(tools.NewTagAddTool(app.Tags))
 		toolReg.Register(tools.NewTagRemoveTool(app.Tags))
 		toolReg.Register(tools.NewTagListTool(app.Tags))
+	}
+
+	// Agentic browser — opt-in via config. The headless Chrome process is
+	// lazy-spawned on the first browser_* tool call.
+	if cfg != nil && cfg.Browser.Enabled {
+		bm := browser.NewManager(browser.Options{
+			Headless:   true,
+			ChromePath: cfg.Browser.ChromePath,
+			UserAgent:  cfg.Browser.UserAgent,
+		})
+		app.Browser = bm
+		policy := tools.BrowserHostPolicy{
+			Allowed: cfg.Browser.AllowedHosts,
+			Blocked: cfg.Browser.BlockedHosts,
+		}
+		toolReg.Register(tools.NewBrowserOpenTool(bm, policy))
+		toolReg.Register(tools.NewBrowserNavigateTool(bm, policy))
+		toolReg.Register(tools.NewBrowserScreenshotTool(bm, policy))
+		toolReg.Register(tools.NewBrowserTextTool(bm, policy))
+		toolReg.Register(tools.NewBrowserMarkdownTool(bm, policy))
+		toolReg.Register(tools.NewBrowserClickTool(bm, policy))
+		toolReg.Register(tools.NewBrowserFillTool(bm, policy))
+		toolReg.Register(tools.NewBrowserSelectTool(bm, policy))
+		toolReg.Register(tools.NewBrowserEvalTool(bm, policy))
+		toolReg.Register(tools.NewBrowserWaitTool(bm, policy))
 	}
 
 	// MCP: spin up configured servers in the background. Tools become
