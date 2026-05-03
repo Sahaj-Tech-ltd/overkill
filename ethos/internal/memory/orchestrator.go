@@ -13,6 +13,10 @@ type Orchestrator struct {
 	store    Store
 	provider providers.Provider
 	model    string
+
+	// Optional embedding/vector backend. Wired via AttachEmbeddings.
+	embed  EmbeddingClient
+	semCfg SemanticConfig
 }
 
 func NewOrchestrator(store Store, provider providers.Provider, model string) *Orchestrator {

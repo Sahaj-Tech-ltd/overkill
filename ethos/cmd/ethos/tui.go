@@ -24,7 +24,11 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/journal"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/personality"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/lsp"
+	"github.com/dgraph-io/badger/v4"
+
+	"github.com/Sahaj-Tech-ltd/ethos/bridge"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/mcp"
+	memorypkg "github.com/Sahaj-Tech-ltd/ethos/internal/memory"
 	pluginpkg "github.com/Sahaj-Tech-ltd/ethos/internal/plugin"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/rewriter"
@@ -199,6 +203,34 @@ func buildTUIApp() *tui.App {
 	toolReg.Register(tools.NewSubagentWaitTool(app.Subagent))
 	// driverFactory is wired below once the parent agent exists, since
 	// children currently share the parent's provider/registry.
+
+	// Memory orchestrator — Mem0-style persistent recall (master plan §6.1).
+	// Uses its own Badger DB under ~/.ethos/memory; wires the Python bridge
+	// for embeddings/rerank when ETHOS_BRIDGE_ADDR is set.
+	if home, err := os.UserHomeDir(); err == nil {
+		memDir := filepath.Join(home, ".ethos", "memory")
+		_ = os.MkdirAll(memDir, 0o755)
+		if mdb, err := badger.Open(badger.DefaultOptions(memDir).WithLoggingLevel(badger.ERROR)); err == nil {
+			memStore := memorypkg.NewBadgerStore(mdb)
+			memOrch := memorypkg.NewOrchestrator(memStore, provider, modelName)
+			if addr := os.Getenv("ETHOS_BRIDGE_ADDR"); addr != "" {
+				if bc, berr := bridge.NewClient(addr); berr == nil {
+					embedModel := os.Getenv("ETHOS_EMBED_MODEL")
+					if embedModel == "" {
+						embedModel = "text-embedding-3-small"
+					}
+					memOrch.AttachEmbeddings(memorypkg.NewBridgeAdapter(bc), memorypkg.SemanticConfig{
+						EmbedModel:      embedModel,
+						SearchThreshold: 0.0,
+						RerankTopN:      0,
+					})
+				}
+			}
+			toolReg.Register(tools.NewMemoryRememberTool(memOrch))
+			toolReg.Register(tools.NewMemoryRecallTool(memOrch))
+			toolReg.Register(tools.NewMemoryForgetTool(memOrch))
+		}
+	}
 
 	if app.Tags != nil {
 		toolReg.Register(tools.NewTagAddTool(app.Tags))
