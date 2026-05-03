@@ -778,6 +778,20 @@ func (a *Agent) appendToolResultMessage(toolCallID, toolName string, output json
 	content := string(output)
 	if toolErr != nil {
 		content = fmt.Sprintf("error: %s", toolErr.Error())
+	} else if a.compressors != nil && len(output) > 0 {
+		// Tool-output compression middleware (master plan §4.4 / RTK pattern).
+		// Per-tool compressors trim large outputs before they hit history.
+		// On error or no-op the registry returns the original payload so the
+		// agent never silently drops data.
+		if compressed, saved, err := a.compressors.Compress(toolName, output); err == nil && saved > 0 {
+			content = string(compressed)
+			a.emit("tool_compressed", map[string]any{
+				"tool":           toolName,
+				"bytes_saved":    saved,
+				"bytes_original": len(output),
+				"bytes_after":    len(compressed),
+			})
+		}
 	}
 
 	a.appendMessage(providers.Message{

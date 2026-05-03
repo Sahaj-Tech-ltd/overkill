@@ -23,6 +23,16 @@ func NewCompressorRegistry() *CompressorRegistry {
 	cr.Register(&ShellCompressor{})
 	cr.Register(&GrepCompressor{})
 	cr.Register(&GitCompressor{})
+	cr.Register(PatchCompressor{})
+	// Generic head+tail compressors for tools that can return very large
+	// payloads. Conservative thresholds — only fire above 8 KiB.
+	for _, name := range []string{
+		"fs", "fs_read", "web", "pty_shell",
+		"browser_text", "browser_markdown", "browser_eval",
+		"lsp_definition", "lsp_references", "lsp_hover", "lsp_symbols",
+	} {
+		cr.Register(NewHeadTailCompressor(name, 4096, 2048))
+	}
 	return cr
 }
 
