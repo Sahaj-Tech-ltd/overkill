@@ -455,7 +455,10 @@ func buildTUIApp() *tui.App {
 			app.StandingOrders = of
 		}
 		a.SetContextProvider(func(ctx context.Context, sid string) string {
-			parts := []string{introspection.LoadCodebaseSnippet(introDir, 8000)}
+			parts := []string{
+				introspection.LoadPRPSnippet(introDir, 4000),
+				introspection.LoadCodebaseSnippet(introDir, 8000),
+			}
 			if orders != nil {
 				if snip := orders.PromptSnippet(); snip != "" {
 					parts = append(parts, snip)

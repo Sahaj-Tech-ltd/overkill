@@ -623,6 +623,7 @@ func (m *appModel) registerCommands() {
 		{ID: "rollback", Title: "/rollback", Description: "list/restore filesystem checkpoints"},
 		{ID: "orders", Title: "/orders", Description: "list active standing orders"},
 		{ID: "mode", Title: "/mode", Description: "toggle reader/writer privilege mode"},
+		{ID: "conceal", Title: "/conceal", Description: "toggle raw markdown rendering for clean copy-paste"},
 	} {
 		m.cmdDialog.RegisterCommand(c)
 	}
@@ -2321,6 +2322,8 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return m.runOrders()
 	case "mode":
 		return m.runMode()
+	case "conceal":
+		return m.runConceal()
 	}
 	return nil
 }
@@ -2748,14 +2751,21 @@ func (m *appModel) runInit() tea.Cmd {
 	_ = os.WriteFile(filepath.Join(dir, "system_prompt.md"), []byte("# project system prompt\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "AGENT.md"), []byte("# project notes for ethos\n"), 0o644)
 
-	// Seed the deep-wiki for the agent: ~/.ethos/introspection/CODEBASE.md.
+	// Seed the deep-wiki for the agent: ~/.ethos/introspection/{CODEBASE,PRP}.md.
 	// Best-effort — failure to scan or write does not block /init.
 	if home, err := os.UserHomeDir(); err == nil {
 		introDir := filepath.Join(home, ".ethos", "introspection")
-		if _, scanErr := introspection.WriteCodebaseFromScan(cwd, introDir); scanErr != nil {
-			return m.toastCmd("initialized .ethos/ (deep-wiki skipped: "+scanErr.Error()+")", "warning")
+		_, scanErr := introspection.WriteCodebaseFromScan(cwd, introDir)
+		_, _ = introspection.WritePRP(introspection.PRPInputs{
+			ProjectName: filepath.Base(cwd),
+			RepoRoot:    cwd,
+			Languages:   introspection.DetectLanguages(cwd),
+			OutputDir:   introDir,
+		})
+		if scanErr != nil {
+			return m.toastCmd("initialized .ethos/ + PRP.md (CODEBASE skipped: "+scanErr.Error()+")", "warning")
 		}
-		return m.toastCmd("initialized .ethos/ + CODEBASE.md", "success")
+		return m.toastCmd("initialized .ethos/ + CODEBASE.md + PRP.md", "success")
 	}
 	return m.toastCmd("initialized .ethos/", "success")
 }

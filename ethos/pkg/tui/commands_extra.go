@@ -23,6 +23,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/pipeline"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
+	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/styles"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/walls"
 	"github.com/dgraph-io/badger/v4"
 )
@@ -253,6 +254,17 @@ func (m *appModel) runJournal() tea.Cmd {
 		return m.toastCmd("journal: "+err.Error(), "error")
 	}
 	return m.toastCmd(fmt.Sprintf("journal: %d entries in session %s", len(entries), sid), "info")
+}
+
+// runConceal toggles raw markdown rendering. Useful when the user wants to
+// copy a block out of the chat without ANSI codes.
+func (m *appModel) runConceal() tea.Cmd {
+	now := !styles.IsConcealMarkdown()
+	styles.SetConcealMarkdown(now)
+	if now {
+		return m.toastCmd("conceal: ON — markdown rendered as raw text", "info")
+	}
+	return m.toastCmd("conceal: OFF — styled markdown restored", "info")
 }
 
 // runMode toggles the agent's privilege mode (reader ↔ writer). Master plan
