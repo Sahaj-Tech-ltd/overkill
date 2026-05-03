@@ -458,6 +458,14 @@ func buildTUIApp() *tui.App {
 		}
 	}
 
+	// LLMLingua-style prompt compression (master plan §4.4). Off by default
+	// — opt in via cfg.Compaction.PromptCompress because it adds an LLM
+	// round-trip on high-utilization turns.
+	if cfg != nil && cfg.Compaction.PromptCompress {
+		pc := compaction.NewPromptCompressor(provider, modelName)
+		a.SetPromptCompressor(&promptCompressorAdapter{inner: pc}, 0.7)
+	}
+
 	// LCM compaction (master plan §4.4). Default-on; flip
 	// cfg.Compaction.UseLCM=false to revert to the legacy ad-hoc summary path.
 	if cfg == nil || cfg.Compaction.UseLCM {
@@ -775,6 +783,31 @@ func (a *alertSinkAdapter) Create(alertType, message, sessionID string) error {
 		return nil
 	}
 	return a.store.Create(journal.AlertType(alertType), message, sessionID)
+}
+
+// promptCompressorAdapter satisfies agent.PromptCompressor by wrapping
+// compaction.PromptCompressor's 3-arg signature into the tighter
+// (compressed, savedTokens, err) shape the agent expects.
+type promptCompressorAdapter struct {
+	inner *compaction.PromptCompressor
+}
+
+func (p *promptCompressorAdapter) Compress(ctx context.Context, prompt string) (string, int, error) {
+	if p == nil || p.inner == nil {
+		return prompt, 0, nil
+	}
+	out, res, err := p.inner.Compress(ctx, prompt)
+	if err != nil {
+		return prompt, 0, err
+	}
+	if res == nil || res.Skipped {
+		return prompt, 0, nil
+	}
+	saved := res.OriginalTokens - res.CompressedTokens
+	if saved < 0 {
+		saved = 0
+	}
+	return out, saved, nil
 }
 
 // spiderRunner adapts agent.TestAgent to tools.TestAgentRunner so the

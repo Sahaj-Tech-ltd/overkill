@@ -204,6 +204,10 @@ type CompactionConfig struct {
 	// compactor (internal/compaction). When false, falls back to the legacy
 	// ad-hoc single-LLM-call compact path. Defaults to true.
 	UseLCM bool `toml:"use_lcm"`
+	// PromptCompress, when true, runs the assembled system prompt through
+	// the LLMLingua-style compressor on high-utilization turns (≥0.7).
+	// Off by default — adds a per-turn LLM round-trip when triggered.
+	PromptCompress bool `toml:"prompt_compress"`
 }
 
 const CurrentVersion = 1

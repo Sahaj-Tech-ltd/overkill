@@ -1,4 +1,4 @@
-// Package agent — Caveman Mode (master plan §4.4).
+// Package agent — Caveman Mode + prompt compression (master plan §4.4).
 //
 // As the token budget approaches its cap, escalate the system prompt with
 // a directive to be progressively terser. Three tiers — chatty (default),
@@ -9,6 +9,18 @@
 // system prompt rather than replace it. Callers with no budget estimator
 // get the original prompt unchanged.
 package agent
+
+import (
+	"context"
+	"time"
+)
+
+// contextWithBriefDeadline gives the prompt compressor a tight 8-second
+// budget so it never blocks the user-visible turn for long. Callers always
+// defer cancel().
+func contextWithBriefDeadline() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 8*time.Second)
+}
 
 // CavemanLevel reports the current bluntness tier.
 type CavemanLevel int
@@ -61,6 +73,35 @@ func (l CavemanLevel) Directive() string {
 	default:
 		return ""
 	}
+}
+
+// applyPromptCompression invokes the compressor when a) one is wired and
+// b) budget utilization >= compressTrigger. Best-effort: any error or
+// empty result returns the original prompt.
+func (a *Agent) applyPromptCompression(prompt string) string {
+	if a == nil || a.promptCompressor == nil {
+		return prompt
+	}
+	rep := a.BudgetReport()
+	if rep == nil || rep.MaxTokens <= 0 {
+		return prompt
+	}
+	if rep.Utilization < a.compressTrigger {
+		return prompt
+	}
+	ctx, cancel := contextWithBriefDeadline()
+	defer cancel()
+	out, saved, err := a.promptCompressor.Compress(ctx, prompt)
+	if err != nil || out == "" {
+		return prompt
+	}
+	if saved > 0 {
+		a.emit("prompt_compressed", map[string]any{
+			"saved_tokens": saved,
+			"utilization":  rep.Utilization,
+		})
+	}
+	return out
 }
 
 // applyCaveman appends the directive for the agent's current utilization

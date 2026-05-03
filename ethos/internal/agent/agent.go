@@ -76,6 +76,32 @@ type Agent struct {
 	// token usage. Wired by cmd/ethos to feed cost.Tracker.Record().
 	// Best-effort: panics are recovered.
 	usageObserver func(modelID string, usage providers.Usage)
+
+	// promptCompressor, if set, is invoked on the assembled system prompt
+	// when token utilization is high (>= compressTrigger). Failures fall
+	// back to the original prompt; never blocks Run().
+	promptCompressor PromptCompressor
+	compressTrigger  float64 // utilization fraction; default 0.7
+}
+
+// PromptCompressor is the small interface the agent calls before assembling
+// each turn's system prompt. compaction.PromptCompressor satisfies this via
+// a thin shim defined in cmd/ethos (kept here so the agent stays free of
+// the compaction → providers import chain on this code path).
+type PromptCompressor interface {
+	Compress(ctx context.Context, prompt string) (compressed string, savedTokens int, err error)
+}
+
+// SetPromptCompressor wires the compressor + trigger threshold (utilization
+// fraction). threshold <= 0 defaults to 0.7. Pass nil to disable.
+func (a *Agent) SetPromptCompressor(c PromptCompressor, threshold float64) {
+	a.mu.Lock()
+	a.promptCompressor = c
+	if threshold <= 0 {
+		threshold = 0.7
+	}
+	a.compressTrigger = threshold
+	a.mu.Unlock()
 }
 
 // SetUsageObserver wires a callback fired after every step with the
@@ -591,6 +617,10 @@ func (a *Agent) buildRequest() providers.Request {
 	// Caveman Mode (master plan §4.4): escalate bluntness as token budget
 	// approaches the cap so the model voluntarily compresses its output.
 	prompt = a.applyCaveman(prompt)
+	// LLMLingua-style prompt compression (master plan §4.4): when budget
+	// utilization is high, run the assembled prompt through a compressor
+	// LLM call. Failures fall back to the original prompt silently.
+	prompt = a.applyPromptCompression(prompt)
 
 	return providers.Request{
 		Model:        a.model,
