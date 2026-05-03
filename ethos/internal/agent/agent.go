@@ -65,6 +65,50 @@ type Agent struct {
 	// (and anything else that wants a non-blocking peek). Best-effort:
 	// panics are recovered.
 	userInputObserver func(input string)
+
+	// modelRouter, if set, is invoked at the start of each Run with a
+	// classification of the user input + history. The returned model ID
+	// replaces a.model for that turn only. Failures fall back to the static
+	// model. See SetModelRouter.
+	modelRouter ModelRouter
+
+	// usageObserver, if set, is fired after each step with the per-call
+	// token usage. Wired by cmd/ethos to feed cost.Tracker.Record().
+	// Best-effort: panics are recovered.
+	usageObserver func(modelID string, usage providers.Usage)
+}
+
+// SetUsageObserver wires a callback fired after every step with the
+// per-step token usage. Pass nil to clear.
+func (a *Agent) SetUsageObserver(fn func(modelID string, usage providers.Usage)) {
+	a.mu.Lock()
+	a.usageObserver = fn
+	a.mu.Unlock()
+}
+
+// ModelRouter is the small interface the agent calls into to pick a model.
+// SmartRouter (internal/routing) satisfies a thin adapter; tests inject a fake.
+type ModelRouter interface {
+	// PickModel returns the model ID to use for this turn given a routing
+	// snapshot. Implementations should be fast (<10ms) — they sit on the
+	// hot path of every user message.
+	PickModel(snap RouteSnapshot) (modelID string, reason string, ok bool)
+}
+
+// RouteSnapshot is the data the router sees per Run. Kept tiny so we can
+// avoid importing the routing package from agent (one-way deps).
+type RouteSnapshot struct {
+	UserInput      string
+	HistoryLen     int
+	ToolCallCount  int
+	HasAttachments bool
+}
+
+// SetModelRouter wires a per-turn model picker. Pass nil to disable.
+func (a *Agent) SetModelRouter(r ModelRouter) {
+	a.mu.Lock()
+	a.modelRouter = r
+	a.mu.Unlock()
 }
 
 // SetUserInputObserver wires a callback fired once per Run with the user's
@@ -221,6 +265,34 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		}()
 	}
 
+	// Smart model routing (master plan §5.2): per-turn model selection
+	// based on input complexity. Falls back silently to the static model.
+	if r := a.modelRouter; r != nil {
+		a.mu.RLock()
+		hist := len(a.history)
+		a.mu.RUnlock()
+		snap := RouteSnapshot{
+			UserInput:      userInput,
+			HistoryLen:     hist,
+			ToolCallCount:  0, // filled in by the live loop; first turn is 0
+			HasAttachments: containsAtMention(userInput),
+		}
+		func() {
+			defer func() { _ = recover() }()
+			if id, reason, ok := r.PickModel(snap); ok && id != "" {
+				prev := a.model
+				a.SetModel(id)
+				if prev != id {
+					a.emit("model_routed", map[string]any{
+						"from":   prev,
+						"to":     id,
+						"reason": reason,
+					})
+				}
+			}
+		}()
+	}
+
 	for _, scanner := range a.scanners {
 		result, err := scanner.Scan(userInput)
 		if err != nil {
@@ -287,6 +359,13 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		result.Steps++
 		result.ToolCalls += len(stepResult.ToolCalls)
 		result.TotalTokens += stepResult.Tokens.InputTokens + stepResult.Tokens.OutputTokens
+
+		if obs := a.usageObserver; obs != nil && (stepResult.Tokens.InputTokens > 0 || stepResult.Tokens.OutputTokens > 0) {
+			func() {
+				defer func() { _ = recover() }()
+				obs(a.model, stepResult.Tokens)
+			}()
+		}
 
 		if stepResult.Done {
 			result.Response = stepResult.Thought

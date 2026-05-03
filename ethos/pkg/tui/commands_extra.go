@@ -24,6 +24,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
 	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/styles"
+	tuitypes "github.com/Sahaj-Tech-ltd/ethos/pkg/tui/types"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/walls"
 	"github.com/dgraph-io/badger/v4"
 )
@@ -254,6 +255,34 @@ func (m *appModel) runJournal() tea.Cmd {
 		return m.toastCmd("journal: "+err.Error(), "error")
 	}
 	return m.toastCmd(fmt.Sprintf("journal: %d entries in session %s", len(entries), sid), "info")
+}
+
+// runUsage prints today's session cost as a toast. The full breakdown lives
+// behind `ethos usage` so we don't crowd the chat with a long table.
+func (m *appModel) runUsage() tea.Cmd {
+	if m.app == nil || m.app.Costs == nil {
+		return m.toastCmd("usage: cost tracker not configured", "warning")
+	}
+	if m.app.Agent == nil {
+		return m.toastCmd("usage: no active agent", "warning")
+	}
+	sid := m.app.Agent.SessionID()
+	if sid == "" {
+		return m.toastCmd("usage: no active session", "info")
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		s, err := m.app.Costs.SessionCost(ctx, sid)
+		if err != nil {
+			return tuitypes.ToastMsg{Text: "usage: " + err.Error(), Kind: "error"}
+		}
+		return tuitypes.ToastMsg{
+			Text: fmt.Sprintf("usage: $%.4f · in=%d out=%d · %d call(s)",
+				s.TotalUSD, s.InputTokens, s.OutputTokens, s.RequestCount),
+			Kind: "info",
+		}
+	}
 }
 
 // runConceal toggles raw markdown rendering. Useful when the user wants to

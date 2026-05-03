@@ -624,6 +624,7 @@ func (m *appModel) registerCommands() {
 		{ID: "orders", Title: "/orders", Description: "list active standing orders"},
 		{ID: "mode", Title: "/mode", Description: "toggle reader/writer privilege mode"},
 		{ID: "conceal", Title: "/conceal", Description: "toggle raw markdown rendering for clean copy-paste"},
+		{ID: "usage", Title: "/usage", Description: "show cost + token usage for the active session"},
 	} {
 		m.cmdDialog.RegisterCommand(c)
 	}
@@ -2324,6 +2325,8 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return m.runMode()
 	case "conceal":
 		return m.runConceal()
+	case "usage":
+		return m.runUsage()
 	}
 	return nil
 }

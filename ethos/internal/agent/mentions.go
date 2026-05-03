@@ -24,6 +24,12 @@ const (
 	maxMentionFiles     = 10
 )
 
+// containsAtMention reports whether the input contains a routable @path token.
+// Cheap probe used by the smart router; doesn't read files.
+func containsAtMention(userInput string) bool {
+	return mentionRe.MatchString(userInput)
+}
+
 // loadAtMentions scans userInput for @path tokens and returns a formatted
 // block with the contents of each referenced file. Returns "" if none found.
 func loadAtMentions(userInput string) string {

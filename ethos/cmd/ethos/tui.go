@@ -31,7 +31,9 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/mcp"
 	memorypkg "github.com/Sahaj-Tech-ltd/ethos/internal/memory"
 	pluginpkg "github.com/Sahaj-Tech-ltd/ethos/internal/plugin"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/cost"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/routing"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/rewriter"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
@@ -87,6 +89,10 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		cfg = c
 		return buildTUIApp().Agent, nil
 	}
+
+	// Non-blocking update check (master plan §7.6). Disabled via
+	// ETHOS_NO_UPDATE_CHECK=1.
+	CheckUpdateAsync()
 
 	// Background catalog refresh — fire-and-forget. The disk cache makes the
 	// next /model open instant; this just keeps the cache fresh for the next
@@ -494,6 +500,57 @@ func buildTUIApp() *tui.App {
 	// Privilege gate (master plan §4.3): start in writer mode for backward
 	// compatibility; user flips with /mode reader|writer.
 	a.SetPrivilegeGate(security.NewPrivilegeGate(security.ModeWriter))
+
+	// Smart model routing (master plan §5.2). Off by default — opt in via
+	// ETHOS_SMART_ROUTING=1 so the static cfg.Agent.DefaultModel keeps
+	// working without surprises. When on, every Run classifies the input
+	// and may swap to a cheaper/heavier model from the live catalog.
+	if os.Getenv("ETHOS_SMART_ROUTING") != "" {
+		if router := buildSmartRouter(modelName); router != nil {
+			a.SetModelRouter(routing.NewAgentAdapter(router))
+		}
+	}
+
+	// Cost tracker (master plan §4.5). Per-user Badger at ~/.ethos/costs;
+	// every step's usage feeds Record. Failure is non-fatal — agent runs
+	// without cost tracking when the DB can't open.
+	if home, err := os.UserHomeDir(); err == nil {
+		costDir := filepath.Join(home, ".ethos", "costs")
+		_ = os.MkdirAll(costDir, 0o755)
+		costCfg := config.CostConfig{}
+		if cfg != nil {
+			costCfg = cfg.Cost
+		}
+		if ct, err := cost.NewBadgerTracker(costDir, costCfg); err == nil {
+			app.Costs = ct
+			// Register every model from the live catalog so cost calculations
+			// have the right per-token pricing.
+			if cat, _ := providers.FetchCatalog(context.Background()); cat != nil {
+				for _, p := range cat.Providers() {
+					for _, m := range cat.Models(p.ID) {
+						ct.RegisterModel(providers.Model{
+							ID:           m.ID,
+							Family:       p.ID,
+							CostIn:       m.Cost.Input,
+							CostOut:      m.Cost.Output,
+							CostCacheIn:  m.Cost.CacheRead,
+							CostCacheOut: m.Cost.CacheWrite,
+						})
+					}
+				}
+			}
+			a.SetUsageObserver(func(modelID string, u providers.Usage) {
+				_ = ct.Record(context.Background(), cost.Entry{
+					SessionID:    a.SessionID(),
+					Model:        modelID,
+					Timestamp:    time.Now().UTC(),
+					InputTokens:  u.InputTokens,
+					OutputTokens: u.OutputTokens,
+					CachedTokens: u.CachedInputTokens,
+				})
+			})
+		}
+	}
 
 	// Sub-agent driver factory: contracts spawned via delegate_task drive
 	// the parent agent through an autonomous loop. (Future: build a fresh
