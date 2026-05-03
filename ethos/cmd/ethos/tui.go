@@ -37,6 +37,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
+	termpkg "github.com/Sahaj-Tech-ltd/ethos/internal/term"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/automation"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/checkpoint"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/walls"
@@ -65,6 +66,16 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	// the editor as garbage like `]11;rgb:3131/1616/5252\`.
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	lipgloss.SetHasDarkBackground(true)
+
+	// Auto theme detection (master plan §5.1). Off by default — the OSC 11
+	// probe is intrusive (some terminals leak the reply into stdin) so the
+	// user opts in via ETHOS_AUTO_THEME=1. When enabled, we override the
+	// dark/light pin based on the live terminal background.
+	if os.Getenv("ETHOS_AUTO_THEME") != "" {
+		if dark, err := termpkg.QueryBackground(150 * time.Millisecond); err == nil {
+			lipgloss.SetHasDarkBackground(dark)
+		}
+	}
 
 	// Wire the animation kill-switch from config before any TUI component
 	// reads animation.Enabled().

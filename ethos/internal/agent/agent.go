@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
@@ -55,8 +56,9 @@ type Agent struct {
 	rewriter PromptRewriter
 	// compactor, when set, owns the compaction strategy. When nil the agent
 	// falls back to its legacy single-LLM-call summary path.
-	compactor    HistoryCompactor
-	useCompactor bool
+	compactor          HistoryCompactor
+	useCompactor       bool
+	compactionInFlight atomic.Bool
 
 	// userInputObserver, if set, is invoked once per Run with the raw user
 	// input before scanners or rewriter. Used by the frustration detector
@@ -345,6 +347,27 @@ func (a *Agent) checkBudget() {
 		"should_compact": report.ShouldCompact,
 		"session_id":     a.sessionID,
 	})
+
+	// Master plan §4.4 50% trigger: when ShouldCompact crosses (default 0.5),
+	// trigger compaction proactively rather than waiting for the user to type
+	// /compact. Best-effort — failure is logged via emit, never fatal.
+	if report.ShouldCompact && a.useCompactor && a.compactor != nil && !a.compactionInFlight.Load() {
+		a.compactionInFlight.Store(true)
+		go func() {
+			defer a.compactionInFlight.Store(false)
+			defer func() { _ = recover() }()
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if res, err := a.Compact(ctx); err != nil {
+				a.emit("auto_compact_failed", map[string]any{"error": err.Error()})
+			} else if res != nil {
+				a.emit("auto_compacted", map[string]any{
+					"tokens_before": res.TokensBefore,
+					"tokens_after":  res.TokensAfter,
+				})
+			}
+		}()
+	}
 }
 
 // assessTurnConfidence scores how confident the agent should be in its own
