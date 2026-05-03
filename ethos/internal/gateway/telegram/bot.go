@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/gateway"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
 )
 
 // Bot implements gateway.Channel for Telegram. One Bot per token; you
@@ -78,10 +79,13 @@ func (b *Bot) Run(ctx context.Context) error {
 }
 
 func (b *Bot) handle(ctx context.Context, u Update) {
-	if u.Message == nil || u.Message.Text == "" {
+	if u.Message == nil {
 		return
 	}
 	if u.Message.From != nil && u.Message.From.IsBot {
+		return
+	}
+	if u.Message.Text == "" && len(u.Message.Photo) == 0 {
 		return
 	}
 	chatID := u.Message.Chat.ID
@@ -96,15 +100,44 @@ func (b *Bot) handle(ctx context.Context, u Update) {
 			from = u.Message.From.FirstName
 		}
 	}
+	text := u.Message.Text
+	if text == "" {
+		text = u.Message.Caption
+	}
 	in := gateway.Inbound{
 		Channel:  "telegram",
 		ChatKey:  strconv.FormatInt(chatID, 10),
 		From:     from,
-		Text:     u.Message.Text,
+		Text:     text,
 		IsDirect: u.Message.Chat.Type == "private",
+	}
+	if len(u.Message.Photo) > 0 {
+		// Largest size is last in the array per the Bot API contract.
+		largest := u.Message.Photo[len(u.Message.Photo)-1]
+		if img, err := b.fetchPhoto(ctx, largest.FileID); err != nil {
+			b.Logger.Printf("telegram: fetch photo: %v", err)
+		} else {
+			in.Images = append(in.Images, img)
+		}
 	}
 	reply := &telegramReply{client: b.Client, chatID: chatID}
 	go b.Dispatcher.Handle(ctx, in, reply)
+}
+
+// fetchPhoto resolves a Telegram file_id to bytes + sniffed MIME. Two
+// API hops: getFile to grab the path, then a download from /file/.
+func (b *Bot) fetchPhoto(ctx context.Context, fileID string) (gateway.InboundImage, error) {
+	dlCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	path, err := b.Client.GetFile(dlCtx, fileID)
+	if err != nil {
+		return gateway.InboundImage{}, err
+	}
+	bytes, err := b.Client.DownloadFile(dlCtx, path)
+	if err != nil {
+		return gateway.InboundImage{}, err
+	}
+	return gateway.InboundImage{Bytes: bytes, Mime: vision.MIMEFromBytes(bytes)}, nil
 }
 
 // telegramReply maps gateway.Reply onto Bot API methods. Telegram lets

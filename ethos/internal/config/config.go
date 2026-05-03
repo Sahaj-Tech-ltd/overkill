@@ -21,6 +21,7 @@ type Config struct {
 	Plugins     PluginsConfig     `toml:"plugins"`
 	Slack       SlackConfig       `toml:"slack"`
 	Gateways    GatewayConfig     `toml:"gateways"`
+	Vision      VisionConfig      `toml:"vision"`
 	Browser     BrowserConfig     `toml:"browser"`
 	Rewriter    RewriterConfig    `toml:"rewriter"`
 }
@@ -81,6 +82,16 @@ type BridgeConfig struct {
 type GatewayConfig struct {
 	Telegram TelegramConfig `toml:"telegram"`
 	Bridge   BridgeConfig   `toml:"bridge"`
+}
+
+// VisionConfig governs the standalone vision describer used by remote
+// gateways for inbound photos and by the vision_describe tool. Off by
+// default; provider must be "anthropic" today (more to come).
+type VisionConfig struct {
+	Enabled  bool   `toml:"enabled"`
+	Provider string `toml:"provider"` // "anthropic"
+	APIKey   string `toml:"api_key"`  // falls back to ANTHROPIC_API_KEY
+	Model    string `toml:"model"`    // e.g. claude-sonnet-4-5-20250929
 }
 
 // PluginsConfig governs the subprocess plugin runtime. Disabled is a list

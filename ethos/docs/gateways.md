@@ -74,3 +74,45 @@ From any channel:
 
 Bindings persist to `~/.ethos/gateway-sessions.json` so restarts don't
 drop in-flight conversations.
+
+## Vision (image → text)
+
+The main agent is text-only. When a user attaches a photo on Telegram
+or sends `images` through the bridge, an isolated vision model captions
+it and the caption is prepended to the prompt as
+`[image 1 attached by user — vision model says: <caption>]`.
+
+```toml
+[vision]
+enabled  = true
+provider = "anthropic"
+model    = "claude-sonnet-4-5-20250929"
+# api_key = "sk-ant-..."   # falls back to ANTHROPIC_API_KEY
+```
+
+Bridge sidecars send images as base64:
+
+```json
+{
+  "channel": "whatsapp", "chat": "+15551234", "from": "Alice",
+  "text": "what error is this?",
+  "images": [{ "mime": "image/jpeg", "data": "<base64>" }]
+}
+```
+
+## `vision_describe` tool
+
+When vision is configured, the agent gets a `vision_describe` tool. It
+takes one of three sources and returns a caption:
+
+| Field      | Behavior                                                            |
+| ---------- | ------------------------------------------------------------------- |
+| `url`      | Navigate the dev browser, screenshot the viewport, describe         |
+| `file`     | Describe an image already on disk                                   |
+| (neither)  | Screenshot the current browser viewport and describe                |
+| `selector` | Restrict the screenshot to a CSS-selected element                   |
+| `prompt`   | Optional steering question; default asks for an engineer-friendly recap |
+
+So `"check that login page renders"` becomes one tool call:
+`{"url": "https://app.example.com/login", "prompt": "is the form aligned?"}`.
+

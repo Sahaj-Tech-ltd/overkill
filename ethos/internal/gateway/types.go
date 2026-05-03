@@ -32,7 +32,15 @@ type Inbound struct {
 	Thread   string
 	From     string // display name or user id, for logging only
 	Text     string
-	IsDirect bool // DM/private chat vs group
+	Images   []InboundImage // attached photos; describer turns into prose
+	IsDirect bool           // DM/private chat vs group
+}
+
+// InboundImage is one attached image. Mime is best-effort; describers
+// sniff bytes if it's empty.
+type InboundImage struct {
+	Bytes []byte
+	Mime  string
 }
 
 // Reply is the surface a Channel exposes to the dispatcher to render an

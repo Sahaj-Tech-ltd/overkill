@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
 )
 
 // Dispatcher is the shared "message arrives → reply goes out" engine
@@ -26,6 +27,8 @@ import (
 type Dispatcher struct {
 	Agent       AgentSender
 	Router      *SessionRouter
+	Vision      vision.Describer // optional; when set, attached images are
+	// captioned and inlined into the agent prompt
 	Logger      *log.Logger
 	UpdateEvery time.Duration // batch reply edits; default 750ms
 
@@ -50,16 +53,54 @@ func NewDispatcher(ag AgentSender, r *SessionRouter) *Dispatcher {
 // over one bad message.
 func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 	text := strings.TrimSpace(in.Text)
-	if text == "" {
+	if text == "" && len(in.Images) == 0 {
 		return
 	}
-	if strings.HasPrefix(text, "/") {
+	// Slash commands: only route as commands when there's no image. An
+	// image with /caption as its caption is just a labeled image.
+	if text != "" && strings.HasPrefix(text, "/") && len(in.Images) == 0 {
 		d.handleCommand(ctx, in, reply, text)
 		return
 	}
 
+	prompt := d.buildPrompt(ctx, in, text)
+	if prompt == "" {
+		return
+	}
 	sid := d.resolveSession(in)
-	d.serialize(sid, func() { d.runTurn(ctx, in, reply, sid, text) })
+	d.serialize(sid, func() { d.runTurn(ctx, in, reply, sid, prompt) })
+}
+
+// buildPrompt prepends "[image: <caption>]" lines for any attached
+// images so the text-only main agent has a verbal handle on them. If
+// no Vision describer is wired we fall back to a blunt placeholder so
+// the user knows their image was dropped.
+func (d *Dispatcher) buildPrompt(ctx context.Context, in Inbound, text string) string {
+	if len(in.Images) == 0 {
+		return text
+	}
+	var b strings.Builder
+	for i, img := range in.Images {
+		if d.Vision == nil {
+			fmt.Fprintf(&b, "[image %d attached — vision describer not configured; ignoring]\n", i+1)
+			continue
+		}
+		visionImg := []vision.Image{{Bytes: img.Bytes, Mime: img.Mime}}
+		descCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		desc, err := d.Vision.Describe(descCtx, visionImg, "")
+		cancel()
+		if err != nil {
+			d.Logger.Printf("dispatch: vision describe: %v", err)
+			fmt.Fprintf(&b, "[image %d: vision failed: %s]\n", i+1, err.Error())
+			continue
+		}
+		fmt.Fprintf(&b, "[image %d attached by user — vision model says: %s]\n", i+1, desc)
+	}
+	if text != "" {
+		b.WriteString("\n")
+		b.WriteString(text)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // resolveSession picks the session id this turn writes into. If the

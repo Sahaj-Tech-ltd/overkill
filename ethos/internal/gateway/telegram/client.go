@@ -42,11 +42,23 @@ type Update struct {
 
 // Message is the subset of fields we read.
 type Message struct {
-	MessageID int    `json:"message_id"`
-	Date      int64  `json:"date"`
-	Text      string `json:"text"`
-	From      *User  `json:"from"`
-	Chat      Chat   `json:"chat"`
+	MessageID int         `json:"message_id"`
+	Date      int64       `json:"date"`
+	Text      string      `json:"text"`
+	Caption   string      `json:"caption"`
+	Photo     []PhotoSize `json:"photo"`
+	From      *User       `json:"from"`
+	Chat      Chat        `json:"chat"`
+}
+
+// PhotoSize is one resolution of a photo upload. Telegram returns an
+// array sorted smallest-to-largest; we always pick the last (largest).
+type PhotoSize struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	FileSize     int    `json:"file_size"`
 }
 
 // User is a sender; we keep enough to log who sent what.
@@ -72,6 +84,7 @@ func (c *Client) GetUpdates(ctx context.Context, offset int, timeout time.Durati
 		q.Set("offset", strconv.Itoa(offset))
 	}
 	q.Set("timeout", strconv.Itoa(int(timeout.Seconds())))
+	// Subscribe to text + photo (caption arrives in same message).
 	q.Set("allowed_updates", `["message"]`)
 	var resp struct {
 		OK     bool     `json:"ok"`
@@ -130,6 +143,57 @@ func (c *Client) EditMessageText(ctx context.Context, chatID int64, messageID in
 		return fmt.Errorf("telegram: editMessageText: %s", resp.Desc)
 	}
 	return nil
+}
+
+// GetFile resolves a file_id to a downloadable file_path. Telegram
+// caches file_paths for ~1 hour; callers should download promptly.
+func (c *Client) GetFile(ctx context.Context, fileID string) (string, error) {
+	q := url.Values{}
+	q.Set("file_id", fileID)
+	var resp struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			FilePath string `json:"file_path"`
+		} `json:"result"`
+		Desc string `json:"description"`
+	}
+	if err := c.do(ctx, "getFile", q, &resp); err != nil {
+		return "", err
+	}
+	if !resp.OK {
+		return "", fmt.Errorf("telegram: getFile: %s", resp.Desc)
+	}
+	return resp.Result.FilePath, nil
+}
+
+// DownloadFile fetches the bytes for a file_path returned by GetFile.
+// The /file/bot<token>/<path> URL is documented and stable.
+func (c *Client) DownloadFile(ctx context.Context, filePath string) ([]byte, error) {
+	base := c.BaseURL
+	if base == "" {
+		base = DefaultBaseURL
+	}
+	u := fmt.Sprintf("%s/file/bot%s/%s", base, c.Token, filePath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	httpClient := c.HTTP
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("telegram: download: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
+		return nil, fmt.Errorf("telegram: download: http %d: %s", resp.StatusCode, string(body))
+	}
+	// Cap downloads at 16 MiB — well above any reasonable photo size and
+	// keeps a malicious bot operator from filling memory.
+	return io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 }
 
 func (c *Client) do(ctx context.Context, method string, q url.Values, out any) error {

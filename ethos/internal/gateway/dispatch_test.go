@@ -8,7 +8,12 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
 )
+
+// visionImg locally aliases vision.Image so the fake describer's
+// signature matches the real interface without ceremony.
+type visionImg = vision.Image
 
 type fakeAgent struct {
 	mu        sync.Mutex
@@ -142,6 +147,34 @@ func TestDispatch_HelpCommand(t *testing.T) {
 	final := waitFinal(t, reply)
 	if !strings.Contains(final, "/sessions") || !strings.Contains(final, "/follow") {
 		t.Fatalf("help text missing key commands: %q", final)
+	}
+}
+
+type fakeDescriber struct{ desc string }
+
+func (f *fakeDescriber) Describe(_ context.Context, _ []visionImg, _ string) (string, error) {
+	return f.desc, nil
+}
+
+func TestDispatch_VisionPrependsCaption(t *testing.T) {
+	a := &fakeAgent{feed: []agent.StreamEvent{{Type: agent.EventToken, Content: "ack"}}}
+	d := NewDispatcher(a, nil)
+	d.UpdateEvery = 5 * time.Millisecond
+	d.Vision = &fakeDescriber{desc: "a login form"}
+
+	reply := &fakeReply{}
+	d.Handle(context.Background(), Inbound{
+		Channel: "telegram", ChatKey: "1",
+		Text:   "what is this?",
+		Images: []InboundImage{{Bytes: []byte("x"), Mime: "image/png"}},
+	}, reply)
+	_ = waitFinal(t, reply)
+
+	if !strings.Contains(a.gotInput, "a login form") {
+		t.Fatalf("agent input %q should contain caption", a.gotInput)
+	}
+	if !strings.Contains(a.gotInput, "what is this?") {
+		t.Fatalf("agent input %q should contain user text", a.gotInput)
 	}
 }
 

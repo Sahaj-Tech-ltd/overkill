@@ -321,6 +321,21 @@ func buildTUIApp() *tui.App {
 		toolReg.Register(tools.NewBrowserSelectTool(bm, policy))
 		toolReg.Register(tools.NewBrowserEvalTool(bm, policy))
 		toolReg.Register(tools.NewBrowserWaitTool(bm, policy))
+
+		// vision_describe binds the configured vision model to the
+		// browser so the agent can caption a URL in one tool call.
+		if d := buildVisionDescriber(cfg.Vision); d != nil {
+			toolReg.Register(tools.NewVisionDescribeTool(d, bm, policy))
+		}
+	}
+
+	// vision_describe also registers without a browser when one isn't
+	// configured — file-only mode is still useful for "describe
+	// /tmp/screenshot.png".
+	if cfg != nil && (!cfg.Browser.Enabled) {
+		if d := buildVisionDescriber(cfg.Vision); d != nil {
+			toolReg.Register(tools.NewVisionDescribeTool(d, nil, tools.BrowserHostPolicy{}))
+		}
 	}
 
 	// Diagnostic ladder (master plan §4.13).

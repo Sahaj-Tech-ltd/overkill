@@ -12,9 +12,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/gateway"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/gateway/bridge"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/gateway/telegram"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
 )
 
 var gatewayDryRun bool
@@ -54,6 +56,10 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	}
 	disp := gateway.NewDispatcher(sender, router)
 	disp.Logger = logger
+	if v := buildVisionDescriber(cfg.Vision); v != nil {
+		disp.Vision = v
+		logger.Printf("vision: %s/%s wired for inbound images", cfg.Vision.Provider, cfg.Vision.Model)
+	}
 
 	hub := gateway.NewHub()
 	hub.Logger = logger
@@ -101,6 +107,35 @@ func runGateway(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// buildVisionDescriber returns nil when vision is disabled or
+// misconfigured. Today only the Anthropic provider is wired.
+func buildVisionDescriber(v config.VisionConfig) vision.Describer {
+	if !v.Enabled {
+		return nil
+	}
+	provider := v.Provider
+	if provider == "" {
+		provider = "anthropic"
+	}
+	switch provider {
+	case "anthropic":
+		key := v.APIKey
+		if key == "" {
+			key = os.Getenv("ANTHROPIC_API_KEY")
+		}
+		model := v.Model
+		if model == "" {
+			model = "claude-sonnet-4-5-20250929"
+		}
+		if key == "" {
+			return nil
+		}
+		return vision.NewAnthropic(key, model)
+	default:
+		return nil
+	}
 }
 
 // gatewayAgentAdapter trims *agent.Agent down to gateway.AgentSender.

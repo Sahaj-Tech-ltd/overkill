@@ -10,6 +10,7 @@ package bridge
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,16 +23,25 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/gateway"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
 )
 
 // InboundPayload is the JSON shape sidecars POST to /v1/in.
 type InboundPayload struct {
-	Channel  string `json:"channel"`  // "whatsapp", "discord", etc.
-	ChatKey  string `json:"chat"`     // sidecar-stable chat identifier
-	Thread   string `json:"thread"`   // optional
-	From     string `json:"from"`     // display name for logging
-	Text     string `json:"text"`     // user text
-	IsDirect bool   `json:"is_direct"`
+	Channel  string           `json:"channel"`  // "whatsapp", "discord", etc.
+	ChatKey  string           `json:"chat"`     // sidecar-stable chat identifier
+	Thread   string           `json:"thread"`   // optional
+	From     string           `json:"from"`     // display name for logging
+	Text     string           `json:"text"`     // user text
+	Images   []InboundImageB64 `json:"images"`  // optional attached images
+	IsDirect bool             `json:"is_direct"`
+}
+
+// InboundImageB64 is one image payload; data is standard base64.
+// Empty mime is sniffed from bytes.
+type InboundImageB64 struct {
+	Mime string `json:"mime"`
+	Data string `json:"data"`
 }
 
 // OutboundFrame is one event the sidecar receives over SSE.
@@ -140,8 +150,8 @@ func (b *Bridge) handleIn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if p.Channel == "" || p.ChatKey == "" || p.Text == "" {
-		http.Error(w, "channel, chat, text required", http.StatusBadRequest)
+	if p.Channel == "" || p.ChatKey == "" || (p.Text == "" && len(p.Images) == 0) {
+		http.Error(w, "channel, chat, and text or images required", http.StatusBadRequest)
 		return
 	}
 	in := gateway.Inbound{
@@ -151,6 +161,18 @@ func (b *Bridge) handleIn(w http.ResponseWriter, r *http.Request) {
 		From:     p.From,
 		Text:     p.Text,
 		IsDirect: p.IsDirect,
+	}
+	for i, img := range p.Images {
+		raw, err := base64.StdEncoding.DecodeString(img.Data)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("image %d: bad base64: %s", i, err), http.StatusBadRequest)
+			return
+		}
+		mime := img.Mime
+		if mime == "" {
+			mime = vision.MIMEFromBytes(raw)
+		}
+		in.Images = append(in.Images, gateway.InboundImage{Bytes: raw, Mime: mime})
 	}
 	reply := &bridgeReply{
 		bridge:  b,
