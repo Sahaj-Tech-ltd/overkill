@@ -17,6 +17,17 @@ type Config struct {
 	Share      ShareConfig       `toml:"share"`
 	ACP        ACPConfig         `toml:"acp"`
 	Plugins    PluginsConfig     `toml:"plugins"`
+	Slack      SlackConfig       `toml:"slack"`
+}
+
+// SlackConfig governs the optional Slack bot daemon (`ethos slack`).
+// Off by default; tokens may also be supplied via SLACK_APP_TOKEN /
+// SLACK_BOT_TOKEN env vars at runtime.
+type SlackConfig struct {
+	Enabled         bool     `toml:"enabled"`
+	AppToken        string   `toml:"app_token"`         // xapp-... (Socket Mode)
+	BotToken        string   `toml:"bot_token"`         // xoxb-... (Web API)
+	AllowedChannels []string `toml:"allowed_channels"` // empty = all where invited
 }
 
 // PluginsConfig governs the subprocess plugin runtime. Disabled is a list
