@@ -24,6 +24,10 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/cron"
 )
 
+// daemonLedger holds the live background-task ledger for the running daemon.
+// Goroutines reading or writing it are coordinated via the ledger's own mutex.
+var daemonLedger = automation.NewLedger(500)
+
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
 	Short: "Manage the background daemon (cron + automation)",
@@ -195,20 +199,23 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 }
 
 // shellOnFire is the default OnFire hook — runs the job's Command via /bin/sh.
-// Output is logged but not persisted (the cron Job's RunCount/FailureCount
-// updates live inside the scheduler).
+// Output is logged and recorded into the daemon ledger so `ethos task list`
+// can show what the daemon has done while the user was AFK.
 func shellOnFire(j *cron.Job) error {
 	if j.Command == "" {
 		return errors.New("cron: job has no command")
 	}
+	t := daemonLedger.Begin("cron", j.Name)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "sh", "-c", j.Command).CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[cron %s] FAILED: %v\n%s\n", j.Name, err, string(out))
+		daemonLedger.Fail(t.ID, err)
 		return err
 	}
 	fmt.Printf("[cron %s] ok\n", j.Name)
+	daemonLedger.Complete(t.ID, "ok")
 	return nil
 }
 

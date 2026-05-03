@@ -36,6 +36,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/checkpoint"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/walls"
 	syncpkg "github.com/Sahaj-Tech-ltd/ethos/internal/sync"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/tags"
@@ -241,6 +242,23 @@ func buildTUIApp() *tui.App {
 			toolReg.Register(tools.NewRegressionRecordTool(bank))
 			toolReg.Register(tools.NewRegressionListTool(bank))
 			toolReg.Register(tools.NewRegressionVerifyTool(bank))
+		}
+
+		// Filesystem checkpoints (master plan §4.8). The agent calls
+		// checkpoint_snapshot before destructive ops; users can roll back via
+		// /rollback or the CLI subcommand.
+		ckptDir := filepath.Join(home, ".ethos", "checkpoints")
+		if cmgr, err := checkpoint.NewManager(ckptDir, 20); err == nil {
+			app.Checkpoints = cmgr
+			sessFn := func() string {
+				if app.Agent != nil {
+					return app.Agent.SessionID()
+				}
+				return ""
+			}
+			toolReg.Register(tools.NewCheckpointSnapshotTool(cmgr, sessFn))
+			toolReg.Register(tools.NewCheckpointListTool(cmgr, sessFn))
+			toolReg.Register(tools.NewCheckpointRestoreTool(cmgr))
 		}
 	}
 

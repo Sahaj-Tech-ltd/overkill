@@ -461,6 +461,9 @@ func (a *Agent) buildRequest() providers.Request {
 	if extra := a.providedContext(context.Background()); extra != "" {
 		prompt = prompt + "\n\n" + extra
 	}
+	// Caveman Mode (master plan §4.4): escalate bluntness as token budget
+	// approaches the cap so the model voluntarily compresses its output.
+	prompt = a.applyCaveman(prompt)
 
 	return providers.Request{
 		Model:        a.model,

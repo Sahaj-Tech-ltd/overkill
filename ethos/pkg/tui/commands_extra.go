@@ -254,6 +254,28 @@ func (m *appModel) runJournal() tea.Cmd {
 	return m.toastCmd(fmt.Sprintf("journal: %d entries in session %s", len(entries), sid), "info")
 }
 
+// runRollback lists filesystem checkpoints for the current session. Without
+// arguments it shows the most recent checkpoint IDs as a toast; the agent
+// performs the actual restore via the checkpoint_restore tool.
+func (m *appModel) runRollback() tea.Cmd {
+	if m.app == nil || m.app.Checkpoints == nil {
+		return m.toastCmd("rollback: checkpoint manager not configured", "warning")
+	}
+	sid := ""
+	if m.app.Agent != nil {
+		sid = m.app.Agent.SessionID()
+	}
+	list, err := m.app.Checkpoints.List(sid)
+	if err != nil {
+		return m.toastCmd("rollback: "+err.Error(), "error")
+	}
+	if len(list) == 0 {
+		return m.toastCmd("rollback: no checkpoints in this session", "info")
+	}
+	latest := list[0]
+	return m.toastCmd(fmt.Sprintf("rollback: %d checkpoints — latest %s (%s)", len(list), latest.ID, latest.Reason), "info")
+}
+
 // runRedteam invokes the bundled red-team skill against the current session.
 // Today this surfaces the skill name; full execution requires the skill engine
 // to expose a programmatic Run.
