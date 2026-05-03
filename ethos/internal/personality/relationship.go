@@ -40,6 +40,37 @@ type RelationshipTracker struct {
 	mu    sync.RWMutex
 	state RelationshipState
 	now   func() time.Time
+
+	// hooks fire on every RecordBeat. Failures are swallowed (best-effort).
+	// First-of-kind hooks fire only on the first time a beat type is seen.
+	hooks       []BeatHook
+	firstHooks  []BeatHook
+}
+
+// BeatHook is a callback invoked on RecordBeat. Returning an error is allowed
+// but ignored (the relationship tracker is observability-only).
+type BeatHook func(beat Beat)
+
+// OnBeat registers a hook fired on every recorded beat.
+func (r *RelationshipTracker) OnBeat(fn BeatHook) {
+	if fn == nil {
+		return
+	}
+	r.mu.Lock()
+	r.hooks = append(r.hooks, fn)
+	r.mu.Unlock()
+}
+
+// OnFirstBeat registers a hook fired only the first time a given beat type
+// is recorded — useful for "first commit ever" / "first rollback ever"
+// celebrations or alerts.
+func (r *RelationshipTracker) OnFirstBeat(fn BeatHook) {
+	if fn == nil {
+		return
+	}
+	r.mu.Lock()
+	r.firstHooks = append(r.firstHooks, fn)
+	r.mu.Unlock()
 }
 
 func NewRelationshipTracker() *RelationshipTracker {
@@ -81,9 +112,27 @@ func (r *RelationshipTracker) RecordBeat(beatType BeatType, context string, sess
 	}
 	r.state.Beats = append(r.state.Beats, beat)
 
-	if !r.state.Milestones[beatType] {
+	firstTime := !r.state.Milestones[beatType]
+	if firstTime {
 		r.state.Milestones[beatType] = true
 	}
+
+	// Snapshot hooks under lock; fire after release so a slow hook never
+	// blocks Record.
+	hooks := append([]BeatHook(nil), r.hooks...)
+	var firsts []BeatHook
+	if firstTime {
+		firsts = append([]BeatHook(nil), r.firstHooks...)
+	}
+	go func() {
+		defer func() { _ = recover() }()
+		for _, h := range hooks {
+			h(beat)
+		}
+		for _, h := range firsts {
+			h(beat)
+		}
+	}()
 }
 
 func (r *RelationshipTracker) RecordInteraction() {

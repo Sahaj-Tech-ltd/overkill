@@ -294,6 +294,9 @@ func buildTUIApp() *tui.App {
 		toolReg.Register(tools.NewBrowserWaitTool(bm, policy))
 	}
 
+	// Diagnostic ladder (master plan §4.13).
+	toolReg.Register(tools.NewDiagnoseNextTierTool())
+
 	// dev-browser as the third browser flavor (master plan §7.3). Always
 	// registered; degrades to a clear "binary not on PATH" error when the
 	// user hasn't installed it. No config gate.
