@@ -15,6 +15,7 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/introspection"
 	mcppkg "github.com/Sahaj-Tech-ltd/ethos/internal/mcp"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/personality"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/plugin"
@@ -452,6 +453,18 @@ func (m *appModel) Init() tea.Cmd {
 		// Trigger an initial sidebar refresh so the files/cost/sessions tabs
 		// show real data the moment the user opens the chat.
 		func() tea.Msg { return tuitypes.SidebarRefreshMsg{} },
+	}
+	// Surface pending journal alerts as toasts on boot. Best-effort; failure
+	// here never blocks the TUI from loading.
+	if m.app != nil && m.app.Alerts != nil {
+		pending := m.app.Alerts.Pending()
+		for _, a := range pending {
+			text := "[" + string(a.Type) + "] " + a.Message
+			cmds = append(cmds, m.toastCmd(text, "warning"))
+		}
+		if len(pending) > 0 {
+			_ = m.app.Alerts.DismissAll()
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -2698,6 +2711,16 @@ func (m *appModel) runInit() tea.Cmd {
 	_ = os.WriteFile(filepath.Join(dir, "config.toml"), []byte(cfgBody), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "system_prompt.md"), []byte("# project system prompt\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "AGENT.md"), []byte("# project notes for ethos\n"), 0o644)
+
+	// Seed the deep-wiki for the agent: ~/.ethos/introspection/CODEBASE.md.
+	// Best-effort — failure to scan or write does not block /init.
+	if home, err := os.UserHomeDir(); err == nil {
+		introDir := filepath.Join(home, ".ethos", "introspection")
+		if _, scanErr := introspection.WriteCodebaseFromScan(cwd, introDir); scanErr != nil {
+			return m.toastCmd("initialized .ethos/ (deep-wiki skipped: "+scanErr.Error()+")", "warning")
+		}
+		return m.toastCmd("initialized .ethos/ + CODEBASE.md", "success")
+	}
 	return m.toastCmd("initialized .ethos/", "success")
 }
 

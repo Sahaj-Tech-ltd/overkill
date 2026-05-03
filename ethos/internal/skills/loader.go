@@ -56,11 +56,27 @@ func (l *Loader) LoadDir(dir string) ([]Skill, error) {
 	}
 
 	for _, entry := range entries {
+		name := entry.Name()
 		if entry.IsDir() {
+			// Bundled-skill convention: skills/<name>/SKILL.md (mirrors
+			// claude-code/openclaw/mattpocock layout). Look for SKILL.md or
+			// skill.md inside each subdirectory; ignore subdirs that don't
+			// have one.
+			sub := filepath.Join(dir, name)
+			for _, fname := range []string{"SKILL.md", "skill.md"} {
+				path := filepath.Join(sub, fname)
+				if _, err := os.Stat(path); err == nil {
+					skill, lerr := l.LoadFile(path)
+					if lerr != nil {
+						return nil, fmt.Errorf("skills: loading %q: %w", path, lerr)
+					}
+					skills = append(skills, *skill)
+					break
+				}
+			}
 			continue
 		}
 
-		name := entry.Name()
 		if !isSkillFile(name) {
 			continue
 		}

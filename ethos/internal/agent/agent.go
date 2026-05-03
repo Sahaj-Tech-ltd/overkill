@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
@@ -47,6 +48,50 @@ type Agent struct {
 	// eventFn, if set, is fired (best-effort, fire-and-forget) at known
 	// lifecycle moments: tool_call, compact, error. Plugins subscribe.
 	eventFn func(event string, payload map[string]any)
+	// rewriter, if set, is invoked once per turn against the most-recent user
+	// message. The rewritten text replaces the message before the system
+	// prompt is built. Errors fall back to the original message; never blocks.
+	rewriter PromptRewriter
+	// compactor, when set, owns the compaction strategy. When nil the agent
+	// falls back to its legacy single-LLM-call summary path.
+	compactor    HistoryCompactor
+	useCompactor bool
+}
+
+// HistoryCompactor abstracts the compaction strategy used by Agent.Compact.
+// Tiny on purpose — keeps the agent free of the compaction package import.
+type HistoryCompactor interface {
+	Compact(ctx context.Context, msgs []providers.Message, model string, maxTokens int) (summary string, err error)
+}
+
+// SetCompactor installs a compaction strategy. When use is false the agent
+// keeps its in-built ad-hoc compaction path even if c is non-nil — handy as a
+// kill switch. Pass (nil, false) to revert to the legacy path.
+func (a *Agent) SetCompactor(c HistoryCompactor, use bool) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.compactor = c
+	a.useCompactor = use && c != nil
+}
+
+// PromptRewriter is implemented by anything that can transform a user prompt
+// before the agent ships it to the model. The agent itself does not depend on
+// the rewriter package — a tiny interface here keeps the import graph clean.
+type PromptRewriter interface {
+	RewritePrompt(ctx context.Context, text string) (string, error)
+}
+
+// SetRewriter installs the prompt rewriter middleware. Pass nil to disable.
+func (a *Agent) SetRewriter(r PromptRewriter) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.rewriter = r
 }
 
 type Config struct {
@@ -127,6 +172,17 @@ func (a *Agent) SetRecoveryWriter(w JournalEntryWriter) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.recovery = NewErrorRecovery(w)
+}
+
+// SetRecoveryAlertSink wires an AlertSink onto the active ErrorRecovery so
+// emitRecovery fires AlertTaskDeferred. Safe to call multiple times.
+func (a *Agent) SetRecoveryAlertSink(s AlertSink, sessionID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.recovery == nil {
+		a.recovery = NewErrorRecovery(nil)
+	}
+	a.recovery.SetAlertSink(s, sessionID)
 }
 
 type RunResult struct {
@@ -303,6 +359,7 @@ func (a *Agent) emitRecovery(stepErr error) {
 		return
 	}
 	_ = rec.RecordLesson(report)
+	rec.FireDeferralAlert(report)
 	a.emit("recovery", map[string]any{
 		"what_went_wrong": report.WhatWentWrong,
 		"root_cause":      report.RootCause,
@@ -344,7 +401,36 @@ func (a *Agent) buildRequest() providers.Request {
 	a.mu.RLock()
 	msgs := make([]providers.Message, len(a.history))
 	copy(msgs, a.history)
+	rw := a.rewriter
 	a.mu.RUnlock()
+
+	// Rewriter middleware: pipe the most-recent user message through the
+	// installed rewriter (if any). Errors and panics never block — fall back
+	// to the original text. Mutations are confined to the local msgs slice
+	// and pushed back into history so the conversation reflects what the
+	// model actually saw.
+	if rw != nil {
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Role != "user" {
+				continue
+			}
+			func() {
+				defer func() { _ = recover() }()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				rewritten, err := rw.RewritePrompt(ctx, msgs[i].Content)
+				if err == nil && rewritten != "" && rewritten != msgs[i].Content {
+					msgs[i].Content = rewritten
+					a.mu.Lock()
+					if i < len(a.history) && a.history[i].Role == "user" {
+						a.history[i].Content = rewritten
+					}
+					a.mu.Unlock()
+				}
+			}()
+			break
+		}
+	}
 
 	prompt := BuildSystemPrompt(a.systemPrompt, a.toolRegistry)
 	// Append plugin/host-supplied per-turn context (git status, jira ticket,
@@ -469,31 +555,48 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 		}
 	}
 
-	// Build a compaction request: include the existing history plus a system
-	// instruction asking for a concise summary.
-	compactPrompt := "Summarize the conversation above into a single concise paragraph. " +
-		"Preserve: 1) key decisions made, 2) files changed and the nature of the changes, " +
-		"3) outstanding tasks or open questions, 4) important context the user has shared. " +
-		"Be specific. Do not greet or sign off. Output the summary text only."
+	a.mu.RLock()
+	useC := a.useCompactor
+	c := a.compactor
+	a.mu.RUnlock()
 
-	msgs := append([]providers.Message{}, history...)
-	msgs = append(msgs, providers.Message{Role: "user", Content: compactPrompt})
+	var summary string
+	if useC && c != nil {
+		// Delegate to the LCM 3-level escalation compactor.
+		s, err := c.Compact(ctx, history, a.model, a.maxTokens)
+		if err != nil {
+			return nil, fmt.Errorf("agent: compact (lcm): %w", err)
+		}
+		if s == "" {
+			return nil, fmt.Errorf("agent: compact: lcm returned empty summary")
+		}
+		summary = s
+	} else {
+		// Legacy ad-hoc compact path (kept as a kill switch).
+		compactPrompt := "Summarize the conversation above into a single concise paragraph. " +
+			"Preserve: 1) key decisions made, 2) files changed and the nature of the changes, " +
+			"3) outstanding tasks or open questions, 4) important context the user has shared. " +
+			"Be specific. Do not greet or sign off. Output the summary text only."
 
-	req := providers.Request{
-		Model:        a.model,
-		Messages:     msgs,
-		MaxTokens:    a.maxTokens,
-		SystemPrompt: "You produce dense factual summaries of prior conversation.",
-	}
+		msgs := append([]providers.Message{}, history...)
+		msgs = append(msgs, providers.Message{Role: "user", Content: compactPrompt})
 
-	resp, err := a.provider.Complete(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("agent: compact: %w", err)
-	}
+		req := providers.Request{
+			Model:        a.model,
+			Messages:     msgs,
+			MaxTokens:    a.maxTokens,
+			SystemPrompt: "You produce dense factual summaries of prior conversation.",
+		}
 
-	summary := resp.Content
-	if summary == "" {
-		return nil, fmt.Errorf("agent: compact: provider returned empty summary")
+		resp, err := a.provider.Complete(ctx, req)
+		if err != nil {
+			return nil, fmt.Errorf("agent: compact: %w", err)
+		}
+
+		summary = resp.Content
+		if summary == "" {
+			return nil, fmt.Errorf("agent: compact: provider returned empty summary")
+		}
 	}
 
 	newHistory := []providers.Message{

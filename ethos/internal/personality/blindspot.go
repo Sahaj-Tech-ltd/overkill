@@ -16,6 +16,15 @@ type BlindSpotDetector struct {
 	MaxAlerts  int
 	alerted    map[string]bool
 	alertCount int
+	sink       AlertSink
+	sessionID  string
+}
+
+// SetAlertSink wires a sink that receives a pattern_detected alert when
+// Check() trips its threshold. Pass nil to disable.
+func (bsd *BlindSpotDetector) SetAlertSink(s AlertSink, sessionID string) {
+	bsd.sink = s
+	bsd.sessionID = sessionID
 }
 
 func NewBlindSpotDetector() *BlindSpotDetector {
@@ -40,6 +49,12 @@ func (bsd *BlindSpotDetector) Check() (string, bool) {
 			bsd.alerted[taskType] = true
 			bsd.alertCount++
 			msg := fmt.Sprintf("You've asked me to %s %d times. Maybe there's a deeper issue worth addressing?", taskType, count)
+			if bsd.sink != nil {
+				func() {
+					defer func() { _ = recover() }()
+					_ = bsd.sink.Create("pattern_detected", msg, bsd.sessionID)
+				}()
+			}
 			return msg, true
 		}
 	}

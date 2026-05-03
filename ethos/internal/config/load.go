@@ -57,6 +57,7 @@ func Default() *Config {
 			HardTriggerPercent: 95,
 			PreserveMessages:   20,
 			MaxSummaryTokens:   2048,
+			UseLCM:             true,
 		},
 		UI: UIConfig{
 			Animations: true,

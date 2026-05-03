@@ -118,6 +118,51 @@ func (i *Introspector) IsStale(fileType FileType, maxAge time.Duration) bool {
 	return time.Since(f.UpdatedAt) > maxAge
 }
 
+// WriteCodebaseFromScan walks the given source directory deterministically,
+// renders a CODEBASE.md, and writes it to the introspector's directory.
+// Returns the resulting file. Used by /init to seed the deep-wiki without an
+// LLM call.
+func WriteCodebaseFromScan(sourceDir, outDir string) (*IntrospectionFile, error) {
+	res, err := WalkAndSummarize(sourceDir)
+	if err != nil {
+		return nil, fmt.Errorf("introspection: scan: %w", err)
+	}
+	body := RenderCodebaseMarkdown(res)
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return nil, fmt.Errorf("introspection: mkdir: %w", err)
+	}
+	path := filepath.Join(outDir, string(FileCodebase))
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return nil, fmt.Errorf("introspection: write: %w", err)
+	}
+	return &IntrospectionFile{
+		Type:      FileCodebase,
+		Path:      path,
+		Content:   body,
+		UpdatedAt: time.Now(),
+		Exists:    true,
+	}, nil
+}
+
+// LoadCodebaseSnippet returns a project-context snippet suitable for injection
+// into the agent's system prompt. Returns "" if no CODEBASE.md exists at dir.
+// Truncates to maxChars to keep the system prompt budget under control.
+func LoadCodebaseSnippet(dir string, maxChars int) string {
+	if maxChars <= 0 {
+		maxChars = 8000
+	}
+	path := filepath.Join(dir, string(FileCodebase))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	body := string(data)
+	if len(body) > maxChars {
+		body = body[:maxChars] + "\n\n[truncated]"
+	}
+	return "## Project context (from CODEBASE.md)\n\n" + body
+}
+
 func (i *Introspector) List() ([]IntrospectionFile, error) {
 	types := []FileType{FileCodebase, FileModelCard, FileKnownIssues, FileArchitecture}
 	results := make([]IntrospectionFile, 0, len(types))

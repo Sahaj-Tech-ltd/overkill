@@ -9,9 +9,27 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/tokenizer"
 )
 
+// AlertSink receives compaction-skip alerts (master plan §4.19). Tiny
+// interface so the compaction package stays free of journal imports.
+type AlertSink interface {
+	Create(alertType, message, sessionID string) error
+}
+
 type LCMCompactor struct {
 	provider  providers.Provider
 	tokenizer *tokenizer.Estimator
+	sink      AlertSink
+	sessionID string
+}
+
+// SetAlertSink wires a sink that receives a compaction_skip alert when the
+// LCM falls all the way to truncation (Level 3) — i.e., no LLM savings.
+func (c *LCMCompactor) SetAlertSink(s AlertSink, sessionID string) {
+	if c == nil {
+		return
+	}
+	c.sink = s
+	c.sessionID = sessionID
 }
 
 func NewLCMCompactor(provider providers.Provider, tok *tokenizer.Estimator) *LCMCompactor {
@@ -89,7 +107,7 @@ func (c *LCMCompactor) Compact(ctx context.Context, messages []providers.Message
 		ratio = float64(compactedTokens) / float64(originalTokens)
 	}
 
-	return &CompactionResult{
+	res := &CompactionResult{
 		Summary:           result,
 		Level:             level,
 		OriginalTokens:    originalTokens,
@@ -97,7 +115,18 @@ func (c *LCMCompactor) Compact(ctx context.Context, messages []providers.Message
 		Ratio:             math.Round(ratio*1000) / 1000,
 		MessagesCompacted: len(toCompact),
 		MessagesPreserved: len(preserved),
-	}, nil
+	}
+	// Fire compaction_skip alert when LLM levels both failed and we had to
+	// fall back to deterministic truncation (no real savings, just slicing).
+	if level == Level3Truncate && c.sink != nil {
+		func() {
+			defer func() { _ = recover() }()
+			msg := fmt.Sprintf("compaction fell back to truncate (%d → %d tokens)",
+				originalTokens, compactedTokens)
+			_ = c.sink.Create("compaction_skip", msg, c.sessionID)
+		}()
+	}
+	return res, nil
 }
 
 func (c *LCMCompactor) compactLevels(ctx context.Context, messages []providers.Message, targetTokens int) (string, Level, error) {

@@ -24,6 +24,23 @@ func NewLLMRewriter(provider providers.Provider, model string) *LLMRewriter {
 	}
 }
 
+// RewritePrompt is a thin convenience wrapper around Rewrite that returns just
+// the rewritten string, suitable for middleware-style use. Falls back to the
+// original input on error so a misbehaving rewriter never blocks the agent.
+func (r *LLMRewriter) RewritePrompt(ctx context.Context, input string) (string, error) {
+	if r == nil {
+		return input, nil
+	}
+	res, err := r.Rewrite(ctx, input)
+	if err != nil {
+		return input, err
+	}
+	if res == nil || res.Rewritten == "" {
+		return input, nil
+	}
+	return res.Rewritten, nil
+}
+
 func (r *LLMRewriter) Rewrite(ctx context.Context, input string) (*RewriteResult, error) {
 	analysis := r.middleware.Analyze(input)
 

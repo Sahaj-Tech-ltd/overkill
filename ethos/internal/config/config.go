@@ -21,6 +21,18 @@ type Config struct {
 	Plugins     PluginsConfig     `toml:"plugins"`
 	Slack       SlackConfig       `toml:"slack"`
 	Browser     BrowserConfig     `toml:"browser"`
+	Rewriter    RewriterConfig    `toml:"rewriter"`
+}
+
+// RewriterConfig governs the prompt rewriter middleware (master plan §4.10).
+// Disabled by default. When Enabled is true the agent pipes each user message
+// through the rewriter before constructing the provider request.
+type RewriterConfig struct {
+	Enabled          bool   `toml:"enabled"`
+	StripSycophancy  bool   `toml:"strip_sycophancy"`
+	AntiPatternGuard bool   `toml:"anti_pattern_guard"`
+	LLMRewrite       bool   `toml:"llm_rewrite"`
+	Model            string `toml:"model"`
 }
 
 // BrowserConfig governs the agentic browser. Off by default — tools are not
@@ -184,10 +196,14 @@ type CostConfig struct {
 }
 
 type CompactionConfig struct {
-	SoftTriggerPercent int `toml:"soft_trigger_percent"`
-	HardTriggerPercent int `toml:"hard_trigger_percent"`
-	PreserveMessages   int `toml:"preserve_messages"`
-	MaxSummaryTokens   int `toml:"max_summary_tokens"`
+	SoftTriggerPercent int  `toml:"soft_trigger_percent"`
+	HardTriggerPercent int  `toml:"hard_trigger_percent"`
+	PreserveMessages   int  `toml:"preserve_messages"`
+	MaxSummaryTokens   int  `toml:"max_summary_tokens"`
+	// UseLCM routes Agent.Compact through the LCM 3-level escalation
+	// compactor (internal/compaction). When false, falls back to the legacy
+	// ad-hoc single-LLM-call compact path. Defaults to true.
+	UseLCM bool `toml:"use_lcm"`
 }
 
 const CurrentVersion = 1

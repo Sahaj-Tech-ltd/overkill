@@ -21,12 +21,43 @@ type JournalEntryWriter interface {
 	WriteEntry(entryType string, content string) error
 }
 
+// AlertSink receives structured alerts surfaced at next session boot. The
+// agent does not depend on the journal package directly — a tiny interface
+// here keeps the import graph clean.
+type AlertSink interface {
+	Create(alertType, message, sessionID string) error
+}
+
 type ErrorRecovery struct {
-	writer JournalEntryWriter
+	writer    JournalEntryWriter
+	sink      AlertSink
+	sessionID string
 }
 
 func NewErrorRecovery(writer JournalEntryWriter) *ErrorRecovery {
 	return &ErrorRecovery{writer: writer}
+}
+
+// SetAlertSink attaches an alert sink so recovery reports can fire
+// AlertTaskDeferred at the next session boot. Pass nil to disable.
+func (er *ErrorRecovery) SetAlertSink(s AlertSink, sessionID string) {
+	if er == nil {
+		return
+	}
+	er.sink = s
+	er.sessionID = sessionID
+}
+
+// FireDeferralAlert pushes a TaskDeferred alert through the sink. Best-effort;
+// sink errors are intentionally swallowed so recovery never aborts on them.
+func (er *ErrorRecovery) FireDeferralAlert(report *RecoveryReport) {
+	if er == nil || er.sink == nil || report == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	msg := fmt.Sprintf("task deferred after error: %s (root: %s)",
+		report.WhatWentWrong, report.RootCause)
+	_ = er.sink.Create("task_deferred", msg, er.sessionID)
 }
 
 func (er *ErrorRecovery) Analyze(err error, history []providers.Message) *RecoveryReport {

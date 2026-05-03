@@ -19,11 +19,20 @@ type JournalEntry struct {
 	Content string
 }
 
+// AlertSink is implemented by anything that accepts boot-time alerts (the
+// journal AlertStore in production). The package keeps no direct journal
+// dependency to avoid cycles.
+type AlertSink interface {
+	Create(alertType, message, sessionID string) error
+}
+
 type TransparencyEngine struct {
 	failures     []FailureRecord
 	maxWarnings  int
 	warned       int
 	currentModel string
+	sink         AlertSink
+	sessionID    string
 }
 
 func NewTransparencyEngine(model string) *TransparencyEngine {
@@ -51,6 +60,13 @@ func (te *TransparencyEngine) RecordFailure(taskType, model string) {
 	})
 }
 
+// SetAlertSink wires a sink that receives a frustration_signal alert each time
+// Check() returns warn-worthy state. Pass nil to disable.
+func (te *TransparencyEngine) SetAlertSink(s AlertSink, sessionID string) {
+	te.sink = s
+	te.sessionID = sessionID
+}
+
 func (te *TransparencyEngine) Check(taskType string) (string, bool) {
 	for _, f := range te.failures {
 		if f.TaskType == taskType && f.Model == te.currentModel {
@@ -60,6 +76,12 @@ func (te *TransparencyEngine) Check(taskType string) (string, bool) {
 					"Heads up — this type of task (%s) has failed %d times before with this model. Want me to try a different approach?",
 					taskType, f.Count,
 				)
+				if te.sink != nil {
+					func() {
+						defer func() { _ = recover() }()
+						_ = te.sink.Create("frustration_signal", msg, te.sessionID)
+					}()
+				}
 				return msg, true
 			}
 			return "", false

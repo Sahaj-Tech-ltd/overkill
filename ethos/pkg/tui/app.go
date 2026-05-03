@@ -34,6 +34,7 @@ type App struct {
 	Hooks    *hooks.Registry
 	Config   *config.Config
 	Journal  *journal.FlightRecorder
+	Alerts   *journal.AlertStore
 	Subagent *subagent.Manager
 	MCP      *mcp.Manager
 	LSP      *lsp.Manager
