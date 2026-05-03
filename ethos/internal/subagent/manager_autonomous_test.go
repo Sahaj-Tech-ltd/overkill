@@ -2,6 +2,7 @@ package subagent
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -107,5 +108,86 @@ func TestManager_SpawnContract_RejectsInvalid(t *testing.T) {
 	bad := &Contract{ID: "x", Goal: "x"}
 	if _, err := m.SpawnContract(context.Background(), bad, &fakeDriver{}, "", nil); err == nil {
 		t.Fatal("invalid contract must error")
+	}
+}
+
+type recordingSink struct {
+	mu    sync.Mutex
+	calls []sinkCall
+}
+type sinkCall struct {
+	parentSession string
+	contractID    string
+	status        string
+	reason        string
+}
+
+func (s *recordingSink) OnDelegationFailure(parentSession string, c *Contract, rep *FinalReport, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	row := sinkCall{parentSession: parentSession}
+	if c != nil {
+		row.contractID = c.ID
+	}
+	if rep != nil {
+		row.status = rep.Status
+		row.reason = rep.Reason
+	}
+	if err != nil && row.reason == "" {
+		row.reason = err.Error()
+	}
+	s.calls = append(s.calls, row)
+}
+func (s *recordingSink) snapshot() []sinkCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]sinkCall, len(s.calls))
+	copy(out, s.calls)
+	return out
+}
+
+func TestManager_FailureSink_FiresOnViolation(t *testing.T) {
+	m := NewManager(Config{MaxChildren: 3})
+	sink := &recordingSink{}
+	m.SetFailureSink(sink)
+
+	c := runnerContract([]string{"a"})
+	c.ParentSession = "parent-1"
+	d := &fakeDriver{max: 100000, doneAt: 1} // done before satisfying outputs → violation
+
+	id, err := m.SpawnContract(context.Background(), c, d, "", nil)
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if _, err := m.AutonomousWait(context.Background(), id); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	// Allow goroutine fire-and-forget to land.
+	time.Sleep(50 * time.Millisecond)
+	calls := sink.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("got %d sink calls want 1", len(calls))
+	}
+	if calls[0].parentSession != "parent-1" {
+		t.Fatalf("parent session = %q want parent-1", calls[0].parentSession)
+	}
+	if calls[0].status != "violated" {
+		t.Fatalf("status = %q want violated", calls[0].status)
+	}
+}
+
+func TestManager_FailureSink_NotFiredOnSuccess(t *testing.T) {
+	m := NewManager(Config{MaxChildren: 3})
+	sink := &recordingSink{}
+	m.SetFailureSink(sink)
+
+	c := runnerContract([]string{"a"})
+	d := &fakeDriver{max: 100000, completeAt: 2, specs: []string{"a"}}
+
+	id, _ := m.SpawnContract(context.Background(), c, d, "", nil)
+	_, _ = m.AutonomousWait(context.Background(), id)
+	time.Sleep(50 * time.Millisecond)
+	if calls := sink.snapshot(); len(calls) != 0 {
+		t.Fatalf("expected 0 sink calls on success, got %v", calls)
 	}
 }

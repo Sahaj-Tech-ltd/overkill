@@ -28,10 +28,11 @@ type Entry struct {
 type AlertType string
 
 const (
-	AlertCompactionSkip  AlertType = "compaction_skip"
-	AlertTaskDeferred    AlertType = "task_deferred"
-	AlertPatternDetected AlertType = "pattern_detected"
-	AlertFrustration     AlertType = "frustration_signal"
+	AlertCompactionSkip   AlertType = "compaction_skip"
+	AlertTaskDeferred     AlertType = "task_deferred"
+	AlertPatternDetected  AlertType = "pattern_detected"
+	AlertFrustration      AlertType = "frustration_signal"
+	AlertDelegationFailed AlertType = "delegation_failure"
 )
 
 type Alert struct {

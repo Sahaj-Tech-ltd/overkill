@@ -45,6 +45,26 @@ type Manager struct {
 	// driverFactory builds a fresh StepDriver for a given contract. When
 	// nil the contract path on delegate_task returns an error.
 	driverFactory func(*Contract) (StepDriver, error)
+
+	// failureSink, when set, is invoked when a contract terminates in any
+	// non-completed state. Used by cmd/ethos to push delegation_failure
+	// alerts into the journal AlertStore. Best-effort: fired in a goroutine.
+	failureSink HandoffFailureSink
+}
+
+// HandoffFailureSink receives a structured record of every cross-agent
+// failure so the parent's journal can attribute the fault to the delegation
+// decision, not just to the child.
+type HandoffFailureSink interface {
+	OnDelegationFailure(parentSession string, contract *Contract, report *FinalReport, err error)
+}
+
+// SetFailureSink wires a delegation-failure observer (master plan §5.3).
+// Pass nil to clear.
+func (m *Manager) SetFailureSink(s HandoffFailureSink) {
+	m.mu.Lock()
+	m.failureSink = s
+	m.mu.Unlock()
 }
 
 // SetDriverFactory wires a per-contract StepDriver builder. cmd/ethos calls
@@ -162,8 +182,18 @@ func (m *Manager) SpawnContract(ctx context.Context, contract *Contract, driver 
 		m.mu.Lock()
 		entry.report = rep
 		entry.runErr = err
+		sink := m.failureSink
 		m.mu.Unlock()
 		close(entry.done)
+		// Cross-agent fault attribution (master plan §5.3): any non-completed
+		// terminal state means the *delegation decision* deserves a journal
+		// entry. The sink converts this into AlertDelegationFailed.
+		if sink != nil && (err != nil || (rep != nil && rep.Status != "completed")) {
+			go func() {
+				defer func() { _ = recover() }()
+				sink.OnDelegationFailure(contract.ParentSession, contract, rep, err)
+			}()
+		}
 	}()
 
 	return contract.ID, nil

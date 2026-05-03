@@ -331,6 +331,13 @@ func buildTUIApp() *tui.App {
 	// SKILL.md files at ~/.ethos/skills/<name>/.
 	toolReg.Register(tools.NewSkillExtractTool(""))
 
+	// Spider-Man test agent (master plan §4.12). Spec-isolated test
+	// generator + validator — it never sees the parent's history.
+	testAgent := agent.NewTestAgent(provider, modelName)
+	testRunner := &spiderRunner{ta: testAgent}
+	toolReg.Register(tools.NewSpiderTestTool(testRunner))
+	toolReg.Register(tools.NewSpiderValidateTool(testRunner))
+
 	// dev-browser as the third browser flavor (master plan §7.3). Always
 	// registered; degrades to a clear "binary not on PATH" error when the
 	// user hasn't installed it. No config gate.
@@ -621,6 +628,13 @@ func buildTUIApp() *tui.App {
 		// a follow-up setter via the journalAdapter we already built.
 		_ = recoveryAlertBinder(a, alertSink, sid)
 
+		// Cross-agent fault attribution (master plan §5.3): every contract
+		// failure → AlertDelegationFailed in the journal so the next-session
+		// opener surfaces it.
+		if app.Subagent != nil {
+			app.Subagent.SetFailureSink(&delegationFailureAdapter{store: alertStore})
+		}
+
 		// Forward agent lifecycle events into the journal. Best-effort: any
 		// write failure is silently dropped so a full disk doesn't kill chat.
 		journalAdapter := &journalEventAdapter{rec: recorder}
@@ -740,6 +754,54 @@ func (a *alertSinkAdapter) Create(alertType, message, sessionID string) error {
 		return nil
 	}
 	return a.store.Create(journal.AlertType(alertType), message, sessionID)
+}
+
+// spiderRunner adapts agent.TestAgent to tools.TestAgentRunner so the
+// Spider-Man tools can live in internal/tools without an import cycle
+// (agent → tools is the canonical direction).
+type spiderRunner struct {
+	ta *agent.TestAgent
+}
+
+func (s *spiderRunner) GenerateTests(ctx context.Context, language string, files []string, spec, description string) (string, error) {
+	return s.ta.GenerateTests(ctx, agent.TestSpec{
+		Description: description,
+		FilesToTest: files,
+		SpecContent: spec,
+		Language:    language,
+	})
+}
+
+func (s *spiderRunner) ValidateTests(ctx context.Context, testCode string, implFiles []string) (string, error) {
+	return s.ta.ValidateTests(ctx, testCode, implFiles)
+}
+
+// delegationFailureAdapter satisfies subagent.HandoffFailureSink by writing
+// an AlertDelegationFailed row each time a contract terminates non-completed
+// (master plan §5.3). The message includes the contract goal + status so the
+// next-session opener tells the user *what* failed at the handoff.
+type delegationFailureAdapter struct {
+	store *journal.AlertStore
+}
+
+func (d *delegationFailureAdapter) OnDelegationFailure(parentSession string, contract *subagent.Contract, report *subagent.FinalReport, err error) {
+	if d == nil || d.store == nil || contract == nil {
+		return
+	}
+	status := "unknown"
+	reason := ""
+	if report != nil {
+		status = report.Status
+		reason = report.Reason
+	}
+	if err != nil && reason == "" {
+		reason = err.Error()
+	}
+	msg := "delegation failed: " + contract.Goal + " (status=" + status + ")"
+	if reason != "" {
+		msg += " — " + reason
+	}
+	_ = d.store.Create(journal.AlertDelegationFailed, msg, parentSession)
 }
 
 // recoveryAlertBinder binds the alert sink onto the agent's recovery pipeline.
