@@ -38,6 +38,19 @@ type Manager struct {
 	children    map[string]*ChildRef
 	fileState   *FileStateTracker
 	costTracker *CostRollup
+
+	// Contract-based autonomous children, keyed by contract.ID.
+	autonomous map[string]*autonomousEntry
+}
+
+// autonomousEntry tracks one in-flight or completed contract-based child.
+type autonomousEntry struct {
+	contract *Contract
+	runner   *AutonomousRunner
+	cancel   context.CancelFunc
+	done     chan struct{} // closed when Run returns
+	report   *FinalReport
+	runErr   error
 }
 
 // NewManager creates a Manager with sensible defaults.
@@ -59,7 +72,140 @@ func NewManager(cfg Config) *Manager {
 		children:    make(map[string]*ChildRef),
 		fileState:   NewFileStateTracker(),
 		costTracker: NewCostRollup("manager"),
+		autonomous:  make(map[string]*autonomousEntry),
 	}
+}
+
+// SpawnContract registers a contract-driven autonomous child and runs it in a
+// background goroutine. Returns the contract ID immediately; the parent calls
+// Status / Wait / Cancel against that ID.
+//
+// Workdir, if non-empty, is the working directory passed to AcceptanceRunner.
+// Runner overrides the default acceptance runner (useful in tests).
+func (m *Manager) SpawnContract(ctx context.Context, contract *Contract, driver StepDriver, workdir string, runner AcceptanceRunner) (string, error) {
+	if contract == nil {
+		return "", fmt.Errorf("subagent: contract is required")
+	}
+	if err := contract.Validate(); err != nil {
+		return "", err
+	}
+
+	m.mu.Lock()
+	if _, exists := m.autonomous[contract.ID]; exists {
+		m.mu.Unlock()
+		return "", fmt.Errorf("subagent: contract %q already registered", contract.ID)
+	}
+	if len(m.autonomous) >= m.cfg.MaxChildren {
+		m.mu.Unlock()
+		return "", fmt.Errorf("subagent: too many autonomous children (%d/%d)", len(m.autonomous), m.cfg.MaxChildren)
+	}
+
+	cctx, cancel := context.WithCancel(ctx)
+	r, err := NewAutonomousRunner(AutonomousConfig{
+		Contract: contract,
+		Driver:   driver,
+		Workdir:  workdir,
+		Runner:   runner,
+	})
+	if err != nil {
+		cancel()
+		m.mu.Unlock()
+		return "", err
+	}
+
+	entry := &autonomousEntry{
+		contract: contract,
+		runner:   r,
+		cancel:   cancel,
+		done:     make(chan struct{}),
+	}
+	m.autonomous[contract.ID] = entry
+	m.mu.Unlock()
+
+	go func() {
+		rep, err := r.Run(cctx)
+		m.mu.Lock()
+		entry.report = rep
+		entry.runErr = err
+		m.mu.Unlock()
+		close(entry.done)
+	}()
+
+	return contract.ID, nil
+}
+
+// AutonomousStatus returns the live status of a contract-driven child. The
+// boolean is false when no such child exists.
+func (m *Manager) AutonomousStatus(id string) (StatusReport, bool) {
+	m.mu.RLock()
+	entry, ok := m.autonomous[id]
+	m.mu.RUnlock()
+	if !ok {
+		return StatusReport{}, false
+	}
+	return entry.runner.Status(), true
+}
+
+// AutonomousReport returns the FinalReport once the child has finished. When
+// running is true, the child is still in flight.
+func (m *Manager) AutonomousReport(id string) (report *FinalReport, running bool, err error) {
+	m.mu.RLock()
+	entry, ok := m.autonomous[id]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, false, fmt.Errorf("subagent: no contract %q", id)
+	}
+	select {
+	case <-entry.done:
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		return entry.report, false, entry.runErr
+	default:
+		return nil, true, nil
+	}
+}
+
+// AutonomousWait blocks until the child finishes, or ctx is cancelled.
+func (m *Manager) AutonomousWait(ctx context.Context, id string) (*FinalReport, error) {
+	m.mu.RLock()
+	entry, ok := m.autonomous[id]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("subagent: no contract %q", id)
+	}
+	select {
+	case <-entry.done:
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		return entry.report, entry.runErr
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// AutonomousCancel signals the child runner to stop and unblocks AutonomousWait.
+// Returns false when no such child exists.
+func (m *Manager) AutonomousCancel(id string) bool {
+	m.mu.RLock()
+	entry, ok := m.autonomous[id]
+	m.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	entry.runner.Cancel()
+	entry.cancel()
+	return true
+}
+
+// AutonomousList returns the IDs of all registered contract-driven children.
+func (m *Manager) AutonomousList() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]string, 0, len(m.autonomous))
+	for id := range m.autonomous {
+		out = append(out, id)
+	}
+	return out
 }
 
 // Spawn runs a single child task subject to depth and capacity limits.

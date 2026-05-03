@@ -31,6 +31,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
 	syncpkg "github.com/Sahaj-Tech-ltd/ethos/internal/sync"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/tags"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/tokenizer"
@@ -190,6 +191,13 @@ func buildTUIApp() *tui.App {
 	toolReg.Register(tools.NewWorktreeAddTool(cwd))
 	toolReg.Register(tools.NewWorktreeRemoveTool(cwd))
 	toolReg.Register(tools.NewACPSendTool())
+
+	// Sub-agent manager + contract-driven tooling.
+	app.Subagent = subagent.NewManager(subagent.Config{MaxDepth: 2, MaxChildren: 3})
+	toolReg.Register(tools.NewDelegateTool(app.Subagent))
+	toolReg.Register(tools.NewSubagentStatusTool(app.Subagent))
+	toolReg.Register(tools.NewSubagentWaitTool(app.Subagent))
+
 	if app.Tags != nil {
 		toolReg.Register(tools.NewTagAddTool(app.Tags))
 		toolReg.Register(tools.NewTagRemoveTool(app.Tags))
