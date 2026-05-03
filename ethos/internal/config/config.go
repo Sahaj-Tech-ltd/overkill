@@ -20,6 +20,7 @@ type Config struct {
 	ACP         ACPConfig         `toml:"acp"`
 	Plugins     PluginsConfig     `toml:"plugins"`
 	Slack       SlackConfig       `toml:"slack"`
+	Gateways    GatewayConfig     `toml:"gateways"`
 	Browser     BrowserConfig     `toml:"browser"`
 	Rewriter    RewriterConfig    `toml:"rewriter"`
 }
@@ -55,6 +56,31 @@ type SlackConfig struct {
 	AppToken        string   `toml:"app_token"`        // xapp-... (Socket Mode)
 	BotToken        string   `toml:"bot_token"`        // xoxb-... (Web API)
 	AllowedChannels []string `toml:"allowed_channels"` // empty = all where invited
+}
+
+// TelegramConfig governs the optional Telegram bot gateway.
+// Off by default; token may also come from TELEGRAM_BOT_TOKEN at runtime.
+type TelegramConfig struct {
+	Enabled      bool    `toml:"enabled"`
+	BotToken     string  `toml:"bot_token"`
+	AllowedChats []int64 `toml:"allowed_chats"` // empty = any chat the bot is in
+}
+
+// BridgeConfig governs the HTTP webhook bridge for sidecar gateways
+// (Baileys WhatsApp, discord.js, SMS relays). Listens on loopback by
+// default; expose only behind a reverse proxy if you need remote access.
+type BridgeConfig struct {
+	Enabled bool   `toml:"enabled"`
+	Listen  string `toml:"listen"` // default 127.0.0.1:7799
+	Token   string `toml:"token"`  // shared secret; empty disables auth
+}
+
+// GatewayConfig wires all remote messaging gateways. Each sub-section is
+// independently togglable so users can run telegram alone, bridge alone,
+// or both.
+type GatewayConfig struct {
+	Telegram TelegramConfig `toml:"telegram"`
+	Bridge   BridgeConfig   `toml:"bridge"`
 }
 
 // PluginsConfig governs the subprocess plugin runtime. Disabled is a list
