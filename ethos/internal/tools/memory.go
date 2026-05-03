@@ -71,8 +71,10 @@ func NewMemoryRecallTool(o *memory.Orchestrator) *MemoryRecallTool {
 func (t *MemoryRecallTool) Name() string { return "memory_recall" }
 
 type memoryRecallInput struct {
-	Query string `json:"query"`
-	TopK  int    `json:"top_k,omitempty"`
+	Query string   `json:"query"`
+	TopK  int      `json:"top_k,omitempty"`
+	Types []string `json:"types,omitempty"` // episodic | semantic | procedural
+	Tags  []string `json:"tags,omitempty"`
 }
 
 func (t *MemoryRecallTool) Execute(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
@@ -93,8 +95,47 @@ func (t *MemoryRecallTool) Execute(ctx context.Context, in json.RawMessage) (jso
 	if err != nil {
 		return errorJSON(err.Error()), nil
 	}
+	// Post-filter by type / tags (the underlying SemanticRecall fallback
+	// hits Retrieve which already supports these, but the bridge path does
+	// not — so we filter here for parity).
+	if len(req.Types) > 0 || len(req.Tags) > 0 {
+		filtered := make([]memory.Memory, 0, len(res.Memories))
+		for _, m := range res.Memories {
+			if len(req.Types) > 0 && !typeIn(req.Types, string(m.Type)) {
+				continue
+			}
+			if len(req.Tags) > 0 && !tagsIntersect(req.Tags, m.Tags) {
+				continue
+			}
+			filtered = append(filtered, m)
+		}
+		res.Memories = filtered
+		res.Total = len(filtered)
+	}
 	out, _ := json.Marshal(res)
 	return out, nil
+}
+
+func typeIn(want []string, got string) bool {
+	for _, w := range want {
+		if w == got {
+			return true
+		}
+	}
+	return false
+}
+
+func tagsIntersect(want []string, got []string) bool {
+	set := make(map[string]struct{}, len(got))
+	for _, g := range got {
+		set[g] = struct{}{}
+	}
+	for _, w := range want {
+		if _, ok := set[w]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // MemoryForgetTool deletes a stored memory (and its vector if applicable).

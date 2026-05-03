@@ -3,6 +3,7 @@ package tui
 import (
 	"github.com/Sahaj-Tech-ltd/ethos/internal/acp"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/ethos/internal/automation"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/browser"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/checkpoint"
 	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
@@ -40,8 +41,9 @@ type App struct {
 	MCP      *mcp.Manager
 	LSP      *lsp.Manager
 	Plugins  *plugin.Manager
-	Browser     *browser.Manager
-	Checkpoints *checkpoint.Manager
+	Browser        *browser.Manager
+	Checkpoints    *checkpoint.Manager
+	StandingOrders *automation.OrdersFile
 
 	// Phase-3 polish features. Each is nil-safe — TUI checks before use.
 	Tags      *tags.Manager

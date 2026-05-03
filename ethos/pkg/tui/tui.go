@@ -621,6 +621,7 @@ func (m *appModel) registerCommands() {
 		{ID: "journal", Title: "/journal", Description: "search the flight-recorder journal"},
 		{ID: "redteam", Title: "/redteam", Description: "run red-team checks on the active session"},
 		{ID: "rollback", Title: "/rollback", Description: "list/restore filesystem checkpoints"},
+		{ID: "orders", Title: "/orders", Description: "list active standing orders"},
 	} {
 		m.cmdDialog.RegisterCommand(c)
 	}
@@ -2315,6 +2316,8 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return m.runRedteam()
 	case "rollback":
 		return m.runRollback()
+	case "orders":
+		return m.runOrders()
 	}
 	return nil
 }

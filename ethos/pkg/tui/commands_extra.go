@@ -254,6 +254,23 @@ func (m *appModel) runJournal() tea.Cmd {
 	return m.toastCmd(fmt.Sprintf("journal: %d entries in session %s", len(entries), sid), "info")
 }
 
+// runOrders lists active standing orders. Mutation lives in the CLI
+// (`ethos orders add|rm`) so the TUI doesn't need a free-text input here.
+func (m *appModel) runOrders() tea.Cmd {
+	if m.app == nil || m.app.StandingOrders == nil {
+		return m.toastCmd("orders: standing orders not configured", "warning")
+	}
+	active := m.app.StandingOrders.Active()
+	if len(active) == 0 {
+		return m.toastCmd("orders: none active (use `ethos orders add \"...\"`)", "info")
+	}
+	first := active[0].Text
+	if len(first) > 60 {
+		first = first[:57] + "..."
+	}
+	return m.toastCmd(fmt.Sprintf("orders: %d active — first: %s", len(active), first), "info")
+}
+
 // runRollback lists filesystem checkpoints for the current session. Without
 // arguments it shows the most recent checkpoint IDs as a toast; the agent
 // performs the actual restore via the checkpoint_restore tool.
