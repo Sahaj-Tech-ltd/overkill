@@ -56,6 +56,16 @@
     reverse_proxy host.docker.internal:8091
   }
 
+  @joules host joules.me
+  handle @joules {
+    reverse_proxy host.docker.internal:8687
+  }
+
+  @stillhere host stillherehq.com www.stillherehq.com
+  handle @stillhere {
+    reverse_proxy stillhere-api:8000
+  }
+
   @sync host sync.databunker.uk
   handle @sync {
     import protected
