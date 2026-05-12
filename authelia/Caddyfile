@@ -73,4 +73,9 @@
       header_up Host localhost
     }
   }
+
+  # Catch-all: return 404 for unmatched hosts instead of silent 200
+  handle {
+    respond 404
+  }
 }
