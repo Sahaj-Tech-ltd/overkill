@@ -439,7 +439,7 @@ func refreshFilesCmd() tea.Cmd {
 	}
 }
 
-const bootAutoDismissDelay = 1200 * time.Millisecond
+const bootAutoDismissDelay = 2 * time.Second
 
 func (m *appModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
@@ -1119,13 +1119,14 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyMsg:
-		// Boot screen consumes the first keystroke.
+		// Boot screen: dismiss on any keystroke, but forward it to the editor
+		// so the first typed character isn't silently consumed.
 		if m.boot.visible {
 			if ev.String() == "ctrl+c" {
 				return m, tea.Quit
 			}
 			m.boot.visible = false
-			return m, nil
+			// Fall through — the keystroke continues to the editor below.
 		}
 
 		// ctrl+c: double-press to exit. First press cancels (placeholder for

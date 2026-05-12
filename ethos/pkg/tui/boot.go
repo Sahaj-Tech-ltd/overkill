@@ -46,8 +46,8 @@ type bootTypeTickMsg struct{}
 type bootBlinkTickMsg struct{}
 
 // BootModel renders the splash screen shown on startup. It is dismissed on
-// the first keystroke; that keystroke is intentionally consumed so it does
-// not land in the editor.
+// the first keystroke or after a 2-second auto-dismiss timer; the keystroke
+// is forwarded to the editor so the first typed character isn't lost.
 type BootModel struct {
 	soulMD  string
 	funFact string
