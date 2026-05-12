@@ -25,11 +25,25 @@ import (
 // QueryBackground returns true when the terminal's background is dark, false
 // when it's light, or an error when the probe fails (no terminal, no reply,
 // timeout). Best-effort — callers should treat error as "stick with default".
+//
+// IMPORTANT: this puts stdin in raw mode temporarily. Call BEFORE Bubble Tea
+// initializes (tea.NewProgram), not after. Racing with Bubble Tea's own
+// terminal setup causes garbled input and hangs over SSH. The caller in
+// cmd/ethos/tui.go guards this by only probing on local ttys.
 func QueryBackground(timeout time.Duration) (dark bool, err error) {
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
 		return false, errors.New("term: stdin not a tty")
 	}
+
+	// Guard: if we're being called after Bubble Tea started (detected by the
+	// ETHOS_RUNNING env var set at program boot), refuse to probe. Switching
+	// stdin to raw mode while Bubble Tea owns the terminal causes garbled
+	// input and potential hangs.
+	if os.Getenv("ETHOS_RUNNING") != "" {
+		return false, errors.New("term: Bubble Tea running, refuse to probe")
+	}
+
 	old, err := term.MakeRaw(fd)
 	if err != nil {
 		return false, fmt.Errorf("term: makeraw: %w", err)

@@ -86,8 +86,9 @@ func (m *StatusBarModel) SetModel(model, provider string) {
 
 // spinnerTickInterval was 100ms which renders ~10x/s. Over SSH every render
 // is a full screen of escape codes — this was a major source of perceived lag.
-// 150ms is still smooth visually, 33% fewer redraws.
-const spinnerTickInterval = 150 * time.Millisecond
+// 150ms was 6.7x/s, still wasteful. 200ms (5 fps) is smooth enough for a
+// spinner indicator and saves ~33% more bandwidth vs 150ms, ~50% vs 100ms.
+const spinnerTickInterval = 200 * time.Millisecond
 
 func (m StatusBarModel) Init() tea.Cmd {
 	// Don't start ticking until the agent is actually busy. The spinner is

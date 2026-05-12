@@ -6,6 +6,8 @@ import (
 	encjson "encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -69,11 +71,18 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	lipgloss.SetHasDarkBackground(true)
 
+	// Detect SSH so we can tune rendering: slower FPS, no animations,
+	// simpler cursor escape sequences. SSH_TTY and SSH_CONNECTION are set
+	// by OpenSSH; TMUX is set by tmux (which also benefits from tuning).
+	isRemote := os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CONNECTION") != ""
+	isTmux := os.Getenv("TMUX") != ""
+	isSlowLink := isRemote || isTmux
+
 	// Auto theme detection (master plan §5.1). Off by default — the OSC 11
-	// probe is intrusive (some terminals leak the reply into stdin) so the
-	// user opts in via ETHOS_AUTO_THEME=1. When enabled, we override the
-	// dark/light pin based on the live terminal background.
-	if os.Getenv("ETHOS_AUTO_THEME") != "" {
+	// probe is intrusive: it puts stdin into raw mode temporarily. Over SSH
+	// the round-trip latency makes the timeout likely and the raw-mode toggle
+	// races with Bubble Tea's own terminal setup. Only probe on local ttys.
+	if os.Getenv("ETHOS_AUTO_THEME") != "" && !isSlowLink {
 		if dark, err := termpkg.QueryBackground(150 * time.Millisecond); err == nil {
 			lipgloss.SetHasDarkBackground(dark)
 		}
@@ -104,9 +113,36 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		_, _ = providers.RefreshCatalog(ctx)
 	}()
 
-	// Alt-screen for clean enter/exit. No mouse capture — over SSH each
-	// mouse-move event is a render trigger and floods bandwidth.
-	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	// ---- Bubble Tea program options ----
+	// Over SSH we must be explicit about input/output so Bubble Tea detects
+	// the PTY correctly. tea.WithInput(os.Stdin) tells Bubble Tea to use our
+	// stdin fd directly instead of trying /dev/tty, which may not exist in
+	// all SSH environments (e.g. containers, CI executors).
+	// tea.WithFPS caps the redraw rate. Over SSH we limit to 20 fps to keep
+	// bandwidth sane; locally we allow 40 fps for snappier feel.
+	// tea.WithAltScreen gives us clean enter/exit transitions.
+	opts := []tea.ProgramOption{
+		tea.WithAltScreen(),
+		tea.WithInput(os.Stdin),
+	}
+	fps := 40
+	if isSlowLink {
+		fps = 20
+	}
+	opts = append(opts, tea.WithFPS(fps))
+
+	// Mouse capture is explicitly disabled — over SSH each mouse-move event
+	// is a render trigger and floods bandwidth.
+	// (No tea.WithMouseCellMotion — Bubble Tea defaults to no mouse handling.)
+
+	// Graceful shutdown on SSH disconnect: trap SIGHUP (terminal hangup),
+	// SIGPIPE (broken pipe when SSH tunnel closes). Bubble Tea handles
+	// SIGINT/SIGTERM internally but misses these. Without this handler the
+	// alt-screen is left dirty when the SSH connection drops.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGPIPE)
+	// We'll arm a goroutine AFTER prog is assigned — see below.
+
 	if os.Getenv("ETHOS_CELL_RENDER") == "1" {
 		w, h, err := term.GetSize(int(os.Stdout.Fd()))
 		if err != nil || w <= 0 || h <= 0 {
@@ -118,6 +154,25 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	}
 	prog := tea.NewProgram(tui.New(app), opts...)
 	tui.SetProgram(prog)
+
+	// Set ETHOS_RUNNING after Bubble Tea owns the terminal. This signals to
+	// any late callers of term.QueryBackground() that stdin is already in
+	// raw mode and must not be toggled again.
+	os.Setenv("ETHOS_RUNNING", "1")
+
+	// Now that prog is assigned, arm the signal handler. On SIGHUP/SIGPIPE
+	// (SSH disconnect) we call prog.Quit() to trigger Bubble Tea's graceful
+	// teardown (restore terminal, run deferred cleanup).
+	go func() {
+		<-sigCh
+		if prog != nil {
+			prog.Quit()
+		}
+		// If Quit() blocks or the program is already dead, force-exit after
+		// a grace period so we don't leave a zombie behind.
+		time.Sleep(2 * time.Second)
+		os.Exit(0)
+	}()
 
 	defer func() {
 		if app != nil && app.Browser != nil {

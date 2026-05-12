@@ -2780,19 +2780,38 @@ func (m *appModel) sendToChat(msg tea.Msg) tea.Cmd {
 }
 
 func (m *appModel) View() string {
-	// Render rate limit: cap at ~60 fps (16ms between frames) by returning
-	// the last rendered string when called more often. Helps SSH where
-	// every keystroke + every animation tick can stack into wasted draws
-	// the terminal then has to re-paint over a slow link.
-	now := time.Now()
-	if !m.lastRenderAt.IsZero() && m.lastRenderOut != "" && now.Sub(m.lastRenderAt) < 16*time.Millisecond {
-		return m.lastRenderOut
+	// Render rate limit: cap at ~30 fps (33ms between frames) on fast links,
+	// ~15 fps (66ms) on settled states. Over SSH this keeps bandwidth
+	// manageable without visible stutter.
+	//
+	// CRITICAL: we must NOT suppress the very first render (lastRenderAt
+	// zero) or renders during boot/onboarding/unknown-width — those represent
+	// state transitions and must always pass through. The previous 16ms
+	// limiter was too aggressive and returned stale content even when it
+	// changed, causing perceived hangs on SSH.
+	//
+	// Dynamic floor: 33ms (30fps) when streaming/busy, 66ms (15fps) when
+	// idle so spinner ticks don't cause unnecessary redraws.
+	if !m.lastRenderAt.IsZero() && m.lastRenderOut != "" &&
+		!m.boot.visible && m.onboarding == nil && m.width > 0 {
+		now := time.Now()
+		elapsed := now.Sub(m.lastRenderAt)
+		floor := 66 * time.Millisecond
+		if m.chatPage.IsBusy() {
+			floor = 33 * time.Millisecond
+		}
+		if elapsed < floor {
+			return m.lastRenderOut
+		}
 	}
+
+	var now time.Time // declared here, set before each cache-return path below
 
 	if m.boot.visible {
 		m.boot.width = m.width
 		m.boot.height = m.height
 		out := m.boot.View()
+		now = time.Now()
 		m.lastRenderAt = now
 		m.lastRenderOut = out
 		return out
@@ -2805,6 +2824,7 @@ func (m *appModel) View() string {
 	if m.onboarding != nil {
 		m.onboarding.SetSize(m.width, m.height)
 		out := m.onboarding.View()
+		now = time.Now()
 		m.lastRenderAt = now
 		m.lastRenderOut = out
 		return out
@@ -2855,6 +2875,7 @@ func (m *appModel) View() string {
 		}
 	}
 
+	now = time.Now()
 	m.lastRenderAt = now
 	m.lastRenderOut = base
 	return base
