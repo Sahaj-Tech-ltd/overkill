@@ -240,6 +240,22 @@ system:
   databaseBackup:
     cron: "0 0 0 * * ?" # Cron expression for automatic database backups "0 0 0 * * ?" daily at midnight
 
+storage:
+  enabled: false # set to 'true' to allow users to store files on the server (requires security.enableLogin) [ALPHA]
+  provider: local # storage provider: 'local' for filesystem storage, 'database' for DB-backed storage
+  local:
+    basePath: './storage' # base directory for stored files
+  quotas:
+    maxStorageMbPerUser: -1 # Max storage per user in MB; -1 disables per-user cap
+    maxStorageMbTotal: -1 # Max storage across all users in MB; -1 disables total cap
+    maxFileMb: -1 # Max size per stored file (including history/audit) in MB; -1 disables limit
+  sharing:
+    enabled: false # set to 'true' to enable file sharing features [ALPHA]
+    linkEnabled: true # set to 'false' to disable share links (requires system.frontendUrl)
+    emailEnabled: false # set to 'true' to allow sharing by email (requires mail.enabled)
+    linkExpirationDays: 3 # Number of days before share links expire
+  signing:
+    enabled: false # set to 'true' to enable group signing workflow (requires storage.enabled) [ALPHA]
 autoPipeline:
   outputFolder: "" # Output folder for processed pipeline files (leave empty for default)
   fileReadiness:
@@ -269,7 +285,7 @@ metrics:
 AutomaticallyGenerated:
   key: 87ae4979-d112-4565-811b-2233877fd60f
   UUID: b59390b5-df9a-42e4-b057-b93f7cbd594d
-  appVersion: 2.8.0
+  appVersion: 2.10.1
 
 processExecutor:
   autoUnoServer: true # true: use local pool based on libreOfficeSessionLimit; false: use unoServerEndpoints
@@ -308,6 +324,11 @@ processExecutor:
     qpdfTimeoutMinutes: 30
     ghostscriptTimeoutMinutes: 30
     ocrMyPdfTimeoutMinutes: 30
+
+aiEngine:
+  enabled: false # Set to 'true' to enable the AI engine integration
+  url: http://localhost:5001 # URL of the Python AI engine
+  timeoutSeconds: 120 # Timeout in seconds for AI engine requests
 
 pdfEditor:
   fallback-font: classpath:/static/fonts/NotoSans-Regular.ttf # Override to point at a custom fallback font

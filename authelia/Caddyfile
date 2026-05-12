@@ -74,6 +74,11 @@
     }
   }
 
+  @shadow host shadow.databunker.uk
+  handle @shadow {
+    reverse_proxy shadow:3000
+  }
+
   # Catch-all: return 404 for unmatched hosts instead of silent 200
   handle {
     respond 404
