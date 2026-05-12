@@ -31,3 +31,25 @@ syncthing/config/
 **/*.sql
 **/*.gz
 **/*.dump
+
+# External services (separate repos or one-off deploys)
+.kuma-pass
+.opencode/
+Attentive/
+DiscordBC/
+authelia/temp_uploads/
+docuseal/
+gametheory/
+github-org/
+joules-react/
+joules/
+karakeep/
+keeper-sh/
+ntfy/
+ollama/
+open-multi-agent/
+sahajtech-site/
+saral/
+scripts/
+shad0w/
+stillhere/
