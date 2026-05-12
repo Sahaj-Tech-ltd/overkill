@@ -61,10 +61,9 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - default
-      - open-webui_default
       - syncthing_default
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ > /dev/null"]
+      test: ["CMD-SHELL", "wget -qO- --header='Host: stillherehq.com' http://localhost:80/ > /dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -75,7 +74,5 @@ volumes:
   caddy-data:
 
 networks:
-  open-webui_default:
-    external: true
   syncthing_default:
     external: true
