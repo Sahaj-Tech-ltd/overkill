@@ -5,14 +5,17 @@ import (
 	"time"
 	encjson "encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 
 	"path/filepath"
 	"strings"
@@ -55,6 +58,48 @@ import (
 	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/animation"
 	"golang.org/x/term"
 )
+
+// heartbeatReader wraps an io.Reader and records the wall-clock time of the
+// last successful read so a watchdog goroutine can detect silent SSH
+// disconnects (WiFi drop, NAT timeout, etc.) where os.Stdin.Read() blocks
+// forever and the kernel never delivers SIGHUP.
+type heartbeatReader struct {
+	r        io.Reader
+	lastRead atomic.Int64 // Unix nano
+}
+
+func (h *heartbeatReader) Read(p []byte) (int, error) {
+	n, err := h.r.Read(p)
+	if n > 0 {
+		h.lastRead.Store(time.Now().UnixNano())
+	}
+	return n, err
+}
+
+// Fd exposes the underlying file descriptor so Bubble Tea can still put the
+// terminal into raw mode. os.Stdin is always an *os.File in practice.
+func (h *heartbeatReader) Fd() uintptr {
+	if f, ok := h.r.(*os.File); ok {
+		return f.Fd()
+	}
+	return 0
+}
+
+// tryEnableTCPKeepalive attempts to set TCP keepalive (SO_KEEPALIVE) on the
+// given file descriptor. This only succeeds when fd is a TCP socket (direct
+// connection, not a PTY slave). On SSH PTYs the call silently returns — the
+// watchdog provides the primary defense; this is a best-effort OS-level
+// reinforcement.
+func tryEnableTCPKeepalive(fd int) {
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_KEEPALIVE, 1); err != nil {
+		return // not a socket (PTY, regular file, etc.) — nothing to do
+	}
+	// Fast detection: 30 s idle → probe, 10 s between probes, 3 failures → dead.
+	// Total detection time ≤ 30 + 3×10 = 60 s.
+	_ = unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_KEEPIDLE, 30)
+	_ = unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_KEEPINTVL, 10)
+	_ = unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_KEEPCNT, 3)
+}
 
 var tuiCmd = &cobra.Command{
 	Use:   "tui",
@@ -115,7 +160,18 @@ func runTUI(cmd *cobra.Command, args []string) error {
 
 	// ---- Bubble Tea program options ----
 	// Over SSH we must be explicit about input/output so Bubble Tea detects
-	// the PTY correctly. tea.WithInput(os.Stdin) tells Bubble Tea to use our
+	// the PTY correctly. We wrap os.Stdin in a heartbeatReader that tracks
+	// the last successful read so a watchdog can detect silent SSH disconnects
+	// (WiFi drop, NAT timeout) where os.Stdin.Read() blocks forever and the
+	// kernel never delivers SIGHUP.
+	hr := &heartbeatReader{r: os.Stdin}
+	hr.lastRead.Store(time.Now().UnixNano()) // seed initial timestamp
+
+	// Attempt TCP keepalive on stdin's fd. Only works when stdin is a TCP
+	// socket (direct connection); on SSH PTYs this is a silent no-op.
+	tryEnableTCPKeepalive(int(os.Stdin.Fd()))
+
+	// tea.WithInput(os.Stdin) tells Bubble Tea to use our
 	// stdin fd directly instead of trying /dev/tty, which may not exist in
 	// all SSH environments (e.g. containers, CI executors).
 	// tea.WithFPS caps the redraw rate. Over SSH we limit to 20 fps to keep
@@ -123,7 +179,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	// tea.WithAltScreen gives us clean enter/exit transitions.
 	opts := []tea.ProgramOption{
 		tea.WithAltScreen(),
-		tea.WithInput(os.Stdin),
+		tea.WithInput(hr),
 	}
 	fps := 40
 	if isSlowLink {
@@ -172,6 +228,27 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		// a grace period so we don't leave a zombie behind.
 		time.Sleep(2 * time.Second)
 		os.Exit(0)
+	}()
+
+	// Stdin heartbeat watchdog: if os.Stdin.Read() blocks for >30 s (silent
+	// SSH disconnect — WiFi drop, NAT timeout), prog.Kill() tears down the
+	// program forcefully. prog.Quit() doesn't work here because the blocking
+	// goroutine is inside Bubble Tea's input reader, which never returns.
+	// heartbeatReader.lastRead is updated on every successful read, so a
+	// live connection (with occasional input) never triggers this.
+	go func() {
+		const idleTimeout = 30 * time.Second
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			last := time.Unix(0, hr.lastRead.Load())
+			if time.Since(last) > idleTimeout {
+				if prog != nil {
+					prog.Kill()
+				}
+				return
+			}
+		}
 	}()
 
 	defer func() {
