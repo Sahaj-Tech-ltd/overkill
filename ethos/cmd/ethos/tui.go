@@ -195,8 +195,14 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	// SIGPIPE (broken pipe when SSH tunnel closes). Bubble Tea handles
 	// SIGINT/SIGTERM internally but misses these. Without this handler the
 	// alt-screen is left dirty when the SSH connection drops.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGPIPE)
+	//
+	// Also trap SIGTSTP (Ctrl+Z) and SIGCONT (fg). When the user suspends
+	// ethos we must release the terminal (exit alt-screen, restore echo) so
+	// the shell is usable; when resumed we must reinit the terminal and
+	// trigger a full repaint. Without this the alternate screen buffer stays
+	// active after fg and the terminal appears completely frozen.
+	sigCh := make(chan os.Signal, 8)
+	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGPIPE, syscall.SIGTSTP, syscall.SIGCONT)
 	// We'll arm a goroutine AFTER prog is assigned — see below.
 
 	if os.Getenv("ETHOS_CELL_RENDER") == "1" {
@@ -216,18 +222,50 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	// raw mode and must not be toggled again.
 	os.Setenv("ETHOS_RUNNING", "1")
 
-	// Now that prog is assigned, arm the signal handler. On SIGHUP/SIGPIPE
-	// (SSH disconnect) we call prog.Quit() to trigger Bubble Tea's graceful
-	// teardown (restore terminal, run deferred cleanup).
+	// Now that prog is assigned, arm the signal handler. The loop handles
+	// four signal types:
+	//   SIGHUP/SIGPIPE — SSH disconnect → graceful quit + exit
+	//   SIGTSTP (Ctrl+Z) → release terminal + stop self
+	//   SIGCONT (fg)     → reinit terminal + full repaint
 	go func() {
-		<-sigCh
-		if prog != nil {
-			prog.Quit()
+		for sig := range sigCh {
+			switch sig {
+			case syscall.SIGTSTP:
+				// Restore terminal before stopping so the user gets a
+				// working shell. ReleaseTerminal exits the alt-screen,
+				// restores echo/canonical mode, and cancels the input
+				// reader goroutine.
+				if prog != nil {
+					_ = prog.ReleaseTerminal()
+				}
+				// Stop ourselves. When resumed (fg / SIGCONT), execution
+				// continues from the next line. The next iteration of the
+				// loop picks up the SIGCONT that fg delivers.
+				_ = syscall.Kill(syscall.Getpid(), syscall.SIGSTOP)
+
+			case syscall.SIGCONT:
+				// Reinitialize the terminal after resume: re-enter
+				// alt-screen and raw mode, then trigger a full repaint
+				// so every sub-component recalculates its layout.
+				if prog != nil {
+					_ = prog.RestoreTerminal()
+					if w, h, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 && h > 0 {
+						prog.Send(tea.WindowSizeMsg{Width: w, Height: h})
+					}
+				}
+
+			case syscall.SIGHUP, syscall.SIGPIPE:
+				// SSH disconnect — graceful shutdown.
+				if prog != nil {
+					prog.Quit()
+				}
+				// If Quit() blocks or the program is already dead,
+				// force-exit after a grace period so we don't leave a
+				// zombie behind.
+				time.Sleep(2 * time.Second)
+				os.Exit(0)
+			}
 		}
-		// If Quit() blocks or the program is already dead, force-exit after
-		// a grace period so we don't leave a zombie behind.
-		time.Sleep(2 * time.Second)
-		os.Exit(0)
 	}()
 
 	// Stdin heartbeat watchdog: if os.Stdin.Read() blocks for >30 s (silent
