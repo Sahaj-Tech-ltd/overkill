@@ -12,6 +12,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/lsp"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/mcp"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/plugin"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/routing"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
@@ -50,6 +51,11 @@ type App struct {
 	Tags      *tags.Manager
 	Workspace *workspace.Manager
 	Skills    []skills.Skill
+
+	// Frustration is the live detector wired to the agent's UserInputObserver.
+	// Exposed so the TUI's personality provider can read short-term state for
+	// tone mirroring (§4.16). Nil-safe.
+	Frustration *personality.FrustrationDetector
 
 	// Build, when set, is used by Reconfigure to rebuild the agent after the
 	// user re-runs setup from inside the TUI. CLI wires this up.

@@ -5,6 +5,7 @@ import (
 	"time"
 	encjson "encoding/json"
 	"fmt"
+	"log"
 	"io"
 	"os"
 	"os/signal"
@@ -297,6 +298,23 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		// cleanup (e.g. push session sync, prune snapshots).
 		if app != nil && app.Agent != nil {
 			app.Agent.FireSessionEnd(context.Background())
+		}
+		// Master plan §4.20: distilled memory export on clean exit. The
+		// snapshot daemon (cmd/overkill/snapshot.go) handles per-snapshot
+		// exports; this is the session-lifecycle hook the plan calls for.
+		// Failure is logged-then-swallowed — we never want exit to fail
+		// over a best-effort durability hook.
+		if app != nil && app.Store != nil {
+			if bs, ok := app.Store.(*session.BadgerStore); ok {
+				if home, err := os.UserHomeDir(); err == nil {
+					path := filepath.Join(home, ".overkill", "memory-export.md")
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					if err := session.NewExportRitual(bs, path).Export(ctx); err != nil {
+						log.Printf("memory export on shutdown failed: %v", err)
+					}
+					cancel()
+				}
+			}
 		}
 	}()
 
@@ -714,6 +732,39 @@ func buildTUIApp() *tui.App {
 
 	app.Agent = a
 
+	// Master plan §4.19: surface pending journal alerts to the agent on
+	// session open. The TUI also toasts these to the user (pkg/tui/tui.go
+	// New()), but the model needs the text in-history so it can reference
+	// them in the opener ("yesterday's compaction skipped X — want to
+	// revisit?"). We inject ONE system message summarising all pending
+	// alerts; the TUI's separate DismissAll keeps the store clean.
+	if app.Alerts != nil {
+		if pending := app.Alerts.Pending(); len(pending) > 0 {
+			var b strings.Builder
+			b.WriteString("Pending alerts from prior sessions (surface these conversationally when relevant — do not dump them verbatim):\n")
+			for _, al := range pending {
+				fmt.Fprintf(&b, "- [%s] %s\n", al.Type, al.Message)
+			}
+			a.Inject(providers.Message{
+				Role:    "system",
+				Content: strings.TrimRight(b.String(), "\n"),
+			})
+		}
+	}
+
+	// Master plan §6.4: wire loaded skills into the agent so trigger-matched
+	// and always-on skills land in the system prompt every turn. We build a
+	// fresh Registry from app.Skills (already filtered by user-enabled list)
+	// and install it. Failure to register a malformed skill is non-fatal.
+	if len(app.Skills) > 0 {
+		reg := skills.NewRegistry()
+		for i := range app.Skills {
+			s := app.Skills[i]
+			_ = reg.Register(&s)
+		}
+		a.SetSkillRegistry(reg)
+	}
+
 	// Master plan §6.3: fire on_session_start once the agent is wired so
 	// user hooks see a consistent session ID.
 	a.FireSessionStart(context.Background())
@@ -819,6 +870,9 @@ func buildTUIApp() *tui.App {
 		// AlertFrustration via the same sink (master plan §4.16).
 		fd := personality.NewFrustrationDetector(alertSink, sid)
 		a.SetUserInputObserver(func(input string) { fd.Observe(input) })
+		// Expose to TUI so the personality provider can read short-term
+		// frustration state for tone mirroring each turn.
+		app.Frustration = fd
 		// Stash on app for downstream personality runtime to consume.
 		_ = te
 		_ = bs

@@ -36,6 +36,23 @@ type ChatPage struct {
 	streamCh    <-chan agent.StreamEvent
 	pulse       bgpulse.Model
 	shimmerLogo logo.LogoModel
+	// streamCancel cancels the in-flight LLM stream context. Set when a stream
+	// starts, cleared when it completes or is cancelled. Lets the parent TUI
+	// abort an in-flight request on Ctrl+C / Esc so tokens stop burning.
+	streamCancel context.CancelFunc
+}
+
+// CancelStream aborts the in-flight LLM stream (if any) by cancelling its
+// context. Safe to call when no stream is active. Returns true when a stream
+// was actually cancelled. The provider's Stream goroutine observes ctx.Done()
+// and closes its event channel; pump() then reports Done back into the TUI.
+func (c *ChatPage) CancelStream() bool {
+	if c.streamCancel == nil {
+		return false
+	}
+	c.streamCancel()
+	c.streamCancel = nil
+	return true
 }
 
 // PulseFrame returns the bgpulse frame for tests / external rendering.
@@ -186,8 +203,12 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 
 		input := msg.Text
 		agt := c.agent
+		// Cancellable context: parent TUI calls CancelStream() on Ctrl+C/Esc
+		// to stop in-flight tokens. The agent's Stream loop selects on
+		// ctx.Done() between chunks, so cancellation propagates promptly.
+		ctx, cancel := context.WithCancel(context.Background())
+		c.streamCancel = cancel
 		streamStart := func() tea.Msg {
-			ctx := context.Background()
 			ch, err := agt.Stream(ctx, input)
 			if err != nil {
 				return tuitypes.AgentResponseMsg{Err: err, Done: true}
@@ -209,6 +230,10 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 			c.busy = false
 			c.streaming = false
 			c.pulse.Stop()
+			if c.streamCancel != nil {
+				c.streamCancel()
+				c.streamCancel = nil
+			}
 			c.messages.Append(chat.NewMessage("error", msg.Err.Error()))
 			return c, nil
 		}
@@ -216,6 +241,10 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 			c.busy = false
 			c.streaming = false
 			c.pulse.Stop()
+			if c.streamCancel != nil {
+				c.streamCancel()
+				c.streamCancel = nil
+			}
 			c.messages.FinalizeLastAssistant()
 			return c, nil
 		}

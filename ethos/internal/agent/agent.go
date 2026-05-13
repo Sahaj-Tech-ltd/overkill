@@ -11,6 +11,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
@@ -82,6 +83,17 @@ type Agent struct {
 	// back to the original prompt; never blocks Run().
 	promptCompressor PromptCompressor
 	compressTrigger  float64 // utilization fraction; default 0.7
+
+	// skillRegistry, if set, contributes an "Active skills:" section to the
+	// system prompt every turn. See skills_prompt.go for selection rules.
+	skillRegistry *skills.Registry
+
+	// personalityProviderFn, if set, returns a personality directive block
+	// appended to the system prompt each turn. Separate from contextProviderFn
+	// because personality is a long-lived character directive, while context
+	// is per-turn factual (git status, jira ticket). Errors/panics are
+	// recovered; empty return means "no personality directive this turn".
+	personalityProviderFn func() string
 }
 
 // PromptCompressor is the small interface the agent calls before assembling
@@ -607,6 +619,25 @@ func (a *Agent) buildRequest() providers.Request {
 	}
 
 	prompt := BuildSystemPrompt(a.systemPrompt, a.toolRegistry)
+	// Skills (master plan §6.4 wire-up): always-on skills plus trigger-matched
+	// skills against the latest user message render into the prompt every turn.
+	// No-op when no skill registry is installed.
+	var latestUser string
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			latestUser = msgs[i].Content
+			break
+		}
+	}
+	if skillBlock := a.renderSkillSection(latestUser); skillBlock != "" {
+		prompt = prompt + "\n\n" + skillBlock
+	}
+	// Personality directive (§4.16): long-lived character/tone block. Comes
+	// AFTER skills so skills can't be drowned by tone instructions, and BEFORE
+	// per-turn context so factual data wins when it conflicts with vibes.
+	if persona := a.personalitySection(); persona != "" {
+		prompt = prompt + "\n\n" + persona
+	}
 	// Append plugin/host-supplied per-turn context (git status, jira ticket,
 	// project conventions, etc.). The callback is responsible for its own
 	// timeouts; recover() inside providedContext keeps a misbehaving plugin
@@ -700,6 +731,21 @@ func (a *Agent) BudgetReport() *BudgetReport {
 
 	toolDefs := a.buildToolDefs()
 	systemPrompt := BuildSystemPrompt(a.systemPrompt, a.toolRegistry)
+	// Include skill section in token estimates so budget reports reflect the
+	// actual prompt size the model will see.
+	var latestUser string
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			latestUser = msgs[i].Content
+			break
+		}
+	}
+	if skillBlock := a.renderSkillSection(latestUser); skillBlock != "" {
+		systemPrompt = systemPrompt + "\n\n" + skillBlock
+	}
+	if persona := a.personalitySection(); persona != "" {
+		systemPrompt = systemPrompt + "\n\n" + persona
+	}
 
 	return a.budgetEstimator.Estimate(msgs, systemPrompt, toolDefs)
 }
@@ -843,6 +889,32 @@ func (a *Agent) SetContextProvider(fn func(ctx context.Context, sessionID string
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.contextProviderFn = fn
+}
+
+// SetPersonalityProvider installs a callback that returns the personality
+// directive appended to the system prompt each turn (§4.16). Pass nil to
+// disable. The callback is recovered: a panic returns "" silently.
+func (a *Agent) SetPersonalityProvider(fn func() string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.personalityProviderFn = fn
+}
+
+// personalitySection returns the directive block from the installed provider,
+// or "" when none is wired. Always safe to call.
+func (a *Agent) personalitySection() (out string) {
+	a.mu.RLock()
+	fn := a.personalityProviderFn
+	a.mu.RUnlock()
+	if fn == nil {
+		return ""
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			out = ""
+		}
+	}()
+	return fn()
 }
 
 // SetEventFn installs a fire-and-forget event callback used to notify

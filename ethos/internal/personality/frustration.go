@@ -76,6 +76,19 @@ func (d *FrustrationDetector) Observe(input string) bool {
 	return true
 }
 
+// IsHot reports whether a frustration alert fired within the recency window.
+// Used by the personality system prompt provider for tone mirroring (§4.16):
+// when hot, the agent gets a short directive to drop preamble and match the
+// user's urgency without matching panic. Internal calm stays untouched.
+func (d *FrustrationDetector) IsHot(within time.Duration) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.lastFiredAt.IsZero() {
+		return false
+	}
+	return time.Since(d.lastFiredAt) < within
+}
+
 // score combines several heuristics; returns a score and a human reason.
 // Score >= 2 trips the alert.
 func (d *FrustrationDetector) score(latest string) (int, string) {

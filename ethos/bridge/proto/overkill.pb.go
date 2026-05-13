@@ -1206,8 +1206,8 @@ const file_overkill_proto_rawDesc = "" +
 	"\vPingRequest\"@\n" +
 	"\fPongResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion2\xa1\x05\n" +
-	"\vOverkillBridge\x12F\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion2\xa4\x05\n" +
+	"\x0eOverkillBridge\x12F\n" +
 	"\x05Embed\x12\x1d.overkill.bridge.EmbedRequest\x1a\x1e.overkill.bridge.EmbedResponse\x12U\n" +
 	"\n" +
 	"EmbedBatch\x12\".overkill.bridge.EmbedBatchRequest\x1a#.overkill.bridge.EmbedBatchResponse\x12I\n" +

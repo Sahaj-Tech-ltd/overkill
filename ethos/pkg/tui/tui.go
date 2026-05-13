@@ -276,6 +276,28 @@ func New(app *App) tea.Model {
 				Level:     lvl,
 			})
 		}
+		// Wire personality into the agent system prompt (master plan §4.16).
+		// The provider runs every turn and combines: (a) the configured
+		// personality level's base directive, (b) a tone-mirror nudge when
+		// the frustration detector is hot in the last 5 minutes. Nil-safe:
+		// missing person/frustration just returns the available pieces.
+		if app != nil && app.Agent != nil && m.person != nil {
+			person := m.person
+			fd := app.Frustration
+			app.Agent.SetPersonalityProvider(func() string {
+				base := strings.TrimSpace(person.InjectPersonality(""))
+				if fd != nil && fd.IsHot(5*time.Minute) {
+					hint := "User shows frustration signal in recent turns. " +
+						"Drop preamble, shorten sentences, acknowledge before solving. " +
+						"Internal calm stays unchanged — quality bar does not drop."
+					if base == "" {
+						return hint
+					}
+					return base + "\n\n" + hint
+				}
+				return base
+			})
+		}
 		// Sessions are created lazily on the first user turn so the welcome
 		// screen doesn't list a phantom empty session.
 	}
@@ -1133,26 +1155,35 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Fall through — the keystroke continues to the editor below.
 		}
 
-		// ctrl+c: double-press to exit. First press cancels (placeholder for
-		// in-flight cancel) and arms the exit; second press within 2s exits.
+		// ctrl+c: double-press to exit. First press cancels any in-flight LLM
+		// stream and arms the exit; second press within 2s exits.
 		if ev.String() == "ctrl+c" {
 			now := time.Now()
 			if !m.quitArmedAt.IsZero() && now.Sub(m.quitArmedAt) < 2*time.Second {
+				m.chatPage.CancelStream()
 				return m, tea.Quit
 			}
 			m.quitArmedAt = now
+			if m.chatPage.CancelStream() {
+				return m, m.toastCmd("stream cancelled — ctrl+c again to exit", "warning")
+			}
 			return m, m.toastCmd("press ctrl+c again to exit", "warning")
 		}
 
-		// esc: double-press to exit when no dialog is open.
+		// esc: double-press to exit when no dialog is open. Mirrors ctrl+c —
+		// first press cancels in-flight stream, second press exits.
 		if ev.String() == "esc" && m.openDialog == dialogNone {
 			now := time.Now()
 			if !m.escArmedAt.IsZero() && now.Sub(m.escArmedAt) < 2*time.Second {
+				m.chatPage.CancelStream()
 				return m, tea.Quit
 			}
-		m.escArmedAt = now
-		return m, m.toastCmd("press esc again to exit", "warning")
-	}
+			m.escArmedAt = now
+			if m.chatPage.CancelStream() {
+				return m, m.toastCmd("stream cancelled — esc again to exit", "warning")
+			}
+			return m, m.toastCmd("press esc again to exit", "warning")
+		}
 
 	// Any other key press disarms both exit triggers so stray typing doesn't
 	// accidentally exit.

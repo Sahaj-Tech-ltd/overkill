@@ -1,6 +1,7 @@
 package page
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -40,4 +41,34 @@ func TestChatPage_EditorFocus(t *testing.T) {
 	p := NewChatPage(nil)
 	_, cmd := p.Update(tea.KeyMsg{Type: tea.KeyRunes})
 	_ = cmd
+}
+
+// TestChatPage_CancelStream verifies the stream cancel hook: when CancelStream
+// is called with no stream in flight, it's a safe no-op. When a cancel func is
+// installed (simulating an active stream), it fires and clears the slot.
+func TestChatPage_CancelStream(t *testing.T) {
+	p := NewChatPage(nil)
+	if got := p.CancelStream(); got {
+		t.Error("CancelStream on idle page should return false")
+	}
+
+	fired := false
+	_, cancel := context.WithCancel(context.Background())
+	p.streamCancel = func() {
+		fired = true
+		cancel()
+	}
+	if got := p.CancelStream(); !got {
+		t.Error("CancelStream with active stream should return true")
+	}
+	if !fired {
+		t.Error("CancelStream did not invoke the stored cancel func")
+	}
+	if p.streamCancel != nil {
+		t.Error("streamCancel should be cleared after firing")
+	}
+	// Second call after cancel cleared: must be safe.
+	if got := p.CancelStream(); got {
+		t.Error("CancelStream after clear should return false")
+	}
 }

@@ -178,7 +178,7 @@ func (UnimplementedOverkillBridgeServer) Ping(context.Context, *PingRequest) (*P
 	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
 }
 func (UnimplementedOverkillBridgeServer) mustEmbedUnimplementedOverkillBridgeServer() {}
-func (UnimplementedOverkillBridgeServer) testEmbeddedByValue()                     {}
+func (UnimplementedOverkillBridgeServer) testEmbeddedByValue()                        {}
 
 // UnsafeOverkillBridgeServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to OverkillBridgeServer will
