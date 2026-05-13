@@ -262,6 +262,13 @@ func (a *AlarmClock) List() []*Alarm {
 		cp := *alarm
 		result = append(result, &cp)
 	}
+	// Sort by FireAt asc for deterministic iteration. Map iteration
+	// order in Go is intentionally randomised; without an explicit
+	// sort callers see "alarms in random order" which surprises both
+	// humans (alarm_list output is unpredictable) and tests.
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].FireAt.Before(result[j].FireAt)
+	})
 	return result
 }
 

@@ -81,6 +81,12 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			case <-ctx.Done():
 				out <- StreamEvent{Type: EventError, Error: ctx.Err()}
 				return
+			case <-a.StopCh():
+				// Emergency stop — abort cleanly with a distinct error
+				// so the user sees "halted by estop" rather than a
+				// generic context-cancelled.
+				out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: halted by estop")}
+				return
 			default:
 			}
 
@@ -273,6 +279,14 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					}
 
 					output, toolErr := a.executeTool(ctx, call.Name, input)
+
+					// Append a cryptographic receipt for the audit
+					// chain. Hashes only — no payload bodies — so the
+					// chain stays small while still proving "yes, this
+					// tool ran with this input and produced this output".
+					if a.receipts != nil {
+						a.receipts.Append(a.sessionID, call.Name, input, output, toolErr)
+					}
 
 					toolResults[idx] = ToolResult{
 						ToolCallID: call.ID,

@@ -81,6 +81,18 @@ type Agent struct {
 	// directly.
 	flowAlarmSink func(state *FlowState)
 
+	// receipts is the cryptographic tool-call audit chain (§7.1
+	// Emergency Controls). Always allocated. Append happens on every
+	// tool dispatch; VerifyChain proves no entries were edited after
+	// the fact.
+	receipts *ReceiptChain
+
+	// stopCh is closed when an external estop fires. The streaming
+	// loop selects on it alongside ctx.Done() so an estop interrupts
+	// in-flight tool dispatch as fast as cancellation.
+	stopMu sync.Mutex
+	stopCh chan struct{}
+
 	// modelRouter, if set, is invoked at the start of each Run with a
 	// classification of the user input + history. The returned model ID
 	// replaces a.model for that turn only. Failures fall back to the static
@@ -237,6 +249,67 @@ func (a *Agent) SetFlowStore(store FlowStore, alarmSink func(*FlowState)) {
 	a.mu.Unlock()
 }
 
+// EStop broadcasts an emergency-stop to every in-flight run loop on
+// this agent. The streaming/react paths select on the channel and
+// abort within the next loop iteration (typically <1s for tool calls,
+// instantaneous for token streaming). Idempotent — subsequent calls
+// after the channel is closed are no-ops.
+func (a *Agent) EStop() {
+	if a == nil {
+		return
+	}
+	a.stopMu.Lock()
+	defer a.stopMu.Unlock()
+	select {
+	case <-a.stopCh:
+		// already stopped; nothing to do
+	default:
+		close(a.stopCh)
+	}
+}
+
+// StopCh exposes the estop channel for the streaming loop. Receiving
+// on the returned channel signals "stop now"; the channel is closed
+// on EStop.
+func (a *Agent) StopCh() <-chan struct{} {
+	if a == nil {
+		// Return a never-closing channel for nil agents so callers
+		// don't have to nil-check before selecting.
+		return make(chan struct{})
+	}
+	a.stopMu.Lock()
+	defer a.stopMu.Unlock()
+	return a.stopCh
+}
+
+// ResetStop replaces the stop channel after an estop, so the agent
+// can resume serving new runs. Called by Shutdown / Reconfigure paths
+// when the wiring layer decides the agent is healthy again.
+func (a *Agent) ResetStop() {
+	if a == nil {
+		return
+	}
+	a.stopMu.Lock()
+	defer a.stopMu.Unlock()
+	// Only replace if the current channel is closed — replacing an
+	// open channel would leave any prior receivers blocked.
+	select {
+	case <-a.stopCh:
+		a.stopCh = make(chan struct{})
+	default:
+		// still open, nothing to do
+	}
+}
+
+// Receipts returns the cryptographic tool-call audit chain. Snapshot
+// is a copy — safe for external persistence or display.
+func (a *Agent) Receipts() []Receipt {
+	if a == nil || a.receipts == nil {
+		return nil
+	}
+	return a.receipts.Snapshot()
+}
+
 // RestoreHistory replaces the agent's in-memory history with the
 // supplied messages. Used by flow resume to re-hydrate the conversation
 // before continuing from a checkpoint. Caller owns the slice; we copy
@@ -374,6 +447,8 @@ func New(cfg Config) *Agent {
 		allowedTools:    make(map[string]bool),
 		sessionCtx:      sCtx,
 		sessionCancel:   sCancel,
+		receipts:        NewReceiptChain(),
+		stopCh:          make(chan struct{}),
 	}
 }
 

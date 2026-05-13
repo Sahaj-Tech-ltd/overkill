@@ -239,6 +239,27 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 			registerAlarmHandlers(sock, daemonAlarm)
 			registerFlowHandlers(sock, daemonFlowStore, daemonAlarm)
 		}
+		// Estop: graceful halt path. Cancels every pending alarm so
+		// scheduled work doesn't fire after the user said "stop". If
+		// the daemon's signal-trap also fires (from `overkill estop`'s
+		// fallback), shutdown proceeds normally.
+		sock.Register("estop", estopHandler(&daemonEStopBroadcaster{
+			alarmCancelAll: func() int {
+				if daemonAlarm == nil {
+					return 0
+				}
+				n := 0
+				for _, a := range daemonAlarm.List() {
+					if a.Fired || a.Cancelled {
+						continue
+					}
+					if daemonAlarm.Cancel(a.ID) {
+						n++
+					}
+				}
+				return n
+			},
+		}))
 		if err := sock.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "daemon: socket bind failed: %v\n", err)
 			sock = nil
