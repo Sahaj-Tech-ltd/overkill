@@ -59,6 +59,20 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 		}
 	}
 
+	// Resume context: if the prior run was interrupted (user cancel
+	// or estop), surface "here's what you were doing" as a system
+	// note PREPENDED to this turn's user message. The agent decides
+	// whether to continue the prior plan or pivot — we don't auto-
+	// resume because the user may have cancelled to redirect.
+	if note := a.consumeInterruptNote(); note != "" {
+		a.mu.Lock()
+		a.history = append(a.history, providers.Message{
+			Role:    "system",
+			Content: note,
+		})
+		a.mu.Unlock()
+	}
+
 	a.mu.Lock()
 	a.history = append(a.history, providers.Message{
 		Role:        "user",
@@ -79,12 +93,18 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 		for step := 0; step < a.maxSteps; step++ {
 			select {
 			case <-ctx.Done():
+				// User cancelled mid-task. Save state so the NEXT
+				// turn surfaces "you were doing X" context — the
+				// agent doesn't forget the plan and panic-improvise.
+				a.checkpointInterrupt(userInput, step, "cancelled_by_user")
 				out <- StreamEvent{Type: EventError, Error: ctx.Err()}
 				return
 			case <-a.StopCh():
 				// Emergency stop — abort cleanly with a distinct error
 				// so the user sees "halted by estop" rather than a
-				// generic context-cancelled.
+				// generic context-cancelled. Also checkpoint so the
+				// next run can see the halt rationale.
+				a.checkpointInterrupt(userInput, step, "halted_by_estop")
 				out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: halted by estop")}
 				return
 			default:
@@ -112,34 +132,59 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			var usage providers.Usage
 
 			var streamErr error
-			for chunk := range ch {
+			// Explicit select on chunk + ctx + estop. The original
+			// `for chunk := range ch` form only checked ctx after a
+			// chunk arrived; if the provider goroutine cancelled
+			// itself on ctx.Done and closed ch without ever sending,
+			// we'd exit the loop cleanly and miss the cancel — the
+			// step would then EventDone with empty content instead
+			// of checkpointing as an interrupt.
+		inner:
+			for {
 				select {
 				case <-ctx.Done():
+					a.checkpointInterrupt(userInput, step, "cancelled_by_user_mid_stream")
 					out <- StreamEvent{Type: EventError, Error: ctx.Err()}
 					return
-				default:
-				}
+				case <-a.StopCh():
+					a.checkpointInterrupt(userInput, step, "halted_by_estop")
+					out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: halted by estop")}
+					return
+				case chunk, ok := <-ch:
+					if !ok {
+						// Channel closed — provider finished or was
+						// cancelled. If ctx is done, treat as cancel;
+						// otherwise fall through to post-loop handling
+						// (tool calls, EventDone).
+						if ctx.Err() != nil {
+							a.checkpointInterrupt(userInput, step, "cancelled_by_user_mid_stream")
+							out <- StreamEvent{Type: EventError, Error: ctx.Err()}
+							return
+						}
+						break inner
+					}
 
-				// Mid-stream transport failure: producer signals via
-				// Chunk.Err. We MUST NOT commit the accumulated partial
-				// content as an assistant message — that's the silent
-				// wrong-answer path. Surface the error and bail.
-				if chunk.Err != nil {
-					streamErr = chunk.Err
-					break
-				}
+					// Mid-stream transport failure: producer signals via
+					// Chunk.Err. We MUST NOT commit the accumulated partial
+					// content as an assistant message — that's the silent
+					// wrong-answer path. Surface the error and bail.
+					if chunk.Err != nil {
+						streamErr = chunk.Err
+						break inner
+					}
 
-				if chunk.Content != "" {
-					contentBuf += chunk.Content
-					out <- StreamEvent{Type: EventToken, Content: chunk.Content}
-				}
+					if chunk.Content != "" {
+						contentBuf += chunk.Content
+						out <- StreamEvent{Type: EventToken, Content: chunk.Content}
+					}
 
-				if len(chunk.ToolCalls) > 0 {
-					toolCalls = append(toolCalls, chunk.ToolCalls...)
-				}
+					if len(chunk.ToolCalls) > 0 {
+						toolCalls = append(toolCalls, chunk.ToolCalls...)
+					}
 
-				if chunk.Usage != nil {
-					usage = *chunk.Usage
+					if chunk.Usage != nil {
+						usage = *chunk.Usage
+					}
 				}
 			}
 
@@ -394,4 +439,133 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 	}()
 
 	return out, nil
+}
+
+// consumeInterruptNote returns a system-prompt-style summary of a
+// prior interrupted run for the current session, AND clears the
+// stored state so the note doesn't replay on every subsequent turn.
+// Returns "" when there's nothing to surface (no flow store, no
+// matching record, store error).
+//
+// The note is short on purpose — the model is going to read it once
+// per turn, and we don't want a 200-line history dump per message.
+// We surface: reason for interrupt, step count at interrupt, and the
+// original user input that started the interrupted task. The agent
+// can ask the user "should I continue X or pivot?" if the new input
+// is ambiguous.
+func (a *Agent) consumeInterruptNote() string {
+	if a == nil {
+		return ""
+	}
+	a.mu.RLock()
+	store := a.flowStore
+	a.mu.RUnlock()
+	if store == nil {
+		return ""
+	}
+	// List + find the most recent interrupted record for this
+	// session. There should be at most one — flow IDs are derived
+	// from (session, userInput) so different inputs collide on the
+	// hash space but rarely in practice. Newest by CreatedAt wins.
+	all, err := store.List()
+	if err != nil || len(all) == 0 {
+		return ""
+	}
+	var newest *FlowState
+	for _, fs := range all {
+		if fs.SessionID != a.sessionID {
+			continue
+		}
+		if !isInterruptReason(fs.Reason) {
+			continue
+		}
+		if newest == nil || fs.CreatedAt.After(newest.CreatedAt) {
+			newest = fs
+		}
+	}
+	if newest == nil {
+		return ""
+	}
+	// Delete first so a panic in the format step doesn't leave the
+	// note stuck. The model can always re-derive intent from its
+	// own history if the note never lands.
+	_ = store.Delete(newest.ID)
+	return formatInterruptNote(newest)
+}
+
+// isInterruptReason reports whether a checkpoint's reason field
+// came from the user-cancel / estop paths (versus a max-steps
+// exhaustion which should NOT surface as a resume note — that one
+// fires its own alarm-driven resume via the daemon).
+func isInterruptReason(reason string) bool {
+	switch reason {
+	case "cancelled_by_user", "cancelled_by_user_mid_stream", "halted_by_estop":
+		return true
+	}
+	return false
+}
+
+// formatInterruptNote turns a FlowState into the system-prompt blob
+// injected on the next turn. Short, terse, model-friendly — not a
+// human-readable report.
+func formatInterruptNote(state *FlowState) string {
+	if state == nil {
+		return ""
+	}
+	what := state.Reason
+	switch what {
+	case "cancelled_by_user", "cancelled_by_user_mid_stream":
+		what = "cancelled by the user"
+	case "halted_by_estop":
+		what = "halted via estop"
+	}
+	original := state.UserInput
+	if len(original) > 200 {
+		original = original[:197] + "..."
+	}
+	return fmt.Sprintf(
+		"[resume context] Your previous run was %s at step %d/%d. "+
+			"The original request was: %q. If the new message continues that task, pick up "+
+			"where you stopped. If it pivots, acknowledge briefly and switch — don't restart "+
+			"the old plan silently.",
+		what, state.Step, len(state.History), original,
+	)
+}
+
+// checkpointInterrupt persists the in-flight state when the user
+// cancels (ESC twice) or estops (overkill estop). Mirrors the
+// max-steps checkpoint path but with a "cancelled_by_user" /
+// "halted_by_estop" reason so the next-turn resume context can
+// distinguish "agent ran out of budget" from "user pulled the plug".
+//
+// Best-effort: a flow store that isn't wired (TUI without daemon) is
+// a no-op, the interrupt still propagates as EventError. We don't
+// invoke the alarm sink — interrupts shouldn't auto-resume on a
+// timer; the user will (or won't) come back to the conversation when
+// they're ready, and the next manual turn picks up the context.
+func (a *Agent) checkpointInterrupt(userInput string, step int, reason string) {
+	if a == nil {
+		return
+	}
+	a.mu.RLock()
+	store := a.flowStore
+	model := a.model
+	histCopy := append([]providers.Message(nil), a.history...)
+	a.mu.RUnlock()
+	if store == nil {
+		return
+	}
+	flowID := flowIDFor(a.sessionID, userInput)
+	// Same defensive recover() pattern as the max-steps path — a
+	// misbehaving store mustn't take the cancel path down with it.
+	defer func() {
+		if r := recover(); r != nil {
+			a.emit("checkpoint_interrupt_panic", map[string]any{
+				"flow_id": flowID,
+				"reason":  reason,
+				"panic":   fmt.Sprintf("%v", r),
+			})
+		}
+	}()
+	_, _ = CheckpointFlow(store, flowID, a.sessionID, userInput, model, "", histCopy, step, reason)
 }
