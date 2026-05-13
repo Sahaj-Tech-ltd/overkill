@@ -996,6 +996,15 @@ func buildTUIApp() *tui.App {
 		a.SetFlowStore(sink, func(*agent.FlowState) {})
 	}
 
+	// Batch G2 — post-write verifier. After every Write/Edit/Patch
+	// tool call, run the affected files through go-build / TOML /
+	// JSON / YAML parse checks. Failure surfaces as a tool message
+	// the model sees before its next turn. Disabled via
+	// OVERKILL_NO_VERIFY=1 (CI, scripts).
+	if va := newVerifierAdapter(); va != nil {
+		a.SetPostWriteVerifier(va)
+	}
+
 	// Master plan §6.1: wire the memory orchestrator into the agent so each
 	// turn enriches the system prompt with top-K relevant memories. Adapter
 	// keeps internal/agent free of the internal/memory import.

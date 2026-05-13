@@ -87,6 +87,12 @@ type Agent struct {
 	// the fact.
 	receipts *ReceiptChain
 
+	// postWriteVerifier checks files written by tool calls for
+	// well-formedness (Batch G2). Optional; nil disables. Separate
+	// mutex from a.mu so the hot path isn't extended.
+	verifierMu        sync.RWMutex
+	postWriteVerifier PostWriteVerifier
+
 	// stopCh is closed when an external estop fires. The streaming
 	// loop selects on it alongside ctx.Done() so an estop interrupts
 	// in-flight tool dispatch as fast as cancellation.

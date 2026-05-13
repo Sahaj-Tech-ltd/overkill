@@ -377,6 +377,48 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			for _, tr := range toolResults {
 				a.appendToolResultMessage(tr.ToolCallID, tr.ToolName, tr.Output, tr.Error)
 			}
+
+			// Post-write verification (Batch G2). For every tool
+			// result that succeeded AND is a write-class tool, run
+			// the verifier. Failures append as an extra tool message
+			// so the model sees "you wrote broken code" on its NEXT
+			// turn, inside the same step loop iteration.
+			if v := a.getPostWriteVerifier(); v != nil {
+				for i, tr := range toolResults {
+					if tr.Error != nil || !v.IsWriteTool(tr.ToolName) {
+						continue
+					}
+					call := toolCalls[i]
+					var input json.RawMessage
+					if call.Arguments != "" {
+						input = json.RawMessage(call.Arguments)
+					}
+					note := v.VerifyToolCall(ctx, tr.ToolName, input)
+					if note == "" {
+						continue
+					}
+					// Surface as a separate tool message so it
+					// renders distinctly from the write's own
+					// success message. Same role/ID convention as
+					// real tool results — model treats it as a
+					// follow-up observation.
+					a.appendToolResultMessage(
+						tr.ToolCallID+":verify",
+						tr.ToolName+"_verify",
+						json.RawMessage(`{}`),
+						nil,
+					)
+					// The actual content lives in a synthetic
+					// assistant-readable note rather than the tool
+					// result body, because tool result bodies are
+					// JSON. The verifier note is prose for the
+					// model.
+					a.appendMessage(providers.Message{
+						Role:    "system",
+						Content: note,
+					})
+				}
+			}
 		}
 
 		// Max-steps exit. If a FlowStore is wired we checkpoint the
