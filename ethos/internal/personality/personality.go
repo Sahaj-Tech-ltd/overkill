@@ -27,18 +27,37 @@ type Personality struct {
 	relationship *RelationshipTracker
 	funFacts     *FunFactDB
 	soul         *SoulFile
+	identity     *Identity
 }
 
 func New(cfg Config) *Personality {
 	if cfg.Language == "" {
 		cfg.Language = "en"
 	}
+	// Baseline identity loads on every construction (§4.16). Even
+	// LevelOff gets a voice — the level governs per-turn overlays,
+	// not the agent's baseline self. LoadIdentity may return a non-
+	// nil error along with a usable Identity (parse failure on the
+	// override falls back to embedded default); we drop the error
+	// here since we have no logger handle, and the override-file
+	// path is intentionally power-user-only.
+	id, _ := LoadIdentity()
 	return &Personality{
 		config:       cfg,
 		relationship: NewRelationshipTracker(),
 		funFacts:     NewFunFactDB(),
 		soul:         &SoulFile{Exists: false},
+		identity:     id,
 	}
+}
+
+// Identity returns the baseline identity loaded at construction.
+// Used by the /identity slash command and by tests.
+func (p *Personality) Identity() *Identity {
+	if p == nil {
+		return nil
+	}
+	return p.identity
 }
 
 func (p *Personality) GetLevel() Level {
@@ -166,15 +185,34 @@ func (p *Personality) BootMessage() string {
 const ackPattern = "When the user greenlights ('go', 'yep', 'continue', 'do it', 'ship it'), don't restate the plan or ask again. Acknowledge once — 'Heard. Doing X now.' or similar — and start working. Same energy when the user pushes back or redirects: short ack, then act. No filler. No 'great question'. No 'sure thing'. The work is the response."
 
 func (p *Personality) InjectPersonality(prompt string) string {
+	// Baseline identity (§4.16) precedes the level overlays. Loads on
+	// every level — including LevelOff — because the level governs
+	// per-turn behavior (frustration overlays, fun facts, ack pattern)
+	// while the baseline governs WHO the agent is. A LevelOff agent
+	// without baseline identity is the ChatGPT-clone failure mode.
+	base := prompt
+	if p != nil && p.identity != nil {
+		block := p.identity.SystemPromptBlock()
+		if block != "" {
+			if base == "" {
+				base = block
+			} else {
+				base = block + "\n\n" + base
+			}
+		}
+	}
+
 	switch p.config.Level {
 	case LevelOff:
-		return prompt
+		// Even Off keeps the baseline. Off means "no humor overlays",
+		// not "no identity". The agent still knows who it is.
+		return base
 	case LevelSubtle:
-		return prompt +
+		return base +
 			"\n\nWhen things break, describe failures in your voice, not stack traces." +
 			"\n\n" + ackPattern
 	case LevelWitty:
-		return prompt +
+		return base +
 			"\n\nBe witty. Use humor. Reference memes when appropriate. Spider-Man jokes about testing." +
 			"\n\n" + ackPattern
 	case LevelFull:
@@ -183,12 +221,12 @@ func (p *Personality) InjectPersonality(prompt string) string {
 		if funFact != "" {
 			funFactLine = "\nFun fact to possibly reference: " + funFact + "."
 		}
-		return prompt +
+		return base +
 			"\n\nFull personality mode engaged. Be yourself. Use fun facts when relevant. Comment on the time of day. Be a colleague, not a servant." +
 			"\n\n" + ackPattern +
 			funFactLine
 	default:
-		return prompt
+		return base
 	}
 }
 

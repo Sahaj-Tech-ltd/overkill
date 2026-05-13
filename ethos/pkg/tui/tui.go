@@ -723,6 +723,7 @@ func (m *appModel) registerCommands() {
 		{ID: "compose", Title: "/compose", Description: "open $EDITOR to draft a long prompt"},
 		{ID: "attach", Title: "/attach", Description: "stage an image file for the next message"},
 		{ID: "attach-clear", Title: "/attach-clear", Description: "drop all staged attachments"},
+		{ID: "identity", Title: "/identity", Description: "show the agent's baseline self-model (§4.16)"},
 		{ID: "usage", Title: "/usage", Description: "show cost + token usage for the active session"},
 	} {
 		m.cmdDialog.RegisterCommand(c)
@@ -2566,6 +2567,8 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return m.runConceal()
 	case "compose":
 		return m.runCompose()
+	case "identity":
+		return m.runIdentity()
 	case "attach":
 		return m.runAttach("")
 	case "attach-clear":

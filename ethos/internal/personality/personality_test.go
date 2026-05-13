@@ -111,14 +111,17 @@ func TestBootMessage(t *testing.T) {
 func TestInjectPersonality_AllLevels(t *testing.T) {
 	basePrompt := "You are a helpful assistant."
 
+	// §4.16: baseline identity loads on EVERY level including Off,
+	// so every output now contains the identity header. The level
+	// only governs the per-turn overlay text after the baseline.
 	tests := []struct {
 		name        string
 		level       Level
-		shouldAdd   bool
+		shouldAdd   bool // adds level-specific overlay beyond identity
 		contains    string
 		notContains string
 	}{
-		{"off adds nothing", LevelOff, false, "", "voice"},
+		{"off adds baseline-only", LevelOff, false, "Baseline identity", "voice instruction"},
 		{"subtle adds voice instruction", LevelSubtle, true, "voice", ""},
 		{"witty adds humor instruction", LevelWitty, true, "witty", ""},
 		{"full adds full personality", LevelFull, true, "Full personality", ""},
@@ -129,10 +132,15 @@ func TestInjectPersonality_AllLevels(t *testing.T) {
 			p := New(Config{Level: tt.level})
 			got := p.InjectPersonality(basePrompt)
 			assert.Contains(t, got, basePrompt)
+			// Identity block is always present now — regardless of level.
+			assert.Contains(t, got, "Baseline identity")
 			if tt.shouldAdd {
-				assert.NotEqual(t, basePrompt, got)
-			} else {
-				assert.Equal(t, basePrompt, got)
+				// Beyond the identity block, levels other than Off add
+				// per-turn overlays. The simplest assertion: the prompt
+				// is longer than identity-block + basePrompt would be.
+				baseline := p.Identity().SystemPromptBlock()
+				assert.True(t, len(got) > len(baseline)+len(basePrompt)+20,
+					"level %v should add overlay beyond baseline+prompt", tt.level)
 			}
 			if tt.contains != "" {
 				assert.Contains(t, got, tt.contains)
@@ -489,10 +497,18 @@ func TestBootMessage_ContainsAgentName(t *testing.T) {
 	assert.Contains(t, got, "Maverick")
 }
 
-func TestInjectPersonality_OffReturnsSamePrompt(t *testing.T) {
+func TestInjectPersonality_OffPreservesPromptAfterBaseline(t *testing.T) {
+	// §4.16: even LevelOff loads the baseline identity. The original
+	// prompt must still appear in the output, and no per-turn overlay
+	// (voice/witty/full directives) is added — only the identity.
 	p := New(Config{Level: LevelOff})
 	prompt := "You are helpful."
-	assert.Equal(t, prompt, p.InjectPersonality(prompt))
+	got := p.InjectPersonality(prompt)
+
+	assert.Contains(t, got, prompt, "original prompt must survive")
+	assert.Contains(t, got, "Baseline identity", "identity must load on Off")
+	assert.NotContains(t, got, "Spider-Man", "Off must not add witty overlays")
+	assert.NotContains(t, got, "Full personality", "Off must not add full overlays")
 }
 
 func TestRelationshipTracker_MultipleBeats(t *testing.T) {
