@@ -83,7 +83,11 @@ func runPush(cmd *cobra.Command, args []string) error {
 func renderPushPreview(remote, branch string) error {
 	upstream := remote + "/" + branch
 
-	logOut, _ := exec.Command("git", "log", "--oneline", upstream+".."+branch).Output()
+	// `git log A..B` exits non-zero when A doesn't exist (e.g. no
+	// upstream yet) — swallowing that and printing "nothing to push"
+	// is the misleading-empty-output bug. Surface the error so the
+	// caller sees "no upstream" instead of "all good".
+	logOut, logErr := exec.Command("git", "log", "--oneline", upstream+".."+branch).Output()
 	commits := strings.TrimRight(string(logOut), "\n")
 
 	diffOut, _ := exec.Command("git", "diff", "--shortstat", upstream+".."+branch).Output()
@@ -92,6 +96,14 @@ func renderPushPreview(remote, branch string) error {
 	header := fmt.Sprintf(" push %s/%s ", remote, branch)
 	bar := strings.Repeat("─", 65-len(header))
 	fmt.Printf("%s───%s%s%s\n", colorBlue, header, bar, colorReset)
+	if logErr != nil {
+		// Most common cause: upstream ref doesn't exist locally. Tell
+		// the user instead of pretending the branch is in sync.
+		fmt.Printf("%scannot compare against %s: %v%s\n", colorYellow, upstream, logErr, colorReset)
+		fmt.Printf("%s(run `git fetch %s` or `git push -u %s %s` for a new branch)%s\n", colorYellow, remote, remote, branch, colorReset)
+		fmt.Printf("%s%s%s\n", colorBlue, strings.Repeat("─", 65), colorReset)
+		return logErr
+	}
 	if commits == "" {
 		fmt.Printf("%snothing to push (already up to date with %s)%s\n", colorYellow, upstream, colorReset)
 	} else {

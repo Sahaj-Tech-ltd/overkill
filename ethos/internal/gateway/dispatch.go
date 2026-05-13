@@ -224,7 +224,14 @@ func (d *Dispatcher) streamInto(ctx context.Context, reply Reply, handle string,
 				}
 			case agent.EventError:
 				if ev.Error != nil {
+					// Behind mu so a future reader in another select arm
+					// (e.g. ctx.Done logging) doesn't introduce a race.
+					// The current <-done read is happens-before safe via
+					// channel close, but the lock makes the invariant
+					// "streamErr is accessed under mu" hold globally.
+					mu.Lock()
 					streamErr = ev.Error
+					mu.Unlock()
 				}
 			}
 		}
@@ -238,9 +245,12 @@ func (d *Dispatcher) streamInto(ctx context.Context, reply Reply, handle string,
 			flush(false)
 		case <-done:
 			flush(true)
+			mu.Lock()
 			final := buf.String()
-			if streamErr != nil {
-				_ = reply.Error(ctx, handle, streamErr)
+			err := streamErr
+			mu.Unlock()
+			if err != nil {
+				_ = reply.Error(ctx, handle, err)
 				return
 			}
 			if final == "" {
