@@ -1,21 +1,47 @@
-// Package main — wire the live providers catalog into a SmartRouter
-// (master plan §5.2). Builds one ProviderModels per catalog entry so the
-// router's complexity classifier has the full price/capability matrix to
-// choose from. Falls back to nil when the catalog is empty.
+// Package main — wire model catalogs into a SmartRouter (master plan
+// §4.2 + §5.2). Source priority:
+//
+//  1. Local TOML catalog at ~/.overkill/models/ (canonical per §4.2).
+//  2. Network catalog from providers.FetchCatalog (models.dev mirror)
+//     as fallback when local is empty.
+//
+// The local catalog also attaches to the router so family-aware and
+// capability-aware lookups work — those need the rich Capabilities
+// struct that doesn't exist on the network catalog.
 package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/models"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/routing"
 )
 
-// buildSmartRouter pulls the cached/live catalog and constructs a
-// SmartRouter rooted at defaultModel. Returns nil when no models are
-// available — caller falls back to the static model.
+// buildSmartRouter assembles the router from whichever catalog source
+// is available, preferring local TOML. Returns nil when no models can
+// be loaded from any source — caller falls back to the static model.
 func buildSmartRouter(defaultModel string) *routing.SmartRouter {
+	classifier := routing.NewClassifier(routing.DefaultThresholds())
+
+	// 1. Local TOML catalog (§4.2 canonical source).
+	if home, err := os.UserHomeDir(); err == nil {
+		catRoot := filepath.Join(home, ".overkill", "models")
+		if cat, err := models.Load(catRoot); err == nil && cat != nil {
+			pms := routing.ProviderModelsFromCatalog(cat)
+			if len(pms) > 0 {
+				r := routing.NewSmartRouter(classifier, pms, defaultModel)
+				r.SetCostPriority(true)
+				r.WithCatalog(cat)
+				return r
+			}
+		}
+	}
+
+	// 2. Network catalog fallback (models.dev mirror).
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cat, err := providers.FetchCatalog(ctx)
@@ -55,7 +81,6 @@ func buildSmartRouter(defaultModel string) *routing.SmartRouter {
 	if len(pms) == 0 {
 		return nil
 	}
-	classifier := routing.NewClassifier(routing.DefaultThresholds())
 	r := routing.NewSmartRouter(classifier, pms, defaultModel)
 	r.SetCostPriority(true)
 	return r

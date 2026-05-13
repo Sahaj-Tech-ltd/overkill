@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/models"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
@@ -14,6 +15,10 @@ type SmartRouter struct {
 	providers    []ProviderModels
 	defaultModel string
 	costPriority bool
+	// catalog, when attached via WithCatalog, is consulted by the
+	// family-aware + capability-aware lookups (§4.2 + §5.2). Nil
+	// means "no catalog, use legacy providers slice only".
+	catalog *models.Catalog
 }
 
 func NewSmartRouter(classifier *Classifier, providers []ProviderModels, defaultModel string) *SmartRouter {

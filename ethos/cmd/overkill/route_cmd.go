@@ -50,7 +50,44 @@ var routePreviewCmd = &cobra.Command{
 	},
 }
 
+var routeFamilyCmd = &cobra.Command{
+	Use:   "family <name>",
+	Short: "Pick the cheapest non-deprecated model in a family (§5.2 family-aware routing)",
+	Long: `Resolve a family name (e.g. "claude-opus", "gpt-5") to the cheapest
+non-deprecated model in that family using the local TOML catalog.
+
+Useful for "use cheapest Claude" style requests. Returns the model ID
+and provider, plus the failover chain (members of the family sorted by
+output-token cost) so you can see what the router would try next.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		family := args[0]
+		_, modelName := resolveProvider()
+		r := buildSmartRouter(modelName)
+		if r == nil {
+			fmt.Printf("%srouter unavailable (no catalog loaded)%s\n", colorYellow, colorReset)
+			return nil
+		}
+		id, provider, err := r.ModelInFamily(family)
+		if err != nil {
+			fmt.Printf("%s%v%s\n", colorRed, err, colorReset)
+			return nil
+		}
+		chain := r.FailoverInFamily(family)
+		out := struct {
+			Family   string   `json:"family"`
+			Pick     string   `json:"pick"`
+			Provider string   `json:"provider"`
+			Failover []string `json:"failover"`
+		}{family, id, provider, chain}
+		raw, _ := json.MarshalIndent(out, "", "  ")
+		fmt.Fprintln(os.Stdout, string(raw))
+		return nil
+	},
+}
+
 func init() {
 	routeCmd.AddCommand(routePreviewCmd)
+	routeCmd.AddCommand(routeFamilyCmd)
 	rootCmd.AddCommand(routeCmd)
 }
