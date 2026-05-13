@@ -400,6 +400,16 @@ func buildTUIApp() *tui.App {
 	if home, err := os.UserHomeDir(); err == nil {
 		dir := home + "/.overkill/sessions"
 		_ = os.MkdirAll(dir, 0o755)
+
+		// §4.20 integrity check: probe BEFORE the live Open so a
+		// corrupt store doesn't silently cold-start the user's
+		// relationship arc. Probe stashes its result on the app so
+		// the alert + restore-prompt wire-up later in this function
+		// can consult it.
+		exportPath := filepath.Join(home, ".overkill", "memory-export.md")
+		probe := session.Probe(dir, exportPath)
+		app.StoreProbe = probe
+
 		if store, err := session.NewBadgerStore(dir); err == nil {
 			app.Store = store
 		}
@@ -1116,6 +1126,23 @@ func buildTUIApp() *tui.App {
 		_ = alertStore.Load()
 		app.Alerts = alertStore
 		alertSink := &alertSinkAdapter{store: alertStore}
+
+		// §4.20: if the boot-time probe found a corrupt session
+		// store, file the memory_corruption alert AND prepend a
+		// system message to the agent so the FIRST opener
+		// acknowledges the damage and offers a restore. Done
+		// before any other agent.Inject so the corruption notice
+		// is the first thing in history.
+		if app.StoreProbe.Corrupt {
+			_ = alertStore.Create(journal.AlertMemoryCorruption, app.StoreProbe.CorruptionNotice(), sid)
+			a.Inject(providers.Message{
+				Role: "system",
+				Content: "Memory store reported corruption at boot. " +
+					app.StoreProbe.CorruptionNotice() +
+					" The user's relationship arc may have reset — do NOT pretend continuity that isn't there. " +
+					"Be honest about the gap. If the user wants to restore, run `overkill snapshot restore <path>`.",
+			})
+		}
 
 		// Recovery → AlertTaskDeferred
 		// (recovery itself is constructed inside agent; we set the sink via

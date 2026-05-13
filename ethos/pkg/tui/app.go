@@ -72,6 +72,12 @@ type App struct {
 	// firing and the TUI's tone-mirror surfaces.
 	Relationship *personality.RelationshipTracker
 
+	// StoreProbe carries the §4.20 BadgerDB integrity check from
+	// boot. When Corrupt is true the TUI surfaces a restore prompt
+	// instead of cold-starting; when false the field is zero-value
+	// and consumers no-op.
+	StoreProbe session.ProbeResult
+
 	// Build, when set, is used by Reconfigure to rebuild the agent after the
 	// user re-runs setup from inside the TUI. CLI wires this up.
 	Build AgentBuilder

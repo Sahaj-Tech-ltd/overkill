@@ -147,6 +147,11 @@ type Agent struct {
 	// beatRecorder fires §6.3 relationship milestones from inside
 	// the hot path. Nil-safe — see recordBeat helper.
 	beatRecorder BeatRecorder
+
+	// responseFilter transforms the assembled assistant content
+	// before it's committed to history (§4.10 sycophancy reducer).
+	// Nil-safe; runs once per turn, post-stream.
+	responseFilter ResponseFilter
 }
 
 // PromptCompressor is the small interface the agent calls before assembling

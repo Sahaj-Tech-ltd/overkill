@@ -33,6 +33,12 @@ const (
 	AlertPatternDetected  AlertType = "pattern_detected"
 	AlertFrustration      AlertType = "frustration_signal"
 	AlertDelegationFailed AlertType = "delegation_failure"
+	// AlertMemoryCorruption fires when a BadgerDB open or integrity
+	// check fails (§4.20). The TUI surfaces this with a restore
+	// prompt: "Memory corrupted. I knew I knew you. I don't know what
+	// I knew. Last export was 3 days ago — want me to restore from
+	// that?"
+	AlertMemoryCorruption AlertType = "memory_corruption"
 )
 
 type Alert struct {

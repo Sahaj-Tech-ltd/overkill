@@ -142,13 +142,17 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 			runResult.Steps++
 			runResult.TotalTokens += usage.InputTokens + usage.OutputTokens
 
+			// §4.10 post-stream filter (e.g. sycophancy strip). Runs
+			// once on the assembled text — streaming UX is unchanged.
+			filtered := a.applyResponseFilter(contentBuf)
+
 			if len(toolCalls) == 0 {
-				runResult.Response = contentBuf
+				runResult.Response = filtered
 				runResult.ToolCalls += 0
 
 				a.appendMessage(providers.Message{
 					Role:    "assistant",
-					Content: contentBuf,
+					Content: filtered,
 				})
 
 				runResult.Confidence = a.assessTurnConfidence(userInput)
@@ -160,7 +164,7 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 
 			a.appendMessage(providers.Message{
 				Role:      "assistant",
-				Content:   contentBuf,
+				Content:   filtered,
 				ToolCalls: toolCalls,
 			})
 

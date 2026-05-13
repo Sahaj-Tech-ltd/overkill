@@ -85,6 +85,11 @@ const largeFileByteThreshold = 100 * 1024
 // × 1000 lines).
 const rangedReadLineCap = 1000
 
+// mediumFileLineThreshold triggers the §4.4 "grep first" nudge: when
+// a full-file read returns more than this many lines, append a soft
+// suggestion to use grep + ranged reads next time. NOT blocking.
+const mediumFileLineThreshold = 200
+
 func (f *FSTool) read(_ context.Context, in *FSInput) (json.RawMessage, error) {
 	resolved, err := f.resolve(in.Path)
 	if err != nil {
@@ -136,6 +141,14 @@ func (f *FSTool) read(_ context.Context, in *FSInput) (json.RawMessage, error) {
 	var numbered strings.Builder
 	for i, line := range selected {
 		numbered.WriteString(fmt.Sprintf("%d: %s\n", start+i+1, line))
+	}
+	// §4.4 grep-first nudge: when the user did a full read of a
+	// medium-sized file, hint that grep + ranged would have been
+	// cheaper. Non-blocking; the read still succeeds.
+	if in.Offset == 0 && in.Limit == 0 && len(lines) > mediumFileLineThreshold {
+		numbered.WriteString(fmt.Sprintf(
+			"\n# tip (§4.4): file is %d lines — next time prefer `grep -n` + Offset/Limit when looking for something specific\n",
+			len(lines)))
 	}
 
 	result := ToolResult{Output: numbered.String(), Success: true}
