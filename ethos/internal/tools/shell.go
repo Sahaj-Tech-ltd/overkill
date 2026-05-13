@@ -12,8 +12,15 @@ import (
 )
 
 var (
-	ansiRe          = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-	markerTextRe    = regexp.MustCompile(`\s*__OVERKILL_DONE__\s*`)
+	ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	// markerFullRe captures the rich form. exit captures the final shell
+	// exit code (even for compound commands), cwd captures $PWD at the
+	// moment the marker fired (so `cd foo && something` reports foo).
+	// The bare prefix (no fields) is kept as a fallback so legacy commands
+	// still parse.
+	markerFullRe = regexp.MustCompile(
+		`__OVERKILL_DONE__(?::exit=(-?\d+))?(?::cwd=([^\n\r]*))?\s*`,
+	)
 	trailingBlankRe = regexp.MustCompile(`\n+$`)
 )
 
@@ -37,6 +44,13 @@ type ShellOutput struct {
 	Stderr    string `json:"stderr"`
 	TimedOut  bool   `json:"timed_out"`
 	Completed bool   `json:"completed"`
+	// Cwd is $PWD at the moment the marker fired — i.e. the working
+	// directory the shell ended in (after any `cd` in the command).
+	// Empty when the marker didn't carry a cwd (legacy / parse failure).
+	Cwd string `json:"cwd,omitempty"`
+	// ElapsedMs is wall-clock time from exec start to marker. Measured
+	// Go-side. Includes shell startup + the command itself.
+	ElapsedMs int64 `json:"elapsed_ms,omitempty"`
 }
 
 func NewShellTool(opts ...func(*ShellTool)) *ShellTool {
@@ -59,20 +73,62 @@ func appendMarker(cmd string) string {
 	if strings.Contains(trimmed, overkillDoneMarker) {
 		return trimmed
 	}
-	return trimmed + " && echo " + overkillDoneMarker
+	// `;` not `&&` so the marker fires even when the user's command
+	// fails. The shell captures $? before we evaluate $PWD so a failing
+	// cd doesn't poison the cwd report. printf is used instead of echo
+	// because echo's newline behaviour varies across shells.
+	return trimmed + `; { __ovrk_e=$?; printf '` + overkillDoneMarker +
+		`:exit=%d:cwd=%s\n' "$__ovrk_e" "$PWD"; }`
 }
 
-func stripMarker(output string) (string, bool) {
-	found := strings.Contains(output, overkillDoneMarker)
-	if !found {
-		return output, false
+// markerInfo is the parsed payload of the structured marker. All fields
+// may be zero/empty when the marker is missing or used the legacy form.
+type markerInfo struct {
+	Found bool
+	Exit  int
+	Cwd   string
+}
+
+// stripMarker pulls the structured marker out of combined output and
+// returns the cleaned text plus the parsed metadata. When the marker is
+// absent the cleaned output is the original input verbatim and Found is
+// false — callers must NOT trust Exit/Cwd in that case.
+func stripMarker(output string) (string, markerInfo) {
+	m := markerFullRe.FindStringSubmatch(output)
+	if m == nil {
+		return output, markerInfo{}
 	}
-	cleaned := markerTextRe.ReplaceAllString(output, "")
+	info := markerInfo{Found: true}
+	if len(m) > 1 && m[1] != "" {
+		// strconv-free parse: tiny positive/negative ints only.
+		neg := false
+		s := m[1]
+		if s[0] == '-' {
+			neg = true
+			s = s[1:]
+		}
+		n := 0
+		for _, c := range s {
+			if c < '0' || c > '9' {
+				n = 0
+				break
+			}
+			n = n*10 + int(c-'0')
+		}
+		if neg {
+			n = -n
+		}
+		info.Exit = n
+	}
+	if len(m) > 2 {
+		info.Cwd = m[2]
+	}
+	cleaned := markerFullRe.ReplaceAllString(output, "")
 	cleaned = trailingBlankRe.ReplaceAllString(cleaned, "")
 	if cleaned != "" {
 		cleaned += "\n"
 	}
-	return cleaned, true
+	return cleaned, info
 }
 
 func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
@@ -114,17 +170,28 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
 
+	startedAt := time.Now()
 	err := cmd.Run()
+	elapsed := time.Since(startedAt)
 
 	raw := ansiRe.ReplaceAllString(combined.String(), "")
-	stdout, markerFound := stripMarker(raw)
+	stdout, info := stripMarker(raw)
 
 	output := ShellOutput{
 		ExitCode:  0,
 		Stdout:    stdout,
 		Stderr:    "",
 		TimedOut:  false,
-		Completed: markerFound,
+		Completed: info.Found,
+		Cwd:       info.Cwd,
+		ElapsedMs: elapsed.Milliseconds(),
+	}
+	// When the marker carries an exit code, trust it — it captures the
+	// final shell exit even when the wrapper script itself succeeded.
+	// Fall through to Go's exec.ExitError only when the marker is
+	// missing (legacy commands, marker stripped by user output).
+	if info.Found {
+		output.ExitCode = info.Exit
 	}
 
 	if err != nil {
@@ -133,15 +200,14 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 			output.ExitCode = -1
 			output.Stderr = fmt.Sprintf("command timed out after %s", timeout)
 			output.Completed = false
-		} else {
+		} else if !info.Found {
+			// No marker: fall back to Go's view of the exit code.
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				output.ExitCode = exitErr.ExitCode()
 			} else {
 				output.ExitCode = -1
 			}
-			if !markerFound {
-				output.Completed = false
-			}
+			output.Completed = false
 		}
 	}
 

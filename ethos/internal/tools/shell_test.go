@@ -16,25 +16,33 @@ func TestAppendMarker(t *testing.T) {
 	t.Run("appends marker to simple command", func(t *testing.T) {
 		t.Parallel()
 		result := appendMarker("echo hello")
-		assert.Equal(t, "echo hello && echo __OVERKILL_DONE__", result)
+		// New form: `;`-continuation (fires even on failure), captures
+		// $? + $PWD via printf. Assert structure, not exact text.
+		assert.Contains(t, result, "echo hello")
+		assert.Contains(t, result, "__OVERKILL_DONE__")
+		assert.Contains(t, result, `exit=%d:cwd=%s`)
 	})
 
 	t.Run("does not double-append if marker already present", func(t *testing.T) {
 		t.Parallel()
-		result := appendMarker("echo hello && echo __OVERKILL_DONE__")
-		assert.Equal(t, "echo hello && echo __OVERKILL_DONE__", result)
+		// Idempotency check — substring containment of overkillDoneMarker
+		// is the gate inside appendMarker, so any input that contains it
+		// returns unchanged.
+		input := "echo hello && echo __OVERKILL_DONE__"
+		result := appendMarker(input)
+		assert.Equal(t, input, result)
 	})
 
 	t.Run("handles trailing newline", func(t *testing.T) {
 		t.Parallel()
 		result := appendMarker("echo hello\n")
-		assert.Contains(t, result, "&& echo __OVERKILL_DONE__")
+		assert.Contains(t, result, "__OVERKILL_DONE__")
 	})
 
 	t.Run("handles trailing spaces", func(t *testing.T) {
 		t.Parallel()
 		result := appendMarker("echo hello   ")
-		assert.Contains(t, result, "&& echo __OVERKILL_DONE__")
+		assert.Contains(t, result, "__OVERKILL_DONE__")
 	})
 
 	t.Run("detects marker mid-command", func(t *testing.T) {
@@ -48,38 +56,57 @@ func TestAppendMarker(t *testing.T) {
 func TestStripMarker(t *testing.T) {
 	t.Parallel()
 
-	t.Run("strips marker from output", func(t *testing.T) {
+	t.Run("strips bare marker (legacy form)", func(t *testing.T) {
 		t.Parallel()
-		cleaned, found := stripMarker("hello\n__OVERKILL_DONE__\n")
-		assert.True(t, found)
+		cleaned, info := stripMarker("hello\n__OVERKILL_DONE__\n")
+		assert.True(t, info.Found)
 		assert.Equal(t, "hello\n", cleaned)
+		assert.Equal(t, 0, info.Exit) // bare form has no exit field
+		assert.Equal(t, "", info.Cwd)
 	})
 
-	t.Run("returns false when marker absent", func(t *testing.T) {
+	t.Run("strips structured marker with exit and cwd", func(t *testing.T) {
 		t.Parallel()
-		cleaned, found := stripMarker("hello world\n")
-		assert.False(t, found)
+		cleaned, info := stripMarker("hello\n__OVERKILL_DONE__:exit=0:cwd=/tmp/x\n")
+		assert.True(t, info.Found)
+		assert.Equal(t, "hello\n", cleaned)
+		assert.Equal(t, 0, info.Exit)
+		assert.Equal(t, "/tmp/x", info.Cwd)
+	})
+
+	t.Run("captures nonzero exit", func(t *testing.T) {
+		t.Parallel()
+		_, info := stripMarker("__OVERKILL_DONE__:exit=42:cwd=/home/u\n")
+		assert.True(t, info.Found)
+		assert.Equal(t, 42, info.Exit)
+		assert.Equal(t, "/home/u", info.Cwd)
+	})
+
+	t.Run("captures negative exit", func(t *testing.T) {
+		t.Parallel()
+		_, info := stripMarker("__OVERKILL_DONE__:exit=-1:cwd=/\n")
+		assert.True(t, info.Found)
+		assert.Equal(t, -1, info.Exit)
+	})
+
+	t.Run("returns Found=false when marker absent", func(t *testing.T) {
+		t.Parallel()
+		cleaned, info := stripMarker("hello world\n")
+		assert.False(t, info.Found)
 		assert.Equal(t, "hello world\n", cleaned)
 	})
 
-	t.Run("handles marker on same line", func(t *testing.T) {
+	t.Run("handles empty output with bare marker", func(t *testing.T) {
 		t.Parallel()
-		cleaned, found := stripMarker("hello __OVERKILL_DONE__\n")
-		assert.True(t, found)
-		assert.Equal(t, "hello\n", cleaned)
-	})
-
-	t.Run("handles empty output with marker", func(t *testing.T) {
-		t.Parallel()
-		cleaned, found := stripMarker("__OVERKILL_DONE__\n")
-		assert.True(t, found)
+		cleaned, info := stripMarker("__OVERKILL_DONE__\n")
+		assert.True(t, info.Found)
 		assert.Equal(t, "", cleaned)
 	})
 
 	t.Run("handles empty output without marker", func(t *testing.T) {
 		t.Parallel()
-		cleaned, found := stripMarker("")
-		assert.False(t, found)
+		cleaned, info := stripMarker("")
+		assert.False(t, info.Found)
 		assert.Equal(t, "", cleaned)
 	})
 }
@@ -105,8 +132,12 @@ func TestShellCompleted(t *testing.T) {
 		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 
-	t.Run("failing command sets completed false", func(t *testing.T) {
+	t.Run("explicit shell exit terminates before marker", func(t *testing.T) {
 		t.Parallel()
+		// `exit 42` kills the wrapper shell before our `;` continuation
+		// runs, so the marker is never printed. Completed reflects that.
+		// ExitCode falls back to Go's exec.ExitError view (the process's
+		// shell exit code = 42).
 		input := ShellInput{Command: "exit 42"}
 		raw, _ := json.Marshal(input)
 
@@ -117,6 +148,27 @@ func TestShellCompleted(t *testing.T) {
 		require.NoError(t, json.Unmarshal(out, &result))
 		assert.Equal(t, 42, result.ExitCode)
 		assert.False(t, result.Completed)
+	})
+
+	t.Run("failing command keeps shell alive so marker fires", func(t *testing.T) {
+		t.Parallel()
+		// `false` returns 1 but does NOT exit the shell — the `;`
+		// continuation fires, marker captures exit=1, Completed=true.
+		// This is the new behaviour: Completed = "marker reached"
+		// (a useful "did it finish?" signal), exit code reports
+		// success/failure separately.
+		input := ShellInput{Command: "false"}
+		raw, _ := json.Marshal(input)
+
+		out, err := shell.Execute(context.Background(), raw)
+		require.NoError(t, err)
+
+		var result ShellOutput
+		require.NoError(t, json.Unmarshal(out, &result))
+		assert.Equal(t, 1, result.ExitCode)
+		assert.True(t, result.Completed)
+		assert.NotEmpty(t, result.Cwd, "marker should carry cwd")
+		assert.Greater(t, result.ElapsedMs, int64(-1), "should record elapsed time")
 	})
 
 	t.Run("command with stderr output completes", func(t *testing.T) {
@@ -232,8 +284,12 @@ func TestShellCompletedEdgeCases(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("command not found completed false", func(t *testing.T) {
+	t.Run("command not found: shell continues, marker fires", func(t *testing.T) {
 		t.Parallel()
+		// `nonexistent_command_xyz` returns 127 from sh but does NOT
+		// terminate the shell. Our `;` continuation fires; marker reports
+		// exit=127. New semantics: Completed=true (marker reached),
+		// ExitCode=127 (it failed). Both signals available separately.
 		shell := NewShellTool()
 		input := ShellInput{Command: "nonexistent_command_xyz"}
 		raw, _ := json.Marshal(input)
@@ -244,7 +300,7 @@ func TestShellCompletedEdgeCases(t *testing.T) {
 		var result ShellOutput
 		require.NoError(t, json.Unmarshal(out, &result))
 		assert.NotEqual(t, 0, result.ExitCode)
-		assert.False(t, result.Completed)
+		assert.True(t, result.Completed)
 	})
 
 	t.Run("compound command with && completes", func(t *testing.T) {
@@ -264,8 +320,13 @@ func TestShellCompletedEdgeCases(t *testing.T) {
 		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 
-	t.Run("compound command fails midway completed false", func(t *testing.T) {
+	t.Run("compound command fails midway: shell alive, marker fires", func(t *testing.T) {
 		t.Parallel()
+		// `echo first && false && echo second` — `&&` short-circuits on
+		// `false` (exit 1) but the shell process stays alive. Our `;`
+		// continuation fires; marker captures exit=1 from $?. New
+		// semantics distinguishes "did it finish cleanly" (Completed=
+		// marker reached) from "did it succeed" (ExitCode).
 		shell := NewShellTool()
 		input := ShellInput{Command: "echo first && false && echo second"}
 		raw, _ := json.Marshal(input)
@@ -276,7 +337,7 @@ func TestShellCompletedEdgeCases(t *testing.T) {
 		var result ShellOutput
 		require.NoError(t, json.Unmarshal(out, &result))
 		assert.NotEqual(t, 0, result.ExitCode)
-		assert.False(t, result.Completed)
+		assert.True(t, result.Completed)
 	})
 
 	t.Run("pipe command completes", func(t *testing.T) {
@@ -324,5 +385,41 @@ func TestShellCompletedEdgeCases(t *testing.T) {
 		assert.Equal(t, 0, result.ExitCode)
 		assert.True(t, result.Completed)
 		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
+	})
+
+	t.Run("cd command updates cwd in marker", func(t *testing.T) {
+		t.Parallel()
+		// `cd /tmp && pwd` — the marker fires AFTER the cd, so $PWD
+		// in the printf captures /tmp. This is the whole point of
+		// reading cwd from the shell vs trusting the WorkingDir input.
+		shell := NewShellTool()
+		input := ShellInput{Command: "cd /tmp && pwd"}
+		raw, _ := json.Marshal(input)
+
+		out, err := shell.Execute(context.Background(), raw)
+		require.NoError(t, err)
+
+		var result ShellOutput
+		require.NoError(t, json.Unmarshal(out, &result))
+		assert.True(t, result.Completed)
+		// macOS resolves /tmp → /private/tmp; accept either.
+		assert.Contains(t, []string{"/tmp", "/private/tmp"}, result.Cwd,
+			"marker should capture the cd target")
+	})
+
+	t.Run("elapsed time recorded", func(t *testing.T) {
+		t.Parallel()
+		shell := NewShellTool()
+		input := ShellInput{Command: "sleep 0.1"}
+		raw, _ := json.Marshal(input)
+
+		out, err := shell.Execute(context.Background(), raw)
+		require.NoError(t, err)
+
+		var result ShellOutput
+		require.NoError(t, json.Unmarshal(out, &result))
+		assert.True(t, result.Completed)
+		assert.GreaterOrEqual(t, result.ElapsedMs, int64(100),
+			"sleep 0.1 should take >=100ms")
 	})
 }
