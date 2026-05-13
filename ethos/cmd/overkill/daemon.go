@@ -20,9 +20,16 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/spf13/cobra"
 
+	"encoding/json"
+
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cron"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/daemon"
 )
+
+// daemonStartedAt is captured on Start so the `ping` RPC can report
+// uptime without re-statting the pidfile.
+var daemonStartedAt time.Time
 
 // daemonLedger holds the live background-task ledger for the running daemon.
 // Goroutines reading or writing it are coordinated via the ledger's own mutex.
@@ -55,6 +62,7 @@ func init() {
 	daemonCmd.AddCommand(daemonStartCmd)
 	daemonCmd.AddCommand(daemonStopCmd)
 	daemonCmd.AddCommand(daemonStatusCmd)
+	daemonCmd.AddCommand(daemonInstallCmd)
 	rootCmd.AddCommand(daemonCmd)
 }
 
@@ -190,6 +198,29 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	}()
 	fmt.Printf("%s✓ daily snapshot ticker armed%s\n", colorGreen, colorReset)
 
+	// RPC socket so the TUI / CLI / future webhook receivers can talk
+	// to the running daemon without sharing in-process state. Bind
+	// errors are non-fatal — the daemon still runs in standalone mode
+	// (cron + automation fire on their own clocks), the user just can't
+	// remote-control it. We log loud so misconfigured permissions are
+	// obvious.
+	daemonStartedAt = time.Now()
+	sockPath, sockErr := daemon.SocketPath()
+	var sock *daemon.Server
+	if sockErr != nil {
+		fmt.Fprintf(os.Stderr, "daemon: socket path resolve failed: %v\n", sockErr)
+	} else {
+		sock = daemon.NewServer(sockPath)
+		sock.Register("ping", pingHandler)
+		if err := sock.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "daemon: socket bind failed: %v\n", err)
+			sock = nil
+		} else {
+			fmt.Printf("%s✓ RPC socket at %s%s\n", colorGreen, sockPath, colorReset)
+			defer sock.Stop()
+		}
+	}
+
 	fmt.Printf("%soverkill daemon running (pid %d) — Ctrl-C to stop%s\n", colorBlue, os.Getpid(), colorReset)
 	<-ctx.Done()
 	fmt.Println()
@@ -260,11 +291,121 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	}
 	p, _ := pidFilePath()
 	info, _ := os.Stat(p)
-	uptime := time.Duration(0)
+	pidUptime := time.Duration(0)
 	if info != nil {
-		uptime = time.Since(info.ModTime())
+		pidUptime = time.Since(info.ModTime())
 	}
-	fmt.Printf("%sdaemon running — pid=%d uptime=%s%s\n", colorGreen, pid, uptime.Round(time.Second), colorReset)
+
+	// Probe the RPC socket. A running process with no socket means the
+	// daemon booted but the listener bind failed (permissions?), which
+	// is worth surfacing distinctly from "fully healthy".
+	sockPath, _ := daemon.SocketPath()
+	if sockPath == "" {
+		fmt.Printf("%sdaemon running — pid=%d uptime=%s (no socket path)%s\n",
+			colorYellow, pid, pidUptime.Round(time.Second), colorReset)
+		return nil
+	}
+	client := daemon.NewClient(sockPath).WithTimeout(2 * time.Second)
+	raw, err := client.Call("ping", nil)
+	if err != nil {
+		fmt.Printf("%sdaemon process up (pid=%d uptime=%s) but RPC unreachable: %v%s\n",
+			colorYellow, pid, pidUptime.Round(time.Second), err, colorReset)
+		return nil
+	}
+	var ping pingResponse
+	if err := json.Unmarshal(raw, &ping); err != nil {
+		fmt.Printf("%sdaemon running — pid=%d uptime=%s (ping response unparseable)%s\n",
+			colorYellow, pid, pidUptime.Round(time.Second), colorReset)
+		return nil
+	}
+	fmt.Printf("%sdaemon healthy — pid=%d uptime=%s version=%s%s\n",
+		colorGreen, ping.PID, time.Duration(ping.UptimeSec)*time.Second, ping.Version, colorReset)
+	return nil
+}
+
+// pingResponse is what the daemon returns to a `ping` RPC. Used by
+// `overkill daemon status` to verify the daemon is not just running
+// but actually responsive on its socket.
+type pingResponse struct {
+	PID       int    `json:"pid"`
+	UptimeSec int64  `json:"uptime_sec"`
+	Version   string `json:"version,omitempty"`
+}
+
+func pingHandler(ctx context.Context, req daemon.Request) (daemon.Response, error) {
+	resp := pingResponse{
+		PID:       os.Getpid(),
+		UptimeSec: int64(time.Since(daemonStartedAt).Seconds()),
+		Version:   appVersion(),
+	}
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return daemon.Response{}, err
+	}
+	return daemon.Response{Result: b}, nil
+}
+
+// appVersion returns the version baked in at build time (see ldflags
+// in CI). Falls back to "dev" for local builds.
+func appVersion() string {
+	v := os.Getenv("OVERKILL_VERSION")
+	if v == "" {
+		return "dev"
+	}
+	return v
+}
+
+// systemdUnit is the print-and-copy systemd unit content. User saves
+// it to ~/.config/systemd/user/overkill-daemon.service and runs:
+//
+//	systemctl --user daemon-reload
+//	systemctl --user enable --now overkill-daemon
+//
+// The unit uses `Restart=on-failure` (not always) so a clean SIGTERM
+// stop doesn't get auto-restarted, but a crash does.
+const systemdUnit = `# Save to ~/.config/systemd/user/overkill-daemon.service
+# Then: systemctl --user daemon-reload
+#       systemctl --user enable --now overkill-daemon
+
+[Unit]
+Description=Overkill background daemon (cron + automation + RPC socket)
+Documentation=https://github.com/Sahaj-Tech-ltd/overkill
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%s daemon start
+Restart=on-failure
+RestartSec=5s
+# Logs go to journald; tail with: journalctl --user -u overkill-daemon -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+`
+
+var daemonInstallCmd = &cobra.Command{
+	Use:   "install",
+	Short: "Print a systemd user unit you can save and enable",
+	Long: "Generates a copy-paste-able systemd user unit pointing at the\n" +
+		"current overkill binary. We deliberately don't write the file\n" +
+		"ourselves — the user owns ~/.config/systemd, and unattended\n" +
+		"writes there from a CLI tool are surprising.",
+	RunE: runDaemonInstall,
+}
+
+func runDaemonInstall(cmd *cobra.Command, args []string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("daemon install: resolve own path: %w", err)
+	}
+	// os.Executable can return a symlink on some platforms; resolve so
+	// the unit points at the real binary, not the launcher symlink.
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	fmt.Printf(systemdUnit, exe)
 	return nil
 }
 
