@@ -22,10 +22,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
+
+// daemonFlowStore is set in runDaemonStart so the alarm dispatch
+// callback can route resume prompts. Module-level so the fire
+// closure doesn't have to thread it through every layer.
+var daemonFlowStore agent.FlowStore
 
 
 // alarmDispatchModel is the env override for the cheap-tier model the
@@ -63,6 +69,23 @@ func alarmDispatchFire(ledger *automation.Ledger) func(*automation.Alarm) error 
 
 		entry := ledger.Begin("alarm", a.Name)
 		defer ledger.Heartbeat(entry.ID) // last heartbeat before we Complete/Fail
+
+		// Resume path: if the prompt is "overkill:flow:resume:<id>",
+		// route to ResumeFlow instead of the cheap-model summariser.
+		// Resume builds a full agent (history restored) and re-enters
+		// the stream loop.
+		if flowID := agent.ExtractFlowID(prompt); flowID != "" {
+			result, err := runFlowResume(flowID)
+			if err != nil {
+				ledger.Fail(entry.ID, err)
+				a.Result = "resume failed: " + err.Error()
+				fmt.Fprintf(os.Stderr, "alarm flow resume: %v\n", err)
+				return err
+			}
+			ledger.Complete(entry.ID, firstLine(result))
+			a.Result = firstLine(result)
+			return nil
+		}
 
 		// Legacy shell path: run as before. The new dispatcher only
 		// kicks in for prompt-bearing alarms — this keeps backwards
@@ -202,6 +225,89 @@ func providersByModel(cfg *config.Config, modelID string) (providers.Provider, e
 		}
 	}
 	return nil, fmt.Errorf("no configured provider matches model %s", modelID)
+}
+
+// runFlowResume is the bridge between an alarm fire and the agent's
+// ResumeFlow entrypoint. Builds a daemon-scoped agent (cheap model,
+// fresh tool registry) and re-enters the streaming loop from where
+// the original task timed out.
+//
+// We use the same cheap-tier model as the alarm dispatch summariser
+// because the resume is "continue this task carefully", not "fresh
+// reasoning from scratch" — the history is already there, the model
+// just needs to take the next step.
+func runFlowResume(flowID string) (string, error) {
+	if daemonFlowStore == nil {
+		return "", errors.New("flow resume: store not wired (daemon started without flow support)")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Build a thin agent. We don't have the full TUI's tool registry
+	// here; resume runs with NO tools by design — the original task's
+	// state is in history, the model just needs to summarise where it
+	// is and what's left, OR finish if it can. A future iteration can
+	// re-enable tool use for the resume path; today we play it safe.
+	cfg, err := configForDaemon()
+	if err != nil {
+		return "", err
+	}
+	model := pickCheapModel(cfg)
+	if model == "" {
+		return "", errors.New("flow resume: no cheap-tier model available")
+	}
+	provider, err := providersByModel(cfg, model)
+	if err != nil {
+		return "", fmt.Errorf("flow resume: %w", err)
+	}
+
+	a, err := buildResumeAgent(provider, model)
+	if err != nil {
+		return "", fmt.Errorf("flow resume: build agent: %w", err)
+	}
+
+	content, state, err := agent.ResumeFlow(ctx, daemonFlowStore, flowID, a)
+	if err != nil {
+		if errors.Is(err, agent.ErrFlowExhausted) {
+			return "", fmt.Errorf("flow %s exhausted after %d resumes — giving up", flowID, state.Resumes)
+		}
+		if errors.Is(err, agent.ErrFlowCorrupt) {
+			return "", fmt.Errorf("flow %s corrupt — not retrying", flowID)
+		}
+		return "", err
+	}
+	return content, nil
+}
+
+// configForDaemon loads config the same way runAlarmSubAgent does.
+// Pulled out so flow resume and prompt dispatch share one path.
+func configForDaemon() (*config.Config, error) {
+	configPath, err := config.ConfigPath()
+	if err != nil {
+		return nil, fmt.Errorf("resolve config path: %w", err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	if cfg == nil || len(cfg.Providers) == 0 {
+		return nil, errors.New("no providers configured")
+	}
+	return cfg, nil
+}
+
+// buildResumeAgent constructs an agent suitable for resume. No tools,
+// no scanners, no fancy hooks — the resume contract is "model
+// continues the conversation"; everything that originally drove the
+// task lived in the TUI's agent and is gone now. The history carries
+// the intent forward.
+func buildResumeAgent(p providers.Provider, model string) (*agent.Agent, error) {
+	return agent.New(agent.Config{
+		Provider:  p,
+		Model:     model,
+		MaxSteps:  20, // short — resume is "finish what you can", not exploration
+		MaxTokens: 1500,
+	}), nil
 }
 
 // firstLine extracts the first non-empty line and trims it to 200

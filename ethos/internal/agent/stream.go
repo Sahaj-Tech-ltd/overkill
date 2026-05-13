@@ -320,9 +320,62 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			}
 		}
 
+		// Max-steps exit. If a FlowStore is wired we checkpoint the
+		// in-flight state and surface a TimedOut event so the caller
+		// can schedule an alarm for resume. Otherwise we exit with the
+		// legacy EventError so existing tests + callers without flow
+		// support behave unchanged.
+		a.mu.RLock()
+		store := a.flowStore
+		sink := a.flowAlarmSink
+		model := a.model
+		histCopy := append([]providers.Message(nil), a.history...)
+		a.mu.RUnlock()
+
+		reason := fmt.Sprintf("exceeded max steps (%d)", a.maxSteps)
+		if store != nil {
+			flowID := flowIDFor(a.sessionID, userInput)
+			state, ckErr := CheckpointFlow(
+				store, flowID, a.sessionID, userInput, model, "", histCopy, a.maxSteps, reason,
+			)
+			if ckErr == nil && state != nil {
+				if sink != nil {
+					// Sink is best-effort; a panicking sink doesn't
+					// take the agent down with it.
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								// Log via emit so we don't import zerolog here.
+								a.emit("flow_alarm_sink_panic", map[string]any{
+									"flow_id": state.ID,
+									"panic":   fmt.Sprintf("%v", r),
+								})
+							}
+						}()
+						sink(state)
+					}()
+				}
+				out <- StreamEvent{
+					Type: EventDone,
+					Result: &RunResult{
+						Model:    model,
+						Steps:    a.maxSteps,
+						Response: fmt.Sprintf("Task hit max-steps budget. Checkpoint saved (flow %s) — will resume.", state.ID),
+					},
+					Metadata: map[string]interface{}{
+						"flow_checkpoint": state.ID,
+						"resumes":         state.Resumes,
+					},
+				}
+				return
+			}
+			// Checkpoint failed — fall through to EventError so the
+			// user sees the error rather than a silent stuck task.
+		}
+
 		out <- StreamEvent{
 			Type:  EventError,
-			Error: fmt.Errorf("agent: exceeded max steps (%d)", a.maxSteps),
+			Error: fmt.Errorf("agent: %s", reason),
 		}
 	}()
 

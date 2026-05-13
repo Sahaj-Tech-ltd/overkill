@@ -984,6 +984,18 @@ func buildTUIApp() *tui.App {
 
 	app.Agent = a
 
+	// Master plan §7.1 Layer 7: durable task flow. When the agent
+	// hits maxSteps, the FlowStore captures state and a resume alarm
+	// fires later via the daemon. The sink routes writes through the
+	// daemon socket — TUI never opens the daemon's Badger DB directly.
+	if sink, err := newDaemonFlowSink(); err == nil {
+		// alarm sink fires once on each checkpoint; agent calls it
+		// inside the max-steps exit path. We don't act on the state
+		// here because the daemon's flow.checkpoint handler already
+		// scheduled the alarm.
+		a.SetFlowStore(sink, func(*agent.FlowState) {})
+	}
+
 	// Master plan §6.1: wire the memory orchestrator into the agent so each
 	// turn enriches the system prompt with top-K relevant memories. Adapter
 	// keeps internal/agent free of the internal/memory import.

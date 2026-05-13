@@ -22,6 +22,7 @@ import (
 
 	"encoding/json"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cron"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/daemon"
@@ -174,6 +175,10 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		daemonAlarm.Start()
 		defer daemonAlarm.Stop()
 		fmt.Printf("%s✓ automation engine started (%d alarms)%s\n", colorGreen, len(daemonAlarm.List()), colorReset)
+
+		// Flow store for Task Flow durable resume (§7.1 Layer 7).
+		// Shares the same Badger DB as alarms/SOPs.
+		daemonFlowStore = agent.NewBadgerFlowStore(autoDB)
 		startedAuto = true
 	} else {
 		fmt.Fprintf(os.Stderr, "daemon: automation Badger open failed: %v\n", err)
@@ -232,6 +237,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		sock.Register("ping", pingHandler)
 		if daemonAlarm != nil {
 			registerAlarmHandlers(sock, daemonAlarm)
+			registerFlowHandlers(sock, daemonFlowStore, daemonAlarm)
 		}
 		if err := sock.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "daemon: socket bind failed: %v\n", err)

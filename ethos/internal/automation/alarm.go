@@ -202,7 +202,11 @@ func (a *AlarmClock) Set(alarm *Alarm) error {
 		return fmt.Errorf("automation: set alarm: missing ID")
 	}
 	a.mu.Lock()
-	if _, exists := a.alarms[alarm.ID]; exists {
+	// Allow overwrite of cancelled or already-fired alarms — those
+	// are terminal and the user obviously wants a new alarm at this
+	// ID. Only an alarm in the pending state blocks Set with
+	// ErrAlreadyExists.
+	if existing, exists := a.alarms[alarm.ID]; exists && !existing.Cancelled && !existing.Fired {
 		a.mu.Unlock()
 		return fmt.Errorf("automation: set alarm %s: %w", alarm.ID, ErrAlreadyExists)
 	}

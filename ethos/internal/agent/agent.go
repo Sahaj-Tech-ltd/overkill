@@ -71,6 +71,16 @@ type Agent struct {
 	// panics are recovered.
 	userInputObserver func(input string)
 
+	// flowStore, if set, persists agent state when the loop hits
+	// maxSteps so a follow-up alarm can resume the task. Nil-safe —
+	// when unset, max-steps exits with EventError as before.
+	flowStore FlowStore
+	// flowAlarmSink, if set, is called when a checkpoint succeeds so
+	// the wiring layer can schedule an alarm that picks up the flow.
+	// Decoupled so the agent doesn't depend on automation.AlarmClock
+	// directly.
+	flowAlarmSink func(state *FlowState)
+
 	// modelRouter, if set, is invoked at the start of each Run with a
 	// classification of the user input + history. The returned model ID
 	// replaces a.model for that turn only. Failures fall back to the static
@@ -214,6 +224,29 @@ func (a *Agent) SetUserInputObserver(fn func(input string)) {
 	a.userInputObserver = fn
 	a.mu.Unlock()
 }
+
+// SetFlowStore wires durable flow checkpointing. When set, hitting
+// maxSteps mid-stream saves the agent's state via the store and
+// invokes the alarm sink (if also configured) so a follow-up alarm
+// can resume the task. Pass nil to disable — max-steps exits as
+// EventError, no checkpoint persisted.
+func (a *Agent) SetFlowStore(store FlowStore, alarmSink func(*FlowState)) {
+	a.mu.Lock()
+	a.flowStore = store
+	a.flowAlarmSink = alarmSink
+	a.mu.Unlock()
+}
+
+// RestoreHistory replaces the agent's in-memory history with the
+// supplied messages. Used by flow resume to re-hydrate the conversation
+// before continuing from a checkpoint. Caller owns the slice; we copy
+// to avoid sharing the underlying array with the resume orchestrator.
+func (a *Agent) RestoreHistory(history []providers.Message) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.history = append([]providers.Message(nil), history...)
+}
+
 
 // FireSessionStart fires the on_session_start hook (master plan §6.3). Safe
 // to call repeatedly; callers (cmd/overkill) typically fire once on agent boot.
