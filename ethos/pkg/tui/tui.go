@@ -1260,6 +1260,16 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 
+	case tea.MouseMsg:
+		// Mouse capture is enabled for the code-block copy chips. Other
+		// click targets are ignored so the rest of the TUI keeps working
+		// with keyboard. Motion events drive hover state; left clicks
+		// hit-test against the chip zone registry.
+		if cmd, _ := m.handleMouse(ev); cmd != nil {
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Boot screen: dismiss on any keystroke, but forward it to the editor
 		// so the first typed character isn't silently consumed.

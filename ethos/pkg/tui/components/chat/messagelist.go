@@ -140,6 +140,12 @@ func (m MessageListModel) View() string {
 		m.offset = 0
 	}
 
+	// Reset the click-zone registry at the start of every frame. Stale
+	// zones from a prior render (e.g. before a scroll) would otherwise
+	// hit-test positive against locations now occupied by different
+	// content.
+	ResetZones()
+
 	// Forward render pass: include messages from offset until the
 	// cumulative height exceeds the panel. The very first message is
 	// always included even if it overflows — the outer layout can clip
@@ -157,11 +163,40 @@ func (m MessageListModel) View() string {
 		if len(rendered) > 0 && used+gap+h > budget {
 			break
 		}
+		// Track the absolute row this message starts at before we
+		// commit it to the output. used+gap is exactly the row index
+		// of the first line of this message within the visible window.
+		topRow := used + gap
 		rendered = append(rendered, view)
 		used += gap + h
+
+		// Register any copy chips on this message's footer row.
+		// The chips render on the LAST line of the message body
+		// (appendCopyFooter appended them after the cached render),
+		// so footer_row = topRow + h - 1.
+		registerCopyChips(m.messages[i], m.width, topRow+h-1)
 	}
 
 	return strings.Join(rendered, "\n\n")
+}
+
+// registerCopyChips pushes one CopyZone per chip on the message's
+// footer row into the global registry. Called per visible message
+// during View so the registry exactly matches what's on screen.
+func registerCopyChips(msg Message, width, footerRow int) {
+	chips := msg.CopyChips(width, HoveredID())
+	if len(chips) == 0 {
+		return
+	}
+	for _, c := range chips {
+		RegisterZone(CopyZone{
+			Row:  footerRow,
+			MinX: c.ColStart,
+			MaxX: c.ColEnd,
+			Body: c.Body,
+			Lang: c.Lang,
+		})
+	}
 }
 
 // renderedHeight returns the line count of message i at the current

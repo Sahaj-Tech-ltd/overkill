@@ -220,9 +220,14 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	}
 	opts = append(opts, tea.WithFPS(fps))
 
-	// Mouse capture is explicitly disabled — over SSH each mouse-move event
-	// is a render trigger and floods bandwidth.
-	// (No tea.WithMouseCellMotion — Bubble Tea defaults to no mouse handling.)
+	// Mouse capture: enabled for the code-block copy chips. We use
+	// CellMotion (not AllMotion) which only reports cell-boundary
+	// crossings, keeping SSH bandwidth reasonable. Native click-and-
+	// drag selection still works in modern terminals via Alt/Option +
+	// drag (iTerm2, kitty, wezterm, alacritty, gnome-terminal) — the
+	// TUI surfaces a one-shot tip the first time a user clicks empty
+	// space.
+	opts = append(opts, tea.WithMouseCellMotion())
 
 	// Graceful shutdown on SSH disconnect: trap SIGHUP (terminal hangup),
 	// SIGPIPE (broken pipe when SSH tunnel closes). Bubble Tea handles

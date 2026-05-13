@@ -130,7 +130,29 @@ func (m Message) View(width int) string {
 	}
 
 	cachePut(key, rendered)
-	return rendered
+	// Copy-chip footer is appended AFTER the cache lookup so the
+	// expensive markdown render stays cached but the footer reflects
+	// the latest hover state without invalidating the cache on every
+	// mouse-motion event. Streaming and non-assistant messages get no
+	// footer (block boundaries aren't stable mid-stream).
+	return appendCopyFooter(rendered, m, width)
+}
+
+// renderedWithFooter wraps the post-cache step of appending the copy
+// footer. Pulled out so the View method stays readable and so the
+// scrollback cache only stores the heavy body, not the hover-dependent
+// footer.
+func appendCopyFooter(rendered string, m Message, width int) string {
+	if m.Role != "assistant" || m.Streaming {
+		return rendered
+	}
+	blocks := ExtractCodeBlocks(m.Content)
+	if len(blocks) == 0 {
+		return rendered
+	}
+	t := theme.CurrentTheme()
+	footer, _ := buildCopyFooter(t, blocks, HoveredID())
+	return rendered + "\n" + footer
 }
 
 func renderUser(t theme.Theme, content string, width int) string {
