@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/styles"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
 )
@@ -214,6 +215,13 @@ func (m StatusBarModel) renderRight(t theme.Theme) string {
 
 	if m.browserOn {
 		parts = append(parts, lipgloss.NewStyle().Foreground(t.Accent()).Render("[browser]"))
+	}
+
+	// /conceal toggles raw-markdown mode for clean copy-paste. Without a
+	// status indicator the user can't tell whether the next /copy will
+	// grab styled ANSI or plain text. Render an [conceal] tag while on.
+	if styles.IsConcealMarkdown() {
+		parts = append(parts, lipgloss.NewStyle().Foreground(t.Warning()).Render("[conceal]"))
 	}
 
 	if m.inputTokens+m.outputTokens > 0 {

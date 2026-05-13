@@ -705,6 +705,7 @@ func (m *appModel) registerCommands() {
 		{ID: "orders", Title: "/orders", Description: "list active standing orders"},
 		{ID: "mode", Title: "/mode", Description: "toggle reader/writer privilege mode"},
 		{ID: "conceal", Title: "/conceal", Description: "toggle raw markdown rendering for clean copy-paste"},
+		{ID: "compose", Title: "/compose", Description: "open $EDITOR to draft a long prompt"},
 		{ID: "usage", Title: "/usage", Description: "show cost + token usage for the active session"},
 	} {
 		m.cmdDialog.RegisterCommand(c)
@@ -852,6 +853,9 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.toast, cmd = m.toast.Update(status.ShowMsgFromText(ev.Text))
 		return m, cmd
+
+	case composeFinishedMsg:
+		return m, m.applyCompose(ev)
 
 	case tuitypes.PermissionRequestMsg:
 		m.permissionDialog.SetRequest(ev)
@@ -2494,6 +2498,8 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return m.runMode()
 	case "conceal":
 		return m.runConceal()
+	case "compose":
+		return m.runCompose()
 	case "usage":
 		return m.runUsage()
 	}

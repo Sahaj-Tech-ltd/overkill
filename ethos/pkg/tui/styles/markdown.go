@@ -36,6 +36,9 @@ func RenderMarkdown(content string, width int) string {
 	if width > 0 {
 		content = PreprocessTables(content, width-4, theme.CurrentTheme())
 	}
+	// Line-number gutter for long code blocks. Off in conceal mode so
+	// copy-pasted code doesn't carry "N│ " prefixes (handled above).
+	content = addCodeBlockGutters(content)
 	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(width),
