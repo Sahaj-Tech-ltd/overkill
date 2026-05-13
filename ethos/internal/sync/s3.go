@@ -13,7 +13,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // S3Backend speaks S3 through minio-go, which works against AWS S3, R2, B2,

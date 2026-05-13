@@ -160,7 +160,7 @@ func safeInvoke(ctx context.Context, fn CheckFunc) (out Result) {
 			out = Result{
 				Status: SevFail,
 				Detail: "check panicked",
-				Fix:    "this is a doctor bug; please file an issue at github.com/Sahaj-Tech-ltd/ethos/issues",
+				Fix:    "this is a doctor bug; please file an issue at github.com/Sahaj-Tech-ltd/overkill/issues",
 			}
 		}
 	}()

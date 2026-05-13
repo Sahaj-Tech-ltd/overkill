@@ -45,7 +45,7 @@ func TestDefault_HasDataDir(t *testing.T) {
 	cfg := Default()
 	homeDir, err := os.UserHomeDir()
 	require.NoError(t, err)
-	expected := filepath.Join(homeDir, ".ethos", "data")
+	expected := filepath.Join(homeDir, ".overkill", "data")
 	assert.Equal(t, expected, cfg.Session.DataDir)
 }
 
@@ -122,7 +122,7 @@ func TestConfigDir(t *testing.T) {
 
 	dir, err := ConfigDir()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(homeDir, ".ethos"), dir)
+	assert.Equal(t, filepath.Join(homeDir, ".overkill"), dir)
 }
 
 func TestConfigPath(t *testing.T) {
@@ -131,7 +131,7 @@ func TestConfigPath(t *testing.T) {
 
 	path, err := ConfigPath()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(homeDir, ".ethos", "config.toml"), path)
+	assert.Equal(t, filepath.Join(homeDir, ".overkill", "config.toml"), path)
 }
 
 func TestValidate_ValidConfig(t *testing.T) {
@@ -480,8 +480,8 @@ func TestDoctor_CreatesMissingDirs(t *testing.T) {
 	homeDir, err := os.UserHomeDir()
 	require.NoError(t, err)
 
-	configDir := filepath.Join(homeDir, ".ethos")
-	dataDir := filepath.Join(homeDir, ".ethos", "data")
+	configDir := filepath.Join(homeDir, ".overkill")
+	dataDir := filepath.Join(homeDir, ".overkill", "data")
 
 	info, statErr := os.Stat(configDir)
 	assert.NoError(t, statErr, "config directory should exist")

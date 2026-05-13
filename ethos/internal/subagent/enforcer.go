@@ -42,7 +42,7 @@ type AuditWriter interface {
 	Path() string
 }
 
-// fileAuditWriter appends JSON lines under ~/.ethos/subagents/<id>/contract-audit.jsonl.
+// fileAuditWriter appends JSON lines under ~/.overkill/subagents/<id>/contract-audit.jsonl.
 type fileAuditWriter struct {
 	mu   sync.Mutex
 	path string
@@ -50,7 +50,7 @@ type fileAuditWriter struct {
 }
 
 // NewFileAuditWriter prepares a writer rooted at baseDir/<id>. baseDir is
-// usually ~/.ethos/subagents. Returns nil writer + nil error when the dir
+// usually ~/.overkill/subagents. Returns nil writer + nil error when the dir
 // can't be created (graceful degradation; auditing is best-effort).
 func NewFileAuditWriter(baseDir, id string) (*fileAuditWriter, error) {
 	dir := filepath.Join(baseDir, id)

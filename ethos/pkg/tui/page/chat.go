@@ -7,13 +7,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/bgpulse"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/chat"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/logo"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/bgpulse"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/chat"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/logo"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 
-	tuitypes "github.com/Sahaj-Tech-ltd/ethos/pkg/tui/types"
+	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
 )
 
 const promptMaxWidth = 75

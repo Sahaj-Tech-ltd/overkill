@@ -24,7 +24,7 @@ type Workspace struct {
 }
 
 // Manager owns the workspace registry. The registry is a single JSON file at
-// ~/.ethos/workspaces.json.
+// ~/.overkill/workspaces.json.
 type Manager struct {
 	mu        sync.RWMutex
 	path      string
@@ -33,14 +33,14 @@ type Manager struct {
 }
 
 // NewManager opens (or creates) a workspace registry. If path is empty, the
-// default ~/.ethos/workspaces.json is used.
+// default ~/.overkill/workspaces.json is used.
 func NewManager(path string) (*Manager, error) {
 	if path == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, err
 		}
-		path = filepath.Join(home, ".ethos", "workspaces.json")
+		path = filepath.Join(home, ".overkill", "workspaces.json")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err

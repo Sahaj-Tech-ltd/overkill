@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
 )
 
 func TestSkillSpaceToggles(t *testing.T) {

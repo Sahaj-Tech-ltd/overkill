@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
 )
 
 func newTestDeps(t *testing.T, cfg *config.Config) Deps {
@@ -115,7 +115,7 @@ func TestTools_OK(t *testing.T) {
 
 func TestFilesystem_OK(t *testing.T) {
 	d := newTestDeps(t, config.Default())
-	r := runOne(t, RegisterFilesystem, d, "fs.~/.ethos")
+	r := runOne(t, RegisterFilesystem, d, "fs.~/.overkill")
 	if r.Status != doctor.SevOK {
 		t.Fatalf("expected ok, got %s: %s", r.Status, r.Detail)
 	}

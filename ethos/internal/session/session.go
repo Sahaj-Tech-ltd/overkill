@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 type Session struct {

@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tags"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tags"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // TagSelectedMsg fires when the user picks a tag — the receiver expands it

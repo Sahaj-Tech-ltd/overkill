@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/browser"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/browser"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
 
 // VisionDescribeTool wraps a vision.Describer and (optionally) the

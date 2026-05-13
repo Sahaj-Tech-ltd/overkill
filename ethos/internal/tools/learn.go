@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
 )
 
 // LearnRecorder is the minimal surface this tool needs from a LearnTrigger.

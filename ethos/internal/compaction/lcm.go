@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tokenizer"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 )
 
 // AlertSink receives compaction-skip alerts (master plan §4.19). Tiny

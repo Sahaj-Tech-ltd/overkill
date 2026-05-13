@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/animation"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/animation"
 )
 
 // SlideFrames is the number of discrete frames in a slide-in or slide-out

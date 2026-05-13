@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // ModelEntry is a flat list row carrying everything the dialog needs to

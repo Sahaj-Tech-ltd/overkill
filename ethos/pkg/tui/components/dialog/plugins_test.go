@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/plugin"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/plugin"
 )
 
 func TestPluginsDialog_RendersStatuses(t *testing.T) {

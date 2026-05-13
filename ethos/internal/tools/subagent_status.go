@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 )
 
 // SubagentStatusTool returns the live StatusReport for a contract-driven child.

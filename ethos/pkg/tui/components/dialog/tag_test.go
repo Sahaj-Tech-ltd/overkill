@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tags"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tags"
 )
 
 func TestTagDialogGroupsByTagName(t *testing.T) {

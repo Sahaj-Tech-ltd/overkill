@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 // Render produces a single-file HTML doc (inlined CSS, no JS) showing the

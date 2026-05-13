@@ -11,7 +11,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/highlight"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/highlight"
 )
 
 // FileView is a scrollable, syntax-highlighted file viewer.

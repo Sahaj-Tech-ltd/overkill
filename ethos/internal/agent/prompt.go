@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tools"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
 
 func BuildSystemPrompt(base string, registry *tools.Registry) string {

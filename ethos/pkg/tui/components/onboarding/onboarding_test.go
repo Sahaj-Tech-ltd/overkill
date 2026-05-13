@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 func tempHome(t *testing.T) string {

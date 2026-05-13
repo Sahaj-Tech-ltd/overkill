@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 )
 
 func TestContractDriver_BootstrapPrompt(t *testing.T) {

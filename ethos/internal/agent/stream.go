@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 type EventType int

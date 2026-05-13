@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/gateway"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
 
 // Bot implements gateway.Channel for Telegram. One Bot per token; you

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 func mockHandler(content string) func(req providers.Request) (providers.Response, error) {

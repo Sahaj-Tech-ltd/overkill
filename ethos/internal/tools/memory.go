@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/memory"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/memory"
 )
 
 // MemoryRememberTool stores a memory and (when the bridge is wired) its embedding.

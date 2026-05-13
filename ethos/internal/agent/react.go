@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 type StepResult struct {

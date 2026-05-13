@@ -3,7 +3,7 @@ package dialog
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 // SessionRenamedMsg is emitted with the new title (or canceled if empty).

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sdk "github.com/Sahaj-Tech-ltd/ethos/examples/plugins/sdk-go"
+	sdk "github.com/Sahaj-Tech-ltd/overkill/examples/plugins/sdk-go"
 )
 
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {

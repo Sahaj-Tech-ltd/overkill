@@ -3,7 +3,7 @@ package memory
 import (
 	"context"
 
-	"github.com/Sahaj-Tech-ltd/ethos/bridge"
+	"github.com/Sahaj-Tech-ltd/overkill/bridge"
 )
 
 // BridgeAdapter wraps a *bridge.Client so it satisfies EmbeddingClient.

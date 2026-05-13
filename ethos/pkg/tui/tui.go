@@ -13,28 +13,28 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/introspection"
-	mcppkg "github.com/Sahaj-Tech-ltd/ethos/internal/mcp"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/personality"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/plugin"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/share"
-	syncpkg "github.com/Sahaj-Tech-ltd/ethos/internal/sync"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/workspace"
-	wt "github.com/Sahaj-Tech-ltd/ethos/internal/worktree"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/chat"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/dialog"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/logo"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/onboarding"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/sidebar"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/status"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/viewer"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/layout"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/page"
-	tuitypes "github.com/Sahaj-Tech-ltd/ethos/pkg/tui/types"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/introspection"
+	mcppkg "github.com/Sahaj-Tech-ltd/overkill/internal/mcp"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/plugin"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/share"
+	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/workspace"
+	wt "github.com/Sahaj-Tech-ltd/overkill/internal/worktree"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/chat"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/dialog"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/logo"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/onboarding"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/sidebar"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/status"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/viewer"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/layout"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/page"
+	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
 )
 
 const defaultSidebarWidth = 30
@@ -200,7 +200,7 @@ func New(app *App) tea.Model {
 		Version:   "0.1.0-dev",
 		BuildDate: "dev",
 		License:   "MIT / Apache-2.0",
-		DocsURL:   "https://github.com/Sahaj-Tech-ltd/ethos",
+		DocsURL:   "https://github.com/Sahaj-Tech-ltd/overkill",
 	})
 
 	m.sidebar.SetPanels([]sidebar.Panel{&m.costPanel, &m.filesPanel, &m.sessionPanel})
@@ -299,7 +299,7 @@ func (m *appModel) bootstrapSession() {
 }
 
 // installSessionHistory swaps the editor's prompt history sidecar to one
-// persisted at ~/.ethos/sessions/<id>/prompt-history.txt.
+// persisted at ~/.overkill/sessions/<id>/prompt-history.txt.
 func (m *appModel) installSessionHistory(sessionID string) {
 	if sessionID == "" {
 		return
@@ -308,7 +308,7 @@ func (m *appModel) installSessionHistory(sessionID string) {
 	if err != nil {
 		return
 	}
-	path := filepath.Join(home, ".ethos", "sessions", sessionID, "prompt-history.txt")
+	path := filepath.Join(home, ".overkill", "sessions", sessionID, "prompt-history.txt")
 	if editor := m.chatPage.Editor(); editor != nil {
 		editor.SetHistory(chat.NewHistoryWithFile(path))
 	}
@@ -586,13 +586,13 @@ func (m *appModel) registerCommands() {
 	for _, c := range []dialog.Command{
 		{ID: "help", Title: "/help", Description: "show keybinding help"},
 		{ID: "clear", Title: "/clear", Description: "clear chat history"},
-		{ID: "quit", Title: "/quit", Description: "exit ethos"},
+		{ID: "quit", Title: "/quit", Description: "exit overkill"},
 		{ID: "model", Title: "/model", Description: "open model picker"},
 		{ID: "sessions", Title: "/sessions", Description: "switch session"},
 		{ID: "theme", Title: "/theme", Description: "open theme picker"},
 		{ID: "config", Title: "/config", Description: "reconfigure provider"},
 		{ID: "compact", Title: "/compact", Description: "compact chat history"},
-		{ID: "init", Title: "/init", Description: "write a starter .ethos/ config"},
+		{ID: "init", Title: "/init", Description: "write a starter .overkill/ config"},
 		{ID: "status", Title: "/status", Description: "show provider, model, session status"},
 		{ID: "fork", Title: "/fork", Description: "fork the conversation from a past message"},
 		{ID: "stash", Title: "/stash", Description: "stash the current draft (or 'list' to browse)"},
@@ -644,7 +644,7 @@ func (m *appModel) registerCommands() {
 
 func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Onboarding completion — clear the wizard and (if a config was returned)
-	// hot-swap into the new agent. The wizard wrote ~/.ethos/onboarded so we
+	// hot-swap into the new agent. The wizard wrote ~/.overkill/onboarded so we
 	// won't see this branch on next launch.
 	if cm, ok := msg.(onboarding.CompleteMsg); ok {
 		m.onboarding = nil
@@ -1528,7 +1528,7 @@ func (m *appModel) applySessionSelection(s *session.Session) tea.Cmd {
 }
 
 // applyWorkspaceSwitch chdirs to the picked workspace and reopens the
-// session store at <path>/.ethos/sessions, swapping in the new store on
+// session store at <path>/.overkill/sessions, swapping in the new store on
 // success. The chdir + store reopen happen atomically inside SwitchWith
 // so partial-failure leaves the old store intact.
 func (m *appModel) applyWorkspaceSwitch(id string) tea.Cmd {
@@ -1537,7 +1537,7 @@ func (m *appModel) applyWorkspaceSwitch(id string) tea.Cmd {
 	}
 	var newStore *session.BadgerStore
 	ws, err := m.app.Workspace.SwitchWith(id, func(w workspace.Workspace) error {
-		dir := filepath.Join(w.Path, ".ethos", "sessions")
+		dir := filepath.Join(w.Path, ".overkill", "sessions")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -2590,7 +2590,7 @@ func (m *appModel) openPluginsToast() tea.Cmd {
 	}
 	statuses := m.app.Plugins.Status()
 	if len(statuses) == 0 {
-		return m.toastCmd("plugins: none installed (~/.ethos/plugins/)", "info")
+		return m.toastCmd("plugins: none installed (~/.overkill/plugins/)", "info")
 	}
 	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
@@ -2727,13 +2727,13 @@ func (m *appModel) runCompact() tea.Cmd {
 	}
 }
 
-// runInit writes a starter .ethos/ directory in the current cwd.
+// runInit writes a starter .overkill/ directory in the current cwd.
 func (m *appModel) runInit() tea.Cmd {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return m.toastCmd("init failed: cwd", "error")
 	}
-	dir := filepath.Join(cwd, ".ethos")
+	dir := filepath.Join(cwd, ".overkill")
 	if _, err := os.Stat(dir); err == nil {
 		return m.toastCmd("already exists", "warning")
 	}
@@ -2755,10 +2755,10 @@ func (m *appModel) runInit() tea.Cmd {
 	_ = os.WriteFile(filepath.Join(dir, "system_prompt.md"), []byte("# project system prompt\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "AGENT.md"), []byte("# project notes for ethos\n"), 0o644)
 
-	// Seed the deep-wiki for the agent: ~/.ethos/introspection/{CODEBASE,PRP}.md.
+	// Seed the deep-wiki for the agent: ~/.overkill/introspection/{CODEBASE,PRP}.md.
 	// Best-effort — failure to scan or write does not block /init.
 	if home, err := os.UserHomeDir(); err == nil {
-		introDir := filepath.Join(home, ".ethos", "introspection")
+		introDir := filepath.Join(home, ".overkill", "introspection")
 		_, scanErr := introspection.WriteCodebaseFromScan(cwd, introDir)
 		_, _ = introspection.WritePRP(introspection.PRPInputs{
 			ProjectName: filepath.Base(cwd),
@@ -2767,11 +2767,11 @@ func (m *appModel) runInit() tea.Cmd {
 			OutputDir:   introDir,
 		})
 		if scanErr != nil {
-			return m.toastCmd("initialized .ethos/ + PRP.md (CODEBASE skipped: "+scanErr.Error()+")", "warning")
+			return m.toastCmd("initialized .overkill/ + PRP.md (CODEBASE skipped: "+scanErr.Error()+")", "warning")
 		}
-		return m.toastCmd("initialized .ethos/ + CODEBASE.md + PRP.md", "success")
+		return m.toastCmd("initialized .overkill/ + CODEBASE.md + PRP.md", "success")
 	}
-	return m.toastCmd("initialized .ethos/", "success")
+	return m.toastCmd("initialized .overkill/", "success")
 }
 
 func (m *appModel) sendToChat(msg tea.Msg) tea.Cmd {
@@ -2819,7 +2819,7 @@ func (m *appModel) View() string {
 	}
 
 	if m.width <= 0 {
-		return "starting ethos..."
+		return "starting overkill..."
 	}
 
 	if m.onboarding != nil {

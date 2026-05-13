@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
 
 // Dispatcher is the shared "message arrives → reply goes out" engine

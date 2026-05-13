@@ -28,13 +28,13 @@ type pluginToml struct {
 	Permissions Permissions       `toml:"permissions"`
 }
 
-// DefaultPluginsDir returns ~/.ethos/plugins.
+// DefaultPluginsDir returns ~/.overkill/plugins.
 func DefaultPluginsDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".ethos", "plugins")
+	return filepath.Join(home, ".overkill", "plugins")
 }
 
 // Discover walks the plugins directory and returns one Discovered entry per

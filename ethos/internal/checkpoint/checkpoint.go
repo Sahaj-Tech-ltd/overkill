@@ -1,7 +1,7 @@
 // Package checkpoint — filesystem checkpoints (master plan §4.8).
 //
 // Before any destructive write, the agent calls Checkpoint.Snapshot(paths)
-// to copy the current contents into ~/.ethos/checkpoints/<id>/. A single
+// to copy the current contents into ~/.overkill/checkpoints/<id>/. A single
 // `ethos rollback <id>` (or the live /rollback slash command) restores the
 // snapshot. Checkpoints auto-prune; only the last N are kept per session.
 //
@@ -51,7 +51,7 @@ type Manager struct {
 	maxFileSize int64
 }
 
-// NewManager creates a manager rooted at dir (typically ~/.ethos/checkpoints).
+// NewManager creates a manager rooted at dir (typically ~/.overkill/checkpoints).
 // keepPerSession bounds the number of retained checkpoints per session.
 func NewManager(dir string, keepPerSession int) (*Manager, error) {
 	if dir == "" {

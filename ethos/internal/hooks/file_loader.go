@@ -1,6 +1,6 @@
 // Package hooks — user-defined hooks loaded from disk (master plan §6.3).
 //
-// Layout: ~/.ethos/hooks/<point>/<name>.sh
+// Layout: ~/.overkill/hooks/<point>/<name>.sh
 //   point ∈ {before_tool_call, after_tool_call, on_session_start,
 //            on_session_end, on_error, before_compaction, after_compaction}
 //

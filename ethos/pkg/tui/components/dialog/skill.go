@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // SkillToggleMsg fires when the user toggles a skill enabled/disabled.

@@ -1,4 +1,4 @@
-module github.com/Sahaj-Tech-ltd/ethos
+module github.com/Sahaj-Tech-ltd/overkill
 
 go 1.26
 

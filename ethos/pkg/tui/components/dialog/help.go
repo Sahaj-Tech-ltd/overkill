@@ -13,7 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // HelpEntry is one row inside a section. EntryAction is what the parent

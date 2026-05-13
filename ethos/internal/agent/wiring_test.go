@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tools"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
 
 // TestWiring_ForethinkerEmitsImpact ensures the Forethinker is invoked before

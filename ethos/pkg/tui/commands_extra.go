@@ -17,15 +17,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/cron"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/diagnostic"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/introspection"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/pipeline"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/styles"
-	tuitypes "github.com/Sahaj-Tech-ltd/ethos/pkg/tui/types"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/walls"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cron"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/diagnostic"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/introspection"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/pipeline"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/styles"
+	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/walls"
 	"github.com/dgraph-io/badger/v4"
 )
 
@@ -90,7 +90,7 @@ func (m *appModel) runRoutines() tea.Cmd {
 	}
 	// Routines are wired into the app via Automation.RoutineEngine — when
 	// not present, the package is dormant.
-	return m.toastCmd("routine: no engine wired (define routines in ~/.ethos/routines.json)", "info")
+	return m.toastCmd("routine: no engine wired (define routines in ~/.overkill/routines.json)", "info")
 }
 
 // runCron lists scheduled jobs from the persistent BadgerJobStore.
@@ -99,9 +99,9 @@ func (m *appModel) runCron() tea.Cmd {
 	if err != nil {
 		return m.toastCmd("cron: "+err.Error(), "error")
 	}
-	dir := filepath.Join(home, ".ethos", "cron")
+	dir := filepath.Join(home, ".overkill", "cron")
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return m.toastCmd("cron: no jobs (~/.ethos/cron is empty)", "info")
+		return m.toastCmd("cron: no jobs (~/.overkill/cron is empty)", "info")
 	}
 	db, err := badger.Open(badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR))
 	if err != nil {
@@ -133,7 +133,7 @@ func cronNextSummary(jobs []cron.Job) string {
 }
 
 // runIntrospect regenerates the codebase wiki snippet under
-// ~/.ethos/introspection from the current cwd.
+// ~/.overkill/introspection from the current cwd.
 func (m *appModel) runIntrospect() tea.Cmd {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -143,7 +143,7 @@ func (m *appModel) runIntrospect() tea.Cmd {
 	if err != nil {
 		return m.toastCmd("introspect: "+err.Error(), "error")
 	}
-	outDir := filepath.Join(home, ".ethos", "introspection")
+	outDir := filepath.Join(home, ".overkill", "introspection")
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return m.toastCmd("introspect: mkdir: "+err.Error(), "error")
 	}

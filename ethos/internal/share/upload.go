@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // Uploader uploads HTML content somewhere and returns a public URL.

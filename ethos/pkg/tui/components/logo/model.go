@@ -5,8 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/animation"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/animation"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // shimmerInterval gives ~8 FPS — well below the SSH-conscious budget.

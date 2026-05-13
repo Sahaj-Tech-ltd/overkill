@@ -7,7 +7,7 @@ import (
 
 	toml "github.com/pelletier/go-toml/v2"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 func fixConfigExists(configDir string) CheckResult {

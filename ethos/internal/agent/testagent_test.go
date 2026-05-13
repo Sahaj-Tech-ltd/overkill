@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 func TestNewTestAgent_SetsFields(t *testing.T) {

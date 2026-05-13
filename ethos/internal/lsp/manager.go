@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // Manager holds one Client per language and routes calls by file extension.

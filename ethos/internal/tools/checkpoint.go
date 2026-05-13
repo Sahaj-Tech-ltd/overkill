@@ -12,7 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/checkpoint"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/checkpoint"
 )
 
 // CheckpointSnapshotTool captures the current contents of one or more files.

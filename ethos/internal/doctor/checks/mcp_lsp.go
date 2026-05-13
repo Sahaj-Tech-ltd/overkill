@@ -4,9 +4,9 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/lsp"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/mcp"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/lsp"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/mcp"
 )
 
 // RegisterMCP attempts a handshake against each configured MCP server.

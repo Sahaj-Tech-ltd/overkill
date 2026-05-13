@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 // AgentEventType enumerates the event categories the ACP server cares about.

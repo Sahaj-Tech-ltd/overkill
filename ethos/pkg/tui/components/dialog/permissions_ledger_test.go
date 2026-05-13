@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 func TestPermissionsLedgerFilterCycle(t *testing.T) {

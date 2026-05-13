@@ -17,7 +17,7 @@ func Default() *Config {
 	}
 	dataDir := ""
 	if homeDir != "" {
-		dataDir = filepath.Join(homeDir, ".ethos", "data")
+		dataDir = filepath.Join(homeDir, ".overkill", "data")
 	}
 
 	return &Config{
@@ -113,7 +113,7 @@ func ConfigDir() (string, error) {
 		return "", fmt.Errorf("config: getting home directory: %w", err)
 	}
 
-	dir := filepath.Join(homeDir, ".ethos")
+	dir := filepath.Join(homeDir, ".overkill")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("config: creating config directory %s: %w", dir, err)
 	}

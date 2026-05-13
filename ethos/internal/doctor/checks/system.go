@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
 )
 
 // dirsToCheck enumerates the runtime directories ethos writes into. Each
@@ -19,11 +19,11 @@ import (
 // cannot save sessions, plugins, or journal entries.
 func dirsToCheck(configDir string) []struct{ path, label string } {
 	return []struct{ path, label string }{
-		{configDir, "~/.ethos"},
-		{filepath.Join(configDir, "sessions"), "~/.ethos/sessions"},
-		{filepath.Join(configDir, "plugins"), "~/.ethos/plugins"},
-		{filepath.Join(configDir, "cache"), "~/.ethos/cache"},
-		{filepath.Join(configDir, "journal"), "~/.ethos/journal"},
+		{configDir, "~/.overkill"},
+		{filepath.Join(configDir, "sessions"), "~/.overkill/sessions"},
+		{filepath.Join(configDir, "plugins"), "~/.overkill/plugins"},
+		{filepath.Join(configDir, "cache"), "~/.overkill/cache"},
+		{filepath.Join(configDir, "journal"), "~/.overkill/journal"},
 	}
 }
 

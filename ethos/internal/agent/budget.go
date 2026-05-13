@@ -3,8 +3,8 @@ package agent
 import (
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tokenizer"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 )
 
 type BudgetReport struct {

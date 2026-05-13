@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
 
 type fakeDescriber struct {

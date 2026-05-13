@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 type PushPreview struct {

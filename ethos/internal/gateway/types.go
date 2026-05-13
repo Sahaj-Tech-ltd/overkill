@@ -11,7 +11,7 @@ package gateway
 import (
 	"context"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 )
 
 // AgentSender is the minimal slice of *agent.Agent that gateways call

@@ -7,8 +7,8 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 // RegisterStorage opens the BadgerDB session store and runs a basic
@@ -54,7 +54,7 @@ func RegisterStorage(r *doctor.Runner, d Deps) {
 				if err != nil {
 					return failf("set $HOME", "user home: %v", err)
 				}
-				dir := filepath.Join(home, ".ethos", sub.sub)
+				dir := filepath.Join(home, ".overkill", sub.sub)
 				if _, err := os.Stat(dir); os.IsNotExist(err) {
 					return info("no %s store yet (created on first use)", sub.sub)
 				}

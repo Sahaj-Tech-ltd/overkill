@@ -262,7 +262,7 @@ func cachePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".ethos", "cache", "models.json"), nil
+	return filepath.Join(home, ".overkill", "cache", "models.json"), nil
 }
 
 func writeCache(body []byte) error {

@@ -6,7 +6,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
 )
 
 // providerEndpoint maps provider type → a HEAD/GET-able URL that confirms

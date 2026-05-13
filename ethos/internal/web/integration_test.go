@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 )
 
 // readWSFrame parses one server-to-client text frame (no masking, no

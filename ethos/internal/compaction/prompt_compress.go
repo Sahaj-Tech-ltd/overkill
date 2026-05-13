@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 const compressSystemPrompt = "You are a prompt compressor. Strip filler words, redundancy, and low-salience content while preserving ALL factual content, code, instructions, and specific details. Return ONLY the compressed prompt. Do not add explanations or meta-commentary."

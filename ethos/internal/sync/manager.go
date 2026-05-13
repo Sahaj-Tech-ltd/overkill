@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 // Manager couples a session.Store with a Backend and provides high-level

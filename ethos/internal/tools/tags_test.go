@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tags"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tags"
 )
 
 func newTestTagMgr(t *testing.T) *tags.Manager {

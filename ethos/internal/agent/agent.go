@@ -8,11 +8,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/security"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tokenizer"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tools"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
 
 type Agent struct {

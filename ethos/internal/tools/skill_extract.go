@@ -9,20 +9,20 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
 )
 
-// SkillExtractTool writes a new SKILL.md under ~/.ethos/skills/<name>/.
+// SkillExtractTool writes a new SKILL.md under ~/.overkill/skills/<name>/.
 type SkillExtractTool struct {
-	outputDir string // typically ~/.ethos/skills
+	outputDir string // typically ~/.overkill/skills
 }
 
 // NewSkillExtractTool wires the output directory. Pass empty to default to
-// ~/.ethos/skills.
+// ~/.overkill/skills.
 func NewSkillExtractTool(outputDir string) *SkillExtractTool {
 	if outputDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
-			outputDir = filepath.Join(home, ".ethos", "skills")
+			outputDir = filepath.Join(home, ".overkill", "skills")
 		}
 	}
 	return &SkillExtractTool{outputDir: outputDir}

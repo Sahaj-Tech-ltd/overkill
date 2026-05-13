@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 func TestSessionPanel_Render(t *testing.T) {

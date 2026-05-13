@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 )
 
 // fakeAgent emits a canned event sequence; lets us test the server without

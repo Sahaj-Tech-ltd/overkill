@@ -17,9 +17,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 // AgentSender is the slice of agent.Agent the web server actually needs.

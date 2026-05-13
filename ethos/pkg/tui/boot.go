@@ -11,10 +11,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/personality"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/animation"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/logo"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/animation"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/logo"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // Boot animation timing.
@@ -74,7 +74,7 @@ func LoadBootData(person *personality.Personality) tea.Cmd {
 	return func() tea.Msg {
 		msg := BootCompleteMsg{}
 
-		soulPath := filepath.Join(os.Getenv("HOME"), ".ethos", "memories", "soul.md")
+		soulPath := filepath.Join(os.Getenv("HOME"), ".overkill", "memories", "soul.md")
 		data, err := os.ReadFile(soulPath)
 		if err == nil {
 			msg.SoulMD = string(data)

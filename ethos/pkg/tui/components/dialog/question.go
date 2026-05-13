@@ -12,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
-	tuitypes "github.com/Sahaj-Tech-ltd/ethos/pkg/tui/types"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
+	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
 )
 
 // QuestionDecisionMsg is emitted after the user picks/types an answer.

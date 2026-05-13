@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/cost"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
 )
 
 type CostPanel struct {

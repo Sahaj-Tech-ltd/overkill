@@ -22,8 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/gateway"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/vision"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
 
 // InboundPayload is the JSON shape sidecars POST to /v1/in.

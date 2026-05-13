@@ -28,7 +28,7 @@ type Ledger struct {
 	mem  []LedgerEntry
 }
 
-// NewLedger constructs a session ledger at ~/.ethos/sessions/<id>/permissions.jsonl
+// NewLedger constructs a session ledger at ~/.overkill/sessions/<id>/permissions.jsonl
 // (or the path given). The directory is created if missing.
 func NewLedger(path string) (*Ledger, error) {
 	if path == "" {

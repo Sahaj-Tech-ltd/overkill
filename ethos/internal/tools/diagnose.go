@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/diagnostic"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/diagnostic"
 )
 
 // DiagnoseNextTierTool returns the next ladder tier given a current one.

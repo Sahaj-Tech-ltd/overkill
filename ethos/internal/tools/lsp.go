@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/lsp"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/lsp"
 )
 
 // LSPTools wraps an lsp.Manager so the agent can query language servers

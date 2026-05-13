@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/memory"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/memory"
 	"github.com/dgraph-io/badger/v4"
 )
 

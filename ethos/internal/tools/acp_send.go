@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/acp"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/acp"
 )
 
 // ACPSendTool dispatches a sub-task to another ACP agent on the network.

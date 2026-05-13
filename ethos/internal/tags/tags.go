@@ -31,14 +31,14 @@ type Manager struct {
 }
 
 // NewManager opens (or creates) a tag store at the given path. If path is
-// empty, it defaults to ~/.ethos/tags.jsonl.
+// empty, it defaults to ~/.overkill/tags.jsonl.
 func NewManager(path string) (*Manager, error) {
 	if path == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, err
 		}
-		path = filepath.Join(home, ".ethos", "tags.jsonl")
+		path = filepath.Join(home, ".overkill", "tags.jsonl")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err

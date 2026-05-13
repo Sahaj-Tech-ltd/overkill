@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 func newMockProvider(responses []providers.Response, errs []error) *providers.MockProvider {

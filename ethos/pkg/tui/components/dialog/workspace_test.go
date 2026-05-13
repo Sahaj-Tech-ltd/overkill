@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/workspace"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/workspace"
 )
 
 func TestWorkspaceEnterSwitches(t *testing.T) {

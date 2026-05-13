@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/animation"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/animation"
 )
 
 func TestPulse_StartStop(t *testing.T) {

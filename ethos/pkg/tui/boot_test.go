@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/personality"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/animation"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/components/logo"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/animation"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/logo"
 )
 
 func TestBoot_LoadSoulMD(t *testing.T) {
 	dir := t.TempDir()
-	soulDir := filepath.Join(dir, ".ethos", "memories")
+	soulDir := filepath.Join(dir, ".overkill", "memories")
 	os.MkdirAll(soulDir, 0755)
 	soulFile := filepath.Join(soulDir, "soul.md")
 	os.WriteFile(soulFile, []byte("test soul content"), 0644)

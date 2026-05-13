@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 func TestRenderTable_Empty(t *testing.T) {

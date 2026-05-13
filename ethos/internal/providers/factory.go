@@ -60,7 +60,7 @@ func NewProvider(cfg FactoryConfig) (Provider, error) {
 			models = OpenRouterModels()
 		}
 		p := NewOpenAICompatProvider("openrouter", "https://openrouter.ai/api/v1", cfg.APIKey, models)
-		p.BaseProvider.headers["HTTP-Referer"] = "https://github.com/Sahaj-Tech-ltd/ethos"
+		p.BaseProvider.headers["HTTP-Referer"] = "https://github.com/Sahaj-Tech-ltd/overkill"
 		p.BaseProvider.headers["X-Title"] = "Ethos"
 		return p, nil
 

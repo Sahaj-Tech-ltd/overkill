@@ -23,7 +23,7 @@ type PRPInputs struct {
 	ProjectName string
 	RepoRoot    string
 	Languages   []string // detected via simple file-extension scan
-	OutputDir   string   // typically ~/.ethos/introspection
+	OutputDir   string   // typically ~/.overkill/introspection
 }
 
 // PRPResult reports what was written.

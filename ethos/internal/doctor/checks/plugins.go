@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/plugin"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/plugin"
 )
 
 // noopBridge satisfies plugin.HostBridge for the doctor handshake — we don't
@@ -17,7 +17,7 @@ func (noopBridge) ConfigValue(string) (any, bool)  { return nil, false }
 func (noopBridge) Toast(string, string)            {}
 
 // RegisterPlugins runs the doctor handshake (mirrors `ethos plugin doctor`)
-// against every plugin discovered under ~/.ethos/plugins. We deliberately
+// against every plugin discovered under ~/.overkill/plugins. We deliberately
 // reuse the public discovery + start path rather than re-implement it.
 func RegisterPlugins(r *doctor.Runner, d Deps) {
 	root := plugin.DefaultPluginsDir()

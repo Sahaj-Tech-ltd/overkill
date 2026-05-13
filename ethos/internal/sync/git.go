@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // GitBackend stores blobs in a local git repo and pushes to a remote on every
@@ -27,7 +27,7 @@ func NewGitBackend(cfg config.SyncGitConfig) (*GitBackend, error) {
 		if err != nil {
 			return nil, fmt.Errorf("sync/git: home dir: %w", err)
 		}
-		dir = filepath.Join(home, ".ethos-sync")
+		dir = filepath.Join(home, ".overkill-sync")
 	}
 	branch := cfg.Branch
 	if branch == "" {

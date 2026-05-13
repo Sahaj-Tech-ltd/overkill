@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 )
 
 // delegateInput models the JSON input accepted by the delegate_task tool.

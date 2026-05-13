@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

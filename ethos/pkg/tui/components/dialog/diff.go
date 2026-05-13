@@ -13,8 +13,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	diffpkg "github.com/Sahaj-Tech-ltd/ethos/internal/diff"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	diffpkg "github.com/Sahaj-Tech-ltd/overkill/internal/diff"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // CloseDiffDialogMsg is emitted on Esc.

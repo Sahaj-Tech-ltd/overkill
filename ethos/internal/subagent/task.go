@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/personality"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 // Role determines whether a sub-agent is a worker or an orchestrator.

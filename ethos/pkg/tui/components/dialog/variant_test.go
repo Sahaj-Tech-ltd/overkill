@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 )
 
 func TestVariantPickByDigit(t *testing.T) {

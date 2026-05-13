@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/walls"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/walls"
 )
 
 // RegressionRecordTool persists a new regression after a bug-fix.

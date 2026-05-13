@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // SessionMeta is the lightweight descriptor stored alongside each blob.

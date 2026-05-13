@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/gateway"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
 )
 
 type fakeAgent struct{ sid string }

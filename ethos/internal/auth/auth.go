@@ -262,7 +262,7 @@ func exchangeOnce(ctx context.Context, pc providerConfig, deviceCode string) (*T
 	return tok, nil, false
 }
 
-// SaveToken persists a token to ~/.ethos/auth/<provider>.json with mode 0600.
+// SaveToken persists a token to ~/.overkill/auth/<provider>.json with mode 0600.
 // authDirOverride lets tests redirect storage.
 var authDirOverride string
 
@@ -277,7 +277,7 @@ func authDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".ethos", "auth"), nil
+	return filepath.Join(home, ".overkill", "auth"), nil
 }
 
 // SaveToken writes a token to disk with restrictive permissions.

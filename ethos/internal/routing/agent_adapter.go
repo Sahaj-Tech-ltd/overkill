@@ -6,7 +6,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 )
 
 // AgentAdapter wraps SmartRouter so its Route() output is consumable by the

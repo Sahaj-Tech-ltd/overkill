@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
-	syncpkg "github.com/Sahaj-Tech-ltd/ethos/internal/sync"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
+	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
 )
 
 // RegisterSync pings whatever sync backend is configured. Implementation

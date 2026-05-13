@@ -7,8 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/plugin"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/plugin"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // PluginsDialog shows installed plugins, their state, and per-plugin tool/
@@ -69,7 +69,7 @@ func (d PluginsDialog) View(w, h int) string {
 	}
 	t := theme.CurrentTheme()
 	if len(d.statuses) == 0 {
-		return d.BaseView("No plugins installed.\n\nDrop executables or directories with plugin.toml into ~/.ethos/plugins/\n\n[esc] close", w, h)
+		return d.BaseView("No plugins installed.\n\nDrop executables or directories with plugin.toml into ~/.overkill/plugins/\n\n[esc] close", w, h)
 	}
 	var b strings.Builder
 	for i, s := range d.statuses {

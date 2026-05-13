@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // AutoPushIfEnabled fires a non-blocking push of the named session if both

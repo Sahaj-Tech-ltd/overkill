@@ -4,7 +4,7 @@
 // into every system prompt: "always commit after green tests", "never
 // touch the auth module without confirming", "prefer ripgrep over find".
 //
-// Persisted as JSON lines under ~/.ethos/standing-orders.jsonl so the user
+// Persisted as JSON lines under ~/.overkill/standing-orders.jsonl so the user
 // can hand-edit them. Loaded once at boot; mutate via Add/Remove.
 package automation
 

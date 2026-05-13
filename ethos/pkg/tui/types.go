@@ -4,7 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
-	tuitypes "github.com/Sahaj-Tech-ltd/ethos/pkg/tui/types"
+	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
 )
 
 type Focusable interface {

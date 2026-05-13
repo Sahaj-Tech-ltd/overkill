@@ -3,7 +3,7 @@ package sidebar
 import (
 	"testing"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/cost"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
 )
 
 func TestCostPanel_Render(t *testing.T) {

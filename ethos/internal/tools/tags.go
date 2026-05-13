@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tags"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tags"
 )
 
 // TagAddTool registers a (path, tag) annotation in the user's tag store.

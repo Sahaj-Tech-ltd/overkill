@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 )
 
 // ContractDriver adapts *Agent to subagent.StepDriver.

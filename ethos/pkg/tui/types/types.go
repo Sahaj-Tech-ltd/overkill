@@ -1,8 +1,8 @@
 package types
 
 import (
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 // ModelCatalogLoadedMsg is emitted when a live/cache/baked catalog has been

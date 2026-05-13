@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // concealMarkdown, when true, makes RenderMarkdown return the raw text

@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"github.com/Sahaj-Tech-ltd/ethos/internal/auth"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/auth"
 )
 
 // ResolveOAuthAPIKey looks up a stored OAuth token for the given provider and

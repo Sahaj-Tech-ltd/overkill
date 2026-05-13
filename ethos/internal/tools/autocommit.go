@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/automation"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
 )
 
 // AutocommitStageTool wraps an AutoCommitter for one repo.

@@ -10,7 +10,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // AutocompleteEntry is a single suggestion (id is what gets inserted).

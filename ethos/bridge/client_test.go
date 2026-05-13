@@ -5,7 +5,7 @@ import (
 	"net"
 	"testing"
 
-	pb "github.com/Sahaj-Tech-ltd/ethos/bridge/proto"
+	pb "github.com/Sahaj-Tech-ltd/overkill/bridge/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

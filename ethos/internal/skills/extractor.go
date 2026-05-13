@@ -1,7 +1,7 @@
 // Package skills — Voyager-style skill auto-creation (master plan §6.2).
 //
 // ExtractSkill takes a session transcript and a short title and emits a
-// SKILL.md under ~/.ethos/skills/<name>/. The skill captures the procedure
+// SKILL.md under ~/.overkill/skills/<name>/. The skill captures the procedure
 // the user just walked through so the next session can `use the X skill`
 // instead of re-deriving it.
 //
@@ -26,7 +26,7 @@ type ExtractRequest struct {
 	Tags         []string // topic tags
 	Triggers     []string // phrases that should activate the skill
 	Transcript   string   // session text or relevant excerpt
-	OutputDir    string   // typically ~/.ethos/skills
+	OutputDir    string   // typically ~/.overkill/skills
 	Author       string   // optional
 }
 

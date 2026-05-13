@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sdk "github.com/Sahaj-Tech-ltd/ethos/examples/plugins/sdk-go"
+	sdk "github.com/Sahaj-Tech-ltd/overkill/examples/plugins/sdk-go"
 )
 
 type note struct {
@@ -25,7 +25,7 @@ func notesPath() string {
 	if err != nil {
 		return "notes.jsonl"
 	}
-	return filepath.Join(home, ".ethos", "notes.jsonl")
+	return filepath.Join(home, ".overkill", "notes.jsonl")
 }
 
 func appendNote(sessionID, text string) error {
@@ -74,7 +74,7 @@ func main() {
 
 	p.RegisterCommand(sdk.CommandDecl{ID: "note", Title: "/note", Description: "append a note"})
 	p.RegisterCommand(sdk.CommandDecl{ID: "notes", Title: "/notes", Description: "show recent notes"})
-	p.RegisterTool(sdk.ToolDecl{Name: "note_add", Description: "Append a note to ~/.ethos/notes.jsonl"})
+	p.RegisterTool(sdk.ToolDecl{Name: "note_add", Description: "Append a note to ~/.overkill/notes.jsonl"})
 	p.RegisterTool(sdk.ToolDecl{Name: "note_search", Description: "Search notes by substring match"})
 
 	p.OnCommand("note", func(ctx context.Context, args string) error {

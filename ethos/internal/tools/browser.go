@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/browser"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/browser"
 )
 
 // BrowserHostPolicy decides whether a given URL is reachable. Allowed hosts

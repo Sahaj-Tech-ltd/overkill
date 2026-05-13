@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/pty"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/pty"
 )
 
 // PTYShellTool runs a command inside a pseudo-terminal so that progress bars,

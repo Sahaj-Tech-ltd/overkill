@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	tuitypes "github.com/Sahaj-Tech-ltd/ethos/pkg/tui/types"
+	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
 )
 
 func containsStr(s, substr string) bool {
@@ -80,7 +80,7 @@ func TestSendMsg_BusyShowsToast(t *testing.T) {
 func TestInit_ToastSuccessText(t *testing.T) {
 	model := New(nil)
 	m := model.(*appModel)
-	// runInit will fail if .ethos already exists in cwd (the repo) — accept
+	// runInit will fail if .overkill already exists in cwd (the repo) — accept
 	// either the success or warning toast wording.
 	cmd := m.runInit()
 	if cmd == nil {
@@ -91,7 +91,7 @@ func TestInit_ToastSuccessText(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToastMsg, got %T", msg)
 	}
-	if !strings.Contains(toast.Text, ".ethos") && !strings.Contains(toast.Text, "already") {
+	if !strings.Contains(toast.Text, ".overkill") && !strings.Contains(toast.Text, "already") {
 		t.Errorf("unexpected toast text: %q", toast.Text)
 	}
 }

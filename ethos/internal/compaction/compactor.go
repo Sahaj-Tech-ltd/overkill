@@ -4,7 +4,7 @@ package compaction
 import (
 	"context"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 type Level int

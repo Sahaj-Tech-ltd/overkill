@@ -49,7 +49,7 @@ func Doctor() ([]string, error) {
 	if dataDir == "" {
 		homeDir, _ := os.UserHomeDir()
 		if homeDir != "" {
-			dataDir = fmt.Sprintf("%s/.ethos/data", homeDir)
+			dataDir = fmt.Sprintf("%s/.overkill/data", homeDir)
 		}
 	}
 	if dataDir != "" {

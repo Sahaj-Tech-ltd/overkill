@@ -1140,7 +1140,7 @@ const file_ethos_proto_rawDesc = "" +
 	"\tembedding\x18\x01 \x03(\x02R\tembedding\x12\x16\n" +
 	"\x06tokens\x18\x02 \x01(\x05R\x06tokens\"I\n" +
 	"\x12EmbedBatchResponse\x123\n" +
-	"\aresults\x18\x01 \x03(\v2\x19.ethos.bridge.EmbedResultR\aresults\"C\n" +
+	"\aresults\x18\x01 \x03(\v2\x19.overkill.bridge.EmbedResultR\aresults\"C\n" +
 	"\vEmbedResult\x12\x1c\n" +
 	"\tembedding\x18\x01 \x03(\x02R\tembedding\x12\x16\n" +
 	"\x06tokens\x18\x02 \x01(\x05R\x06tokens\"n\n" +
@@ -1154,17 +1154,17 @@ const file_ethos_proto_rawDesc = "" +
 	"\x0frelevance_score\x18\x02 \x01(\x01R\x0erelevanceScore\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\"F\n" +
 	"\x0eRerankResponse\x124\n" +
-	"\aresults\x18\x01 \x03(\v2\x1a.ethos.bridge.RerankResultR\aresults\"\xd7\x01\n" +
+	"\aresults\x18\x01 \x03(\v2\x1a.overkill.bridge.RerankResultR\aresults\"\xd7\x01\n" +
 	"\vVectorEntry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tembedding\x18\x02 \x03(\x02R\tembedding\x12\x18\n" +
 	"\acontent\x18\x03 \x01(\tR\acontent\x12C\n" +
-	"\bmetadata\x18\x04 \x03(\v2'.ethos.bridge.VectorEntry.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\x04 \x03(\v2'.overkill.bridge.VectorEntry.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"_\n" +
 	"\x12StoreVectorRequest\x12/\n" +
-	"\x05entry\x18\x01 \x01(\v2\x19.ethos.bridge.VectorEntryR\x05entry\x12\x18\n" +
+	"\x05entry\x18\x01 \x01(\v2\x19.overkill.bridge.VectorEntryR\x05entry\x12\x18\n" +
 	"\abackend\x18\x02 \x01(\tR\abackend\"?\n" +
 	"\x13StoreVectorResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
@@ -1174,7 +1174,7 @@ const file_ethos_proto_rawDesc = "" +
 	"\x05top_k\x18\x02 \x01(\x05R\x04topK\x12\x1c\n" +
 	"\tthreshold\x18\x03 \x01(\x01R\tthreshold\x12\x18\n" +
 	"\abackend\x18\x04 \x01(\tR\abackend\x12I\n" +
-	"\afilters\x18\x05 \x03(\v2/.ethos.bridge.SearchVectorsRequest.FiltersEntryR\afilters\x1a:\n" +
+	"\afilters\x18\x05 \x03(\v2/.overkill.bridge.SearchVectorsRequest.FiltersEntryR\afilters\x1a:\n" +
 	"\fFiltersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd1\x01\n" +
@@ -1182,12 +1182,12 @@ const file_ethos_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05score\x18\x02 \x01(\x01R\x05score\x12\x18\n" +
 	"\acontent\x18\x03 \x01(\tR\acontent\x12D\n" +
-	"\bmetadata\x18\x04 \x03(\v2(.ethos.bridge.SearchResult.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\x04 \x03(\v2(.overkill.bridge.SearchResult.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"M\n" +
 	"\x15SearchVectorsResponse\x124\n" +
-	"\aresults\x18\x01 \x03(\v2\x1a.ethos.bridge.SearchResultR\aresults\"?\n" +
+	"\aresults\x18\x01 \x03(\v2\x1a.overkill.bridge.SearchResultR\aresults\"?\n" +
 	"\x13DeleteVectorRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\abackend\x18\x02 \x01(\tR\abackend\"0\n" +
@@ -1208,15 +1208,15 @@ const file_ethos_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion2\xf1\x04\n" +
 	"\vEthosBridge\x12@\n" +
-	"\x05Embed\x12\x1a.ethos.bridge.EmbedRequest\x1a\x1b.ethos.bridge.EmbedResponse\x12O\n" +
+	"\x05Embed\x12\x1a.overkill.bridge.EmbedRequest\x1a\x1b.overkill.bridge.EmbedResponse\x12O\n" +
 	"\n" +
-	"EmbedBatch\x12\x1f.ethos.bridge.EmbedBatchRequest\x1a .ethos.bridge.EmbedBatchResponse\x12C\n" +
-	"\x06Rerank\x12\x1b.ethos.bridge.RerankRequest\x1a\x1c.ethos.bridge.RerankResponse\x12R\n" +
-	"\vStoreVector\x12 .ethos.bridge.StoreVectorRequest\x1a!.ethos.bridge.StoreVectorResponse\x12X\n" +
-	"\rSearchVectors\x12\".ethos.bridge.SearchVectorsRequest\x1a#.ethos.bridge.SearchVectorsResponse\x12U\n" +
-	"\fDeleteVector\x12!.ethos.bridge.DeleteVectorRequest\x1a\".ethos.bridge.DeleteVectorResponse\x12F\n" +
-	"\aCompact\x12\x1c.ethos.bridge.CompactRequest\x1a\x1d.ethos.bridge.CompactResponse\x12=\n" +
-	"\x04Ping\x12\x19.ethos.bridge.PingRequest\x1a\x1a.ethos.bridge.PongResponseB.Z,github.com/Sahaj-Tech-ltd/ethos/bridge/protob\x06proto3"
+	"EmbedBatch\x12\x1f.overkill.bridge.EmbedBatchRequest\x1a .overkill.bridge.EmbedBatchResponse\x12C\n" +
+	"\x06Rerank\x12\x1b.overkill.bridge.RerankRequest\x1a\x1c.overkill.bridge.RerankResponse\x12R\n" +
+	"\vStoreVector\x12 .overkill.bridge.StoreVectorRequest\x1a!.overkill.bridge.StoreVectorResponse\x12X\n" +
+	"\rSearchVectors\x12\".overkill.bridge.SearchVectorsRequest\x1a#.overkill.bridge.SearchVectorsResponse\x12U\n" +
+	"\fDeleteVector\x12!.overkill.bridge.DeleteVectorRequest\x1a\".overkill.bridge.DeleteVectorResponse\x12F\n" +
+	"\aCompact\x12\x1c.overkill.bridge.CompactRequest\x1a\x1d.overkill.bridge.CompactResponse\x12=\n" +
+	"\x04Ping\x12\x19.overkill.bridge.PingRequest\x1a\x1a.overkill.bridge.PongResponseB.Z,github.com/Sahaj-Tech-ltd/overkill/bridge/protob\x06proto3"
 
 var (
 	file_ethos_proto_rawDescOnce sync.Once

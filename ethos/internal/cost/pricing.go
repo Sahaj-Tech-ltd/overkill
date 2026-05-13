@@ -1,6 +1,6 @@
 package cost
 
-import "github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+import "github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 
 type CostBreakdown struct {
 	InputCost  float64

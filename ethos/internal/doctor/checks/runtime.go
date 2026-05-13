@@ -4,11 +4,11 @@ import (
 	"context"
 	"sort"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/hooks"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/skills"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tokenizer"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/tools"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
 
 // (no extra helpers needed; constructors are called inline in buildToolRegistry.)

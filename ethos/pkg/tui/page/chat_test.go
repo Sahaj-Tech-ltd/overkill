@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	tuitypes "github.com/Sahaj-Tech-ltd/ethos/pkg/tui/types"
+	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
 )
 
 func TestChatPage_Init(t *testing.T) {

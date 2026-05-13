@@ -1,6 +1,6 @@
 // Package onboarding — first-run guided wizard.
 //
-// Shown once per fresh install (gated by ~/.ethos/onboarded). Walks the user
+// Shown once per fresh install (gated by ~/.overkill/onboarded). Walks the user
 // through model selection, API-key entry, optional features, and a quick
 // reference card. Esc skips, recording the skip in the marker file so we
 // don't pester them again.
@@ -17,8 +17,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // CompleteMsg is emitted when the wizard finishes (either by completion or
@@ -306,7 +306,7 @@ func MarkerPath(homeDir string) string {
 	if homeDir == "" {
 		homeDir, _ = os.UserHomeDir()
 	}
-	return filepath.Join(homeDir, ".ethos", "onboarded")
+	return filepath.Join(homeDir, ".overkill", "onboarded")
 }
 
 // HasOnboarded returns true when the marker file exists.
@@ -411,7 +411,7 @@ func (m Model) View() string {
 		}{
 			{"sync", "share sessions across machines", m.enableSync},
 			{"acp", "expose this agent to other agents over HTTP", m.enableACP},
-			{"plugins", "load custom plugins from ~/.ethos/plugins", m.enablePlugins},
+			{"plugins", "load custom plugins from ~/.overkill/plugins", m.enablePlugins},
 		}
 		for i, o := range opts {
 			mark := "[ ]"

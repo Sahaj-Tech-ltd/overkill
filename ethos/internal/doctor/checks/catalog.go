@@ -3,8 +3,8 @@ package checks
 import (
 	"context"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 // RegisterCatalog hits models.dev (with a 5s timeout) and reports which tier

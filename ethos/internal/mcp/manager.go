@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // ToolWithServer pairs an MCP tool definition with the server name it lives on.

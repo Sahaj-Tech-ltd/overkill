@@ -1,6 +1,6 @@
 // Package session — prompt stash storage.
 //
-// StashStore persists draft prompts to ~/.ethos/stash.json so users can save a
+// StashStore persists draft prompts to ~/.overkill/stash.json so users can save a
 // half-written message and restore it later.
 package session
 
@@ -41,13 +41,13 @@ func NewStashStore(path string) (*StashStore, error) {
 	return &StashStore{path: path}, nil
 }
 
-// DefaultStashPath returns ~/.ethos/stash.json.
+// DefaultStashPath returns ~/.overkill/stash.json.
 func DefaultStashPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".ethos", "stash.json"), nil
+	return filepath.Join(home, ".overkill", "stash.json"), nil
 }
 
 // Save persists a new entry and returns its id.

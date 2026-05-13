@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/config"
-	"github.com/Sahaj-Tech-ltd/ethos/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
 )
 
 // Deps is the bundle of objects checks need. Keeping them on a single struct
@@ -19,7 +19,7 @@ import (
 // dozen positional arguments through every Register helper.
 type Deps struct {
 	Cfg       *config.Config
-	ConfigDir string // typically ~/.ethos
+	ConfigDir string // typically ~/.overkill
 	HTTP      *http.Client
 	Now       func() time.Time
 }

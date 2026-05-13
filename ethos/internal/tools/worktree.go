@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/worktree"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/worktree"
 )
 
 // WorktreeListTool surfaces existing git worktrees.

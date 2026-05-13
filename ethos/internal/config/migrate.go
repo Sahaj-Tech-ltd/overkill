@@ -55,7 +55,7 @@ func (c *Config) Migrate() (*Config, []string, error) {
 		if c.Session.DataDir == "" {
 			homeDir, _ := os.UserHomeDir()
 			if homeDir != "" {
-				c.Session.DataDir = homeDir + "/.ethos/data"
+				c.Session.DataDir = homeDir + "/.overkill/data"
 			}
 			changes = append(changes, "set default data directory")
 		}

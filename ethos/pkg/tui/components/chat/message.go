@@ -9,9 +9,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/highlight"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/styles"
-	"github.com/Sahaj-Tech-ltd/ethos/pkg/tui/theme"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/highlight"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/styles"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
 // highlightFencedBlocks finds ```lang ... ``` blocks and replaces their body

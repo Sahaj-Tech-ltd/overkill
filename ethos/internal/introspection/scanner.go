@@ -15,7 +15,7 @@ import (
 )
 
 // ScanResult is the deterministic output of WalkAndSummarize. Used by /init
-// to seed ~/.ethos/introspection/CODEBASE.md without requiring an LLM call.
+// to seed ~/.overkill/introspection/CODEBASE.md without requiring an LLM call.
 type ScanResult struct {
 	Root          string
 	Languages     []string

@@ -85,7 +85,7 @@ var writeLikeTools = map[string]bool{
 	"worktree_remove":  true,
 	"memory_remember":  true,
 	"memory_forget":    true,
-	"checkpoint_snapshot": true, // technically read-of-files-then-copy, but mutates ~/.ethos
+	"checkpoint_snapshot": true, // technically read-of-files-then-copy, but mutates ~/.overkill
 	"checkpoint_restore":  true,
 	"regression_record":   true,
 	"acp_send":            true,

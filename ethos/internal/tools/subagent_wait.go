@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/ethos/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 )
 
 // SubagentWaitTool blocks the caller until the named contract child finishes
