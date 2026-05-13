@@ -240,6 +240,11 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 						return
 					}
 
+					// §6.5 Red Team trigger — emit a recommendation
+					// when this tool call touches a critical-system
+					// path. Non-blocking.
+					a.preToolRedTeamCheck(call.Name, input)
+
 					// §4.8 auto-snapshot. Same best-effort policy as the
 					// react path; never blocks the tool call.
 					if reason, ckErr := a.preToolCheckpoint(call.Name, string(input)); ckErr != nil {

@@ -72,6 +72,15 @@ type App struct {
 	// firing and the TUI's tone-mirror surfaces.
 	Relationship *personality.RelationshipTracker
 
+	// Style is the §4.16 two-layer style inferencer. Short-term flips
+	// per turn; baseline only drifts after 5 consecutive sessions of
+	// the same dominant pattern. Nil-safe.
+	Style *personality.StyleInferencer
+
+	// StylePath is where Style is persisted on session-end so the
+	// streak counter survives across boots.
+	StylePath string
+
 	// StoreProbe carries the §4.20 BadgerDB integrity check from
 	// boot. When Corrupt is true the TUI surfaces a restore prompt
 	// instead of cold-starting; when false the field is zero-value

@@ -52,6 +52,11 @@ type StyleInferencer struct {
 	sessionsForBaseline int
 	observations        []styleObservation
 	termFreq            map[string]int
+	// lastCommittedStyle holds the previous session's distilled
+	// shortTerm so ConsecutiveSessionCommit can compare and decide
+	// whether to extend the streak or reset. Persisted via
+	// SaveToFile so the streak survives across boots.
+	lastCommittedStyle *WorkingStyle
 }
 
 func NewStyleInferencer() *StyleInferencer {

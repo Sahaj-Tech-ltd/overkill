@@ -48,18 +48,24 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		ToolCalls: resp.ToolCalls,
 	}
 
+	// §4.10 post-response filter (sycophancy strip etc.). Mirrors
+	// the stream path. The react path is the non-streaming variant
+	// used by `overkill run`; both code paths now share the cleanup.
+	filtered := a.applyResponseFilter(resp.Content)
+
 	if len(resp.ToolCalls) == 0 {
 		a.appendMessage(providers.Message{
 			Role:    "assistant",
-			Content: resp.Content,
+			Content: filtered,
 		})
 		result.Done = true
+		result.Thought = filtered
 		return result, nil
 	}
 
 	a.appendMessage(providers.Message{
 		Role:      "assistant",
-		Content:   resp.Content,
+		Content:   filtered,
 		ToolCalls: resp.ToolCalls,
 	})
 
@@ -124,6 +130,13 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 			a.appendToolResultMessage(tc.ID, tc.Name, json.RawMessage(`{}`), blockErr)
 			continue
 		}
+
+		// §6.5 Red Team trigger: emit a recommendation when a
+		// write-class tool touches a critical-system path (auth /
+		// crypto / payments / data-loss). Non-blocking — surfaces
+		// the suggestion via event so the user can opt into
+		// wall_ouroboros without paying the LLM cost on every call.
+		a.preToolRedTeamCheck(tc.Name, input)
 
 		// §4.8: auto-snapshot before destructive ops. Best-effort — a
 		// snapshot failure is logged via emit but does NOT block the

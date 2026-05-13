@@ -353,6 +353,15 @@ func runTUI(cmd *cobra.Command, args []string) error {
 				}
 			}
 		}
+		// §4.16 commit the session to the style streak and persist
+		// so the consecutive-session counter survives across boots.
+		// Best-effort; failure logged then swallowed.
+		if app != nil && app.Style != nil && app.StylePath != "" {
+			app.Style.ConsecutiveSessionCommit()
+			if err := app.Style.SaveToFile(app.StylePath); err != nil {
+				log.Printf("style save: %v", err)
+			}
+		}
 
 		// Master plan §4.20: distilled memory export on clean exit. The
 		// snapshot daemon (cmd/overkill/snapshot.go) handles per-snapshot
@@ -868,9 +877,13 @@ func buildTUIApp() *tui.App {
 			rwModel = modelName
 		}
 		// Compose rewriter middleware: regex middleware runs first via the
-		// LLMRewriter wrapper; sycophancy reducer is consulted on LLM output.
+		// LLMRewriter wrapper; sycophancy reducer is wired on LLM output
+		// as a post-stream filter — strips "great idea!" / "absolutely!"
+		// fluff so the assistant's response and the conversation history
+		// stay clean (§4.10).
 		_ = rewriter.NewMiddleware()
-		_ = rewriter.NewSycophancyReducer()
+		syco := rewriter.NewSycophancyReducer()
+		a.SetResponseFilter(&sycophancyFilterAdapter{reducer: syco})
 		llmRw := rewriter.NewLLMRewriter(provider, rwModel)
 		a.SetRewriter(llmRw)
 	}
@@ -1207,11 +1220,24 @@ func buildTUIApp() *tui.App {
 			})
 		}
 
+		// §4.16 two-layer style model. Short-term observed per turn;
+		// baseline only moves after 5 CONSECUTIVE sessions of the
+		// same dominant pattern. Persisted to memDir so the streak
+		// survives boots.
+		stylePath := filepath.Join(memDir, "style.json")
+		styleInf := personality.NewStyleInferencer()
+		if err := styleInf.LoadFromFile(stylePath); err != nil {
+			log.Printf("style load: %v", err)
+		}
+		app.Style = styleInf
+		app.StylePath = stylePath
+
 		// Compose observer that fans out to frustration + cold-start
-		// processing. Cold-start fires once (idempotent inside
-		// ProcessFirstResponse) and then becomes a no-op.
+		// processing + style inference. Cold-start fires once
+		// (idempotent inside ProcessFirstResponse).
 		a.SetUserInputObserver(func(input string) {
 			fd.Observe(input)
+			styleInf.Observe(input)
 			if coldStart {
 				if _, err := csm.ProcessFirstResponse(input); err != nil {
 					// Best-effort: log + continue. The relationship
