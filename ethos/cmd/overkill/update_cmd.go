@@ -95,7 +95,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 // Logs to stderr if a new release is available; never errors out. Used by
 // the TUI on launch so users learn about updates without leaving the chat.
 func CheckUpdateAsync() {
-	if os.Getenv("ETHOS_NO_UPDATE_CHECK") != "" {
+	if os.Getenv("OVERKILL_NO_UPDATE_CHECK") != "" {
 		return
 	}
 	go func() {

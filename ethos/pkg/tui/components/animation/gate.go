@@ -28,14 +28,14 @@ func SetEnabled(on bool) { configEnabled.Store(on) }
 // Enabled reports whether animations should run for the given terminal
 // width. It returns false when:
 //   - cfg.UI.Animations is false
-//   - ETHOS_NO_ANIMATIONS=1 is set in the environment
+//   - OVERKILL_NO_ANIMATIONS=1 is set in the environment
 //   - TERM=dumb
 //   - termWidth < MinTermWidth
 func Enabled(termWidth int) bool {
 	if !configEnabled.Load() {
 		return false
 	}
-	if os.Getenv("ETHOS_NO_ANIMATIONS") == "1" {
+	if os.Getenv("OVERKILL_NO_ANIMATIONS") == "1" {
 		return false
 	}
 	if os.Getenv("TERM") == "dumb" {

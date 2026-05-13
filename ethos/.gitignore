@@ -6,7 +6,7 @@ bin/
 *.so
 *.dylib
 # Top-level dev build artifact
-/ethos
+/overkill
 # Built example plugin binaries (live alongside their sources)
 /examples/plugins/notes/notes
 /examples/plugins/git-stats/git-stats
@@ -73,6 +73,6 @@ desktop.ini
 # Source planning doc (local only)
 Wants and a to do list.html
 
-# Ethos runtime
-.ethos/
+# Overkill runtime
+.overkill/
 mattpocock-skills

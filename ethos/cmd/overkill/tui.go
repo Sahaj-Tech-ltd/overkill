@@ -103,7 +103,7 @@ func tryEnableTCPKeepalive(fd int) {
 
 var tuiCmd = &cobra.Command{
 	Use:   "tui",
-	Short: "Launch the Ethos terminal UI",
+	Short: "Launch the Overkill terminal UI",
 	RunE:  runTUI,
 }
 
@@ -127,7 +127,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	// probe is intrusive: it puts stdin into raw mode temporarily. Over SSH
 	// the round-trip latency makes the timeout likely and the raw-mode toggle
 	// races with Bubble Tea's own terminal setup. Only probe on local ttys.
-	if os.Getenv("ETHOS_AUTO_THEME") != "" && !isSlowLink {
+	if os.Getenv("OVERKILL_AUTO_THEME") != "" && !isSlowLink {
 		if dark, err := termpkg.QueryBackground(150 * time.Millisecond); err == nil {
 			lipgloss.SetHasDarkBackground(dark)
 		}
@@ -145,7 +145,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	}
 
 	// Non-blocking update check (master plan §7.6). Disabled via
-	// ETHOS_NO_UPDATE_CHECK=1.
+	// OVERKILL_NO_UPDATE_CHECK=1.
 	CheckUpdateAsync()
 
 	// Background catalog refresh — fire-and-forget. The disk cache makes the
@@ -205,7 +205,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGPIPE, syscall.SIGTSTP, syscall.SIGCONT)
 	// We'll arm a goroutine AFTER prog is assigned — see below.
 
-	if os.Getenv("ETHOS_CELL_RENDER") == "1" {
+	if os.Getenv("OVERKILL_CELL_RENDER") == "1" {
 		w, h, err := term.GetSize(int(os.Stdout.Fd()))
 		if err != nil || w <= 0 || h <= 0 {
 			w, h = 80, 24
@@ -217,10 +217,10 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	prog := tea.NewProgram(tui.New(app), opts...)
 	tui.SetProgram(prog)
 
-	// Set ETHOS_RUNNING after Bubble Tea owns the terminal. This signals to
+	// Set OVERKILL_RUNNING after Bubble Tea owns the terminal. This signals to
 	// any late callers of term.QueryBackground() that stdin is already in
 	// raw mode and must not be toggled again.
-	os.Setenv("ETHOS_RUNNING", "1")
+	os.Setenv("OVERKILL_RUNNING", "1")
 
 	// Now that prog is assigned, arm the signal handler. The loop handles
 	// four signal types:
@@ -408,16 +408,16 @@ func buildTUIApp() *tui.App {
 
 	// Memory orchestrator — Mem0-style persistent recall (master plan §6.1).
 	// Uses its own Badger DB under ~/.overkill/memory; wires the Python bridge
-	// for embeddings/rerank when ETHOS_BRIDGE_ADDR is set.
+	// for embeddings/rerank when OVERKILL_BRIDGE_ADDR is set.
 	if home, err := os.UserHomeDir(); err == nil {
 		memDir := filepath.Join(home, ".overkill", "memory")
 		_ = os.MkdirAll(memDir, 0o755)
 		if mdb, err := badger.Open(badger.DefaultOptions(memDir).WithLoggingLevel(badger.ERROR)); err == nil {
 			memStore := memorypkg.NewBadgerStore(mdb)
 			memOrch := memorypkg.NewOrchestrator(memStore, provider, modelName)
-			if addr := os.Getenv("ETHOS_BRIDGE_ADDR"); addr != "" {
+			if addr := os.Getenv("OVERKILL_BRIDGE_ADDR"); addr != "" {
 				if bc, berr := bridge.NewClient(addr); berr == nil {
-					embedModel := os.Getenv("ETHOS_EMBED_MODEL")
+					embedModel := os.Getenv("OVERKILL_EMBED_MODEL")
 					if embedModel == "" {
 						embedModel = "text-embedding-3-small"
 					}
@@ -515,7 +515,7 @@ func buildTUIApp() *tui.App {
 	// via env vars or future config; the tool surface lets the agent fire
 	// commits at named milestones.
 	autocommit := automation.NewAutoCommitter(cwd, nil, nil)
-	if v := os.Getenv("ETHOS_AUTOCOMMIT"); v != "" {
+	if v := os.Getenv("OVERKILL_AUTOCOMMIT"); v != "" {
 		// "test-pass,build-green,lint-clean,patch-applied"
 		for _, s := range strings.Split(v, ",") {
 			autocommit.SetEnabled(strings.TrimSpace(s), true)
@@ -723,10 +723,10 @@ func buildTUIApp() *tui.App {
 	a.SetPrivilegeGate(security.NewPrivilegeGate(security.ModeWriter))
 
 	// Smart model routing (master plan §5.2). Off by default — opt in via
-	// ETHOS_SMART_ROUTING=1 so the static cfg.Agent.DefaultModel keeps
+	// OVERKILL_SMART_ROUTING=1 so the static cfg.Agent.DefaultModel keeps
 	// working without surprises. When on, every Run classifies the input
 	// and may swap to a cheaper/heavier model from the live catalog.
-	if os.Getenv("ETHOS_SMART_ROUTING") != "" {
+	if os.Getenv("OVERKILL_SMART_ROUTING") != "" {
 		if router := buildSmartRouter(modelName); router != nil {
 			a.SetModelRouter(routing.NewAgentAdapter(router))
 		}

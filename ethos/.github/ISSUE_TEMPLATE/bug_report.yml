@@ -10,7 +10,7 @@ body:
       label: Pre-flight Checks
       description: Please confirm the following before submitting
       options:
-        - label: I am running the latest version of Ethos
+        - label: I am running the latest version of Overkill
           required: true
         - label: I have checked the documentation and found no relevant information
           required: true
@@ -29,7 +29,7 @@ body:
       label: Steps to Reproduce
       description: Detailed steps to reproduce the behavior
       placeholder: |
-        1. Run `ethos ...`
+        1. Run `overkill ...`
         2. With config ...
         3. Observe ...
     validations:
@@ -56,7 +56,7 @@ body:
       value: |
         - OS:
         - Go version:
-        - Ethos version:
+        - Overkill version:
       render: markdown
     validations:
       required: true

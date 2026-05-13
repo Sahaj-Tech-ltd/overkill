@@ -1,10 +1,10 @@
 blank_issues_enabled: false
 contact_links:
   - name: Documentation
-    url: https://github.com/Sahaj-Tech-ltd/ethos#readme
+    url: https://github.com/Sahaj-Tech-ltd/overkill#readme
     about: Check the README and wiki for guides and API references
   - name: Discussions
-    url: https://github.com/Sahaj-Tech-ltd/ethos/discussions
+    url: https://github.com/Sahaj-Tech-ltd/overkill/discussions
     about: Ask questions, share ideas, and connect with the community
   - name: Security
     url: SECURITY.md

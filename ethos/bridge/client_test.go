@@ -11,7 +11,7 @@ import (
 )
 
 type mockServicer struct {
-	pb.UnimplementedEthosBridgeServer
+	pb.UnimplementedOverkillBridgeServer
 }
 
 func (m *mockServicer) Ping(_ context.Context, _ *pb.PingRequest) (*pb.PongResponse, error) {
@@ -77,7 +77,7 @@ func startMockServer(t *testing.T) (*grpc.Server, string) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	srv := grpc.NewServer()
-	pb.RegisterEthosBridgeServer(srv, &mockServicer{})
+	pb.RegisterOverkillBridgeServer(srv, &mockServicer{})
 	go srv.Serve(lis)
 	return srv, lis.Addr().String()
 }
@@ -90,7 +90,7 @@ func newTestClient(t *testing.T, addr string) *Client {
 	}
 	return &Client{
 		conn:   conn,
-		client: pb.NewEthosBridgeClient(conn),
+		client: pb.NewOverkillBridgeClient(conn),
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 
 var pluginCmd = &cobra.Command{
 	Use:   "plugin",
-	Short: "Manage Ethos plugins",
+	Short: "Manage Overkill plugins",
 	Long:  "Discover, install, and inspect plugins under ~/.overkill/plugins/.",
 }
 

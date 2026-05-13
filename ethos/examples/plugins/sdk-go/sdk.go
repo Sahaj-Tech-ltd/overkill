@@ -1,4 +1,4 @@
-// Package sdk provides a thin Go SDK for writing Ethos plugins.
+// Package sdk provides a thin Go SDK for writing Overkill plugins.
 //
 // A minimal plugin looks like:
 //

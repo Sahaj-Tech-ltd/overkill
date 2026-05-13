@@ -8,7 +8,7 @@ import (
 )
 
 func TestLogoModel_StartTicksOnlyWhenEnabled(t *testing.T) {
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 	animation.SetEnabled(true)
 
 	m := NewLogoModel()
@@ -28,7 +28,7 @@ func TestLogoModel_StartTicksOnlyWhenEnabled(t *testing.T) {
 
 func TestLogoModel_StartNoOpWhenNarrow(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 
 	m := NewLogoModel()
 	m.SetWidth(20)
@@ -42,7 +42,7 @@ func TestLogoModel_StartNoOpWhenNarrow(t *testing.T) {
 
 func TestLogoModel_TickAdvancesFrame(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 
 	m := NewLogoModel()
 	m.SetWidth(120)

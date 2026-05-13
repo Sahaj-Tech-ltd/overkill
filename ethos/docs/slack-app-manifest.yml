@@ -1,4 +1,4 @@
-# Ethos — Slack app manifest.
+# Overkill — Slack app manifest.
 #
 # Paste this at https://api.slack.com/apps → "Create New App" → "From a manifest"
 # to provision the bot in your workspace. After installing:
@@ -8,23 +8,23 @@
 #      (xapp-...).
 #   2. Settings → Install App: install to your workspace; copy the "Bot User
 #      OAuth Token". This is your SLACK_BOT_TOKEN (xoxb-...).
-#   3. Configure ethos:
+#   3. Configure overkill:
 #        [slack]
 #        enabled = true
 #        app_token = "xapp-..."
 #        bot_token = "xoxb-..."
 #      (or export SLACK_APP_TOKEN / SLACK_BOT_TOKEN env vars).
-#   4. Run `ethos slack`. The bot will respond to @mentions in channels it is
+#   4. Run `overkill slack`. The bot will respond to @mentions in channels it is
 #      invited to and to direct messages.
 #
 # Tokens MUST be kept secret. Never commit them. Rotate immediately if leaked.
 display_information:
-  name: Ethos
-  description: Self-hosted Ethos coding agent in your workspace.
+  name: Overkill
+  description: Self-hosted Overkill coding agent in your workspace.
   background_color: "#1e1e2e"
 features:
   bot_user:
-    display_name: Ethos
+    display_name: Overkill
     always_online: true
 oauth_config:
   scopes:

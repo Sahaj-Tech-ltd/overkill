@@ -9,7 +9,7 @@
   ╚═════╝    ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝
 ```
 
-# ethos
+# overkill
 
 ### the vibe-coding agent that actually has discipline.
 
@@ -20,7 +20,7 @@
 
 </div>
 
-Ethos is a terminal coding agent that lives in your shell. It streams tool calls,
+Overkill is a terminal coding agent that lives in your shell. It streams tool calls,
 gates risky actions behind explicit approval, manages its own context with a
 compact/fork model, and keeps every session local in an embedded BadgerDB store.
 It speaks to a dozen LLM providers, the Agent Communication Protocol, MCP
@@ -37,25 +37,25 @@ plugins, providers, sync backends — is yours to configure.
 ### One-liner
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Sahaj-Tech-ltd/ethos/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Sahaj-Tech-ltd/overkill/main/install.sh | sh
 ```
 
 The installer detects your platform, prefers `go install` when Go is on `PATH`,
-otherwise downloads a pre-built binary, drops it in `~/.local/bin/ethos`, and
-bootstraps `~/.ethos/`. See [`install.sh`](install.sh) for everything it does.
+otherwise downloads a pre-built binary, drops it in `~/.local/bin/overkill`, and
+bootstraps `~/.overkill/`. See [`install.sh`](install.sh) for everything it does.
 
 ### With Go
 
 ```sh
-go install github.com/Sahaj-Tech-ltd/ethos/cmd/ethos@latest
+go install github.com/Sahaj-Tech-ltd/overkill/cmd/overkill@latest
 ```
 
 ### From source
 
 ```sh
-git clone https://github.com/Sahaj-Tech-ltd/ethos.git
-cd ethos
-make install-all   # builds and copies to ~/go/bin/ethos
+git clone https://github.com/Sahaj-Tech-ltd/overkill.git
+cd overkill
+make install-all   # builds and copies to ~/go/bin/overkill
 ```
 
 ### Runtime dependencies
@@ -69,9 +69,9 @@ any MCP server you wire up; `gh` if you want GitHub Gist sharing.
 ## Quick start
 
 ```sh
-ethos                        # launch the TUI
-ethos doctor                 # self-test every subsystem with fix hints
-ethos --help                 # CLI subcommands
+overkill                        # launch the TUI
+overkill doctor                 # self-test every subsystem with fix hints
+overkill --help                 # CLI subcommands
 ```
 
 First launch runs an onboarding wizard: pick a provider, paste an API key (or
@@ -108,19 +108,19 @@ Everything below ships in the current tree. Nothing aspirational.
 
 ### Animations
 - Logo shimmer, background pulse during generation, toast slide, boot fade
-- All gated behind `ETHOS_NO_ANIMATIONS=1` for SSH and slow links
+- All gated behind `OVERKILL_NO_ANIMATIONS=1` for SSH and slow links
 
 ### Cell-level renderer
-- Opt-in via `ETHOS_CELL_RENDER=1`
+- Opt-in via `OVERKILL_CELL_RENDER=1`
 - Roughly 215× byte reduction over SSH for typical incremental frames
   vs naive full-screen redraw
 
 ### Web UI
-- `ethos web --open` — serves a single-page browser UI on
+- `overkill web --open` — serves a single-page browser UI on
   `127.0.0.1:8420` and opens it in the default browser.
 - Same agent backend as the TUI, same BadgerDB session store.
-- LAN access: `ethos web --listen 0.0.0.0:8420`. Always keep the bearer
-  token (`~/.ethos/web-token`) private — anyone with the token can drive
+- LAN access: `overkill web --listen 0.0.0.0:8420`. Always keep the bearer
+  token (`~/.overkill/web-token`) private — anyone with the token can drive
   the agent. The startup banner prints a URL with the token embedded as a
   one-time `?t=…` query that the page promotes to a cookie.
 - `--no-auth` is allowed but only for localhost binds.
@@ -143,7 +143,7 @@ LSP tools (`lsp_definition`, `lsp_references`, `lsp_hover`, `lsp_symbols`),
 `delegate` to a sub-agent.
 
 ### Sessions
-- Per-folder BadgerDB store under `~/.ethos/sessions/`
+- Per-folder BadgerDB store under `~/.overkill/sessions/`
 - list / switch / rename / delete / new
 - Autosave each turn, fork from any past message
 
@@ -166,7 +166,7 @@ LSP tools (`lsp_definition`, `lsp_references`, `lsp_hover`, `lsp_symbols`),
 
 ### ACP (Agent Communication Protocol)
 - HTTP + SSE server other agents can dispatch tasks to
-- Bearer-token auth; `ethos acp serve` / `acp token` / `acp ping`
+- Bearer-token auth; `overkill acp serve` / `acp token` / `acp ping`
 
 ### Plugins
 - Subprocess JSON-RPC plugin runtime
@@ -174,7 +174,7 @@ LSP tools (`lsp_definition`, `lsp_references`, `lsp_hover`, `lsp_symbols`),
 - Go SDK at `examples/plugins/sdk-go/`
 - Two reference plugins shipped: `examples/plugins/notes/` and
   `examples/plugins/git-stats/`
-- Install with `ethos plugin install <git-url>`
+- Install with `overkill plugin install <git-url>`
 
 ### Sub-agents
 - Goroutine-based child spawner with file-state tracking and cost rollup
@@ -183,18 +183,18 @@ LSP tools (`lsp_definition`, `lsp_references`, `lsp_hover`, `lsp_symbols`),
 ### Personality
 - Relationship tracker, style inference, blindspot detection
 - Model fingerprint, cold-start protocol
-- `~/.ethos/memories/soul.md` is yours to edit
+- `~/.overkill/memories/soul.md` is yours to edit
 
 ### Permissions
 - Tool calls are risk-classified
 - Per-call dialog: allow once / allow session / deny
-- Append-only ledger at `~/.ethos/permissions.log`
+- Append-only ledger at `~/.overkill/permissions.log`
 
 ### Workspaces
 - Switch between projects from inside the TUI; sessions follow the workspace
 
 ### Skills
-- Installable skill packs in `~/.ethos/skills/` (SKILL.md format)
+- Installable skill packs in `~/.overkill/skills/` (SKILL.md format)
 - Bundled skills under `skills/` in the repo
 
 ### Walls
@@ -202,14 +202,14 @@ LSP tools (`lsp_definition`, `lsp_references`, `lsp_hover`, `lsp_symbols`),
 - Each can be disabled via config
 
 ### Doctor
-- `ethos doctor` self-tests config, providers, MCP, LSP, plugins, sync,
+- `overkill doctor` self-tests config, providers, MCP, LSP, plugins, sync,
   cell renderer, and animations — with concrete fix hints per failure
 
 ---
 
 ## Configuration
 
-Config lives at `~/.ethos/config.toml`. Example:
+Config lives at `~/.overkill/config.toml`. Example:
 
 ```toml
 [agent]
@@ -231,7 +231,7 @@ base_url = "http://localhost:11434"
 
 [sync]
 backend = "s3"          # one of: s3 | git | file
-bucket  = "my-ethos-sessions"
+bucket  = "my-overkill-sessions"
 region  = "us-east-1"
 
 [acp]
@@ -257,13 +257,13 @@ are auto-detected and substituted into `${...}` placeholders.
 |---|---|
 | `/help` | show keybinding help |
 | `/clear` | clear chat history |
-| `/quit` | exit ethos |
+| `/quit` | exit overkill |
 | `/model` | open model picker |
 | `/sessions` | switch session |
 | `/theme` | open theme picker |
 | `/config` | reconfigure provider |
 | `/compact` | compact chat history |
-| `/init` | write a starter `.ethos/` config |
+| `/init` | write a starter `.overkill/` config |
 | `/status` | show provider, model, session status |
 | `/fork` | fork the conversation from a past message |
 | `/stash` | stash the current draft (or `list` to browse) |
@@ -305,9 +305,9 @@ are auto-detected and substituted into `${...}` placeholders.
 
 | Variable | Effect |
 |---|---|
-| `ETHOS_CELL_RENDER=1` | enable the cell-level renderer (SSH-friendly) |
-| `ETHOS_NO_ANIMATIONS=1` | disable all animations |
-| `ETHOS_PROMPT_DEBUG=1` | log prompt mount/unmount events |
+| `OVERKILL_CELL_RENDER=1` | enable the cell-level renderer (SSH-friendly) |
+| `OVERKILL_NO_ANIMATIONS=1` | disable all animations |
+| `OVERKILL_PROMPT_DEBUG=1` | log prompt mount/unmount events |
 | `OPENAI_API_KEY` etc. | provider credentials, auto-detected |
 | `EDITOR` | external editor for the prompt |
 
@@ -315,9 +315,9 @@ are auto-detected and substituted into `${...}` placeholders.
 
 ## Plugins
 
-Plugins are subprocesses ethos spawns and talks to over JSON-RPC 2.0 on stdio.
+Plugins are subprocesses overkill spawns and talks to over JSON-RPC 2.0 on stdio.
 They can register tools, slash commands, lifecycle event handlers, and context
-providers. They are discovered from `~/.ethos/plugins/<name>/` (each directory
+providers. They are discovered from `~/.overkill/plugins/<name>/` (each directory
 must contain an executable named after the directory).
 
 Reference plugins:
@@ -340,7 +340,7 @@ p.Run()
 Install:
 
 ```sh
-ethos plugin install https://github.com/you/your-ethos-plugin
+overkill plugin install https://github.com/you/your-overkill-plugin
 ```
 
 ---
@@ -348,7 +348,7 @@ ethos plugin install https://github.com/you/your-ethos-plugin
 ## Architecture
 
 The agent loop lives in `internal/agent/` (ReAct, streaming, variants,
-forethought, recovery). Storage is BadgerDB under `~/.ethos/sessions/` keyed
+forethought, recovery). Storage is BadgerDB under `~/.overkill/sessions/` keyed
 by working directory. Provider adapters in `internal/providers/` are gated
 behind a single `Provider` interface; the catalog is hydrated from
 `models.dev` and cached for 24 hours.
@@ -373,7 +373,7 @@ Dual-licensed under MIT or Apache-2.0 at your option. See
 
 ## Acknowledgements
 
-Ethos stands on the shoulders of projects that did the hard thinking first.
+Overkill stands on the shoulders of projects that did the hard thinking first.
 
 - [opencode](https://github.com/sst/opencode) — TUI patterns and provider factory shape
 - [opentui](https://github.com/SBoudrias/opentui) — overlay/layer renderer model

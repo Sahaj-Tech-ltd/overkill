@@ -83,7 +83,7 @@ func TestBoot_EmptySoulMD(t *testing.T) {
 
 func TestBoot_FadeRamps(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 
 	b := BootModel{visible: true, width: 80, height: 24}
 	b.StartBootAnimation()
@@ -102,7 +102,7 @@ func TestBoot_FadeRamps(t *testing.T) {
 
 func TestBoot_TypewriterAdvances(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 
 	b := BootModel{visible: true, width: 80, height: 24}
 	// jump fade past 60% so the typewriter is allowed to advance

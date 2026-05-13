@@ -17,12 +17,12 @@ trap cleanup EXIT
 
 echo "[test] running install.sh with HOME=$tmphome"
 HOME="$tmphome" \
-    ETHOS_BUILD_FROM_SOURCE=1 \
-    ETHOS_LOCAL_SOURCE="$here" \
+    OVERKILL_BUILD_FROM_SOURCE=1 \
+    OVERKILL_LOCAL_SOURCE="$here" \
     INSTALL_VERBOSE=1 \
     sh "${here}/install.sh"
 
-bin="${tmphome}/.local/bin/ethos"
+bin="${tmphome}/.local/bin/overkill"
 if [ ! -x "$bin" ]; then
     echo "[test] FAIL: $bin not found or not executable"
     exit 1
@@ -30,19 +30,19 @@ fi
 echo "[test] PASS: binary at $bin"
 
 for path in \
-    "${tmphome}/.ethos/config.toml" \
-    "${tmphome}/.ethos/sessions" \
-    "${tmphome}/.ethos/plugins" \
-    "${tmphome}/.ethos/cache" \
-    "${tmphome}/.ethos/journal/raw" \
-    "${tmphome}/.ethos/memories"
+    "${tmphome}/.overkill/config.toml" \
+    "${tmphome}/.overkill/sessions" \
+    "${tmphome}/.overkill/plugins" \
+    "${tmphome}/.overkill/cache" \
+    "${tmphome}/.overkill/journal/raw" \
+    "${tmphome}/.overkill/memories"
 do
     if [ ! -e "$path" ]; then
         echo "[test] FAIL: skeleton missing $path"
         exit 1
     fi
 done
-echo "[test] PASS: ~/.ethos/ skeleton created"
+echo "[test] PASS: ~/.overkill/ skeleton created"
 
 if grep -Fq ".local/bin" "${tmphome}/.bashrc" 2>/dev/null \
    || grep -Fq ".local/bin" "${tmphome}/.zshrc" 2>/dev/null

@@ -9,7 +9,7 @@ import (
 
 func TestPulse_StartStop(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 
 	m := New()
 	m.SetWidth(120)
@@ -40,7 +40,7 @@ func TestPulse_StartGatedOff(t *testing.T) {
 
 func TestPulse_TickAdvances(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 	m := New()
 	m.SetWidth(120)
 	m.Start()
@@ -81,7 +81,7 @@ func TestPulse_IntensityRange(t *testing.T) {
 
 func TestPulse_StyleRendersSomething(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 	s := Style(nil, 3).Render("hi")
 	if s == "" {
 		t.Fatal("style should render content")

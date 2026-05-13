@@ -1,11 +1,11 @@
 # Brewfile — placeholder for a future Homebrew tap.
 #
-# Once `homebrew-ethos` ships, this will be replaced with:
+# Once `homebrew-overkill` ships, this will be replaced with:
 #
-#   tap "sahaj-tech-ltd/ethos"
-#   brew "ethos"
+#   tap "sahaj-tech-ltd/overkill"
+#   brew "overkill"
 #
-# Optional runtime helpers we expect users to install alongside ethos:
+# Optional runtime helpers we expect users to install alongside overkill:
 #   brew "git"
 #   brew "gh"             # for GitHub Gist sharing
 #   brew "gopls"          # LSP

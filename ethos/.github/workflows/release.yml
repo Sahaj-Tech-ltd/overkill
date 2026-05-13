@@ -35,7 +35,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Build ethos
+      - name: Build overkill
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -43,10 +43,10 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p dist
-          out="dist/ethos-${VERSION}-${GOOS}-${GOARCH}"
+          out="dist/overkill-${VERSION}-${GOOS}-${GOARCH}"
           go build -trimpath \
             -ldflags="-s -w -X main.Version=${VERSION}" \
-            -o "${out}" ./cmd/ethos
+            -o "${out}" ./cmd/overkill
 
       - name: Build example plugins
         env:
@@ -56,7 +56,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           for plugin in notes git-stats; do
-            out="dist/ethos-plugin-${plugin}-${VERSION}-${GOOS}-${GOARCH}"
+            out="dist/overkill-plugin-${plugin}-${VERSION}-${GOOS}-${GOARCH}"
             if [ -d "examples/plugins/${plugin}" ]; then
               go build -trimpath -ldflags="-s -w" \
                 -o "${out}" "./examples/plugins/${plugin}"
@@ -73,7 +73,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ethos-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: overkill-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*
           retention-days: 7
 
@@ -96,7 +96,7 @@ jobs:
       - name: Stage installer + plugin sources
         run: |
           cp install.sh dist/install.sh
-          tar czf dist/ethos-plugins-src-${{ github.ref_name }}.tar.gz \
+          tar czf dist/overkill-plugins-src-${{ github.ref_name }}.tar.gz \
             -C examples plugins
 
       - name: Aggregate SHA256SUMS

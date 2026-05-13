@@ -19,20 +19,20 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	EthosBridge_Embed_FullMethodName         = "/overkill.bridge.EthosBridge/Embed"
-	EthosBridge_EmbedBatch_FullMethodName    = "/overkill.bridge.EthosBridge/EmbedBatch"
-	EthosBridge_Rerank_FullMethodName        = "/overkill.bridge.EthosBridge/Rerank"
-	EthosBridge_StoreVector_FullMethodName   = "/overkill.bridge.EthosBridge/StoreVector"
-	EthosBridge_SearchVectors_FullMethodName = "/overkill.bridge.EthosBridge/SearchVectors"
-	EthosBridge_DeleteVector_FullMethodName  = "/overkill.bridge.EthosBridge/DeleteVector"
-	EthosBridge_Compact_FullMethodName       = "/overkill.bridge.EthosBridge/Compact"
-	EthosBridge_Ping_FullMethodName          = "/overkill.bridge.EthosBridge/Ping"
+	OverkillBridge_Embed_FullMethodName         = "/overkill.bridge.OverkillBridge/Embed"
+	OverkillBridge_EmbedBatch_FullMethodName    = "/overkill.bridge.OverkillBridge/EmbedBatch"
+	OverkillBridge_Rerank_FullMethodName        = "/overkill.bridge.OverkillBridge/Rerank"
+	OverkillBridge_StoreVector_FullMethodName   = "/overkill.bridge.OverkillBridge/StoreVector"
+	OverkillBridge_SearchVectors_FullMethodName = "/overkill.bridge.OverkillBridge/SearchVectors"
+	OverkillBridge_DeleteVector_FullMethodName  = "/overkill.bridge.OverkillBridge/DeleteVector"
+	OverkillBridge_Compact_FullMethodName       = "/overkill.bridge.OverkillBridge/Compact"
+	OverkillBridge_Ping_FullMethodName          = "/overkill.bridge.OverkillBridge/Ping"
 )
 
-// EthosBridgeClient is the client API for EthosBridge service.
+// OverkillBridgeClient is the client API for OverkillBridge service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type EthosBridgeClient interface {
+type OverkillBridgeClient interface {
 	Embed(ctx context.Context, in *EmbedRequest, opts ...grpc.CallOption) (*EmbedResponse, error)
 	EmbedBatch(ctx context.Context, in *EmbedBatchRequest, opts ...grpc.CallOption) (*EmbedBatchResponse, error)
 	Rerank(ctx context.Context, in *RerankRequest, opts ...grpc.CallOption) (*RerankResponse, error)
@@ -43,98 +43,98 @@ type EthosBridgeClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PongResponse, error)
 }
 
-type ethosBridgeClient struct {
+type overkillBridgeClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewEthosBridgeClient(cc grpc.ClientConnInterface) EthosBridgeClient {
-	return &ethosBridgeClient{cc}
+func NewOverkillBridgeClient(cc grpc.ClientConnInterface) OverkillBridgeClient {
+	return &overkillBridgeClient{cc}
 }
 
-func (c *ethosBridgeClient) Embed(ctx context.Context, in *EmbedRequest, opts ...grpc.CallOption) (*EmbedResponse, error) {
+func (c *overkillBridgeClient) Embed(ctx context.Context, in *EmbedRequest, opts ...grpc.CallOption) (*EmbedResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EmbedResponse)
-	err := c.cc.Invoke(ctx, EthosBridge_Embed_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, OverkillBridge_Embed_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *ethosBridgeClient) EmbedBatch(ctx context.Context, in *EmbedBatchRequest, opts ...grpc.CallOption) (*EmbedBatchResponse, error) {
+func (c *overkillBridgeClient) EmbedBatch(ctx context.Context, in *EmbedBatchRequest, opts ...grpc.CallOption) (*EmbedBatchResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EmbedBatchResponse)
-	err := c.cc.Invoke(ctx, EthosBridge_EmbedBatch_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, OverkillBridge_EmbedBatch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *ethosBridgeClient) Rerank(ctx context.Context, in *RerankRequest, opts ...grpc.CallOption) (*RerankResponse, error) {
+func (c *overkillBridgeClient) Rerank(ctx context.Context, in *RerankRequest, opts ...grpc.CallOption) (*RerankResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RerankResponse)
-	err := c.cc.Invoke(ctx, EthosBridge_Rerank_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, OverkillBridge_Rerank_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *ethosBridgeClient) StoreVector(ctx context.Context, in *StoreVectorRequest, opts ...grpc.CallOption) (*StoreVectorResponse, error) {
+func (c *overkillBridgeClient) StoreVector(ctx context.Context, in *StoreVectorRequest, opts ...grpc.CallOption) (*StoreVectorResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StoreVectorResponse)
-	err := c.cc.Invoke(ctx, EthosBridge_StoreVector_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, OverkillBridge_StoreVector_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *ethosBridgeClient) SearchVectors(ctx context.Context, in *SearchVectorsRequest, opts ...grpc.CallOption) (*SearchVectorsResponse, error) {
+func (c *overkillBridgeClient) SearchVectors(ctx context.Context, in *SearchVectorsRequest, opts ...grpc.CallOption) (*SearchVectorsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SearchVectorsResponse)
-	err := c.cc.Invoke(ctx, EthosBridge_SearchVectors_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, OverkillBridge_SearchVectors_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *ethosBridgeClient) DeleteVector(ctx context.Context, in *DeleteVectorRequest, opts ...grpc.CallOption) (*DeleteVectorResponse, error) {
+func (c *overkillBridgeClient) DeleteVector(ctx context.Context, in *DeleteVectorRequest, opts ...grpc.CallOption) (*DeleteVectorResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteVectorResponse)
-	err := c.cc.Invoke(ctx, EthosBridge_DeleteVector_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, OverkillBridge_DeleteVector_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *ethosBridgeClient) Compact(ctx context.Context, in *CompactRequest, opts ...grpc.CallOption) (*CompactResponse, error) {
+func (c *overkillBridgeClient) Compact(ctx context.Context, in *CompactRequest, opts ...grpc.CallOption) (*CompactResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CompactResponse)
-	err := c.cc.Invoke(ctx, EthosBridge_Compact_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, OverkillBridge_Compact_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *ethosBridgeClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PongResponse, error) {
+func (c *overkillBridgeClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PongResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PongResponse)
-	err := c.cc.Invoke(ctx, EthosBridge_Ping_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, OverkillBridge_Ping_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// EthosBridgeServer is the server API for EthosBridge service.
-// All implementations must embed UnimplementedEthosBridgeServer
+// OverkillBridgeServer is the server API for OverkillBridge service.
+// All implementations must embed UnimplementedOverkillBridgeServer
 // for forward compatibility.
-type EthosBridgeServer interface {
+type OverkillBridgeServer interface {
 	Embed(context.Context, *EmbedRequest) (*EmbedResponse, error)
 	EmbedBatch(context.Context, *EmbedBatchRequest) (*EmbedBatchResponse, error)
 	Rerank(context.Context, *RerankRequest) (*RerankResponse, error)
@@ -143,243 +143,243 @@ type EthosBridgeServer interface {
 	DeleteVector(context.Context, *DeleteVectorRequest) (*DeleteVectorResponse, error)
 	Compact(context.Context, *CompactRequest) (*CompactResponse, error)
 	Ping(context.Context, *PingRequest) (*PongResponse, error)
-	mustEmbedUnimplementedEthosBridgeServer()
+	mustEmbedUnimplementedOverkillBridgeServer()
 }
 
-// UnimplementedEthosBridgeServer must be embedded to have
+// UnimplementedOverkillBridgeServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedEthosBridgeServer struct{}
+type UnimplementedOverkillBridgeServer struct{}
 
-func (UnimplementedEthosBridgeServer) Embed(context.Context, *EmbedRequest) (*EmbedResponse, error) {
+func (UnimplementedOverkillBridgeServer) Embed(context.Context, *EmbedRequest) (*EmbedResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Embed not implemented")
 }
-func (UnimplementedEthosBridgeServer) EmbedBatch(context.Context, *EmbedBatchRequest) (*EmbedBatchResponse, error) {
+func (UnimplementedOverkillBridgeServer) EmbedBatch(context.Context, *EmbedBatchRequest) (*EmbedBatchResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method EmbedBatch not implemented")
 }
-func (UnimplementedEthosBridgeServer) Rerank(context.Context, *RerankRequest) (*RerankResponse, error) {
+func (UnimplementedOverkillBridgeServer) Rerank(context.Context, *RerankRequest) (*RerankResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Rerank not implemented")
 }
-func (UnimplementedEthosBridgeServer) StoreVector(context.Context, *StoreVectorRequest) (*StoreVectorResponse, error) {
+func (UnimplementedOverkillBridgeServer) StoreVector(context.Context, *StoreVectorRequest) (*StoreVectorResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StoreVector not implemented")
 }
-func (UnimplementedEthosBridgeServer) SearchVectors(context.Context, *SearchVectorsRequest) (*SearchVectorsResponse, error) {
+func (UnimplementedOverkillBridgeServer) SearchVectors(context.Context, *SearchVectorsRequest) (*SearchVectorsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SearchVectors not implemented")
 }
-func (UnimplementedEthosBridgeServer) DeleteVector(context.Context, *DeleteVectorRequest) (*DeleteVectorResponse, error) {
+func (UnimplementedOverkillBridgeServer) DeleteVector(context.Context, *DeleteVectorRequest) (*DeleteVectorResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteVector not implemented")
 }
-func (UnimplementedEthosBridgeServer) Compact(context.Context, *CompactRequest) (*CompactResponse, error) {
+func (UnimplementedOverkillBridgeServer) Compact(context.Context, *CompactRequest) (*CompactResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Compact not implemented")
 }
-func (UnimplementedEthosBridgeServer) Ping(context.Context, *PingRequest) (*PongResponse, error) {
+func (UnimplementedOverkillBridgeServer) Ping(context.Context, *PingRequest) (*PongResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
 }
-func (UnimplementedEthosBridgeServer) mustEmbedUnimplementedEthosBridgeServer() {}
-func (UnimplementedEthosBridgeServer) testEmbeddedByValue()                     {}
+func (UnimplementedOverkillBridgeServer) mustEmbedUnimplementedOverkillBridgeServer() {}
+func (UnimplementedOverkillBridgeServer) testEmbeddedByValue()                     {}
 
-// UnsafeEthosBridgeServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to EthosBridgeServer will
+// UnsafeOverkillBridgeServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to OverkillBridgeServer will
 // result in compilation errors.
-type UnsafeEthosBridgeServer interface {
-	mustEmbedUnimplementedEthosBridgeServer()
+type UnsafeOverkillBridgeServer interface {
+	mustEmbedUnimplementedOverkillBridgeServer()
 }
 
-func RegisterEthosBridgeServer(s grpc.ServiceRegistrar, srv EthosBridgeServer) {
-	// If the following call panics, it indicates UnimplementedEthosBridgeServer was
+func RegisterOverkillBridgeServer(s grpc.ServiceRegistrar, srv OverkillBridgeServer) {
+	// If the following call panics, it indicates UnimplementedOverkillBridgeServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&EthosBridge_ServiceDesc, srv)
+	s.RegisterService(&OverkillBridge_ServiceDesc, srv)
 }
 
-func _EthosBridge_Embed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _OverkillBridge_Embed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EmbedRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(EthosBridgeServer).Embed(ctx, in)
+		return srv.(OverkillBridgeServer).Embed(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: EthosBridge_Embed_FullMethodName,
+		FullMethod: OverkillBridge_Embed_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EthosBridgeServer).Embed(ctx, req.(*EmbedRequest))
+		return srv.(OverkillBridgeServer).Embed(ctx, req.(*EmbedRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _EthosBridge_EmbedBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _OverkillBridge_EmbedBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EmbedBatchRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(EthosBridgeServer).EmbedBatch(ctx, in)
+		return srv.(OverkillBridgeServer).EmbedBatch(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: EthosBridge_EmbedBatch_FullMethodName,
+		FullMethod: OverkillBridge_EmbedBatch_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EthosBridgeServer).EmbedBatch(ctx, req.(*EmbedBatchRequest))
+		return srv.(OverkillBridgeServer).EmbedBatch(ctx, req.(*EmbedBatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _EthosBridge_Rerank_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _OverkillBridge_Rerank_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RerankRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(EthosBridgeServer).Rerank(ctx, in)
+		return srv.(OverkillBridgeServer).Rerank(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: EthosBridge_Rerank_FullMethodName,
+		FullMethod: OverkillBridge_Rerank_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EthosBridgeServer).Rerank(ctx, req.(*RerankRequest))
+		return srv.(OverkillBridgeServer).Rerank(ctx, req.(*RerankRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _EthosBridge_StoreVector_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _OverkillBridge_StoreVector_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StoreVectorRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(EthosBridgeServer).StoreVector(ctx, in)
+		return srv.(OverkillBridgeServer).StoreVector(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: EthosBridge_StoreVector_FullMethodName,
+		FullMethod: OverkillBridge_StoreVector_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EthosBridgeServer).StoreVector(ctx, req.(*StoreVectorRequest))
+		return srv.(OverkillBridgeServer).StoreVector(ctx, req.(*StoreVectorRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _EthosBridge_SearchVectors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _OverkillBridge_SearchVectors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SearchVectorsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(EthosBridgeServer).SearchVectors(ctx, in)
+		return srv.(OverkillBridgeServer).SearchVectors(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: EthosBridge_SearchVectors_FullMethodName,
+		FullMethod: OverkillBridge_SearchVectors_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EthosBridgeServer).SearchVectors(ctx, req.(*SearchVectorsRequest))
+		return srv.(OverkillBridgeServer).SearchVectors(ctx, req.(*SearchVectorsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _EthosBridge_DeleteVector_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _OverkillBridge_DeleteVector_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteVectorRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(EthosBridgeServer).DeleteVector(ctx, in)
+		return srv.(OverkillBridgeServer).DeleteVector(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: EthosBridge_DeleteVector_FullMethodName,
+		FullMethod: OverkillBridge_DeleteVector_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EthosBridgeServer).DeleteVector(ctx, req.(*DeleteVectorRequest))
+		return srv.(OverkillBridgeServer).DeleteVector(ctx, req.(*DeleteVectorRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _EthosBridge_Compact_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _OverkillBridge_Compact_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CompactRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(EthosBridgeServer).Compact(ctx, in)
+		return srv.(OverkillBridgeServer).Compact(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: EthosBridge_Compact_FullMethodName,
+		FullMethod: OverkillBridge_Compact_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EthosBridgeServer).Compact(ctx, req.(*CompactRequest))
+		return srv.(OverkillBridgeServer).Compact(ctx, req.(*CompactRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _EthosBridge_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _OverkillBridge_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PingRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(EthosBridgeServer).Ping(ctx, in)
+		return srv.(OverkillBridgeServer).Ping(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: EthosBridge_Ping_FullMethodName,
+		FullMethod: OverkillBridge_Ping_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EthosBridgeServer).Ping(ctx, req.(*PingRequest))
+		return srv.(OverkillBridgeServer).Ping(ctx, req.(*PingRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// EthosBridge_ServiceDesc is the grpc.ServiceDesc for EthosBridge service.
+// OverkillBridge_ServiceDesc is the grpc.ServiceDesc for OverkillBridge service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var EthosBridge_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "overkill.bridge.EthosBridge",
-	HandlerType: (*EthosBridgeServer)(nil),
+var OverkillBridge_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "overkill.bridge.OverkillBridge",
+	HandlerType: (*OverkillBridgeServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "Embed",
-			Handler:    _EthosBridge_Embed_Handler,
+			Handler:    _OverkillBridge_Embed_Handler,
 		},
 		{
 			MethodName: "EmbedBatch",
-			Handler:    _EthosBridge_EmbedBatch_Handler,
+			Handler:    _OverkillBridge_EmbedBatch_Handler,
 		},
 		{
 			MethodName: "Rerank",
-			Handler:    _EthosBridge_Rerank_Handler,
+			Handler:    _OverkillBridge_Rerank_Handler,
 		},
 		{
 			MethodName: "StoreVector",
-			Handler:    _EthosBridge_StoreVector_Handler,
+			Handler:    _OverkillBridge_StoreVector_Handler,
 		},
 		{
 			MethodName: "SearchVectors",
-			Handler:    _EthosBridge_SearchVectors_Handler,
+			Handler:    _OverkillBridge_SearchVectors_Handler,
 		},
 		{
 			MethodName: "DeleteVector",
-			Handler:    _EthosBridge_DeleteVector_Handler,
+			Handler:    _OverkillBridge_DeleteVector_Handler,
 		},
 		{
 			MethodName: "Compact",
-			Handler:    _EthosBridge_Compact_Handler,
+			Handler:    _OverkillBridge_Compact_Handler,
 		},
 		{
 			MethodName: "Ping",
-			Handler:    _EthosBridge_Ping_Handler,
+			Handler:    _OverkillBridge_Ping_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

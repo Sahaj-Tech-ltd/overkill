@@ -1207,7 +1207,7 @@ const file_overkill_proto_rawDesc = "" +
 	"\fPongResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion2\xa1\x05\n" +
-	"\vEthosBridge\x12F\n" +
+	"\vOverkillBridge\x12F\n" +
 	"\x05Embed\x12\x1d.overkill.bridge.EmbedRequest\x1a\x1e.overkill.bridge.EmbedResponse\x12U\n" +
 	"\n" +
 	"EmbedBatch\x12\".overkill.bridge.EmbedBatchRequest\x1a#.overkill.bridge.EmbedBatchResponse\x12I\n" +
@@ -1264,22 +1264,22 @@ var file_overkill_proto_depIdxs = []int32{
 	21, // 4: overkill.bridge.SearchVectorsRequest.filters:type_name -> overkill.bridge.SearchVectorsRequest.FiltersEntry
 	22, // 5: overkill.bridge.SearchResult.metadata:type_name -> overkill.bridge.SearchResult.MetadataEntry
 	12, // 6: overkill.bridge.SearchVectorsResponse.results:type_name -> overkill.bridge.SearchResult
-	0,  // 7: overkill.bridge.EthosBridge.Embed:input_type -> overkill.bridge.EmbedRequest
-	1,  // 8: overkill.bridge.EthosBridge.EmbedBatch:input_type -> overkill.bridge.EmbedBatchRequest
-	5,  // 9: overkill.bridge.EthosBridge.Rerank:input_type -> overkill.bridge.RerankRequest
-	9,  // 10: overkill.bridge.EthosBridge.StoreVector:input_type -> overkill.bridge.StoreVectorRequest
-	11, // 11: overkill.bridge.EthosBridge.SearchVectors:input_type -> overkill.bridge.SearchVectorsRequest
-	14, // 12: overkill.bridge.EthosBridge.DeleteVector:input_type -> overkill.bridge.DeleteVectorRequest
-	16, // 13: overkill.bridge.EthosBridge.Compact:input_type -> overkill.bridge.CompactRequest
-	18, // 14: overkill.bridge.EthosBridge.Ping:input_type -> overkill.bridge.PingRequest
-	2,  // 15: overkill.bridge.EthosBridge.Embed:output_type -> overkill.bridge.EmbedResponse
-	3,  // 16: overkill.bridge.EthosBridge.EmbedBatch:output_type -> overkill.bridge.EmbedBatchResponse
-	7,  // 17: overkill.bridge.EthosBridge.Rerank:output_type -> overkill.bridge.RerankResponse
-	10, // 18: overkill.bridge.EthosBridge.StoreVector:output_type -> overkill.bridge.StoreVectorResponse
-	13, // 19: overkill.bridge.EthosBridge.SearchVectors:output_type -> overkill.bridge.SearchVectorsResponse
-	15, // 20: overkill.bridge.EthosBridge.DeleteVector:output_type -> overkill.bridge.DeleteVectorResponse
-	17, // 21: overkill.bridge.EthosBridge.Compact:output_type -> overkill.bridge.CompactResponse
-	19, // 22: overkill.bridge.EthosBridge.Ping:output_type -> overkill.bridge.PongResponse
+	0,  // 7: overkill.bridge.OverkillBridge.Embed:input_type -> overkill.bridge.EmbedRequest
+	1,  // 8: overkill.bridge.OverkillBridge.EmbedBatch:input_type -> overkill.bridge.EmbedBatchRequest
+	5,  // 9: overkill.bridge.OverkillBridge.Rerank:input_type -> overkill.bridge.RerankRequest
+	9,  // 10: overkill.bridge.OverkillBridge.StoreVector:input_type -> overkill.bridge.StoreVectorRequest
+	11, // 11: overkill.bridge.OverkillBridge.SearchVectors:input_type -> overkill.bridge.SearchVectorsRequest
+	14, // 12: overkill.bridge.OverkillBridge.DeleteVector:input_type -> overkill.bridge.DeleteVectorRequest
+	16, // 13: overkill.bridge.OverkillBridge.Compact:input_type -> overkill.bridge.CompactRequest
+	18, // 14: overkill.bridge.OverkillBridge.Ping:input_type -> overkill.bridge.PingRequest
+	2,  // 15: overkill.bridge.OverkillBridge.Embed:output_type -> overkill.bridge.EmbedResponse
+	3,  // 16: overkill.bridge.OverkillBridge.EmbedBatch:output_type -> overkill.bridge.EmbedBatchResponse
+	7,  // 17: overkill.bridge.OverkillBridge.Rerank:output_type -> overkill.bridge.RerankResponse
+	10, // 18: overkill.bridge.OverkillBridge.StoreVector:output_type -> overkill.bridge.StoreVectorResponse
+	13, // 19: overkill.bridge.OverkillBridge.SearchVectors:output_type -> overkill.bridge.SearchVectorsResponse
+	15, // 20: overkill.bridge.OverkillBridge.DeleteVector:output_type -> overkill.bridge.DeleteVectorResponse
+	17, // 21: overkill.bridge.OverkillBridge.Compact:output_type -> overkill.bridge.CompactResponse
+	19, // 22: overkill.bridge.OverkillBridge.Ping:output_type -> overkill.bridge.PongResponse
 	15, // [15:23] is the sub-list for method output_type
 	7,  // [7:15] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name

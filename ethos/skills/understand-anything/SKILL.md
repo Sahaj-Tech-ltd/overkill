@@ -2,7 +2,7 @@
 name: understand-anything
 version: 1.0.0
 description: Ramp onto an unfamiliar codebase, document, or system fast. Builds a layered mental model — overview, modules, data flow, gotchas — by combining structural scan with targeted deep reads. Use on first contact with any unknown repo or large artifact.
-author: ethos-team
+author: overkill-team
 category: introspection
 tags: [onboarding, exploration, codebase, documentation]
 triggers: [understand, explore, "ramp on", "explain this codebase", "what does this do", onboard]

@@ -2,7 +2,7 @@
 name: code-review
 version: 1.0.0
 description: Disciplined code review pass focused on correctness, security, and maintainability. Use after writing or modifying code, before committing, when reviewing PRs, or when the user asks to "review", "critique", or "check" code.
-author: ethos-team
+author: overkill-team
 category: review
 tags: [code, review, quality, security]
 triggers: [review, "code review", critique, audit, "check this"]

@@ -93,8 +93,8 @@ func TestShellTool(t *testing.T) {
 		},
 		{
 			name:     "env vars",
-			command:  "echo $ETHOS_TEST_VAR",
-			env:      map[string]string{"ETHOS_TEST_VAR": "test_value"},
+			command:  "echo $OVERKILL_TEST_VAR",
+			env:      map[string]string{"OVERKILL_TEST_VAR": "test_value"},
 			wantOut:  "test_value",
 			wantCode: 0,
 		},

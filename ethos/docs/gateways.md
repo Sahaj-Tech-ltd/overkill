@@ -5,7 +5,7 @@ drives. Open the TUI on your laptop, step away, message the bot from
 your phone — same session, same context.
 
 ```
-ethos gateway
+overkill gateway
 ```
 
 ## Channels
@@ -72,7 +72,7 @@ From any channel:
 | `/end`          | Clear follow but keep the binding                                             |
 | `/help`         | Print the menu                                                                |
 
-Bindings persist to `~/.ethos/gateway-sessions.json` so restarts don't
+Bindings persist to `~/.overkill/gateway-sessions.json` so restarts don't
 drop in-flight conversations.
 
 ## Vision (image → text)

@@ -37,10 +37,10 @@ func QueryBackground(timeout time.Duration) (dark bool, err error) {
 	}
 
 	// Guard: if we're being called after Bubble Tea started (detected by the
-	// ETHOS_RUNNING env var set at program boot), refuse to probe. Switching
+	// OVERKILL_RUNNING env var set at program boot), refuse to probe. Switching
 	// stdin to raw mode while Bubble Tea owns the terminal causes garbled
 	// input and potential hangs.
-	if os.Getenv("ETHOS_RUNNING") != "" {
+	if os.Getenv("OVERKILL_RUNNING") != "" {
 		return false, errors.New("term: Bubble Tea running, refuse to probe")
 	}
 

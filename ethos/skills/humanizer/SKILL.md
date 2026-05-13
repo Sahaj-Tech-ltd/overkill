@@ -2,7 +2,7 @@
 name: humanizer
 version: 1.0.0
 description: Remove signs of AI-generated writing from text. Use when editing or reviewing prose to make it sound natural and human-written. Covers inflated symbolism, promotional language, AI vocabulary, em-dash overuse, rule-of-three padding, and vague attributions.
-author: ethos-team
+author: overkill-team
 category: writing
 tags: [writing, editing, prose, style]
 triggers: [humanize, "make this less ai", "sound more human", "remove ai voice", "edit this prose"]

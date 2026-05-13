@@ -1,4 +1,4 @@
-# golangci-lint config for ethos.
+# golangci-lint config for overkill.
 # Pinned-version invocation lives in .github/workflows/lint.yml.
 
 run:
@@ -48,7 +48,7 @@ linters-settings:
   gofmt:
     simplify: true
   goimports:
-    local-prefixes: github.com/Sahaj-Tech-ltd/ethos
+    local-prefixes: github.com/Sahaj-Tech-ltd/overkill
   govet:
     enable-all: true
     disable:

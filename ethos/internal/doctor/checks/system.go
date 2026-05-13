@@ -117,15 +117,15 @@ func RegisterMemory(r *doctor.Runner, d Deps) {
 }
 
 // RegisterCellRenderer reports the savings of the experimental TUI renderer
-// when ETHOS_CELL_RENDER=1. Otherwise it stays out of the way.
+// when OVERKILL_CELL_RENDER=1. Otherwise it stays out of the way.
 func RegisterCellRenderer(r *doctor.Runner, d Deps) {
 	r.Register(doctor.SubsystemCheck{
 		ID:       "ui.cell_renderer",
 		Name:     "Cell renderer",
 		Category: doctor.CatSystem,
 		Fn: func(ctx context.Context) doctor.Result {
-			if os.Getenv("ETHOS_CELL_RENDER") != "1" {
-				return info("cell renderer disabled (set ETHOS_CELL_RENDER=1 to benchmark)")
+			if os.Getenv("OVERKILL_CELL_RENDER") != "1" {
+				return info("cell renderer disabled (set OVERKILL_CELL_RENDER=1 to benchmark)")
 			}
 			// Tiny micro-benchmark: count how many bytes a naive line-by-line
 			// render would emit against a single buffered write. We do not
@@ -149,12 +149,12 @@ func RegisterAnimations(r *doctor.Runner, d Deps) {
 		Name:     "Animation kill-switch",
 		Category: doctor.CatSystem,
 		Fn: func(ctx context.Context) doctor.Result {
-			env := os.Getenv("ETHOS_NO_ANIMATIONS")
+			env := os.Getenv("OVERKILL_NO_ANIMATIONS")
 			cfg := false
 			if d.Cfg != nil {
 				cfg = d.Cfg.UI.Animations
 			}
-			return info("config animations=%v; ETHOS_NO_ANIMATIONS=%q", cfg, env)
+			return info("config animations=%v; OVERKILL_NO_ANIMATIONS=%q", cfg, env)
 		},
 	})
 }

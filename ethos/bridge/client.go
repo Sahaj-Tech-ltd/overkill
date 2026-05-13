@@ -23,7 +23,7 @@ type SearchResult struct {
 
 type Client struct {
 	conn   *grpc.ClientConn
-	client pb.EthosBridgeClient
+	client pb.OverkillBridgeClient
 }
 
 func NewClient(addr string) (*Client, error) {
@@ -33,7 +33,7 @@ func NewClient(addr string) (*Client, error) {
 	}
 	return &Client{
 		conn:   conn,
-		client: pb.NewEthosBridgeClient(conn),
+		client: pb.NewOverkillBridgeClient(conn),
 	}, nil
 }
 

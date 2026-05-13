@@ -2,7 +2,7 @@
 name: red-team
 version: 1.0.0
 description: Adversarial review of design, code, or plan from an attacker's mindset. Use when the user asks to "red team", "attack", "stress test", or "find holes in" a proposal. Also invoke before shipping anything that handles auth, payments, user data, or untrusted input.
-author: ethos-team
+author: overkill-team
 category: security
 tags: [security, red-team, adversarial, threat-model]
 triggers: ["red team", "red-team", "attack this", "stress test", "find holes", "what could go wrong", "threat model"]

@@ -1,12 +1,12 @@
 # cellrender
 
-Cell-level diff renderer for the Ethos Bubble Tea TUI. Wraps the program's
+Cell-level diff renderer for the Overkill Bubble Tea TUI. Wraps the program's
 output writer, parses each rendered frame into a cell grid, diffs it against
 the previous frame, and emits only the minimal escape sequences needed to
 update the visible terminal. Inspired by opentui's native renderer; aims to
 match SSH-class smoothness for incremental frames (spinner ticks, single
 keystrokes, cursor moves) where Bubble Tea v1's lipgloss line-diffing
-otherwise rewrites entire rows. Opt in with `ETHOS_CELL_RENDER=1`. Default
+otherwise rewrites entire rows. Opt in with `OVERKILL_CELL_RENDER=1`. Default
 behavior is completely unchanged when the env var is unset.
 
 ## Known limitations
@@ -33,7 +33,7 @@ go test -bench=. -benchmem ./pkg/tui/cellrender
 The first two tests fail loudly if the cell-render path doesn't beat the
 naïve "write the whole frame" baseline by the documented margin (<50% for
 the spinner case, <30% for the moving-char case). To verify in your own
-terminal: `ETHOS_CELL_RENDER=1 ethos tui` — a one-line stderr banner is
+terminal: `OVERKILL_CELL_RENDER=1 overkill tui` — a one-line stderr banner is
 printed at startup so you know the path is active. `unset
-ETHOS_CELL_RENDER` reverts to the standard Bubble Tea renderer with zero
+OVERKILL_CELL_RENDER` reverts to the standard Bubble Tea renderer with zero
 risk.

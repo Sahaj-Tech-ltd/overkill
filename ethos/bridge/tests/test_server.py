@@ -8,7 +8,7 @@ sys.path.insert(0, _PROTO_DIR)
 
 import overkill_pb2  # noqa: E402
 
-from server import EthosBridgeServicer  # noqa: E402
+from server import OverkillBridgeServicer  # noqa: E402
 
 
 class FakeContext:
@@ -28,21 +28,21 @@ class FakeContext:
 
 
 def test_ping() -> None:
-    servicer = EthosBridgeServicer()
+    servicer = OverkillBridgeServicer()
     resp = servicer.Ping(overkill_pb2.PingRequest(), FakeContext())
     assert resp.status == "ok"
     assert resp.version == "0.1.0"
 
 
 def test_embed() -> None:
-    servicer = EthosBridgeServicer()
+    servicer = OverkillBridgeServicer()
     resp = servicer.Embed(overkill_pb2.EmbedRequest(text="hello world", model="test"), FakeContext())
     assert len(resp.embedding) > 0
     assert resp.tokens > 0
 
 
 def test_embed_batch() -> None:
-    servicer = EthosBridgeServicer()
+    servicer = OverkillBridgeServicer()
     resp = servicer.EmbedBatch(
         overkill_pb2.EmbedBatchRequest(texts=["hello", "world"], model="test"), FakeContext()
     )
@@ -53,7 +53,7 @@ def test_embed_batch() -> None:
 
 
 def test_rerank() -> None:
-    servicer = EthosBridgeServicer()
+    servicer = OverkillBridgeServicer()
     resp = servicer.Rerank(
         overkill_pb2.RerankRequest(
             query="test query", documents=["doc one", "doc two", "doc three"], top_n=2
@@ -67,7 +67,7 @@ def test_rerank() -> None:
 
 
 def test_store_and_search_vector() -> None:
-    servicer = EthosBridgeServicer()
+    servicer = OverkillBridgeServicer()
     ctx = FakeContext()
 
     store_resp = servicer.StoreVector(
@@ -96,7 +96,7 @@ def test_store_and_search_vector() -> None:
 
 
 def test_search_with_filters() -> None:
-    servicer = EthosBridgeServicer()
+    servicer = OverkillBridgeServicer()
     ctx = FakeContext()
 
     servicer.StoreVector(
@@ -135,7 +135,7 @@ def test_search_with_filters() -> None:
 
 
 def test_delete_vector() -> None:
-    servicer = EthosBridgeServicer()
+    servicer = OverkillBridgeServicer()
     ctx = FakeContext()
 
     servicer.StoreVector(
@@ -160,7 +160,7 @@ def test_delete_vector() -> None:
 
 
 def test_compact() -> None:
-    servicer = EthosBridgeServicer()
+    servicer = OverkillBridgeServicer()
     content = " ".join(f"word{i}" for i in range(200))
     resp = servicer.Compact(
         overkill_pb2.CompactRequest(
@@ -175,7 +175,7 @@ def test_compact() -> None:
 
 
 def test_compact_truncate() -> None:
-    servicer = EthosBridgeServicer()
+    servicer = OverkillBridgeServicer()
     content = " ".join(f"word{i}" for i in range(200))
     resp = servicer.Compact(
         overkill_pb2.CompactRequest(

@@ -1,19 +1,19 @@
-# Contributing to Ethos
+# Contributing to Overkill
 
-Thanks for your interest in Ethos! This guide covers everything you need to contribute effectively.
+Thanks for your interest in Overkill! This guide covers everything you need to contribute effectively.
 
 ## Dev Setup
 
 ```bash
-git clone https://github.com/Sahaj-Tech-ltd/ethos.git
-cd ethos
-make build      # → bin/ethos with version embedded via -ldflags
+git clone https://github.com/Sahaj-Tech-ltd/overkill.git
+cd overkill
+make build      # → bin/overkill with version embedded via -ldflags
 make test       # → go test ./...
 make lint       # → golangci-lint + ruff
-make install-all  # → installs to $HOME/go/bin/ethos
+make install-all  # → installs to $HOME/go/bin/overkill
 ```
 
-The `Version` constant in `cmd/ethos/root.go` is overridden at link time
+The `Version` constant in `cmd/overkill/root.go` is overridden at link time
 via `-ldflags="-X main.Version=$(VERSION)"`. The `Makefile` pulls
 `VERSION` from `git describe` by default; release builds inject the tag
 name. See [docs/RELEASING.md](docs/RELEASING.md) for the full release
@@ -117,8 +117,8 @@ Not sure whether to build a skill or a tool?
 
 ## Getting Help
 
-- [Discussions](https://github.com/Sahaj-Tech-ltd/ethos/discussions)
-- [Issues](https://github.com/Sahaj-Tech-ltd/ethos/issues)
+- [Discussions](https://github.com/Sahaj-Tech-ltd/overkill/discussions)
+- [Issues](https://github.com/Sahaj-Tech-ltd/overkill/issues)
 
 ## License
 

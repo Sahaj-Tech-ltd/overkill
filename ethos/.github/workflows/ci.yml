@@ -75,7 +75,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           go build -trimpath -ldflags="-s -w -X main.Version=ci-${{ github.sha }}" \
-            -o /tmp/ethos-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/ethos
+            -o /tmp/overkill-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/overkill
 
   # Python bridge tests + coverage.
   python-tests:

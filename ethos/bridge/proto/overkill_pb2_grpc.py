@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-import overkill_pb2 as ethos__pb2
+import overkill_pb2 as overkill__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class EthosBridgeStub(object):
+class OverkillBridgeStub(object):
     """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
@@ -35,48 +35,48 @@ class EthosBridgeStub(object):
             channel: A grpc.Channel.
         """
         self.Embed = channel.unary_unary(
-                '/ethos.bridge.EthosBridge/Embed',
-                request_serializer=ethos__pb2.EmbedRequest.SerializeToString,
-                response_deserializer=ethos__pb2.EmbedResponse.FromString,
+                '/overkill.bridge.OverkillBridge/Embed',
+                request_serializer=overkill__pb2.EmbedRequest.SerializeToString,
+                response_deserializer=overkill__pb2.EmbedResponse.FromString,
                 _registered_method=True)
         self.EmbedBatch = channel.unary_unary(
-                '/ethos.bridge.EthosBridge/EmbedBatch',
-                request_serializer=ethos__pb2.EmbedBatchRequest.SerializeToString,
-                response_deserializer=ethos__pb2.EmbedBatchResponse.FromString,
+                '/overkill.bridge.OverkillBridge/EmbedBatch',
+                request_serializer=overkill__pb2.EmbedBatchRequest.SerializeToString,
+                response_deserializer=overkill__pb2.EmbedBatchResponse.FromString,
                 _registered_method=True)
         self.Rerank = channel.unary_unary(
-                '/ethos.bridge.EthosBridge/Rerank',
-                request_serializer=ethos__pb2.RerankRequest.SerializeToString,
-                response_deserializer=ethos__pb2.RerankResponse.FromString,
+                '/overkill.bridge.OverkillBridge/Rerank',
+                request_serializer=overkill__pb2.RerankRequest.SerializeToString,
+                response_deserializer=overkill__pb2.RerankResponse.FromString,
                 _registered_method=True)
         self.StoreVector = channel.unary_unary(
-                '/ethos.bridge.EthosBridge/StoreVector',
-                request_serializer=ethos__pb2.StoreVectorRequest.SerializeToString,
-                response_deserializer=ethos__pb2.StoreVectorResponse.FromString,
+                '/overkill.bridge.OverkillBridge/StoreVector',
+                request_serializer=overkill__pb2.StoreVectorRequest.SerializeToString,
+                response_deserializer=overkill__pb2.StoreVectorResponse.FromString,
                 _registered_method=True)
         self.SearchVectors = channel.unary_unary(
-                '/ethos.bridge.EthosBridge/SearchVectors',
-                request_serializer=ethos__pb2.SearchVectorsRequest.SerializeToString,
-                response_deserializer=ethos__pb2.SearchVectorsResponse.FromString,
+                '/overkill.bridge.OverkillBridge/SearchVectors',
+                request_serializer=overkill__pb2.SearchVectorsRequest.SerializeToString,
+                response_deserializer=overkill__pb2.SearchVectorsResponse.FromString,
                 _registered_method=True)
         self.DeleteVector = channel.unary_unary(
-                '/ethos.bridge.EthosBridge/DeleteVector',
-                request_serializer=ethos__pb2.DeleteVectorRequest.SerializeToString,
-                response_deserializer=ethos__pb2.DeleteVectorResponse.FromString,
+                '/overkill.bridge.OverkillBridge/DeleteVector',
+                request_serializer=overkill__pb2.DeleteVectorRequest.SerializeToString,
+                response_deserializer=overkill__pb2.DeleteVectorResponse.FromString,
                 _registered_method=True)
         self.Compact = channel.unary_unary(
-                '/ethos.bridge.EthosBridge/Compact',
-                request_serializer=ethos__pb2.CompactRequest.SerializeToString,
-                response_deserializer=ethos__pb2.CompactResponse.FromString,
+                '/overkill.bridge.OverkillBridge/Compact',
+                request_serializer=overkill__pb2.CompactRequest.SerializeToString,
+                response_deserializer=overkill__pb2.CompactResponse.FromString,
                 _registered_method=True)
         self.Ping = channel.unary_unary(
-                '/ethos.bridge.EthosBridge/Ping',
-                request_serializer=ethos__pb2.PingRequest.SerializeToString,
-                response_deserializer=ethos__pb2.PongResponse.FromString,
+                '/overkill.bridge.OverkillBridge/Ping',
+                request_serializer=overkill__pb2.PingRequest.SerializeToString,
+                response_deserializer=overkill__pb2.PongResponse.FromString,
                 _registered_method=True)
 
 
-class EthosBridgeServicer(object):
+class OverkillBridgeServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def Embed(self, request, context):
@@ -128,57 +128,57 @@ class EthosBridgeServicer(object):
         raise NotImplementedError('Method not implemented!')
 
 
-def add_EthosBridgeServicer_to_server(servicer, server):
+def add_OverkillBridgeServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Embed': grpc.unary_unary_rpc_method_handler(
                     servicer.Embed,
-                    request_deserializer=ethos__pb2.EmbedRequest.FromString,
-                    response_serializer=ethos__pb2.EmbedResponse.SerializeToString,
+                    request_deserializer=overkill__pb2.EmbedRequest.FromString,
+                    response_serializer=overkill__pb2.EmbedResponse.SerializeToString,
             ),
             'EmbedBatch': grpc.unary_unary_rpc_method_handler(
                     servicer.EmbedBatch,
-                    request_deserializer=ethos__pb2.EmbedBatchRequest.FromString,
-                    response_serializer=ethos__pb2.EmbedBatchResponse.SerializeToString,
+                    request_deserializer=overkill__pb2.EmbedBatchRequest.FromString,
+                    response_serializer=overkill__pb2.EmbedBatchResponse.SerializeToString,
             ),
             'Rerank': grpc.unary_unary_rpc_method_handler(
                     servicer.Rerank,
-                    request_deserializer=ethos__pb2.RerankRequest.FromString,
-                    response_serializer=ethos__pb2.RerankResponse.SerializeToString,
+                    request_deserializer=overkill__pb2.RerankRequest.FromString,
+                    response_serializer=overkill__pb2.RerankResponse.SerializeToString,
             ),
             'StoreVector': grpc.unary_unary_rpc_method_handler(
                     servicer.StoreVector,
-                    request_deserializer=ethos__pb2.StoreVectorRequest.FromString,
-                    response_serializer=ethos__pb2.StoreVectorResponse.SerializeToString,
+                    request_deserializer=overkill__pb2.StoreVectorRequest.FromString,
+                    response_serializer=overkill__pb2.StoreVectorResponse.SerializeToString,
             ),
             'SearchVectors': grpc.unary_unary_rpc_method_handler(
                     servicer.SearchVectors,
-                    request_deserializer=ethos__pb2.SearchVectorsRequest.FromString,
-                    response_serializer=ethos__pb2.SearchVectorsResponse.SerializeToString,
+                    request_deserializer=overkill__pb2.SearchVectorsRequest.FromString,
+                    response_serializer=overkill__pb2.SearchVectorsResponse.SerializeToString,
             ),
             'DeleteVector': grpc.unary_unary_rpc_method_handler(
                     servicer.DeleteVector,
-                    request_deserializer=ethos__pb2.DeleteVectorRequest.FromString,
-                    response_serializer=ethos__pb2.DeleteVectorResponse.SerializeToString,
+                    request_deserializer=overkill__pb2.DeleteVectorRequest.FromString,
+                    response_serializer=overkill__pb2.DeleteVectorResponse.SerializeToString,
             ),
             'Compact': grpc.unary_unary_rpc_method_handler(
                     servicer.Compact,
-                    request_deserializer=ethos__pb2.CompactRequest.FromString,
-                    response_serializer=ethos__pb2.CompactResponse.SerializeToString,
+                    request_deserializer=overkill__pb2.CompactRequest.FromString,
+                    response_serializer=overkill__pb2.CompactResponse.SerializeToString,
             ),
             'Ping': grpc.unary_unary_rpc_method_handler(
                     servicer.Ping,
-                    request_deserializer=ethos__pb2.PingRequest.FromString,
-                    response_serializer=ethos__pb2.PongResponse.SerializeToString,
+                    request_deserializer=overkill__pb2.PingRequest.FromString,
+                    response_serializer=overkill__pb2.PongResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'ethos.bridge.EthosBridge', rpc_method_handlers)
+            'overkill.bridge.OverkillBridge', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('ethos.bridge.EthosBridge', rpc_method_handlers)
+    server.add_registered_method_handlers('overkill.bridge.OverkillBridge', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class EthosBridge(object):
+class OverkillBridge(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
@@ -195,9 +195,9 @@ class EthosBridge(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/ethos.bridge.EthosBridge/Embed',
-            ethos__pb2.EmbedRequest.SerializeToString,
-            ethos__pb2.EmbedResponse.FromString,
+            '/overkill.bridge.OverkillBridge/Embed',
+            overkill__pb2.EmbedRequest.SerializeToString,
+            overkill__pb2.EmbedResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -222,9 +222,9 @@ class EthosBridge(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/ethos.bridge.EthosBridge/EmbedBatch',
-            ethos__pb2.EmbedBatchRequest.SerializeToString,
-            ethos__pb2.EmbedBatchResponse.FromString,
+            '/overkill.bridge.OverkillBridge/EmbedBatch',
+            overkill__pb2.EmbedBatchRequest.SerializeToString,
+            overkill__pb2.EmbedBatchResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -249,9 +249,9 @@ class EthosBridge(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/ethos.bridge.EthosBridge/Rerank',
-            ethos__pb2.RerankRequest.SerializeToString,
-            ethos__pb2.RerankResponse.FromString,
+            '/overkill.bridge.OverkillBridge/Rerank',
+            overkill__pb2.RerankRequest.SerializeToString,
+            overkill__pb2.RerankResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -276,9 +276,9 @@ class EthosBridge(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/ethos.bridge.EthosBridge/StoreVector',
-            ethos__pb2.StoreVectorRequest.SerializeToString,
-            ethos__pb2.StoreVectorResponse.FromString,
+            '/overkill.bridge.OverkillBridge/StoreVector',
+            overkill__pb2.StoreVectorRequest.SerializeToString,
+            overkill__pb2.StoreVectorResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -303,9 +303,9 @@ class EthosBridge(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/ethos.bridge.EthosBridge/SearchVectors',
-            ethos__pb2.SearchVectorsRequest.SerializeToString,
-            ethos__pb2.SearchVectorsResponse.FromString,
+            '/overkill.bridge.OverkillBridge/SearchVectors',
+            overkill__pb2.SearchVectorsRequest.SerializeToString,
+            overkill__pb2.SearchVectorsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -330,9 +330,9 @@ class EthosBridge(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/ethos.bridge.EthosBridge/DeleteVector',
-            ethos__pb2.DeleteVectorRequest.SerializeToString,
-            ethos__pb2.DeleteVectorResponse.FromString,
+            '/overkill.bridge.OverkillBridge/DeleteVector',
+            overkill__pb2.DeleteVectorRequest.SerializeToString,
+            overkill__pb2.DeleteVectorResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -357,9 +357,9 @@ class EthosBridge(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/ethos.bridge.EthosBridge/Compact',
-            ethos__pb2.CompactRequest.SerializeToString,
-            ethos__pb2.CompactResponse.FromString,
+            '/overkill.bridge.OverkillBridge/Compact',
+            overkill__pb2.CompactRequest.SerializeToString,
+            overkill__pb2.CompactResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -384,9 +384,9 @@ class EthosBridge(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/ethos.bridge.EthosBridge/Ping',
-            ethos__pb2.PingRequest.SerializeToString,
-            ethos__pb2.PongResponse.FromString,
+            '/overkill.bridge.OverkillBridge/Ping',
+            overkill__pb2.PingRequest.SerializeToString,
+            overkill__pb2.PongResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -73,6 +73,6 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _PINGREQUEST._serialized_end=1580
   _PONGRESPONSE._serialized_start=1582
   _PONGRESPONSE._serialized_end=1629
-  _ETHOSBRIDGE._serialized_start=1632
-  _ETHOSBRIDGE._serialized_end=2305
+  _OVERKILLBRIDGE._serialized_start=1632
+  _OVERKILLBRIDGE._serialized_end=2305
 # @@protoc_insertion_point(module_scope)

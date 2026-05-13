@@ -7,7 +7,7 @@ import (
 
 func TestEnabled_Default(t *testing.T) {
 	SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 	os.Unsetenv("TERM")
 	if !Enabled(80) {
 		t.Fatal("animations should be enabled by default at width 80")
@@ -24,16 +24,16 @@ func TestEnabled_ConfigOff(t *testing.T) {
 
 func TestEnabled_EnvKill(t *testing.T) {
 	SetEnabled(true)
-	os.Setenv("ETHOS_NO_ANIMATIONS", "1")
-	defer os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Setenv("OVERKILL_NO_ANIMATIONS", "1")
+	defer os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 	if Enabled(120) {
-		t.Fatal("ETHOS_NO_ANIMATIONS=1 should disable")
+		t.Fatal("OVERKILL_NO_ANIMATIONS=1 should disable")
 	}
 }
 
 func TestEnabled_DumbTerm(t *testing.T) {
 	SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 	old := os.Getenv("TERM")
 	os.Setenv("TERM", "dumb")
 	defer os.Setenv("TERM", old)
@@ -44,7 +44,7 @@ func TestEnabled_DumbTerm(t *testing.T) {
 
 func TestEnabled_NarrowTerm(t *testing.T) {
 	SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 	os.Unsetenv("TERM")
 	if Enabled(40) {
 		t.Fatal("narrow terminal should disable animations")
@@ -56,7 +56,7 @@ func TestEnabled_NarrowTerm(t *testing.T) {
 
 func TestEnabled_ZeroWidthBypassesWidthCheck(t *testing.T) {
 	SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 	os.Unsetenv("TERM")
 	// width=0 means "unknown" — treat as enabled so first frame can render
 	// before WindowSizeMsg arrives.

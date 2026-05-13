@@ -188,8 +188,8 @@ func TestShellCompleted(t *testing.T) {
 	t.Run("marker not visible in env var commands", func(t *testing.T) {
 		t.Parallel()
 		input := ShellInput{
-			Command: "echo $ETHOS_TEST_SHELL",
-			Env:     map[string]string{"ETHOS_TEST_SHELL": "works"},
+			Command: "echo $OVERKILL_TEST_SHELL",
+			Env:     map[string]string{"OVERKILL_TEST_SHELL": "works"},
 		}
 		raw, _ := json.Marshal(input)
 

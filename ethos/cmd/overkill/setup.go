@@ -28,7 +28,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	fmt.Printf("%s%s╔══════════════════════════════════════╗%s\n", colorBold, colorGreen, colorReset)
-	fmt.Printf("%s%s║    Ethos Provider Setup Wizard       ║%s\n", colorBold, colorGreen, colorReset)
+	fmt.Printf("%s%s║    Overkill Provider Setup Wizard       ║%s\n", colorBold, colorGreen, colorReset)
 	fmt.Printf("%s%s╚══════════════════════════════════════╝%s\n", colorBold, colorGreen, colorReset)
 	fmt.Println()
 

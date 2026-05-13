@@ -4,7 +4,7 @@ package overkill.bridge;
 
 option go_package = "github.com/Sahaj-Tech-ltd/overkill/bridge/proto";
 
-service EthosBridge {
+service OverkillBridge {
   rpc Embed(EmbedRequest) returns (EmbedResponse);
   rpc EmbedBatch(EmbedBatchRequest) returns (EmbedBatchResponse);
   rpc Rerank(RerankRequest) returns (RerankResponse);

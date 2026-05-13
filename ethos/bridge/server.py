@@ -15,7 +15,7 @@ from memory.service import VectorMemoryService  # noqa: E402
 from reranking.service import RerankingService  # noqa: E402
 
 
-class EthosBridgeServicer(overkill_pb2_grpc.EthosBridgeServicer):
+class OverkillBridgeServicer(overkill_pb2_grpc.OverkillBridgeServicer):
     def __init__(self) -> None:
         self._embeddings = EmbeddingService()
         self._reranking = RerankingService()
@@ -91,7 +91,7 @@ class EthosBridgeServicer(overkill_pb2_grpc.EthosBridgeServicer):
 
 def serve(port: int = 50051) -> None:
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    overkill_pb2_grpc.add_EthosBridgeServicer_to_server(EthosBridgeServicer(), server)
+    overkill_pb2_grpc.add_OverkillBridgeServicer_to_server(OverkillBridgeServicer(), server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()
     server.wait_for_termination()

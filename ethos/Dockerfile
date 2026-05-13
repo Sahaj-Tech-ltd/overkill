@@ -8,7 +8,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /ethos ./cmd/ethos
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /overkill ./cmd/overkill
 
 FROM python:3.12-slim AS python-builder
 
@@ -24,11 +24,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=go-builder /ethos /usr/local/bin/ethos
+COPY --from=go-builder /overkill /usr/local/bin/overkill
 COPY --from=python-builder /install /usr/local
 
-RUN chmod +x /usr/local/bin/ethos
+RUN chmod +x /usr/local/bin/overkill
 
 WORKDIR /workspace
 
-ENTRYPOINT ["ethos"]
+ENTRYPOINT ["overkill"]

@@ -2,7 +2,7 @@
 name: mutation-test
 version: 1.0.0
 description: Verify that a test suite actually catches bugs by mutating the production code and checking which mutants survive. Use when test coverage is high but bugs still slip through, or to validate a TDD'd module before shipping.
-author: ethos-team
+author: overkill-team
 category: testing
 tags: [testing, mutation, quality, regression]
 triggers: [mutation, "mutation test", "is my test suite real", "verify test quality"]

@@ -23,7 +23,7 @@ var (
 
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
-	Short: "Run the full self-test across every Ethos subsystem",
+	Short: "Run the full self-test across every Overkill subsystem",
 	Long: `doctor exercises every subsystem (config, providers, storage, MCP, LSP,
 plugins, sync, ACP, tokenizer, tools, hooks, skills, filesystem, disk, etc.)
 and prints a color-coded report. Use --json for machine output and --fail-on

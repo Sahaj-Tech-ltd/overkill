@@ -2,7 +2,7 @@
 name: frontend-design
 version: 1.0.0
 description: Build distinctive, production-grade frontend interfaces with high design quality. Use when the user asks for web components, pages, or applications and the visual direction matters as much as the code. Avoids generic-template output.
-author: ethos-team
+author: overkill-team
 category: design
 tags: [frontend, design, ui, ux, css]
 triggers: [design, "build a page", "build a landing", "build a component", ui, frontend]

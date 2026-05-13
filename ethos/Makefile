@@ -1,6 +1,6 @@
 .PHONY: build test lint clean install docker run dev install-all plugins
 
-BINARY=bin/ethos
+BINARY=bin/overkill
 GO=go
 # VERSION may be overridden: `make build VERSION=v1.2.3`. Defaults to git
 # describe so local builds carry a meaningful identifier.
@@ -8,7 +8,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFLAGS=-trimpath -ldflags="-s -w -X main.Version=$(VERSION)"
 
 build:
-	$(GO) build $(GOFLAGS) -o $(BINARY) ./cmd/ethos
+	$(GO) build $(GOFLAGS) -o $(BINARY) ./cmd/overkill
 
 test:
 	$(GO) test ./...
@@ -31,19 +31,19 @@ clean:
 	rm -rf bin/ coverage.out
 
 install:
-	go install ./cmd/ethos
+	go install ./cmd/overkill
 
 install-global: build
-	sudo cp $(BINARY) /usr/local/bin/ethos
+	sudo cp $(BINARY) /usr/local/bin/overkill
 
 docker:
-	docker build -t ethos:latest .
+	docker build -t overkill:latest .
 
 run: build
 	./$(BINARY)
 
 dev:
-	$(GO) run ./cmd/ethos
+	$(GO) run ./cmd/overkill
 
 bridge-install:
 	cd bridge && pip install -e ".[dev]"
@@ -62,11 +62,11 @@ proto:
 all: lint test build
 
 install-all:
-	$(GO) build $(GOFLAGS) -o $(HOME)/go/bin/ethos ./cmd/ethos
-	@echo "ethos installed to $(HOME)/go/bin/ethos"
+	$(GO) build $(GOFLAGS) -o $(HOME)/go/bin/overkill ./cmd/overkill
+	@echo "overkill installed to $(HOME)/go/bin/overkill"
 
 # Build the bundled example plugins into examples/plugins/<name>/<name>.
 plugins:
 	$(GO) build -o examples/plugins/notes/notes ./examples/plugins/notes
 	$(GO) build -o examples/plugins/git-stats/git-stats ./examples/plugins/git-stats
-	@echo "plugins built — copy or symlink directories into ~/.ethos/plugins/ to install"
+	@echo "plugins built — copy or symlink directories into ~/.overkill/plugins/ to install"

@@ -37,7 +37,7 @@ func TestToast_Hide(t *testing.T) {
 
 func TestToast_SlideInProgresses(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 
 	tm := NewToastModel()
 	tm.SetWidth(120)
@@ -56,7 +56,7 @@ func TestToast_SlideInProgresses(t *testing.T) {
 
 func TestToast_SlideOutReachesZero(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 
 	tm := NewToastModel()
 	tm.SetWidth(120)
@@ -98,7 +98,7 @@ func TestToast_SlideSkippedWhenAnimationsOff(t *testing.T) {
 
 func TestToast_ViewOffsetShrinksOverSlideIn(t *testing.T) {
 	animation.SetEnabled(true)
-	os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 
 	tm := NewToastModel()
 	tm.SetWidth(120)

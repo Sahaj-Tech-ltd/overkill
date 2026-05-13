@@ -42,8 +42,8 @@ func TestShimmer_FrameIndexWraps(t *testing.T) {
 }
 
 func TestShimmer_AnimationOffEqualsStatic(t *testing.T) {
-	os.Setenv("ETHOS_NO_ANIMATIONS", "1")
-	defer os.Unsetenv("ETHOS_NO_ANIMATIONS")
+	os.Setenv("OVERKILL_NO_ANIMATIONS", "1")
+	defer os.Unsetenv("OVERKILL_NO_ANIMATIONS")
 	animation.SetEnabled(true)
 
 	m := NewLogoModel()

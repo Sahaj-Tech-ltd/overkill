@@ -4,7 +4,7 @@
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, use [GitHub Security Advisories](https://github.com/Sahaj-Tech-ltd/ethos/security/advisories/new).
+Instead, use [GitHub Security Advisories](https://github.com/Sahaj-Tech-ltd/overkill/security/advisories/new).
 
 ### Response Timeline
 
@@ -17,13 +17,13 @@ Instead, use [GitHub Security Advisories](https://github.com/Sahaj-Tech-ltd/etho
 
 ## Trust Model
 
-Ethos is a **single-user personal coding agent**. It is NOT designed for:
+Overkill is a **single-user personal coding agent**. It is NOT designed for:
 - Multi-tenant environments
 - Shared workspaces with untrusted users
 - Production server deployment
 - Handling untrusted input at scale
 
-If you're using Ethos in any of these contexts, you're outside the threat model.
+If you're using Overkill in any of these contexts, you're outside the threat model.
 
 ## Agent Autonomy Levels
 
@@ -69,7 +69,7 @@ We strongly recommend staying in **Supervised** mode.
 
 ## No Bug Bounty
 
-Ethos does not offer a monetary bug bounty program. We offer:
+Overkill does not offer a monetary bug bounty program. We offer:
 - Credit in our security acknowledgments
 - CVE assignment for qualifying vulnerabilities
 - Coordinated disclosure timeline
@@ -87,4 +87,4 @@ If a vulnerability is confirmed:
 - Social engineering attacks against maintainers
 - Attacks requiring physical access to the user's machine
 - Denial of service against GitHub infrastructure
-- Vulnerabilities in dependencies not affecting Ethos directly
+- Vulnerabilities in dependencies not affecting Overkill directly
