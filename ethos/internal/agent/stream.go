@@ -207,6 +207,15 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			// once on the assembled text — streaming UX is unchanged.
 			filtered := a.applyResponseFilter(contentBuf)
 
+			// Batch G3: hallucination scan against the session's
+			// evidence corpus. Annotates [?] after backtick-quoted
+			// identifiers that don't appear elsewhere in history.
+			// Conservative — annotation only, no deletions; false
+			// positives become noise, not data loss.
+			if hs := a.getHallucinationScanner(); hs != nil {
+				filtered = hs.Scan(filtered, a.buildEvidenceCorpus(nil))
+			}
+
 			if len(toolCalls) == 0 {
 				runResult.Response = filtered
 				runResult.ToolCalls += 0

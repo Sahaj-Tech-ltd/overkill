@@ -1005,6 +1005,15 @@ func buildTUIApp() *tui.App {
 		a.SetPostWriteVerifier(va)
 	}
 
+	// Batch G3 — hallucination scanner. Annotates [?] after
+	// backtick-quoted identifiers in the assembled response that
+	// don't appear in the session's evidence (history + tool
+	// outputs + system prompt). Conservative — annotation only,
+	// never deletes. Disabled via OVERKILL_NO_HALLUSCAN=1.
+	if hs := newHalluscanAdapter(); hs != nil {
+		a.SetHallucinationScanner(hs)
+	}
+
 	// Master plan §6.1: wire the memory orchestrator into the agent so each
 	// turn enriches the system prompt with top-K relevant memories. Adapter
 	// keeps internal/agent free of the internal/memory import.

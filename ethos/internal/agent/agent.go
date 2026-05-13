@@ -93,6 +93,12 @@ type Agent struct {
 	verifierMu        sync.RWMutex
 	postWriteVerifier PostWriteVerifier
 
+	// hallucinationScanner annotates the assembled response with
+	// [?] markers after unverified identifier references (Batch G3).
+	// Optional; nil disables. Uses a.mu since reads happen on the
+	// post-stream path that already holds the lock.
+	hallucinationScanner HallucinationScanner
+
 	// stopCh is closed when an external estop fires. The streaming
 	// loop selects on it alongside ctx.Done() so an estop interrupts
 	// in-flight tool dispatch as fast as cancellation.
