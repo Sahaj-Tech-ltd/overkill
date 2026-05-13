@@ -368,6 +368,14 @@ func (m *appModel) bootstrapSession() {
 	if err := m.app.Store.Create(context.Background(), s); err == nil {
 		m.currentSession = s
 		m.installSessionHistory(s.ID)
+		// §4.6 MaxSessions: prune oldest sessions when the cap is set.
+		// 0 = unlimited (default). Best-effort: error is logged but
+		// never blocks session creation.
+		if m.app.Config != nil && m.app.Config.Session.MaxSessions > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_, _ = session.EnforceMax(ctx, m.app.Store, m.app.Config.Session.MaxSessions)
+			cancel()
+		}
 	}
 }
 
@@ -1220,18 +1228,44 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.toastCmd("press ctrl+c again to exit", "warning")
 		}
 
-		// esc: double-press to exit when no dialog is open. Mirrors ctrl+c —
-		// first press cancels in-flight stream, second press exits.
+		// esc: TWO different double-press flows, picked by whether the
+		// agent is busy:
+		//   - busy:  arm-then-INTERRUPT. Second Esc within 2s cancels
+		//            the stream AND drops the latest queued message
+		//            back into the editor for editing. Earlier queued
+		//            entries are discarded.
+		//   - idle:  arm-then-EXIT. Second Esc within 2s quits.
+		// Both branches share m.escArmedAt — mutually exclusive states.
 		if ev.String() == "esc" && m.openDialog == dialogNone {
 			now := time.Now()
-			if !m.escArmedAt.IsZero() && now.Sub(m.escArmedAt) < 2*time.Second {
-				m.chatPage.CancelStream()
+			armed := !m.escArmedAt.IsZero() && now.Sub(m.escArmedAt) < 2*time.Second
+
+			if m.chatPage.IsBusy() {
+				if armed {
+					m.escArmedAt = time.Time{}
+					restored, _ := m.chatPage.InterruptStream()
+					if restored != "" {
+						if ed := m.chatPage.Editor(); ed != nil {
+							ed.SetValue(restored)
+						}
+						return m, m.toastCmd("agent interrupted — queued message restored", "warning")
+					}
+					return m, m.toastCmd("agent interrupted", "warning")
+				}
+				m.escArmedAt = now
+				depth := m.chatPage.QueueDepth()
+				msg := "press esc again to interrupt agent"
+				if depth > 0 {
+					msg = fmt.Sprintf("press esc again to interrupt agent (%d queued)", depth)
+				}
+				return m, m.toastCmd(msg, "warning")
+			}
+
+			// Idle: exit flow.
+			if armed {
 				return m, tea.Quit
 			}
 			m.escArmedAt = now
-			if m.chatPage.CancelStream() {
-				return m, m.toastCmd("stream cancelled — esc again to exit", "warning")
-			}
 			return m, m.toastCmd("press esc again to exit", "warning")
 		}
 
@@ -1746,9 +1780,40 @@ func (m *appModel) persistSession() {
 	m.currentSession.Messages = hist
 	m.currentSession.TurnCount = len(hist)
 	if m.currentSession.Title == "" || strings.HasPrefix(m.currentSession.Title, "session ") {
-		m.currentSession.Title = deriveTitle(hist)
+		// §4.6 AutoTitle: when at least one round-trip has completed and
+		// the config flag is on (default true), ask the model for a
+		// short descriptive title. Falls back to the legacy first-user-
+		// message truncation on any error so we never leave the session
+		// title-less if the title-gen call fails.
+		var title string
+		if m.app.Config != nil && m.app.Config.Session.AutoTitle && hasUserAndAssistant(hist) {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			if t, err := m.app.Agent.GenerateTitle(ctx); err == nil && t != "" {
+				title = t
+			}
+			cancel()
+		}
+		if title == "" {
+			title = deriveTitle(hist)
+		}
+		m.currentSession.Title = title
 	}
 	_ = m.app.Store.Save(context.Background(), m.currentSession)
+}
+
+// hasUserAndAssistant returns true when the history has at least one
+// user message followed by at least one assistant message — the minimum
+// state for a meaningful auto-title.
+func hasUserAndAssistant(hist []providers.Message) bool {
+	sawUser := false
+	for _, m := range hist {
+		if m.Role == "user" {
+			sawUser = true
+		} else if m.Role == "assistant" && sawUser {
+			return true
+		}
+	}
+	return false
 }
 
 // deriveTitle picks a short label from the first user message in history.

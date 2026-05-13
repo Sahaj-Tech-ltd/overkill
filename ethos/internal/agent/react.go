@@ -125,6 +125,25 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 			continue
 		}
 
+		// §4.8: auto-snapshot before destructive ops. Best-effort — a
+		// snapshot failure is logged via emit but does NOT block the
+		// tool. The user's intent is primary; the snapshot is a safety
+		// net, not a gate.
+		if reason, err := a.preToolCheckpoint(tc.Name, string(input)); err != nil {
+			a.emit("checkpoint_failed", map[string]any{
+				"tool":       tc.Name,
+				"reason":     reason,
+				"error":      err.Error(),
+				"session_id": a.sessionID,
+			})
+		} else if reason != "" {
+			a.emit("checkpoint_taken", map[string]any{
+				"tool":       tc.Name,
+				"reason":     reason,
+				"session_id": a.sessionID,
+			})
+		}
+
 		// Notify subscribers (plugins, journal) before execution.
 		a.emit("tool_call", map[string]any{
 			"tool":       tc.Name,

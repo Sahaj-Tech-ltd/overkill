@@ -40,6 +40,18 @@ type ChatPage struct {
 	// starts, cleared when it completes or is cancelled. Lets the parent TUI
 	// abort an in-flight request on Ctrl+C / Esc so tokens stop burning.
 	streamCancel context.CancelFunc
+
+	// pendingQueue holds user messages typed while a previous stream is
+	// still running. Drained FIFO when the in-flight stream finishes
+	// naturally. The user can interrupt via double-Esc — on interrupt the
+	// LAST queued message is popped back into the editor for editing,
+	// earlier queued entries are discarded (their intent is stale).
+	//
+	// Semantics chosen because: (1) the latest message is the most
+	// current expression of user intent — that's the one they want to
+	// edit; (2) the user explicitly said "msg thats in queue comes back
+	// to the tui field" (singular).
+	pendingQueue []string
 }
 
 // CancelStream aborts the in-flight LLM stream (if any) by cancelling its
@@ -53,6 +65,61 @@ func (c *ChatPage) CancelStream() bool {
 	c.streamCancel()
 	c.streamCancel = nil
 	return true
+}
+
+// QueueDepth returns the number of user messages waiting behind the
+// current in-flight stream. Drains FIFO when the stream finishes.
+func (c *ChatPage) QueueDepth() int {
+	return len(c.pendingQueue)
+}
+
+// InterruptStream cancels the in-flight stream AND drains the pending
+// queue. Returns the LAST queued text (the user's most-recent intent) so
+// the TUI can drop it back into the editor for editing. Earlier queued
+// entries are discarded — they were superseded by the user's later
+// thinking. Returns ("", false) when nothing was running.
+//
+// Spec: user hits Esc twice → stream stops, latest queued message comes
+// back to the editor field, user can edit and resend.
+func (c *ChatPage) InterruptStream() (string, bool) {
+	if !c.busy && len(c.pendingQueue) == 0 {
+		return "", false
+	}
+	c.CancelStream()
+	var restore string
+	if n := len(c.pendingQueue); n > 0 {
+		restore = c.pendingQueue[n-1]
+		c.pendingQueue = nil
+	}
+	return restore, true
+}
+
+// startStream constructs the tea.Cmd that begins streaming `input` to
+// the agent. Extracted from the SendMsg branch so it can also be
+// invoked when the queue drains after a prior stream finishes.
+func (c *ChatPage) startStream(input string) tea.Cmd {
+	c.busy = true
+	c.streaming = true
+	c.streamBuf = ""
+	c.messages.Append(chat.NewMessage("user", input))
+	// Placeholder assistant message — mutated in-place by chunks.
+	c.messages.Append(chat.NewMessage("assistant", ""))
+	c.pulse.SetWidth(c.width)
+	pulseCmd := c.pulse.Start()
+
+	agt := c.agent
+	// Cancellable ctx so CancelStream / InterruptStream can stop the
+	// in-flight provider call between chunks.
+	ctx, cancel := context.WithCancel(context.Background())
+	c.streamCancel = cancel
+	streamStart := func() tea.Msg {
+		ch, err := agt.Stream(ctx, input)
+		if err != nil {
+			return tuitypes.AgentResponseMsg{Err: err, Done: true}
+		}
+		return streamReadyMsg{ch: ch}
+	}
+	return tea.Batch(pulseCmd, streamStart)
 }
 
 // PulseFrame returns the bgpulse frame for tests / external rendering.
@@ -189,33 +256,17 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 		return c, lcmd
 
 	case tuitypes.SendMsg:
-		if c.busy || c.agent == nil || msg.Text == "" {
+		if c.agent == nil || msg.Text == "" {
 			return c, nil
 		}
-		c.busy = true
-		c.messages.Append(chat.NewMessage("user", msg.Text))
-		// Append a placeholder assistant message we'll mutate in-place.
-		c.messages.Append(chat.NewMessage("assistant", ""))
-		c.streaming = true
-		c.streamBuf = ""
-		c.pulse.SetWidth(c.width)
-		pulseCmd := c.pulse.Start()
-
-		input := msg.Text
-		agt := c.agent
-		// Cancellable context: parent TUI calls CancelStream() on Ctrl+C/Esc
-		// to stop in-flight tokens. The agent's Stream loop selects on
-		// ctx.Done() between chunks, so cancellation propagates promptly.
-		ctx, cancel := context.WithCancel(context.Background())
-		c.streamCancel = cancel
-		streamStart := func() tea.Msg {
-			ch, err := agt.Stream(ctx, input)
-			if err != nil {
-				return tuitypes.AgentResponseMsg{Err: err, Done: true}
-			}
-			return streamReadyMsg{ch: ch}
+		// While an existing stream runs we queue rather than refusing or
+		// starting in parallel. The queue drains FIFO on natural Done.
+		// User can interrupt via double-Esc (see InterruptStream).
+		if c.busy {
+			c.pendingQueue = append(c.pendingQueue, msg.Text)
+			return c, nil
 		}
-		return c, tea.Batch(pulseCmd, streamStart)
+		return c, c.startStream(msg.Text)
 
 	case bgpulse.TickMsg:
 		var pcmd tea.Cmd
@@ -246,6 +297,14 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 				c.streamCancel = nil
 			}
 			c.messages.FinalizeLastAssistant()
+			// Drain queue head — FIFO. The user's earliest still-pending
+			// intent runs next. If they wanted to skip it, they'd have
+			// hit Esc twice (InterruptStream discards the queue).
+			if len(c.pendingQueue) > 0 {
+				next := c.pendingQueue[0]
+				c.pendingQueue = c.pendingQueue[1:]
+				return c, c.startStream(next)
+			}
 			return c, nil
 		}
 		if msg.Chunk != "" {

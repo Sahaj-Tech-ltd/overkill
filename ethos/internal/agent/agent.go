@@ -117,6 +117,12 @@ type Agent struct {
 	sessionCtx    context.Context
 	sessionCancel context.CancelFunc
 
+	// checkpointSnapshotter, if set, is invoked automatically before
+	// destructive tool calls so the user always has a rollback target.
+	// §4.8: "AI WILL delete features, AI WILL go rogue — git is the
+	// safety net." Nil-safe.
+	checkpointSnapshotter CheckpointSnapshotter
+
 	// learningRecorder receives a class key on each Run() that succeeds
 	// after a prior Run() failed with the same class — the "I recovered
 	// from this" signal (§6.2). Nil-safe.

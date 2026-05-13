@@ -460,6 +460,10 @@ func buildTUIApp() *tui.App {
 	// Uses its own Badger DB under ~/.overkill/memory; wires the Python bridge
 	// for embeddings/rerank when OVERKILL_BRIDGE_ADDR is set.
 	var memOrch *memorypkg.Orchestrator
+	// bridgeClient is hoisted so multiple wire-ups can reuse the same gRPC
+	// connection: memory embeddings AND the optional bridge-backed prompt
+	// compressor (§4.4). nil when OVERKILL_BRIDGE_ADDR isn't set.
+	var bridgeClient *bridge.Client
 	if home, err := os.UserHomeDir(); err == nil {
 		memDir := filepath.Join(home, ".overkill", "memory")
 		_ = os.MkdirAll(memDir, 0o755)
@@ -468,6 +472,7 @@ func buildTUIApp() *tui.App {
 			memOrch = memorypkg.NewOrchestrator(memStore, provider, modelName)
 			if addr := os.Getenv("OVERKILL_BRIDGE_ADDR"); addr != "" {
 				if bc, berr := bridge.NewClient(addr); berr == nil {
+					bridgeClient = bc // hoisted; reused by prompt compressor wire-up
 					embedModel := os.Getenv("OVERKILL_EMBED_MODEL")
 					if embedModel == "" {
 						embedModel = "text-embedding-3-small"
@@ -730,10 +735,16 @@ func buildTUIApp() *tui.App {
 		lspMgr := lsp.NewManager(lspCfg, cwd)
 		go lspMgr.Start(context.Background())
 		app.LSP = lspMgr
-		toolReg.Register(tools.NewLSPDefinitionTool(lspMgr))
-		toolReg.Register(tools.NewLSPReferencesTool(lspMgr))
-		toolReg.Register(tools.NewLSPHoverTool(lspMgr))
-		toolReg.Register(tools.NewLSPSymbolsTool(lspMgr))
+		// Wrap the concrete manager in a small adapter so the tools package
+		// only sees a minimal interface and can't accidentally reach into
+		// manager internals.
+		if app.LSP != nil {
+			q := newLSPManagerAdapter(lspMgr)
+			toolReg.Register(tools.NewLSPHoverTool(q))
+			toolReg.Register(tools.NewLSPDefinitionTool(q))
+			toolReg.Register(tools.NewLSPReferencesTool(q))
+			toolReg.Register(tools.NewLSPSymbolsTool(lspMgr))
+		}
 	}
 
 	// Build agent first so we can pass a bridge into ask_user that calls
@@ -771,10 +782,24 @@ func buildTUIApp() *tui.App {
 
 	// LLMLingua-style prompt compression (master plan §4.4). Off by default
 	// — opt in via cfg.Compaction.PromptCompress because it adds an LLM
-	// round-trip on high-utilization turns.
+	// round-trip on high-utilization turns. When the Python bridge is up
+	// we prefer routing compression through bridge.Compact: cheap-model
+	// compression is the WHOLE POINT of this knob, and the bridge can
+	// front a much smaller model than the main agent's provider.
 	if cfg != nil && cfg.Compaction.PromptCompress {
-		pc := compaction.NewPromptCompressor(provider, modelName)
-		a.SetPromptCompressor(&promptCompressorAdapter{inner: pc}, 0.7)
+		if bridgeClient != nil {
+			compressModel := os.Getenv("OVERKILL_COMPRESS_MODEL")
+			if compressModel == "" {
+				compressModel = modelName
+			}
+			a.SetPromptCompressor(&bridgeCompressorAdapter{
+				client: bridgeClient,
+				model:  compressModel,
+			}, 0.7)
+		} else {
+			pc := compaction.NewPromptCompressor(provider, modelName)
+			a.SetPromptCompressor(&promptCompressorAdapter{inner: pc}, 0.7)
+		}
 	}
 
 	// LCM compaction (master plan §4.4). Default-on; flip
@@ -845,6 +870,14 @@ func buildTUIApp() *tui.App {
 	// keeps internal/agent free of the internal/memory import.
 	if memOrch != nil {
 		a.SetMemoryRetriever(&memoryRetrieverAdapter{orch: memOrch})
+	}
+
+	// Master plan §4.8: install the auto-snapshot hook on the agent. The
+	// existing checkpoint_snapshot tool stays for manual use; this makes
+	// the safety net fire automatically before destructive tools so the
+	// user always has a rollback target — "AI WILL delete features."
+	if app.Checkpoints != nil {
+		a.SetCheckpointSnapshotter(&checkpointSnapshotterAdapter{mgr: app.Checkpoints})
 	}
 
 	// Master plan §6.2: feed recovered-from-error signals into the

@@ -236,6 +236,23 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 						return
 					}
 
+					// §4.8 auto-snapshot. Same best-effort policy as the
+					// react path; never blocks the tool call.
+					if reason, ckErr := a.preToolCheckpoint(call.Name, string(input)); ckErr != nil {
+						a.emit("checkpoint_failed", map[string]any{
+							"tool":       call.Name,
+							"reason":     reason,
+							"error":      ckErr.Error(),
+							"session_id": a.sessionID,
+						})
+					} else if reason != "" {
+						a.emit("checkpoint_taken", map[string]any{
+							"tool":       call.Name,
+							"reason":     reason,
+							"session_id": a.sessionID,
+						})
+					}
+
 					output, toolErr := a.executeTool(ctx, call.Name, input)
 
 					toolResults[idx] = ToolResult{

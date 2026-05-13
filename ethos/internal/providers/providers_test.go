@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -143,33 +142,27 @@ func TestRetry_HonorRetryAfter(t *testing.T) {
 }
 
 func TestRetry_BackoffIncreases(t *testing.T) {
-	var mu sync.Mutex
-	var delays []time.Duration
-	callCount := 0
-	lastAttempt := time.Now()
-
-	fn := func() (*Response, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		callCount++
-		if callCount > 1 {
-			delays = append(delays, time.Since(lastAttempt))
-		}
-		lastAttempt = time.Now()
-		return nil, &HTTPError{StatusCode: 500, Body: "fail"}
+	// Test the delay-calculation math directly rather than measuring
+	// wall-clock time between retries. The previous version compared
+	// time.Since(...) values which inflated under -race + heavy parallel
+	// load (scheduler lag added to the first delay made the growth
+	// invariant fail intermittently). The math is deterministic; only
+	// the +0..20% jitter introduces variance, and we run enough samples
+	// for the mean to clearly separate.
+	base := 10 * time.Millisecond
+	const samples = 200
+	var sum0, sum1 time.Duration
+	for i := 0; i < samples; i++ {
+		sum0 += calculateDelay(0, base)
+		sum1 += calculateDelay(1, base)
 	}
-
-	isRetryable := func(err error) bool { return true }
-
-	cfg := retryConfig{baseDelay: 10 * time.Millisecond}
-	_, _ = withRetry(fn, isRetryable, cfg)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(delays) >= 2 {
-		assert.True(t, delays[1] >= delays[0]*15/10,
-			"second delay (%v) should be >= 1.5x first delay (%v)", delays[1], delays[0])
-	}
+	mean0 := sum0 / samples
+	mean1 := sum1 / samples
+	// With growth=2 and jitter capped at +20%, mean(attempt=1) should be
+	// roughly 2× mean(attempt=0). Allow a wide margin (>= 1.5×) so the
+	// test is robust to RNG without being weak.
+	assert.True(t, mean1 >= mean0*15/10,
+		"mean delay at attempt 1 (%v) should be >= 1.5× attempt 0 (%v)", mean1, mean0)
 }
 
 func TestRetryStream_Success(t *testing.T) {

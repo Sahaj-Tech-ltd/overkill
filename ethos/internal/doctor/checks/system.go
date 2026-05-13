@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/bridge"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
 )
 
@@ -94,14 +95,35 @@ func diskFree(path string) (uint64, uint64, error) {
 	return free, total, nil
 }
 
-// RegisterBridge is info-only until the Python bridge ships.
+// RegisterBridge opens the Python bridge (when OVERKILL_BRIDGE_ADDR is set)
+// and issues a Ping RPC. Skips silently when the bridge isn't configured —
+// the bridge is optional infrastructure, not a hard requirement.
 func RegisterBridge(r *doctor.Runner, d Deps) {
 	r.Register(doctor.SubsystemCheck{
 		ID:       "bridge.python",
 		Name:     "Python bridge",
 		Category: doctor.CatBackend,
 		Fn: func(ctx context.Context) doctor.Result {
-			return info("python bridge not configured (deferred per master plan)")
+			addr := os.Getenv("OVERKILL_BRIDGE_ADDR")
+			if addr == "" {
+				return skip("OVERKILL_BRIDGE_ADDR not set — bridge optional")
+			}
+			ctx, cancel := withTimeout(ctx, 2*time.Second)
+			defer cancel()
+			bc, err := bridge.NewClient(addr)
+			if err != nil {
+				return failf("check OVERKILL_BRIDGE_ADDR and that the Python server is up",
+					"bridge dial failed at %s: %v", addr, err)
+			}
+			defer bc.Close()
+			if pong, err := bc.Ping(ctx); err != nil {
+				return failf("verify the Python server process is alive",
+					"bridge ping failed: %v", err)
+			} else if pong == "" {
+				return warnf("upgrade the Python bridge server",
+					"bridge responded but returned empty pong")
+			}
+			return okf("bridge reachable at %s", addr)
 		},
 	})
 }
