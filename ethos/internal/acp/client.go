@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Client speaks to a remote ACP server (another ethos, claude code, opencode,
+// Client speaks to a remote ACP server (another overkill, claude code, opencode,
 // or any custom agent that implements the protocol).
 type Client struct {
 	BaseURL string
@@ -89,7 +89,7 @@ func (c *Client) ListSessions(ctx context.Context) ([]json.RawMessage, error) {
 // is responsible for cancelling ctx when done.
 func (c *Client) Send(ctx context.Context, content string) (<-chan Event, error) {
 	resp, err := c.request(ctx, http.MethodPost, "/v1/messages", SendRequest{
-		From: "ethos-client", Content: content,
+		From: "overkill-client", Content: content,
 	})
 	if err != nil {
 		return nil, err

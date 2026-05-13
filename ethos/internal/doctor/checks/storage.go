@@ -23,13 +23,13 @@ func RegisterStorage(r *doctor.Runner, d Deps) {
 			dir := filepath.Join(d.ConfigDir, "sessions")
 			store, err := session.NewBadgerStore(dir)
 			if err != nil {
-				return failf("delete corrupted DB at "+dir+" and restart ethos",
+				return failf("delete corrupted DB at "+dir+" and restart overkill",
 					"badger open at %s: %v", dir, err)
 			}
 			defer store.Close()
 			// Cheap read sweep — List with empty options enumerates all keys.
 			if _, err := store.List(ctx, session.ListOptions{}); err != nil {
-				return failf("backup and remove "+dir+", then restart ethos",
+				return failf("backup and remove "+dir+", then restart overkill",
 					"badger list: %v", err)
 			}
 			return okf("session store at %s is readable", dir)

@@ -76,7 +76,7 @@ func TestAuthRejection(t *testing.T) {
 				req.Header.Set("Authorization", tc.header)
 			}
 			if tc.cookie != "" {
-				req.AddCookie(&http.Cookie{Name: "ethos-token", Value: tc.cookie})
+				req.AddCookie(&http.Cookie{Name: "overkill-token", Value: tc.cookie})
 			}
 			res, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -166,7 +166,7 @@ func TestStaticIndex(t *testing.T) {
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
-	if !strings.Contains(string(body), "<title>ethos</title>") {
+	if !strings.Contains(string(body), "<title>overkill</title>") {
 		t.Errorf("index missing title; got %d bytes", len(body))
 	}
 }

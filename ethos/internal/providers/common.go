@@ -56,7 +56,7 @@ func (bp *BaseProvider) doRequest(ctx context.Context, method, path string, body
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "ethos/0.1.0")
+	req.Header.Set("User-Agent", "overkill/0.1.0")
 
 	for k, v := range bp.headers {
 		req.Header.Set(k, v)

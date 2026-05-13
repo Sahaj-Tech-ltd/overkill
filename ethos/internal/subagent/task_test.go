@@ -110,7 +110,7 @@ func TestPersonalityUpdateTask_Validate(t *testing.T) {
 	task = &PersonalityUpdateTask{
 		SessionMessages: []providers.Message{{Role: "user", Content: "hi"}},
 		CurrentLevel:    personality.LevelFull,
-		AgentName:       "ethos",
+		AgentName:       "overkill",
 	}
 	if err := task.Validate(); err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -121,7 +121,7 @@ func TestPersonalityUpdateTask_Fields(t *testing.T) {
 	task := &PersonalityUpdateTask{
 		SessionMessages: []providers.Message{{Role: "user", Content: "hello"}},
 		CurrentLevel:    personality.LevelWitty,
-		AgentName:       "ethos",
+		AgentName:       "overkill",
 	}
 
 	if !strings.Contains(strings.ToLower(task.Goal()), "relationship") {

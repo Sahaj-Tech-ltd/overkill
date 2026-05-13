@@ -76,7 +76,7 @@ func TestProcessResponse_InfersVerboseFromLong(t *testing.T) {
 
 func TestProcessResponse_InfersTechnicalDepth(t *testing.T) {
 	csp := NewColdStartProtocol()
-	response := "Working on `main.go` with utils.parse_args and config_loader in /cmd/ethos/main.go using pkg/api/handler.go and internal/tools/shell.go plus middleware.go"
+	response := "Working on `main.go` with utils.parse_args and config_loader in /cmd/overkill/main.go using pkg/api/handler.go and internal/tools/shell.go plus middleware.go"
 	profile := csp.ProcessResponse(response)
 	assert.Equal(t, "high", profile.TechnicalDepth)
 }

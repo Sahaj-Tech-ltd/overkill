@@ -34,6 +34,6 @@ func (q QuitDialog) View(totalWidth, totalHeight int) string {
 	if !q.Show {
 		return ""
 	}
-	content := "Quit Ethos?\n\n[y] Yes  [n] No"
+	content := "Quit Overkill?\n\n[y] Yes  [n] No"
 	return q.BaseView(content, totalWidth, totalHeight)
 }

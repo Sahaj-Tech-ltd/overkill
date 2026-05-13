@@ -108,7 +108,7 @@ func NewServer(cfg Config) *Server {
 	}
 	name := cfg.Name
 	if name == "" {
-		name = "ethos"
+		name = "overkill"
 	}
 	version := cfg.Version
 	if version == "" {
@@ -128,7 +128,7 @@ func NewServer(cfg Config) *Server {
 }
 
 // Token exposes the bearer token for clients (read by /acp dialog and
-// `ethos acp token`).
+// `overkill acp token`).
 func (s *Server) Token() string { return s.token }
 
 // Addr returns the server's listen address.

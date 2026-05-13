@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package ethos.bridge;
+package overkill.bridge;
 
-option go_package = "github.com/Sahaj-Tech-ltd/ethos/bridge/proto";
+option go_package = "github.com/Sahaj-Tech-ltd/overkill/bridge/proto";
 
 service EthosBridge {
   rpc Embed(EmbedRequest) returns (EmbedResponse);

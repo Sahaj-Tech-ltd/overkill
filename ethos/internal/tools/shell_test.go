@@ -16,30 +16,30 @@ func TestAppendMarker(t *testing.T) {
 	t.Run("appends marker to simple command", func(t *testing.T) {
 		t.Parallel()
 		result := appendMarker("echo hello")
-		assert.Equal(t, "echo hello && echo __ETHOS_DONE__", result)
+		assert.Equal(t, "echo hello && echo __OVERKILL_DONE__", result)
 	})
 
 	t.Run("does not double-append if marker already present", func(t *testing.T) {
 		t.Parallel()
-		result := appendMarker("echo hello && echo __ETHOS_DONE__")
-		assert.Equal(t, "echo hello && echo __ETHOS_DONE__", result)
+		result := appendMarker("echo hello && echo __OVERKILL_DONE__")
+		assert.Equal(t, "echo hello && echo __OVERKILL_DONE__", result)
 	})
 
 	t.Run("handles trailing newline", func(t *testing.T) {
 		t.Parallel()
 		result := appendMarker("echo hello\n")
-		assert.Contains(t, result, "&& echo __ETHOS_DONE__")
+		assert.Contains(t, result, "&& echo __OVERKILL_DONE__")
 	})
 
 	t.Run("handles trailing spaces", func(t *testing.T) {
 		t.Parallel()
 		result := appendMarker("echo hello   ")
-		assert.Contains(t, result, "&& echo __ETHOS_DONE__")
+		assert.Contains(t, result, "&& echo __OVERKILL_DONE__")
 	})
 
 	t.Run("detects marker mid-command", func(t *testing.T) {
 		t.Parallel()
-		cmd := "echo __ETHOS_DONE__ && echo hello"
+		cmd := "echo __OVERKILL_DONE__ && echo hello"
 		result := appendMarker(cmd)
 		assert.Equal(t, cmd, result)
 	})
@@ -50,7 +50,7 @@ func TestStripMarker(t *testing.T) {
 
 	t.Run("strips marker from output", func(t *testing.T) {
 		t.Parallel()
-		cleaned, found := stripMarker("hello\n__ETHOS_DONE__\n")
+		cleaned, found := stripMarker("hello\n__OVERKILL_DONE__\n")
 		assert.True(t, found)
 		assert.Equal(t, "hello\n", cleaned)
 	})
@@ -64,14 +64,14 @@ func TestStripMarker(t *testing.T) {
 
 	t.Run("handles marker on same line", func(t *testing.T) {
 		t.Parallel()
-		cleaned, found := stripMarker("hello __ETHOS_DONE__\n")
+		cleaned, found := stripMarker("hello __OVERKILL_DONE__\n")
 		assert.True(t, found)
 		assert.Equal(t, "hello\n", cleaned)
 	})
 
 	t.Run("handles empty output with marker", func(t *testing.T) {
 		t.Parallel()
-		cleaned, found := stripMarker("__ETHOS_DONE__\n")
+		cleaned, found := stripMarker("__OVERKILL_DONE__\n")
 		assert.True(t, found)
 		assert.Equal(t, "", cleaned)
 	})
@@ -102,7 +102,7 @@ func TestShellCompleted(t *testing.T) {
 		assert.Equal(t, 0, result.ExitCode)
 		assert.True(t, result.Completed)
 		assert.Contains(t, result.Stdout, "hello")
-		assert.NotContains(t, result.Stdout, "__ETHOS_DONE__")
+		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 
 	t.Run("failing command sets completed false", func(t *testing.T) {
@@ -168,7 +168,7 @@ func TestShellCompleted(t *testing.T) {
 		assert.Contains(t, result.Stdout, "line1")
 		assert.Contains(t, result.Stdout, "line2")
 		assert.Contains(t, result.Stdout, "line3")
-		assert.NotContains(t, result.Stdout, "__ETHOS_DONE__")
+		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 
 	t.Run("command producing no stdout completes", func(t *testing.T) {
@@ -200,12 +200,12 @@ func TestShellCompleted(t *testing.T) {
 		require.NoError(t, json.Unmarshal(out, &result))
 		assert.True(t, result.Completed)
 		assert.Contains(t, result.Stdout, "works")
-		assert.NotContains(t, result.Stdout, "__ETHOS_DONE__")
+		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 
 	t.Run("pre-existing marker in command is not double-appended", func(t *testing.T) {
 		t.Parallel()
-		input := ShellInput{Command: "echo hello && echo __ETHOS_DONE__"}
+		input := ShellInput{Command: "echo hello && echo __OVERKILL_DONE__"}
 		raw, _ := json.Marshal(input)
 
 		out, err := shell.Execute(context.Background(), raw)
@@ -216,7 +216,7 @@ func TestShellCompleted(t *testing.T) {
 		assert.True(t, result.Completed)
 		assert.Equal(t, 0, result.ExitCode)
 		assert.Contains(t, result.Stdout, "hello")
-		assert.NotContains(t, result.Stdout, "__ETHOS_DONE__")
+		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 }
 
@@ -261,7 +261,7 @@ func TestShellCompletedEdgeCases(t *testing.T) {
 		assert.True(t, result.Completed)
 		assert.Contains(t, result.Stdout, "first")
 		assert.Contains(t, result.Stdout, "second")
-		assert.NotContains(t, result.Stdout, "__ETHOS_DONE__")
+		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 
 	t.Run("compound command fails midway completed false", func(t *testing.T) {
@@ -292,7 +292,7 @@ func TestShellCompletedEdgeCases(t *testing.T) {
 		require.NoError(t, json.Unmarshal(out, &result))
 		assert.True(t, result.Completed)
 		assert.Contains(t, result.Stdout, "Hello")
-		assert.NotContains(t, result.Stdout, "__ETHOS_DONE__")
+		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 
 	t.Run("subshell exit does not complete", func(t *testing.T) {
@@ -323,6 +323,6 @@ func TestShellCompletedEdgeCases(t *testing.T) {
 		require.NoError(t, json.Unmarshal(out, &result))
 		assert.Equal(t, 0, result.ExitCode)
 		assert.True(t, result.Completed)
-		assert.NotContains(t, result.Stdout, "__ETHOS_DONE__")
+		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 }

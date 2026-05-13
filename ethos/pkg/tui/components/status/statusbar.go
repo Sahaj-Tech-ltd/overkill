@@ -68,7 +68,7 @@ func NewStatusBar() StatusBarModel {
 	cwd, _ := os.Getwd()
 	return StatusBarModel{
 		state:     tuitypes.StatusIdle,
-		modelName: "ethos",
+		modelName: "overkill",
 		width:     80,
 		cwd:       cwd,
 	}

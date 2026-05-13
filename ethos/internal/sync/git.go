@@ -77,7 +77,7 @@ func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta Sess
 	if out, err := runGit(g.dir, "add", id+".json.gz", id+".meta.json"); err != nil {
 		return fmt.Errorf("sync/git: add: %s: %w", out, err)
 	}
-	if out, err := runGit(g.dir, "-c", "user.email=ethos@local", "-c", "user.name=ethos",
+	if out, err := runGit(g.dir, "-c", "user.email=overkill@local", "-c", "user.name=overkill",
 		"commit", "-m", "sync: "+id, "--allow-empty"); err != nil {
 		// Ignore "nothing to commit"
 		if !strings.Contains(out, "nothing to commit") && !strings.Contains(out, "nothing added") {
@@ -150,7 +150,7 @@ func (g *GitBackend) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	_, _ = runGit(g.dir, "add", "-A")
-	_, _ = runGit(g.dir, "-c", "user.email=ethos@local", "-c", "user.name=ethos",
+	_, _ = runGit(g.dir, "-c", "user.email=overkill@local", "-c", "user.name=overkill",
 		"commit", "-m", "sync: delete "+id)
 	if g.remote != "" {
 		_, _ = runGit(g.dir, "push", "origin", g.branch)

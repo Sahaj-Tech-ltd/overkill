@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-// Manager owns the singleton browser session for an ethos process. Lazy-spawns
+// Manager owns the singleton browser session for an overkill process. Lazy-spawns
 // Chrome on the first call to Get and tears it down via Shutdown.
 type Manager struct {
 	mu      sync.Mutex

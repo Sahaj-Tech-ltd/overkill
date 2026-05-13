@@ -53,7 +53,7 @@ func (d MCPDialog) View(w, h int) string {
 	}
 	t := theme.CurrentTheme()
 	if len(d.statuses) == 0 {
-		return d.BaseView("No MCP servers configured.\n\nAdd entries under [mcp] in your ethos config.\n\n[esc] close", w, h)
+		return d.BaseView("No MCP servers configured.\n\nAdd entries under [mcp] in your overkill config.\n\n[esc] close", w, h)
 	}
 
 	muted := lipgloss.NewStyle().Foreground(t.TextMuted())

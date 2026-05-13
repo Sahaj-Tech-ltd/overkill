@@ -1,5 +1,5 @@
 // Package checks bundles the individual subsystem checks that the Runner
-// composes for `ethos doctor`. Each file in this package owns one related
+// composes for `overkill doctor`. Each file in this package owns one related
 // group of checks (config, providers, storage, etc.) and exposes a Register
 // helper that the CLI wires together.
 package checks

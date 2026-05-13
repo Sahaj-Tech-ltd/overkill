@@ -31,7 +31,7 @@ func (er *ExportRitual) Export(ctx context.Context) error {
 	}
 
 	var b strings.Builder
-	b.WriteString("# Ethos Memory Export\n\n")
+	b.WriteString("# Overkill Memory Export\n")
 	b.WriteString(fmt.Sprintf("Generated: %s\n\n", time.Now().UTC().Format(time.RFC3339)))
 
 	if len(sessions) == 0 {

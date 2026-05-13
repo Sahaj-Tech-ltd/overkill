@@ -16,7 +16,7 @@ func RegisterConfig(r *doctor.Runner, d Deps) {
 		Category: doctor.CatCore,
 		Fn: func(ctx context.Context) doctor.Result {
 			if d.Cfg == nil {
-				return failf("run `ethos setup` to create ~/.overkill/config.toml", "no config loaded")
+				return failf("run `overkill setup` to create ~/.overkill/config.toml", "no config loaded")
 			}
 			errs := d.Cfg.Validate()
 			warns := d.Cfg.Warnings()

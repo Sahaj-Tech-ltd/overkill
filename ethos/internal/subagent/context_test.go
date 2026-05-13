@@ -18,7 +18,7 @@ func TestContextExport_Marshal(t *testing.T) {
 			Language:            "go",
 			RelatedConversation: "user asked about OAuth2",
 		},
-		EthosVersion: "0.1.0",
+		OverkillVersion: "0.1.0",
 	}
 
 	jsonStr, err := original.ToJSON()
@@ -37,8 +37,8 @@ func TestContextExport_Marshal(t *testing.T) {
 	if got.Goal != original.Goal {
 		t.Errorf("Goal = %q, want %q", got.Goal, original.Goal)
 	}
-	if got.EthosVersion != original.EthosVersion {
-		t.Errorf("EthosVersion = %q, want %q", got.EthosVersion, original.EthosVersion)
+	if got.OverkillVersion != original.OverkillVersion {
+		t.Errorf("OverkillVersion = %q, want %q", got.OverkillVersion, original.OverkillVersion)
 	}
 	if len(got.Context.FilesModified) != 1 || got.Context.FilesModified[0] != "auth.go" {
 		t.Errorf("FilesModified = %v, want [auth.go]", got.Context.FilesModified)
@@ -67,7 +67,7 @@ func TestContextExport_SecretFiltering(t *testing.T) {
 		Context: ExportContext{
 			Constraints: "API_KEY=sk-abc123secret DATA=test password=hunter2 TOKEN=sk-proj-abcdefghijklmnopqrstuvwx",
 		},
-		EthosVersion: "0.2.0",
+		OverkillVersion: "0.2.0",
 	}
 
 	filtered := original.FilterSecrets()

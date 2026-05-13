@@ -13,9 +13,9 @@ import (
 )
 
 const testHTML = `<!doctype html>
-<html><head><title>Ethos Test Page</title></head>
+<html><head><title>Overkill Test Page</title></head>
 <body>
-<h1 id="hdr">Hello Ethos</h1>
+<h1 id="hdr">Hello Overkill</h1>
 <p class="lead">A simple page for the browser test.</p>
 <form id="f" method="get" action="/submit">
   <input id="name" name="name" value="">
@@ -56,7 +56,7 @@ func TestBrowserEndToEnd(t *testing.T) {
 		t.Fatalf("navigate: %v", err)
 	}
 	title, err := b.Title()
-	if err != nil || title != "Ethos Test Page" {
+	if err != nil || title != "Overkill Test Page" {
 		t.Fatalf("title=%q err=%v", title, err)
 	}
 
@@ -69,7 +69,7 @@ func TestBrowserEndToEnd(t *testing.T) {
 	}
 
 	text, err := b.Text("#hdr")
-	if err != nil || !strings.Contains(text, "Hello Ethos") {
+	if err != nil || !strings.Contains(text, "Hello Overkill") {
 		t.Fatalf("text=%q err=%v", text, err)
 	}
 

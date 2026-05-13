@@ -27,7 +27,7 @@ type ACPEvent struct {
 }
 
 // StreamACPRaw runs Stream and emits the protocol-friendly ACPEvent shape.
-// The acp package wraps this via a tiny adapter (see cmd/ethos/tui.go).
+// The acp package wraps this via a tiny adapter (see cmd/overkill/tui.go).
 func (a *Agent) StreamACPRaw(ctx context.Context, userInput string) (<-chan ACPEvent, error) {
 	src, err := a.Stream(ctx, userInput)
 	if err != nil {

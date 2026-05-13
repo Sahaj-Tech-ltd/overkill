@@ -2,7 +2,7 @@
 //
 // Before any destructive write, the agent calls Checkpoint.Snapshot(paths)
 // to copy the current contents into ~/.overkill/checkpoints/<id>/. A single
-// `ethos rollback <id>` (or the live /rollback slash command) restores the
+// `overkill rollback <id>` (or the live /rollback slash command) restores the
 // snapshot. Checkpoints auto-prune; only the last N are kept per session.
 //
 // Goals:

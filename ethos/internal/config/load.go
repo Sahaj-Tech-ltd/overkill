@@ -23,7 +23,7 @@ func Default() *Config {
 	return &Config{
 		Version: CurrentVersion,
 		Agent: AgentConfig{
-			Name:            "Ethos",
+			Name:            "Overkill",
 			DefaultProvider: "openai",
 			DefaultModel:    "gpt-4o",
 			MaxTurns:        0,

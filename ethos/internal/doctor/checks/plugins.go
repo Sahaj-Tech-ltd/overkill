@@ -16,7 +16,7 @@ func (noopBridge) SessionInfo() plugin.SessionInfo { return plugin.SessionInfo{I
 func (noopBridge) ConfigValue(string) (any, bool)  { return nil, false }
 func (noopBridge) Toast(string, string)            {}
 
-// RegisterPlugins runs the doctor handshake (mirrors `ethos plugin doctor`)
+// RegisterPlugins runs the doctor handshake (mirrors `overkill plugin doctor`)
 // against every plugin discovered under ~/.overkill/plugins. We deliberately
 // reuse the public discovery + start path rather than re-implement it.
 func RegisterPlugins(r *doctor.Runner, d Deps) {
@@ -61,7 +61,7 @@ func RegisterPlugins(r *doctor.Runner, d Deps) {
 					c.SetStaticManifest(*p.StaticManifest)
 				}
 				if err := c.Start(ctx); err != nil {
-					return failf("run `ethos plugin doctor "+p.Name+"` for details",
+					return failf("run `overkill plugin doctor "+p.Name+"` for details",
 						"start: %v", err)
 				}
 				_ = c.Shutdown(ctx)

@@ -43,7 +43,7 @@ func RoleLabel(role string) string {
 		label = "You:"
 	case "assistant":
 		color = th.Secondary()
-		label = "Ethos:"
+		label = "Overkill:"
 	case "tool":
 		color = th.TextMuted()
 		label = "Tool:"

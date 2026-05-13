@@ -47,7 +47,7 @@ type Manager struct {
 	driverFactory func(*Contract) (StepDriver, error)
 
 	// failureSink, when set, is invoked when a contract terminates in any
-	// non-completed state. Used by cmd/ethos to push delegation_failure
+	// non-completed state. Used by cmd/overkill to push delegation_failure
 	// alerts into the journal AlertStore. Best-effort: fired in a goroutine.
 	failureSink HandoffFailureSink
 }
@@ -67,7 +67,7 @@ func (m *Manager) SetFailureSink(s HandoffFailureSink) {
 	m.mu.Unlock()
 }
 
-// SetDriverFactory wires a per-contract StepDriver builder. cmd/ethos calls
+// SetDriverFactory wires a per-contract StepDriver builder. cmd/overkill calls
 // this once at startup with a closure that constructs a clean child agent.
 func (m *Manager) SetDriverFactory(f func(*Contract) (StepDriver, error)) {
 	m.mu.Lock()

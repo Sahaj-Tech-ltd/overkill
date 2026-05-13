@@ -29,7 +29,7 @@ import (
 // IMPORTANT: this puts stdin in raw mode temporarily. Call BEFORE Bubble Tea
 // initializes (tea.NewProgram), not after. Racing with Bubble Tea's own
 // terminal setup causes garbled input and hangs over SSH. The caller in
-// cmd/ethos/tui.go guards this by only probing on local ttys.
+// cmd/overkill/tui.go guards this by only probing on local ttys.
 func QueryBackground(timeout time.Duration) (dark bool, err error) {
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {

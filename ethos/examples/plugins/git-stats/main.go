@@ -86,7 +86,7 @@ func main() {
 		defer cancel()
 		// Best-effort: stash whatever is currently dirty so the user can
 		// recover state even though the conversation just got compacted.
-		_, _ = runGit(ctx, "", "stash", "push", "-u", "-m", "ethos pre-compact "+time.Now().Format(time.RFC3339))
+		_, _ = runGit(ctx, "", "stash", "push", "-u", "-m", "overkill pre-compact "+time.Now().Format(time.RFC3339))
 	})
 
 	p.OnContext(func(ctx context.Context, prompt, sessionID string) []sdk.ContextSnippet {

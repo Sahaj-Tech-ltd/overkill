@@ -63,7 +63,7 @@ func RegisterTools(r *doctor.Runner, d Deps) {
 			}
 			if len(missing) > 0 {
 				sort.Strings(missing)
-				return failf("rebuild ethos from a clean checkout",
+				return failf("rebuild overkill from a clean checkout",
 					"missing built-in tools: %v", missing)
 			}
 			return okf("%d tools registered", len(reg.List()))
@@ -71,7 +71,7 @@ func RegisterTools(r *doctor.Runner, d Deps) {
 	})
 }
 
-// buildToolRegistry mirrors cmd/ethos/run.go so the doctor reflects what the
+// buildToolRegistry mirrors cmd/overkill/run.go so the doctor reflects what the
 // agent actually loads. Kept narrow on purpose — anything optional belongs
 // in its own check.
 func buildToolRegistry() *tools.Registry {

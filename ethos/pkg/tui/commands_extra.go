@@ -258,7 +258,7 @@ func (m *appModel) runJournal() tea.Cmd {
 }
 
 // runUsage prints today's session cost as a toast. The full breakdown lives
-// behind `ethos usage` so we don't crowd the chat with a long table.
+// behind `overkill usage` so we don't crowd the chat with a long table.
 func (m *appModel) runUsage() tea.Cmd {
 	if m.app == nil || m.app.Costs == nil {
 		return m.toastCmd("usage: cost tracker not configured", "warning")
@@ -317,14 +317,14 @@ func (m *appModel) runMode() tea.Cmd {
 }
 
 // runOrders lists active standing orders. Mutation lives in the CLI
-// (`ethos orders add|rm`) so the TUI doesn't need a free-text input here.
+// (`overkill orders add|rm`) so the TUI doesn't need a free-text input here.
 func (m *appModel) runOrders() tea.Cmd {
 	if m.app == nil || m.app.StandingOrders == nil {
 		return m.toastCmd("orders: standing orders not configured", "warning")
 	}
 	active := m.app.StandingOrders.Active()
 	if len(active) == 0 {
-		return m.toastCmd("orders: none active (use `ethos orders add \"...\"`)", "info")
+		return m.toastCmd("orders: none active (use `overkill orders add \"...\"`)", "info")
 	}
 	first := active[0].Text
 	if len(first) > 60 {

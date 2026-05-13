@@ -31,7 +31,7 @@ type StatusInfo struct {
 // CloseStatusDialogMsg dismisses the dialog.
 type CloseStatusDialogMsg struct{}
 
-// StatusDialog displays a summary of the currently running ethos instance.
+// StatusDialog displays a summary of the currently running overkill instance.
 type StatusDialog struct {
 	Dialog
 	Info StatusInfo

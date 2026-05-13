@@ -47,7 +47,7 @@ func TestFetchCatalog_Live(t *testing.T) {
 	withTempHome(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "ethos/") {
+		if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "overkill/") {
 			t.Errorf("User-Agent missing/invalid: %q", got)
 		}
 		_, _ = w.Write([]byte(fakePayload))

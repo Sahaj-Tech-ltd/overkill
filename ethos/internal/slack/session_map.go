@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// SessionMap maps a Slack thread anchor (channel + thread_ts) to an ethos
+// SessionMap maps a Slack thread anchor (channel + thread_ts) to an overkill
 // session id. Persisted as JSON so the bot can resume in-flight threads
 // across restarts. New thread → new session; replies inside a thread reuse
 // the same session.

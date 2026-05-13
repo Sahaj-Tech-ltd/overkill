@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// SessionRouter maps a (channel, chatKey, thread) tuple onto an ethos
+// SessionRouter maps a (channel, chatKey, thread) tuple onto an overkill
 // session id, persists the binding to disk so restarts don't lose
 // in-flight conversations, and tracks a per-chat "follow" pointer the
 // dispatcher consults each turn.

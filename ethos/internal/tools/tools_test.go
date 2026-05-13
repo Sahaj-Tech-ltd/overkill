@@ -550,7 +550,7 @@ func TestGitTool(t *testing.T) {
 func TestWebTool(t *testing.T) {
 	t.Run("successful fetch", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "Ethos/1.0", r.Header.Get("User-Agent"))
+			assert.Equal(t, "Overkill/1.0", r.Header.Get("User-Agent"))
 			w.Header().Set("Content-Type", "text/plain")
 			fmt.Fprint(w, "hello from server")
 		}))

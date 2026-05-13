@@ -95,7 +95,7 @@ func TestSendAndStream(t *testing.T) {
 
 func TestInfoEndpoint(t *testing.T) {
 	t.Parallel()
-	srv := NewServer(Config{Token: "tk", Agent: &fakeAgent{}, Name: "ethos", Version: "test"})
+	srv := NewServer(Config{Token: "tk", Agent: &fakeAgent{}, Name: "overkill", Version: "test"})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 	c := NewClient(ts.URL, "tk")
@@ -103,7 +103,7 @@ func TestInfoEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("info: %v", err)
 	}
-	if info.Name != "ethos" || info.Version != "test" {
+	if info.Name != "overkill" || info.Version != "test" {
 		t.Fatalf("wrong info: %+v", info)
 	}
 	if len(info.Capabilities) == 0 {

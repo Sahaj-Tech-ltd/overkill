@@ -65,7 +65,7 @@ func (w *WebTool) Execute(ctx context.Context, input json.RawMessage) (json.RawM
 	if err != nil {
 		return nil, fmt.Errorf("web: %w", err)
 	}
-	req.Header.Set("User-Agent", "Ethos/1.0")
+	req.Header.Set("User-Agent", "Overkill/1.0")
 
 	resp, err := w.client.Do(req)
 	if err != nil {

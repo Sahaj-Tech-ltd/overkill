@@ -346,7 +346,7 @@ func (m Model) View() string {
 	var body string
 	switch m.step {
 	case StepWelcome:
-		logo := titleStyle.Render(`ETHOS`)
+		logo := titleStyle.Render(`OVERKILL`)
 		tagline := lipgloss.NewStyle().
 			Foreground(t.Secondary()).
 			Italic(true).

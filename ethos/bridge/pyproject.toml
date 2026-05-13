@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ethos-bridge"
+name = "overkill-bridge"
 version = "0.1.0"
-description = "Python bridge for Ethos AI coding agent"
+description = "Python bridge for Overkill AI coding agent"
 requires-python = ">=3.12"
 dependencies = [
     "grpcio>=1.62.0",

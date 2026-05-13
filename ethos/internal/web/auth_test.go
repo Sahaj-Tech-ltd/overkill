@@ -23,7 +23,7 @@ func TestTokenFromRequest(t *testing.T) {
 	})
 	t.Run("cookie", func(t *testing.T) {
 		r := httptest.NewRequest("GET", "/x", nil)
-		r.AddCookie(&http.Cookie{Name: "ethos-token", Value: "gamma"})
+		r.AddCookie(&http.Cookie{Name: "overkill-token", Value: "gamma"})
 		if got := tokenFromRequest(r); got != "gamma" {
 			t.Errorf("got %q", got)
 		}
@@ -61,7 +61,7 @@ func TestIndexSetsCookieFromQuery(t *testing.T) {
 	res.Body.Close()
 	found := false
 	for _, c := range res.Cookies() {
-		if c.Name == "ethos-token" && c.Value == "shh" {
+		if c.Name == "overkill-token" && c.Value == "shh" {
 			found = true
 		}
 	}

@@ -55,7 +55,7 @@ func TestForethought_ShellMultiWrite(t *testing.T) {
 
 func TestForethought_ShellModifiesGoMod(t *testing.T) {
 	f := NewForethinker()
-	input := json.RawMessage(`{"command": "echo module ethos > go.mod"}`)
+	input := json.RawMessage(`{"command": "echo module overkill > go.mod"}`)
 	assessment := f.Assess("shell", input)
 
 	if assessment.RiskLevel != RiskHigh {

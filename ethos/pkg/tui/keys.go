@@ -15,7 +15,7 @@ type KeyMap struct {
 }
 
 var Keys = KeyMap{
-	Quit:          key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
+	Quit:          key.NewBinding(key.WithKeys("ctrl+c", "esc"), key.WithHelp("ctrl+c / esc", "quit")),
 	Help:          key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "help")),
 	SwitchSession: key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "sessions")),
 	Commands:      key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "commands")),

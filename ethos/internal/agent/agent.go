@@ -73,7 +73,7 @@ type Agent struct {
 	modelRouter ModelRouter
 
 	// usageObserver, if set, is fired after each step with the per-call
-	// token usage. Wired by cmd/ethos to feed cost.Tracker.Record().
+	// token usage. Wired by cmd/overkill to feed cost.Tracker.Record().
 	// Best-effort: panics are recovered.
 	usageObserver func(modelID string, usage providers.Usage)
 
@@ -86,7 +86,7 @@ type Agent struct {
 
 // PromptCompressor is the small interface the agent calls before assembling
 // each turn's system prompt. compaction.PromptCompressor satisfies this via
-// a thin shim defined in cmd/ethos (kept here so the agent stays free of
+// a thin shim defined in cmd/overkill (kept here so the agent stays free of
 // the compaction → providers import chain on this code path).
 type PromptCompressor interface {
 	Compress(ctx context.Context, prompt string) (compressed string, savedTokens int, err error)
@@ -146,7 +146,7 @@ func (a *Agent) SetUserInputObserver(fn func(input string)) {
 }
 
 // FireSessionStart fires the on_session_start hook (master plan §6.3). Safe
-// to call repeatedly; callers (cmd/ethos) typically fire once on agent boot.
+// to call repeatedly; callers (cmd/overkill) typically fire once on agent boot.
 func (a *Agent) FireSessionStart(ctx context.Context) {
 	if a == nil || a.hooks == nil {
 		return

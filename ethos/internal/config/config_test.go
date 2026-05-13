@@ -13,7 +13,7 @@ func TestDefault(t *testing.T) {
 	cfg := Default()
 
 	assert.Equal(t, CurrentVersion, cfg.Version)
-	assert.Equal(t, "Ethos", cfg.Agent.Name)
+	assert.Equal(t, "Overkill", cfg.Agent.Name)
 	assert.Equal(t, "openai", cfg.Agent.DefaultProvider)
 	assert.Equal(t, "gpt-4o", cfg.Agent.DefaultModel)
 	assert.Equal(t, 0, cfg.Agent.MaxTurns)
@@ -58,7 +58,7 @@ func TestLoad_NonExistentFile(t *testing.T) {
 	require.NotNil(t, cfg)
 
 	assert.Equal(t, CurrentVersion, cfg.Version)
-	assert.Equal(t, "Ethos", cfg.Agent.Name)
+	assert.Equal(t, "Overkill", cfg.Agent.Name)
 
 	_, statErr := os.Stat(path)
 	assert.NoError(t, statErr, "default config file should have been created")
@@ -300,7 +300,7 @@ func TestMigrate_V0ToV1(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, changes)
 	assert.Equal(t, CurrentVersion, migrated.Version)
-	assert.Equal(t, "Ethos", migrated.Agent.Name)
+	assert.Equal(t, "Overkill", migrated.Agent.Name)
 	assert.Equal(t, "openai", migrated.Agent.DefaultProvider)
 	assert.Equal(t, "subtle", migrated.Personality.Level)
 	assert.Equal(t, "supervised", migrated.Security.AutonomyLevel)

@@ -44,7 +44,7 @@ func TestOpenAI_Complete(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/chat/completions", r.URL.Path)
 		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
-		assert.Equal(t, "ethos/0.1.0", r.Header.Get("User-Agent"))
+		assert.Equal(t, "overkill/0.1.0", r.Header.Get("User-Agent"))
 
 		var body map[string]any
 		err := json.NewDecoder(r.Body).Decode(&body)
@@ -347,7 +347,7 @@ func TestAnthropic_Complete(t *testing.T) {
 		assert.Equal(t, "/messages", r.URL.Path)
 		assert.Equal(t, "test-key", r.Header.Get("x-api-key"))
 		assert.Equal(t, "2023-06-01", r.Header.Get("anthropic-version"))
-		assert.Equal(t, "ethos/0.1.0", r.Header.Get("User-Agent"))
+		assert.Equal(t, "overkill/0.1.0", r.Header.Get("User-Agent"))
 
 		var body map[string]any
 		err := json.NewDecoder(r.Body).Decode(&body)
@@ -488,7 +488,7 @@ func TestGemini_Complete(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Contains(t, r.URL.Path, "models/gemini-2.5-flash:generateContent")
 		assert.Equal(t, "test-key", r.URL.Query().Get("key"))
-		assert.Equal(t, "ethos/0.1.0", r.Header.Get("User-Agent"))
+		assert.Equal(t, "overkill/0.1.0", r.Header.Get("User-Agent"))
 
 		var body map[string]any
 		err := json.NewDecoder(r.Body).Decode(&body)
@@ -571,7 +571,7 @@ func TestOllama_Complete(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/v1/chat/completions", r.URL.Path)
 		assert.Empty(t, r.Header.Get("Authorization"))
-		assert.Equal(t, "ethos/0.1.0", r.Header.Get("User-Agent"))
+		assert.Equal(t, "overkill/0.1.0", r.Header.Get("User-Agent"))
 
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)

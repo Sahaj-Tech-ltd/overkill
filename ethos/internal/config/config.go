@@ -49,7 +49,7 @@ type BrowserConfig struct {
 	Timeout      time.Duration `toml:"timeout"`
 }
 
-// SlackConfig governs the optional Slack bot daemon (`ethos slack`).
+// SlackConfig governs the optional Slack bot daemon (`overkill slack`).
 // Off by default; tokens may also be supplied via SLACK_APP_TOKEN /
 // SLACK_BOT_TOKEN env vars at runtime.
 type SlackConfig struct {
@@ -131,7 +131,7 @@ type SyncFileConfig struct {
 	Path string `toml:"path"`
 }
 
-// ShareConfig governs the /share command and `ethos share` CLI.
+// ShareConfig governs the /share command and `overkill share` CLI.
 type ShareConfig struct {
 	Backend     string `toml:"backend"`      // "gist" | "transfer-sh"
 	GitHubToken string `toml:"github_token"` // PAT with gist scope

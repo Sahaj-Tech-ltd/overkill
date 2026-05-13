@@ -1,4 +1,4 @@
-// Package sync ships local Ethos sessions to a remote backend so the user
+// Package sync ships local Overkill sessions to a remote backend so the user
 // can switch machines and resume. Three backends are provided:
 //
 //   - file: copy to a shared filesystem path (NFS, syncthing, dropbox)

@@ -68,7 +68,7 @@ func PrettyPrint(w io.Writer, s Summary, opts PrettyOptions) {
 		bold, dim, reset = "", "", ""
 	}
 
-	fmt.Fprintf(w, "%sethos doctor%s %s%s%s\n\n", bold, reset, dim, s.Timestamp.Format("2006-01-02 15:04:05 UTC"), reset)
+	fmt.Fprintf(w, "%soverkill doctor%s %s%s%s\n\n", bold, reset, dim, s.Timestamp.Format("2006-01-02 15:04:05 UTC"), reset)
 
 	for _, cat := range order {
 		fmt.Fprintf(w, "%s%s%s\n", bold, cat, reset)

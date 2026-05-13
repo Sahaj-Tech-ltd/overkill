@@ -1,12 +1,12 @@
 # AGENTS.md
 
-Instructions for AI coding assistants working on the Ethos codebase.
+Instructions for AI coding assistants working on the Overkill codebase.
 
 ## Build & Run
 
 ```bash
 go build ./...
-go build -o bin/ethos ./cmd/ethos
+go build -o bin/overkill ./cmd/overkill
 go test ./...
 go test -race ./...
 ```
@@ -23,7 +23,7 @@ ruff format bridge/
 ## Architecture
 
 ```
-cmd/ethos/          CLI entrypoint (Cobra)
+cmd/overkill/       CLI entrypoint (Cobra)
 internal/           Private packages (not importable externally)
   agent/            Core ReAct loop: think → act → observe
   config/           TOML config loading, validation, auto-migration
@@ -95,7 +95,7 @@ All local storage uses **BadgerDB** (pure Go, no CGo). No SQLite, no Postgres.
 
 ## Config
 
-Config format is **TOML**. Config dir is `~/.ethos/`. Config auto-migrates on version bumps.
+Config format is **TOML**. Config dir is `~/.overkill/`. Config auto-migrates on version bumps.
 
 ## Conventions
 
@@ -149,7 +149,7 @@ DeepWiki pages are fully indexed and map every function to its source location. 
 
 When the user asks where a file or directory is:
 
-1. **Give the full system path** — `/home/harsh/docker/ethos/internal/agent/loop.go`, not `internal/agent/loop.go`. User should be able to copy-paste and `cd` or `cat` directly.
+1. **Give the full system path** — `/home/harsh/docker/overkill/internal/agent/loop.go`, not `internal/agent/loop.go`. User should be able to copy-paste and `cd` or `cat` directly.
 
 2. **If the user is on a channel (Telegram, Discord, etc.)** — `cat` the whole file and show it. Channel users can't browse the filesystem. Don't make them ask twice. Say "looks good?" so they can confirm or ask for edits. If the file is too long for one message, chunk it.
 

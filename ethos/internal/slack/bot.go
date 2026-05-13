@@ -23,7 +23,7 @@ type AgentSender interface {
 	SessionID() string
 }
 
-// Bot wires a Socket-Mode connection, a Web API client, an ethos agent, and
+// Bot wires a Socket-Mode connection, a Web API client, an overkill agent, and
 // a per-thread session map together. One Bot per Slack workspace.
 type Bot struct {
 	API         SlackAPI

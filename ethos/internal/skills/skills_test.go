@@ -14,7 +14,7 @@ const validSkillMD = `---
 name: code-review
 version: 1.0.0
 description: Code quality review with actionable feedback for developers
-author: ethos-team
+author: overkill-team
 category: review
 tags: [code, review, quality]
 triggers: [review, "code review", critique]
@@ -112,7 +112,7 @@ func TestLoader_LoadFile_Valid(t *testing.T) {
 	require.Equal(t, "code-review", skill.Name)
 	require.Equal(t, "1.0.0", skill.Version)
 	require.Equal(t, "Code quality review with actionable feedback for developers", skill.Description)
-	require.Equal(t, "ethos-team", skill.Author)
+	require.Equal(t, "overkill-team", skill.Author)
 	require.Equal(t, "review", skill.Category)
 	require.Equal(t, []string{"code", "review", "quality"}, skill.Tags)
 	require.Equal(t, []string{"review", "code review", "critique"}, skill.Triggers)

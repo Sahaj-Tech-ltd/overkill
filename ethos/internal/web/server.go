@@ -1,4 +1,4 @@
-// Package web serves the Ethos browser UI: an embedded SPA over HTTP plus a
+// Package web serves the Overkill browser UI: an embedded SPA over HTTP plus a
 // WebSocket event channel for live agent streams. Same agent backend as the
 // TUI; reads from the same session store.
 package web
@@ -153,7 +153,7 @@ func tokenFromRequest(r *http.Request) string {
 	if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
 		return strings.TrimPrefix(a, "Bearer ")
 	}
-	if c, err := r.Cookie("ethos-token"); err == nil {
+	if c, err := r.Cookie("overkill-token"); err == nil {
 		return c.Value
 	}
 	return ""
@@ -177,7 +177,7 @@ func (s *Server) handleIndex(sub fs.FS) http.HandlerFunc {
 		// First-load token plumbing: ?t=… sets the cookie before app.js runs.
 		if t := r.URL.Query().Get("t"); t != "" {
 			http.SetCookie(w, &http.Cookie{
-				Name: "ethos-token", Value: t, Path: "/",
+				Name: "overkill-token", Value: t, Path: "/",
 				MaxAge: 60 * 60 * 24 * 365, SameSite: http.SameSiteLaxMode,
 			})
 		}

@@ -6,7 +6,7 @@ _PROTO_DIR = os.path.join(_BRIDGE_DIR, "proto")
 sys.path.insert(0, _BRIDGE_DIR)
 sys.path.insert(0, _PROTO_DIR)
 
-import ethos_pb2  # noqa: E402
+import overkill_pb2  # noqa: E402
 
 from server import EthosBridgeServicer  # noqa: E402
 
@@ -29,14 +29,14 @@ class FakeContext:
 
 def test_ping() -> None:
     servicer = EthosBridgeServicer()
-    resp = servicer.Ping(ethos_pb2.PingRequest(), FakeContext())
+    resp = servicer.Ping(overkill_pb2.PingRequest(), FakeContext())
     assert resp.status == "ok"
     assert resp.version == "0.1.0"
 
 
 def test_embed() -> None:
     servicer = EthosBridgeServicer()
-    resp = servicer.Embed(ethos_pb2.EmbedRequest(text="hello world", model="test"), FakeContext())
+    resp = servicer.Embed(overkill_pb2.EmbedRequest(text="hello world", model="test"), FakeContext())
     assert len(resp.embedding) > 0
     assert resp.tokens > 0
 
@@ -44,7 +44,7 @@ def test_embed() -> None:
 def test_embed_batch() -> None:
     servicer = EthosBridgeServicer()
     resp = servicer.EmbedBatch(
-        ethos_pb2.EmbedBatchRequest(texts=["hello", "world"], model="test"), FakeContext()
+        overkill_pb2.EmbedBatchRequest(texts=["hello", "world"], model="test"), FakeContext()
     )
     assert len(resp.results) == 2
     for r in resp.results:
@@ -55,7 +55,7 @@ def test_embed_batch() -> None:
 def test_rerank() -> None:
     servicer = EthosBridgeServicer()
     resp = servicer.Rerank(
-        ethos_pb2.RerankRequest(
+        overkill_pb2.RerankRequest(
             query="test query", documents=["doc one", "doc two", "doc three"], top_n=2
         ),
         FakeContext(),
@@ -71,8 +71,8 @@ def test_store_and_search_vector() -> None:
     ctx = FakeContext()
 
     store_resp = servicer.StoreVector(
-        ethos_pb2.StoreVectorRequest(
-            entry=ethos_pb2.VectorEntry(
+        overkill_pb2.StoreVectorRequest(
+            entry=overkill_pb2.VectorEntry(
                 id="v1",
                 embedding=[0.1, 0.2, 0.3],
                 content="test content",
@@ -86,7 +86,7 @@ def test_store_and_search_vector() -> None:
     assert store_resp.id == "v1"
 
     search_resp = servicer.SearchVectors(
-        ethos_pb2.SearchVectorsRequest(
+        overkill_pb2.SearchVectorsRequest(
             query=[0.1, 0.2, 0.3], top_k=10, threshold=0.0, backend="badger"
         ),
         ctx,
@@ -100,8 +100,8 @@ def test_search_with_filters() -> None:
     ctx = FakeContext()
 
     servicer.StoreVector(
-        ethos_pb2.StoreVectorRequest(
-            entry=ethos_pb2.VectorEntry(
+        overkill_pb2.StoreVectorRequest(
+            entry=overkill_pb2.VectorEntry(
                 id="v1",
                 embedding=[0.1, 0.2, 0.3],
                 content="cat doc",
@@ -112,8 +112,8 @@ def test_search_with_filters() -> None:
         ctx,
     )
     servicer.StoreVector(
-        ethos_pb2.StoreVectorRequest(
-            entry=ethos_pb2.VectorEntry(
+        overkill_pb2.StoreVectorRequest(
+            entry=overkill_pb2.VectorEntry(
                 id="v2",
                 embedding=[0.1, 0.2, 0.3],
                 content="dog doc",
@@ -125,7 +125,7 @@ def test_search_with_filters() -> None:
     )
 
     search_resp = servicer.SearchVectors(
-        ethos_pb2.SearchVectorsRequest(
+        overkill_pb2.SearchVectorsRequest(
             query=[0.1, 0.2, 0.3], top_k=10, threshold=0.0, filters={"type": "cat"}
         ),
         ctx,
@@ -139,8 +139,8 @@ def test_delete_vector() -> None:
     ctx = FakeContext()
 
     servicer.StoreVector(
-        ethos_pb2.StoreVectorRequest(
-            entry=ethos_pb2.VectorEntry(
+        overkill_pb2.StoreVectorRequest(
+            entry=overkill_pb2.VectorEntry(
                 id="v1", embedding=[0.1, 0.2, 0.3], content="test", metadata={}
             ),
             backend="badger",
@@ -149,12 +149,12 @@ def test_delete_vector() -> None:
     )
 
     del_resp = servicer.DeleteVector(
-        ethos_pb2.DeleteVectorRequest(id="v1", backend="badger"), ctx
+        overkill_pb2.DeleteVectorRequest(id="v1", backend="badger"), ctx
     )
     assert del_resp.success
 
     del_resp2 = servicer.DeleteVector(
-        ethos_pb2.DeleteVectorRequest(id="nonexistent", backend="badger"), ctx
+        overkill_pb2.DeleteVectorRequest(id="nonexistent", backend="badger"), ctx
     )
     assert not del_resp2.success
 
@@ -163,7 +163,7 @@ def test_compact() -> None:
     servicer = EthosBridgeServicer()
     content = " ".join(f"word{i}" for i in range(200))
     resp = servicer.Compact(
-        ethos_pb2.CompactRequest(
+        overkill_pb2.CompactRequest(
             content=content, model="test", target_tokens=50, style="detailed"
         ),
         FakeContext(),
@@ -178,7 +178,7 @@ def test_compact_truncate() -> None:
     servicer = EthosBridgeServicer()
     content = " ".join(f"word{i}" for i in range(200))
     resp = servicer.Compact(
-        ethos_pb2.CompactRequest(
+        overkill_pb2.CompactRequest(
             content=content, model="test", target_tokens=50, style="truncate"
         ),
         FakeContext(),

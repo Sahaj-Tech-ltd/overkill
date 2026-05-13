@@ -1,4 +1,4 @@
-// Package doctor's runner.go implements the comprehensive `ethos doctor`
+// Package doctor's runner.go implements the comprehensive `overkill doctor`
 // self-test described in master plan §4.13. The legacy NewDoctor / Check API
 // (see checks.go, fixes.go) covers config bootstrap and remains in place; the
 // Runner here orchestrates the full subsystem sweep and produces a Report

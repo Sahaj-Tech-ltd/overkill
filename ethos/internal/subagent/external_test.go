@@ -31,7 +31,7 @@ func TestExternalDelegator_CommandNotInPath(t *testing.T) {
 	d := NewExternalDelegator("", 5*time.Second, nil)
 	d.Register(AgentDef{
 		Name:    "ghost",
-		Command: "ethos-definitely-not-real-xyz",
+		Command: "overkill-definitely-not-real-xyz",
 	})
 
 	_, err := d.Delegate(context.Background(), "ghost", "do something")
@@ -147,7 +147,7 @@ func TestExternalDelegator_ContextExport(t *testing.T) {
 		Context: ExportContext{
 			Language: "go",
 		},
-		EthosVersion: "0.1.0",
+		OverkillVersion: "0.1.0",
 	}
 
 	res, err := d.DelegateWithExport(context.Background(), "echoer", export)

@@ -116,7 +116,7 @@ func TestClientHandshakeAndToolCall(t *testing.T) {
 	if _, err := c.conn.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "ethos", "version": "0.1"},
+		"clientInfo":      map[string]any{"name": "overkill", "version": "0.1"},
 	}); err != nil {
 		t.Fatalf("initialize: %v", err)
 	}

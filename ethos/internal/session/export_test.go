@@ -55,7 +55,7 @@ func TestExport_ContainsSessionInfo(t *testing.T) {
 	require.NoError(t, err)
 
 	content := string(raw)
-	assert.Contains(t, content, "# Ethos Memory Export")
+	assert.Contains(t, content, "# Overkill Memory Export")
 	assert.Contains(t, content, "My Important Session")
 	assert.Contains(t, content, "/home/user/myproject")
 	assert.Contains(t, content, "claude-3.5")
@@ -78,7 +78,7 @@ func TestExport_EmptyStore(t *testing.T) {
 	require.NoError(t, err)
 
 	content := string(raw)
-	assert.Contains(t, content, "# Ethos Memory Export")
+	assert.Contains(t, content, "# Overkill Memory Export")
 	assert.Contains(t, content, "No sessions found")
 }
 

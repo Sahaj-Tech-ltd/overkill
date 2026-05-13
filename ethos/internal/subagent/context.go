@@ -22,7 +22,7 @@ type ContextExport struct {
 	SessionID    string        `json:"session_id"`
 	Goal         string        `json:"goal"`
 	Context      ExportContext `json:"context"`
-	EthosVersion string        `json:"ethos_version"`
+	OverkillVersion string        `json:"overkill_version"`
 }
 
 // Pre-compiled secret detection patterns — evaluated once at package init.
@@ -48,7 +48,7 @@ func (e ContextExport) ToJSON() (string, error) {
 
 // FilterSecrets returns a copy of the ContextExport with secrets redacted
 // from all string fields within the ExportContext. The top-level fields
-// (SessionID, Goal, EthosVersion) are not filtered.
+// (SessionID, Goal, OverkillVersion) are not filtered.
 func (e ContextExport) FilterSecrets() ContextExport {
 	cp := e // value copy
 

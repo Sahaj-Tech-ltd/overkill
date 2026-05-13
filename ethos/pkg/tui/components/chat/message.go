@@ -154,7 +154,7 @@ func renderAssistant(t theme.Theme, content string, width int, streaming bool) s
 	label := lipgloss.NewStyle().
 		Foreground(t.Accent()).
 		Bold(true).
-		Render("ethos")
+		Render("overkill")
 	var body string
 	if streaming {
 		// Plain text while streaming — markdown parsing on every token

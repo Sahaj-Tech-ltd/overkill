@@ -74,7 +74,7 @@ type gistFileObj struct {
 
 func (g *gistUploader) Upload(ctx context.Context, htmlContent string) (string, error) {
 	body := gistPayload{
-		Description: "Ethos session",
+		Description: "Overkill session",
 		Public:      false,
 		Files: map[string]gistFileObj{
 			"session.html": {Content: htmlContent},

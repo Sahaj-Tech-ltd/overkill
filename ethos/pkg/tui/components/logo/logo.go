@@ -1,4 +1,4 @@
-// Package logo renders the ETHOS ascii block logo.
+// Package logo renders the OVERKILL ascii block logo.
 package logo
 
 import (
@@ -9,18 +9,19 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
-// 4-row block logo for "ETHOS", styled after opencode's logo:
-// uses █ for filled, ▀ ▄ for half-blocks. 5 letters x 4 rows.
+// 4-row block logo for "OVERKILL", styled after opencode's logo:
+// uses █ for filled, ▀ ▄ for half-blocks. 8 letters x 4 rows.
 var logoRows = []string{
-	"█▀▀▀ ▀█▀ █  █ █▀▀█ █▀▀▀",
-	"█▀▀   █  █▀▀█ █  █ ▀▀▀█",
-	"▀▀▀▀  ▀  ▀  ▀ ▀▀▀▀ ▀▀▀▀",
+	"█▀▀█ █  █ █▀▀▀ █▀▀▀ █  █ █ █  █ █",
+	"█  █ █  █ █▀▀  █▀▀  █▀▀█ █ █  █ █",
+	"█  █  ██  █▀▀▀ █▀▀▀ █  █ █ █▀▀█ █",
+	"▀▀▀▀  ▀▀  ▀▀▀▀ ▀▀▀▀ ▀  ▀ ▀ ▀  ▀ ▀",
 }
 
 // subtitle rendered below the logo on the home/boot screen.
 const Subtitle = "the vibe-coding agent"
 
-// Render returns the ETHOS logo as a single multi-line string.
+// Render returns the OVERKILL logo as a single multi-line string.
 // The first half of the logo uses Primary, the trailing portion fades to Accent
 // to give a gradient feel similar to opencode's split logo.
 func Render(t theme.Theme) string {

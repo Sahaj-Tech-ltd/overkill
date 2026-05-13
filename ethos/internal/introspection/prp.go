@@ -58,7 +58,7 @@ func renderPRP(in PRPInputs) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Project Requirements Prompt — %s\n\n", in.ProjectName)
-	fmt.Fprintf(&b, "_Generated %s. Hand-edit freely; ethos preserves your changes across regenerations._\n\n",
+	fmt.Fprintf(&b, "_Generated %s. Hand-edit freely; overkill preserves your changes across regenerations._\n\n",
 		time.Now().UTC().Format(time.RFC3339))
 
 	fmt.Fprintf(&b, "## Purpose\n\n_What does this project exist to do? Who is it for?_\n\n")

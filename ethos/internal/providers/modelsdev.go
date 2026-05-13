@@ -250,12 +250,12 @@ func fetchLive(ctx context.Context) ([]byte, error) {
 	return body, nil
 }
 
-// userAgent matches the spec: ethos/<version>. We avoid an import cycle by
+// userAgent matches the spec: overkill/<version>. We avoid an import cycle by
 // reading the version at call time from a package-level variable that the
-// caller (cmd/ethos) may overwrite if it changes.
+// caller (cmd/overkill) may overwrite if it changes.
 var Version = "0.1.0-dev"
 
-func userAgent() string { return "ethos/" + Version }
+func userAgent() string { return "overkill/" + Version }
 
 func cachePath() (string, error) {
 	home, err := os.UserHomeDir()

@@ -338,7 +338,7 @@ func (d *Dispatcher) renderSessions() string {
 
 func helpText() string {
 	return strings.Join([]string{
-		"ethos remote — commands:",
+		"overkill remote — commands:",
 		"  /sessions         list recent sessions",
 		"  /attach <id>      bind this chat to a session",
 		"  /follow tui       mirror whatever session the TUI is using",

@@ -1,4 +1,4 @@
-// Package plugin implements a subprocess-based plugin runtime for Ethos.
+// Package plugin implements a subprocess-based plugin runtime for Overkill.
 // Plugins are external executables that speak JSON-RPC 2.0 over stdio.
 //
 // Wire format mirrors internal/mcp: newline-delimited JSON, requests carry

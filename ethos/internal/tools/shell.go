@@ -13,11 +13,11 @@ import (
 
 var (
 	ansiRe          = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-	markerTextRe    = regexp.MustCompile(`\s*__ETHOS_DONE__\s*`)
+	markerTextRe    = regexp.MustCompile(`\s*__OVERKILL_DONE__\s*`)
 	trailingBlankRe = regexp.MustCompile(`\n+$`)
 )
 
-const ethosDoneMarker = "__ETHOS_DONE__"
+const overkillDoneMarker = "__OVERKILL_DONE__"
 
 type ShellTool struct {
 	maxTimeout        time.Duration
@@ -56,14 +56,14 @@ func (s *ShellTool) Name() string {
 
 func appendMarker(cmd string) string {
 	trimmed := strings.TrimSpace(cmd)
-	if strings.Contains(trimmed, ethosDoneMarker) {
+	if strings.Contains(trimmed, overkillDoneMarker) {
 		return trimmed
 	}
-	return trimmed + " && echo " + ethosDoneMarker
+	return trimmed + " && echo " + overkillDoneMarker
 }
 
 func stripMarker(output string) (string, bool) {
-	found := strings.Contains(output, ethosDoneMarker)
+	found := strings.Contains(output, overkillDoneMarker)
 	if !found {
 		return output, false
 	}

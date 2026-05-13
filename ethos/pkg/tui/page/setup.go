@@ -296,7 +296,7 @@ func (m SetupPage) View() string {
 	var b strings.Builder
 
 	// Title
-	title := titleStyle.Render("Welcome to Ethos")
+	title := titleStyle.Render("Welcome to Overkill")
 	subtitle := subtitleStyle.Render("Set up your first provider")
 
 	b.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, title))

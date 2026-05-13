@@ -1,4 +1,4 @@
-// Package slack implements a minimal Slack bot daemon for ethos.
+// Package slack implements a minimal Slack bot daemon for overkill.
 //
 // We deliberately stay on stdlib only — Slack's API is plain JSON over HTTP
 // and a single Socket-Mode WebSocket. Pulling in slack-go/slack would add

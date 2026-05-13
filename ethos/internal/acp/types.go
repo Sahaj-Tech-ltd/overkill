@@ -1,6 +1,6 @@
 // Package acp implements the Agent Communication Protocol — a small HTTP/SSE
 // API that lets other agents (claude code, opencode, custom agents) send
-// messages to a running ethos and receive streaming replies. Inverse of MCP.
+// messages to a running overkill and receive streaming replies. Inverse of MCP.
 package acp
 
 import "time"

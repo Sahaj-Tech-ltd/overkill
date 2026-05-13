@@ -134,7 +134,7 @@ func (c *Client) Start(ctx context.Context, rootDir string) error {
 				"symbol": map[string]any{},
 			},
 		},
-		"clientInfo": map[string]any{"name": "ethos", "version": "0.1"},
+		"clientInfo": map[string]any{"name": "overkill", "version": "0.1"},
 	}
 	if _, err := c.conn.Call(ctx, "initialize", initParams); err != nil {
 		c.setError(err)

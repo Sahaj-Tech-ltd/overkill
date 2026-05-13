@@ -14,7 +14,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
 )
 
-// dirsToCheck enumerates the runtime directories ethos writes into. Each
+// dirsToCheck enumerates the runtime directories overkill writes into. Each
 // must exist (created if missing) and be writable. Failure means the user
 // cannot save sessions, plugins, or journal entries.
 func dirsToCheck(configDir string) []struct{ path, label string } {
@@ -27,7 +27,7 @@ func dirsToCheck(configDir string) []struct{ path, label string } {
 	}
 }
 
-// RegisterFilesystem registers one check per ethos data directory. Serial —
+// RegisterFilesystem registers one check per overkill data directory. Serial —
 // these are mkdir + write probes against the same parent.
 func RegisterFilesystem(r *doctor.Runner, d Deps) {
 	for _, dir := range dirsToCheck(d.ConfigDir) {
@@ -53,7 +53,7 @@ func RegisterFilesystem(r *doctor.Runner, d Deps) {
 	}
 }
 
-// RegisterDisk inspects free space at the ethos data root. We thread the
+// RegisterDisk inspects free space at the overkill data root. We thread the
 // ConfigDir through so it works the same on both real installs and CI.
 func RegisterDisk(r *doctor.Runner, d Deps) {
 	r.Register(doctor.SubsystemCheck{
@@ -159,7 +159,7 @@ func RegisterAnimations(r *doctor.Runner, d Deps) {
 	})
 }
 
-// RegisterVersion checks GitHub releases for a newer ethos version. Quiet
+// RegisterVersion checks GitHub releases for a newer overkill version. Quiet
 // failure mode — the network is allowed to be down.
 func RegisterVersion(r *doctor.Runner, d Deps) {
 	r.Register(doctor.SubsystemCheck{
@@ -171,9 +171,9 @@ func RegisterVersion(r *doctor.Runner, d Deps) {
 			ctx, cancel := withTimeout(ctx, 4*time.Second)
 			defer cancel()
 			req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-				"https://api.github.com/repos/Sahaj-Tech-ltd/ethos/releases/latest", nil)
+				"https://api.github.com/repos/Sahaj-Tech-ltd/overkill/releases/latest", nil)
 			req.Header.Set("Accept", "application/vnd.github+json")
-			req.Header.Set("User-Agent", "ethos-doctor/"+runtime.Version())
+			req.Header.Set("User-Agent", "overkill-doctor/"+runtime.Version())
 			resp, err := d.HTTP.Do(req)
 			if err != nil {
 				return info("offline; skipped version check")

@@ -16,8 +16,8 @@ func (c *Config) Migrate() (*Config, []string, error) {
 		c.Version = CurrentVersion
 
 		if c.Agent.Name == "" {
-			c.Agent.Name = "Ethos"
-			changes = append(changes, "set default agent name to \"Ethos\"")
+			c.Agent.Name = "Overkill"
+			changes = append(changes, "set default agent name to \"Overkill\"")
 		}
 		if c.Agent.DefaultProvider == "" {
 			c.Agent.DefaultProvider = "openai"

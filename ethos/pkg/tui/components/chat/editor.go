@@ -23,7 +23,7 @@ type EditorModel struct {
 
 func NewEditor() EditorModel {
 	ta := textarea.New()
-	ta.Placeholder = "ask ethos anything, or / for commands"
+	ta.Placeholder = "ask overkill anything, or / for commands"
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
 	ta.CharLimit = 0

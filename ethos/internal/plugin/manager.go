@@ -10,7 +10,7 @@ import (
 )
 
 // MaxRestarts is how many times a crashed plugin will be respawned before
-// the manager gives up until the next ethos launch.
+// the manager gives up until the next overkill launch.
 const MaxRestarts = 3
 
 // Manager owns N Clients keyed by plugin name. It performs discovery,

@@ -118,7 +118,7 @@ func (c *Client) Start(ctx context.Context) error {
 			"resources": map[string]any{},
 		},
 		"clientInfo": map[string]any{
-			"name":    "ethos",
+			"name":    "overkill",
 			"version": "0.1",
 		},
 	}
