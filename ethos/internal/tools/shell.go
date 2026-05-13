@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 var (
@@ -29,6 +31,18 @@ const overkillDoneMarker = "__OVERKILL_DONE__"
 type ShellTool struct {
 	maxTimeout        time.Duration
 	defaultWorkingDir string
+	// scanner is a defense-in-depth command scanner. The agent loop
+	// also scans tool inputs before dispatch (§4.3), but a scan here
+	// covers non-agent callers (direct invocation, future plugin API,
+	// tests) and double-scanning is cheap.
+	scanner *security.CommandScanner
+}
+
+// WithoutCommandScan disables the in-tool security scan. Used by tests
+// that need to exercise commands the scanner would block. Production
+// callers should leave the scanner on.
+func WithoutCommandScan() func(*ShellTool) {
+	return func(s *ShellTool) { s.scanner = nil }
 }
 
 type ShellInput struct {
@@ -57,6 +71,7 @@ func NewShellTool(opts ...func(*ShellTool)) *ShellTool {
 	t := &ShellTool{
 		maxTimeout:        120 * time.Second,
 		defaultWorkingDir: "",
+		scanner:           security.NewCommandScanner(),
 	}
 	for _, opt := range opts {
 		opt(t)
@@ -139,6 +154,20 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 
 	if strings.TrimSpace(in.Command) == "" {
 		return nil, fmt.Errorf("shell: command is required")
+	}
+
+	// §4.3 defense-in-depth. The agent loop also scans before dispatch,
+	// but a scan here catches non-agent callers (direct invocation,
+	// plugins). Scan the raw user command, not the marker-appended form.
+	if s.scanner != nil {
+		res, err := s.scanner.Scan(in.Command)
+		if err == nil && res != nil && res.Blocked {
+			reason := "blocked by command scanner"
+			if len(res.Findings) > 0 {
+				reason = res.Findings[0].Description
+			}
+			return nil, fmt.Errorf("shell: %s", reason)
+		}
 	}
 
 	timeout := 30 * time.Second
