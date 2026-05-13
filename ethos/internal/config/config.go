@@ -108,12 +108,60 @@ type DiscordConfig struct {
 	RequireMention bool `toml:"require_mention"`
 }
 
+// WhatsAppConfig governs the optional WhatsApp gateway. Two backends:
+//
+//   - "whatsmeow": Go-native unofficial client. Personal use only;
+//     TOS gray-area. Strict upgrade over Baileys-Node-sidecar — same
+//     posture, no Node runtime. Requires a one-time QR pair via
+//     `overkill whatsapp pair`.
+//   - "cloud": WhatsApp Business Cloud API. Official, production-
+//     grade, paid per conversation at scale. 24h messaging window
+//     applies for free-form messages. Requires Meta Business
+//     verification + a public HTTPS webhook (reverse proxy).
+//
+// Backend is a config-level switch — pick at config write time, not
+// per-message. Both backends share the same Inbound/Reply contract
+// through the gateway dispatcher.
+type WhatsAppConfig struct {
+	Enabled bool   `toml:"enabled"`
+	Backend string `toml:"backend"` // "whatsmeow" | "cloud"
+
+	// AllowedFrom restricts which sender phone numbers the bot
+	// responds to (E.164 form, no leading +). Empty = any.
+	AllowedFrom []string `toml:"allowed_from"`
+
+	// Whatsmeow sub-config — only consulted when Backend = "whatsmeow".
+	Whatsmeow WhatsAppWhatsmeowConfig `toml:"whatsmeow"`
+	// Cloud sub-config — only consulted when Backend = "cloud".
+	Cloud WhatsAppCloudConfig `toml:"cloud"`
+}
+
+// WhatsAppWhatsmeowConfig holds settings for the unofficial backend.
+type WhatsAppWhatsmeowConfig struct {
+	// StorePath is the SQLite file holding the device keys. Created
+	// by `overkill whatsapp pair`. Default: ~/.overkill/whatsapp.db
+	StorePath string `toml:"store_path"`
+}
+
+// WhatsAppCloudConfig holds settings for the Meta Cloud API backend.
+type WhatsAppCloudConfig struct {
+	PhoneNumberID string `toml:"phone_number_id"`
+	AccessToken   string `toml:"access_token"` // env: WHATSAPP_CLOUD_ACCESS_TOKEN
+	AppSecret     string `toml:"app_secret"`   // env: WHATSAPP_CLOUD_APP_SECRET
+	VerifyToken   string `toml:"verify_token"` // env: WHATSAPP_CLOUD_VERIFY_TOKEN
+	// Listen is the HTTP bind address for the webhook server. Place
+	// behind a reverse proxy that terminates HTTPS — Meta only
+	// delivers webhooks to HTTPS endpoints. Default 127.0.0.1:7798.
+	Listen string `toml:"listen"`
+}
+
 // GatewayConfig wires all remote messaging gateways. Each sub-section is
 // independently togglable so users can run telegram alone, discord
-// alone, the bridge alone, or any combination.
+// alone, whatsapp alone, the bridge alone, or any combination.
 type GatewayConfig struct {
 	Telegram TelegramConfig `toml:"telegram"`
 	Discord  DiscordConfig  `toml:"discord"`
+	WhatsApp WhatsAppConfig `toml:"whatsapp"`
 	Bridge   BridgeConfig   `toml:"bridge"`
 }
 

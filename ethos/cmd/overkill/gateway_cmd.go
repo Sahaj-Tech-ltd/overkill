@@ -117,6 +117,12 @@ func runGateway(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if wa := cfg.Gateways.WhatsApp; wa.Enabled {
+		if err := registerWhatsApp(hub, disp, wa, logger); err != nil {
+			logger.Printf("whatsapp: %v", err)
+		}
+	}
+
 	if br := cfg.Gateways.Bridge; br.Enabled {
 		listen := br.Listen
 		if listen == "" {
