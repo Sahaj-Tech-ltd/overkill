@@ -723,7 +723,6 @@ func (m *appModel) registerCommands() {
 		{ID: "compose", Title: "/compose", Description: "open $EDITOR to draft a long prompt"},
 		{ID: "attach", Title: "/attach", Description: "stage an image file for the next message"},
 		{ID: "attach-clear", Title: "/attach-clear", Description: "drop all staged attachments"},
-		{ID: "copy", Title: "/copy", Description: "copy a code block from the chat to your clipboard"},
 		{ID: "usage", Title: "/usage", Description: "show cost + token usage for the active session"},
 	} {
 		m.cmdDialog.RegisterCommand(c)
@@ -2358,8 +2357,6 @@ func (m *appModel) dispatchCommandWithArgs(id, args string) tea.Cmd {
 		return m.runViewWith(args)
 	case "attach":
 		return m.runAttach(args)
-	case "copy":
-		return m.runCopy(args)
 	}
 	return m.dispatchCommand(id)
 }
@@ -2563,8 +2560,6 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return m.runAttach("")
 	case "attach-clear":
 		return m.runAttachClear()
-	case "copy":
-		return m.runCopy("")
 	case "usage":
 		return m.runUsage()
 	}
