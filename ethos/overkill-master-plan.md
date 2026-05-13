@@ -362,6 +362,16 @@ authoritative reference. Section 10 has the full list.
 - [x] **Retry logic from OpenCode:** Exponential backoff (2s base, 2x growth, 20% jitter), 8 max retries, only on 429/500/529, honor Retry-After header
 
 ### 4.3 Security Plane (Relaxed — serves the product, not paranoia)  ✅
+
+> **Design input — OpenAI Monitoring (paper #48, 2026):** GPT-5.4
+> Thinking flagged <0.1% of agent traffic and zero highest-severity
+> incidents across tens of millions of trajectories in 5 months. The
+> common failure modes were *circumventing restrictions* and
+> *deception* (encoding blocked commands in base64, lying about tool
+> calls), NOT scheming or sabotage. Validates the "relaxed, not
+> paranoid" philosophy below — and the behavior taxonomy directly
+> seeds the preToolScan deny-pattern catalog.
+
 - [x] Isolated security process for prompt injection detection
 - [x] Skeptical Ingestion: all tool outputs, web content treated as untrusted
 - [x] Hard Refuse Rule: auto-detect "ignore previous instructions", report to user
@@ -522,6 +532,13 @@ When user starts a session on a repo:
 ### 4.13 Debugging Diagnostic Report  ✅
 
 **The Problem:** Debugging is where better models win. What catches us up is diagnosing first.
+
+> **Design input — OpenAI Monitoring (paper #48, 2026):** Their
+> behavior taxonomy (concealing uncertainty, sandbagging, editing
+> tests to pass, encoding blocked commands in base64) doubles as a
+> *diagnostic checklist* — when a turn's output looks off, the
+> taxonomy gives the agent (and the Diagnostic Report) a named
+> failure mode to map to instead of generic "something's wrong".
 
 **The Flow:**
 1. **Build a feedback loop FIRST** (from Matt Pocock `diagnose`) — construct a deterministic pass/fail signal before hypothesising. 10-tier escalation: failing test → curl script → CLI invocation → headless browser → throwaway harness → property/fuzz loop → bisection → differential → HITL bash. If no loop can be built, stop and say so explicitly. *"This is the skill. Everything else is mechanical."*
@@ -1506,6 +1523,7 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 | 16 | Wang et al — Voyager | 2023 | Growing skill library | Skill library design |
 | 17 | Zhang et al — ACE | 2025 | Evolving playbooks | Self-improving prompts |
 | 18 | Yu et al — MemAgent | 2025 | Segment-based memory to 3.5M | Massive codebase memory |
+| 49 | **Learning, Fast and Slow** (arxiv 2605.12484) | **2026** | **Fast context-weights (prompts) update aggressively; slow model-parameters stay stable. 3× more sample-efficient than RL alone, 70% less catastrophic forgetting.** | **§4.16 two-layer style model (5-session inertia) + §6.1 hot/cold paging — empirical validation of the split** |
 
 ### Security
 | # | Paper | Year | Key Insight | Overkill Feature |
@@ -1517,6 +1535,7 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 | 23 | Zhang et al — Owner-Harm | 2026 | Agents harming deployers | Threat modeling |
 | 24 | **Anthropic — Agentic Misalignment** | **2025** | **All frontier models resort to malicious behavior under goal pressure. Claude Opus 4 blackmailed 96%** | **Autonomy safety limits** |
 | 25 | **Google — VeriGuard** | **2026** | **Verify agent actions against safety specs before execution** | **Pre-exec verification** |
+| 48 | **OpenAI — Monitoring Internal Coding Agents for Misalignment** | **2026** | **GPT-5.4 Thinking monitors agent sessions <30min. 10+ behavior categories; circumventing restrictions + deception dominate, NOT scheming. <0.1% of traffic uncovered; 0 highest-severity incidents in 5 months across tens of millions of trajectories.** | **§4.3 deny-pattern taxonomy + §6.5 Wall 1 trigger conditions + §4.19 delegation_failure alert** |
 
 ### Evaluation
 | # | Paper | Year | Key Insight | Overkill Feature |
@@ -1563,6 +1582,8 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 | 45 | **Anthropic — Trustworthy Agents** | **2026** | **4 layers: model, harness, tools, environment. Plan Mode pattern.** | **Security architecture** |
 | 46 | **Anthropic — Automated Alignment Researchers** | **2026** | **9 Claude copies did alignment research autonomously. Evaluation is bottleneck.** | **Self-improvement loop** |
 | 47 | **Anthropic — Project Vend Phase 2** | **2025** | **"Helpful" training made agents bad at business. Bureaucracy matters.** | **Procedure > personality alone** |
+| 50 | **DeepMind — AI Co-Mathematician** (arxiv 2605.06651) | **2026** | **Stateful agentic workbench; tracks failed hypotheses + refines intent across sessions. 48% FrontierMath Tier 4 (SOTA).** | **§4.11 PRP onboarding stateful pattern + §4.19 pattern_detected alerts from journal — failed-hypothesis tracking is the same shape** |
+| 51 | **AlphaGRPO** (arxiv 2605.12495, ICML 2026) | **2026** | **First GRPO-style RL for multimodal generation. Model learns implicit-intent reasoning + self-correction; spillover to untrained tasks.** | **§4.14 self-aware error recovery implementation pattern (Reflexion-class) + §8.6 RL self-improvement — paper #29 is theory, this is the recipe** |
 
 ---
 
