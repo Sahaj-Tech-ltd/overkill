@@ -36,6 +36,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/bridge"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/mcp"
 	memorypkg "github.com/Sahaj-Tech-ltd/overkill/internal/memory"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/multimodal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/pipeline"
 	pluginpkg "github.com/Sahaj-Tech-ltd/overkill/internal/plugin"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
@@ -503,6 +504,18 @@ func buildTUIApp() *tui.App {
 	toolReg.Register(tools.NewWorktreeAddTool(cwd))
 	toolReg.Register(tools.NewWorktreeRemoveTool(cwd))
 	toolReg.Register(tools.NewACPSendTool())
+
+	// Batch I — understand_anything tool. One arg (path) → returns
+	// text + metadata for ANY file type. PDFs via pdftotext, audio
+	// via whisper, office docs via pandoc, images via the wired
+	// vision describer, text/code straight through. Unknown binary
+	// formats still get a "binary file: <mime> <size>" response
+	// rather than an error — the "no, I CAN handle that file" UX.
+	visionDescriber := buildVisionDescriber(cfg.Vision)
+	toolReg.Register(tools.NewUnderstandTool(
+		multimodal.DefaultRegistry(visionDescriber),
+		cwd,
+	))
 
 	// Alarm tooling. Badger is single-process, so the TUI cannot open
 	// the alarm store directly while the daemon owns it. Instead the
