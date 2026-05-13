@@ -15,6 +15,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/bridge"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/discord"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/telegram"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
@@ -23,7 +24,7 @@ var gatewayDryRun bool
 
 var gatewayCmd = &cobra.Command{
 	Use:   "gateway",
-	Short: "Run remote messaging gateways (Telegram + HTTP bridge for WhatsApp/Discord sidecars)",
+	Short: "Run remote messaging gateways (Telegram, Discord, HTTP bridge for WhatsApp sidecars)",
 	Long: `Pipes inbound messages from configured remote channels into the same
 agent the TUI uses. Cross-channel session continuity: open the TUI,
 step away, /follow tui from your phone, and your phone messages drive
@@ -88,6 +89,31 @@ func runGateway(cmd *cobra.Command, args []string) error {
 			tb.Logger = logger
 			hub.Add(tb)
 			logger.Printf("telegram: registered (%d chat(s) on allow-list, 0 = all)", len(t.AllowedChats))
+		}
+	}
+
+	if dc := cfg.Gateways.Discord; dc.Enabled || os.Getenv("DISCORD_BOT_TOKEN") != "" {
+		token := dc.BotToken
+		if token == "" {
+			token = os.Getenv("DISCORD_BOT_TOKEN")
+		}
+		if token == "" {
+			logger.Printf("discord: enabled but no token; skipping")
+		} else {
+			// Default require_mention=true. The bot replying to every
+			// channel message uninvited is a footgun — users opt out
+			// explicitly via DISCORD_ALLOW_UNMENTIONED=1 only if they
+			// really want it. TOML's `require_mention=true` is the
+			// idiomatic enable; the env var is the escape hatch.
+			requireMention := true
+			if os.Getenv("DISCORD_ALLOW_UNMENTIONED") != "" {
+				requireMention = false
+			}
+			db := discord.NewBot(token, disp, dc.AllowedGuilds, dc.AllowedChannels, requireMention)
+			db.Logger = logger
+			hub.Add(db)
+			logger.Printf("discord: registered (%d guild(s), %d channel(s) on allow-list, 0 = any; mention required=%v)",
+				len(dc.AllowedGuilds), len(dc.AllowedChannels), requireMention)
 		}
 	}
 

@@ -90,11 +90,30 @@ type BridgeConfig struct {
 	Token   string `toml:"token"`  // shared secret; empty disables auth
 }
 
+// DiscordConfig governs the optional Discord bot gateway.
+// Off by default; token may also come from DISCORD_BOT_TOKEN at runtime.
+//
+// The bot responds in DMs unconditionally and in guild channels only
+// when @mentioned. AllowedGuilds/AllowedChannels restrict where the
+// bot replies — empty lists mean "any guild/channel the bot can see".
+type DiscordConfig struct {
+	Enabled         bool     `toml:"enabled"`
+	BotToken        string   `toml:"bot_token"`
+	AllowedGuilds   []string `toml:"allowed_guilds"`   // empty = any
+	AllowedChannels []string `toml:"allowed_channels"` // empty = any
+	// RequireMention, when true, makes the bot ignore guild messages
+	// that don't @mention it. DMs always work regardless. Default true
+	// (set explicitly in config if you want the bot to react to every
+	// channel message — usually a bad idea).
+	RequireMention bool `toml:"require_mention"`
+}
+
 // GatewayConfig wires all remote messaging gateways. Each sub-section is
-// independently togglable so users can run telegram alone, bridge alone,
-// or both.
+// independently togglable so users can run telegram alone, discord
+// alone, the bridge alone, or any combination.
 type GatewayConfig struct {
 	Telegram TelegramConfig `toml:"telegram"`
+	Discord  DiscordConfig  `toml:"discord"`
 	Bridge   BridgeConfig   `toml:"bridge"`
 }
 
