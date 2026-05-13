@@ -343,6 +343,17 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		if app != nil && app.Agent != nil {
 			app.Agent.FireSessionEnd(context.Background())
 		}
+		// §6.3 persist the relationship arc so milestones survive
+		// across sessions. Best-effort.
+		if app != nil && app.Relationship != nil {
+			if home, err := os.UserHomeDir(); err == nil {
+				p := filepath.Join(home, ".overkill", "memories", "relationship-arc.json")
+				if err := app.Relationship.SaveToFile(p); err != nil {
+					log.Printf("relationship save: %v", err)
+				}
+			}
+		}
+
 		// Master plan §4.20: distilled memory export on clean exit. The
 		// snapshot daemon (cmd/overkill/snapshot.go) handles per-snapshot
 		// exports; this is the session-lifecycle hook the plan calls for.
@@ -882,6 +893,11 @@ func buildTUIApp() *tui.App {
 	// keeps internal/agent free of the internal/memory import.
 	if memOrch != nil {
 		a.SetMemoryRetriever(&memoryRetrieverAdapter{orch: memOrch})
+		// Hot/cold paging: archive evicted turns to cold storage on
+		// every compaction so the original detail is retrievable via
+		// future memory_search calls. The retrieve path above pulls
+		// the archive path's output back into context.
+		a.SetMemoryArchiver(&memoryArchiverAdapter{orch: memOrch})
 	}
 
 	// Master plan §4.8: install the auto-snapshot hook on the agent. The
@@ -1068,7 +1084,67 @@ func buildTUIApp() *tui.App {
 		// Frustration detector — observes raw user input and fires
 		// AlertFrustration via the same sink (master plan §4.16).
 		fd := personality.NewFrustrationDetector(alertSink, sid)
-		a.SetUserInputObserver(func(input string) { fd.Observe(input) })
+
+		// Cold start protocol (master plan §4.16): when this is the
+		// user's first session (no relationship.json yet), inject the
+		// opening question as a system primer and capture the user's
+		// first reply into the relationship file so the next session
+		// behaves like we've met. Multiple observers wire into a single
+		// SetUserInputObserver call below.
+		memDir := filepath.Join(home, ".overkill", "memories")
+		csm := personality.NewColdStartManager(memDir)
+		coldStart := csm.IsColdStart()
+
+		// §6.3 beat detection: load the persisted relationship state
+		// and wire the agent so first-failure / first-success / first-
+		// rollback / etc. milestones get fired and persisted across
+		// sessions.
+		rel := personality.NewRelationshipTracker()
+		relPath := filepath.Join(memDir, "relationship-arc.json")
+		if err := rel.LoadFromFile(relPath); err != nil {
+			log.Printf("relationship load: %v", err)
+		}
+		app.Relationship = rel
+		a.SetBeatRecorder(&beatRecorderAdapter{tracker: rel})
+
+		// §4.16 model fingerprinting: detect when the active model has
+		// changed since the last session. Surfaces a one-line notice
+		// to the agent so it can mention the calibration on the
+		// opener; failure history filtering (future) keys off the
+		// persisted fingerprint.
+		fingerprinter := personality.NewFingerprintTracker()
+		fpPath := filepath.Join(memDir, "fingerprint.json")
+		if notice, err := fingerprinter.BootCheck(fpPath, modelName); err == nil && notice != "" {
+			a.Inject(providers.Message{
+				Role: "system",
+				Content: notice + " — Historical failure patterns from the previous model may not apply. Be ready to recalibrate.",
+			})
+		}
+		// Persist the new fingerprint immediately so a crash mid-
+		// session doesn't lose the record.
+		_ = fingerprinter.SaveToFile(fpPath)
+		if coldStart {
+			a.Inject(providers.Message{
+				Role: "system",
+				Content: "This is the user's FIRST session with you. Open warmly but not theatrically — no 'finally awake' line, no over-familiarity. Briefly introduce yourself in one or two sentences, then ask exactly one question to learn how they like to work: " +
+					csm.OpeningQuestion() +
+					" Use their response as background context; do NOT comment on the inference or list the dimensions you extracted.",
+			})
+		}
+
+		// Compose observer that fans out to frustration + cold-start
+		// processing. Cold-start fires once (idempotent inside
+		// ProcessFirstResponse) and then becomes a no-op.
+		a.SetUserInputObserver(func(input string) {
+			fd.Observe(input)
+			if coldStart {
+				if _, err := csm.ProcessFirstResponse(input); err != nil {
+					// Best-effort: log + continue. The relationship
+					// file failing to persist doesn't break the chat.
+					log.Printf("cold start: %v", err)
+				}
+			}
+		})
 		// Expose to TUI so the personality provider can read short-term
 		// frustration state for tone mirroring each turn.
 		app.Frustration = fd

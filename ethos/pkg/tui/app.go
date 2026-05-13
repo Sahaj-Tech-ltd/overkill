@@ -66,6 +66,12 @@ type App struct {
 	// Nil-safe.
 	BlindSpot *personality.BlindSpotDetector
 
+	// Relationship is the persisted §6.3 milestone tracker. Loaded
+	// from ~/.overkill/memories/relationship-arc.json on boot and
+	// saved on clean exit. Shared between the agent's beat
+	// firing and the TUI's tone-mirror surfaces.
+	Relationship *personality.RelationshipTracker
+
 	// Build, when set, is used by Reconfigure to rebuild the agent after the
 	// user re-runs setup from inside the TUI. CLI wires this up.
 	Build AgentBuilder

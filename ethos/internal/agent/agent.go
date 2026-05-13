@@ -130,6 +130,23 @@ type Agent struct {
 	// lastErrorClass holds the diagnostic class from the most recent
 	// emitRecovery. Consumed (and cleared) by the next successful Run().
 	lastErrorClass string
+
+	// memoryArchiver, if set, receives each evicted message during
+	// Compact so the original full-text survives in cold storage and
+	// can be retrieved later via memory_search (master plan §6.1
+	// hot/cold paging). Nil-safe — archive failures never block
+	// compaction.
+	memoryArchiver MemoryArchiver
+
+	// lastPreCompactAt throttles the §4.4 pre-compaction checkpoint
+	// at ≈48% so we don't compact more than once per minute even
+	// when the user is firing back-to-back big tasks. Zero value =
+	// never pre-compacted.
+	lastPreCompactAt time.Time
+
+	// beatRecorder fires §6.3 relationship milestones from inside
+	// the hot path. Nil-safe — see recordBeat helper.
+	beatRecorder BeatRecorder
 }
 
 // PromptCompressor is the small interface the agent calls before assembling
@@ -382,6 +399,27 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		}()
 	}
 
+	// §7.1 per-task complexity-based timeout: bound the rest of Run()
+	// by an auto-scaled budget so simple tasks can't burn arbitrary
+	// wall-clock. The caller's ctx still cancels first if shorter.
+	a.mu.RLock()
+	histLen := len(a.history)
+	a.mu.RUnlock()
+	taskBudget := taskTimeoutFor(userInput, histLen)
+	taskCtx, taskCancel := context.WithTimeout(ctx, taskBudget)
+	defer taskCancel()
+	a.emit("task_timeout_armed", map[string]any{
+		"timeout_ms": taskBudget.Milliseconds(),
+		"session_id": a.sessionID,
+	})
+	ctx = taskCtx
+
+	// §4.4 pre-compaction checkpoint: if utilization is in the
+	// approaching-soft-trigger band (≈48–50%) AND the user just
+	// queued a large task, compact NOW so the big task runs in a
+	// fresh window. Best-effort — failures emit, never block.
+	a.preCompactCheck(ctx, userInput)
+
 	// Smart model routing (master plan §5.2): per-turn model selection
 	// based on input complexity. Falls back silently to the static model.
 	if r := a.modelRouter; r != nil {
@@ -633,6 +671,11 @@ func (a *Agent) emitRecovery(stepErr error) {
 		"error":      stepErr.Error(),
 		"session_id": a.sessionID,
 	})
+
+	// §6.3 beat — first failure ever in this relationship. Recorder
+	// dedups via the milestone map; this fires every call but only
+	// the first-of-kind takes effect.
+	a.recordBeat(BeatFirstFailure, stepErr.Error())
 
 	// Master plan §4.13: auto-escalate the diagnostic ladder. We classify
 	// the error, advance the per-class ladder, and emit a suggestion the
@@ -966,6 +1009,12 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 			return nil, fmt.Errorf("agent: compact: provider returned empty summary")
 		}
 	}
+
+	// §6.1 hot/cold paging: archive the evicted messages to cold
+	// storage BEFORE we replace history. The summary becomes the hot
+	// view; the raw text remains retrievable via memory_search.
+	// Best-effort — failures are emitted, never abort compaction.
+	a.archiveCompactedMessages(history)
 
 	newHistory := []providers.Message{
 		{Role: "assistant", Content: "[compacted history] " + summary},

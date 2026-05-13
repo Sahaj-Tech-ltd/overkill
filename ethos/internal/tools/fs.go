@@ -73,10 +73,35 @@ func (f *FSTool) resolve(path string) (string, error) {
 	return abs, nil
 }
 
+// largeFileByteThreshold is the master plan §4.4 ">25K tokens" line.
+// ~4 chars per token → 100K bytes. Files at or above this AND opened
+// without explicit Offset/Limit return a disk reference instead of
+// flooding context. Callers can still drill in with ranged reads.
+const largeFileByteThreshold = 100 * 1024
+
+// rangedReadLineCap bounds an Offset+Limit slice so a user who asks
+// for "lines 1..1_000_000" still gets bounded output. Picked to keep
+// the result under ~150K chars in the worst case (avg 150 chars/line
+// × 1000 lines).
+const rangedReadLineCap = 1000
+
 func (f *FSTool) read(_ context.Context, in *FSInput) (json.RawMessage, error) {
 	resolved, err := f.resolve(in.Path)
 	if err != nil {
 		return nil, err
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("fs read: %w", err)
+	}
+	// §4.4 large-file disk reference: when no ranged read is requested
+	// and the file is huge, return a structured peek instead of the
+	// whole contents. Agent can then call back with Offset/Limit or
+	// use grep to drill in. Wholesale read on a 50K-line file would
+	// swamp the context window in one tool call.
+	if in.Offset == 0 && in.Limit == 0 && info.Size() >= largeFileByteThreshold {
+		return largeFileReference(resolved, info.Size())
 	}
 
 	data, err := os.ReadFile(resolved)
@@ -100,6 +125,12 @@ func (f *FSTool) read(_ context.Context, in *FSInput) (json.RawMessage, error) {
 			end = e
 		}
 	}
+	// Hard cap the ranged slice regardless of what the user asked for,
+	// so a careless Limit=999999 doesn't reintroduce the unbounded
+	// read we just guarded against.
+	if end-start > rangedReadLineCap {
+		end = start + rangedReadLineCap
+	}
 
 	selected := lines[start:end]
 	var numbered strings.Builder
@@ -108,6 +139,47 @@ func (f *FSTool) read(_ context.Context, in *FSInput) (json.RawMessage, error) {
 	}
 
 	result := ToolResult{Output: numbered.String(), Success: true}
+	raw, _ := json.Marshal(result)
+	return raw, nil
+}
+
+// largeFileReference returns a compact disk-reference payload for
+// files past the size threshold. Includes head/tail peeks so the
+// agent can decide where to drill in without a second read.
+func largeFileReference(path string, size int64) (json.RawMessage, error) {
+	const peekLines = 20
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("fs read: large-file peek: %w", err)
+	}
+	lines := strings.Split(string(data), "\n")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "FILE TOO LARGE FOR INLINE READ — %d bytes, %d lines\n", size, len(lines))
+	fmt.Fprintf(&b, "Path: %s\n", path)
+	b.WriteString("This file exceeds the inline-read threshold (~25K tokens). ")
+	b.WriteString("Call fs.read again with Offset+Limit to drill into a range, ")
+	b.WriteString("or use grep/search tools to find what you need.\n\n")
+
+	head := peekLines
+	if head > len(lines) {
+		head = len(lines)
+	}
+	b.WriteString("--- head (first 20 lines) ---\n")
+	for i := 0; i < head; i++ {
+		fmt.Fprintf(&b, "%d: %s\n", i+1, lines[i])
+	}
+
+	if len(lines) > 2*peekLines {
+		tailStart := len(lines) - peekLines
+		fmt.Fprintf(&b, "\n... %d lines omitted ...\n\n", tailStart-head)
+		b.WriteString("--- tail (last 20 lines) ---\n")
+		for i := tailStart; i < len(lines); i++ {
+			fmt.Fprintf(&b, "%d: %s\n", i+1, lines[i])
+		}
+	}
+
+	result := ToolResult{Output: b.String(), Success: true}
 	raw, _ := json.Marshal(result)
 	return raw, nil
 }
