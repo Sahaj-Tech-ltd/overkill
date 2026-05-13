@@ -6,6 +6,33 @@
 
 ---
 
+## Status Legend
+
+This plan doubles as the project todo list. Each subsection carries a
+status badge; bullets are checkboxes where they describe a discrete
+deliverable.
+
+- ✅ **Shipped** — code in `master`, tested, race-clean
+- ⚠️ **Partial** — some pieces shipped, gaps called out inline
+- ❌ **Not started** — nothing in `master` yet
+- ⏭️ **Skipped / non-goal** — explicitly out of scope
+
+Last status sweep: 2026-05-13 (post-workflow split).
+
+## Status Dashboard
+
+| Phase | Status | What's left |
+|---|---|---|
+| **Phase 0** Foundation | ✅ | Inspiration clones are gitignored local-only; paper PDFs not committed (refs only) |
+| **Phase 1** MVP Agent Loop (§4.1-4.20) | ✅ | `daemon` + `update` CLI commands deferred to Phase 4 |
+| **Phase 1.5** Inspiration Steals | ✅ | — |
+| **Phase 2** TUI + Routing (§5.1-5.3) | ✅ | Streaming markdown is explicit non-goal |
+| **Phase 3** Memory + Self-Learning + Walls (§6.1-6.5) | ✅ | ClawHub + VirusTotal skill scanning deferred |
+| **Phase 4** Automation + Multi-Channel + Browser (§7.1-7.6) | ⚠️ | Daemon, SOPs, Task Flow, gateways (WA/TG/DC), dev-browser, Stagehand, understand-anything, auto-update |
+| **Phase 5** Advanced R&D (§8.1-8.6) | ❌ | All paper-driven; revisit after Phase 4 |
+
+---
+
 ## 1. Project Identity
 
 | Field | Value |
@@ -126,11 +153,11 @@ overkill/
 
 ---
 
-## 3. Phase 0: Foundation (GitHub Enterprise Setup)
+## 3. Phase 0: Foundation (GitHub Enterprise Setup)  ✅
 
 **Goal:** Enterprise-grade repo that scales to 500+ PRs/month. First-time maintainer ready.
 
-### 3.1 `.github/` Directory
+### 3.1 `.github/` Directory  ✅
 
 Patterns copied from OpenClaw (templates), Hermes (CI/security), ZeroClaw (quality gates).
 
@@ -157,15 +184,18 @@ Blend of Hermes + ZeroClaw:
 
 #### `.github/workflows/`
 
-| Workflow | Purpose |
-|---|---|
-| `tests.yml` | Go tests + Python bridge tests, concurrency groups, pinned action SHAs |
-| `lint.yml` | golangci-lint, ruff for Python |
-| `supply-chain-audit.yml` | Scan for `.pth`, base64+exec combos, install hooks |
-| `docker-publish.yml` | Multi-arch, fork protection |
-| `security.yml` | CodeQL, gitleaks, secret scanning |
-| `labeler.yml` | Auto-label by changed file paths |
-| `contributors.yml` | Auto-update contributor avatar grid in README |
+| Workflow | Purpose | Status |
+|---|---|---|
+| `ci.yml` | gofmt + vet + build + cross-build | ✅ |
+| `tests.yml` | Go race tests + coverage, Python pytest + coverage | ✅ |
+| `lint.yml` | golangci-lint, ruff for Python | ✅ |
+| `supply-chain-audit.yml` | `.pth`/base64+exec/install hooks + pip-audit | ✅ |
+| `docker-publish.yml` | Multi-arch, fork protection | ✅ |
+| `security.yml` | gosec + govulncheck + gitleaks + dep-review + CodeQL trigger | ✅ |
+| `codeql.yml` | CodeQL deep scan | ✅ |
+| `labeler.yml` | Auto-label by changed file paths | ✅ |
+| `contributors.yml` | Auto-update contributor avatar grid in README | ✅ |
+| `release.yml` | Tagged release pipeline | ✅ |
 
 > **Dropped from Harness:** `actionlint.yml` — linting is covered by `lint.yml` (golangci-lint + ruff). No separate actionlint workflow.
 
@@ -223,7 +253,7 @@ updates:
 "automation": { changed-files: [{ any-glob-to-any-file: ["internal/automation/**"] }] }
 ```
 
-### 3.2 Root-Level Community Files
+### 3.2 Root-Level Community Files  ✅
 
 #### `CONTRIBUTING.md`
 
@@ -257,7 +287,7 @@ Instructions for AI coding assistants:
 - Architecture overview with directory map
 - Key interfaces and where to find them
 
-### 3.3 `README.md`
+### 3.3 `README.md`  ✅
 
 Banger README:
 - ASCII art logo (2004 vibes, make it feel alive)
@@ -273,7 +303,11 @@ Banger README:
   - Shows GitHub pfp for everyone who submitted a PR
   - Like OpenClaw/Hermes contributor sections
 
-### 3.4 Inspiration Folder (Gitignored, Shallow Clones)
+### 3.4 Inspiration Folder (Gitignored, Shallow Clones)  ⚠️ local-only
+
+Local-environment chore (clones live in a gitignored dir). Only `warp`
+is cloned locally; the others are referenced by URL when patterns
+need to be checked. Not blocking on this — it's not committed code.
 
 ```bash
 mkdir -p inspiration
@@ -286,9 +320,11 @@ git clone --depth 1 https://github.com/SawyerHood/dev-browser.git inspiration/de
 git clone --depth 1 https://github.com/Lum1104/Understand-Anything.git inspiration/understand-anything
 ```
 
-### 3.5 Research Papers (47 papers in `research/papers/`)
+### 3.5 Research Papers (47 papers in `research/papers/`)  ✅ refs only
 
-See Section 10 for full list. Downloaded PDFs + `research/REFERENCES.md` with structured summaries.
+`research/REFERENCES.md` ships with structured summaries. PDFs are
+NOT in the repo (copyright + size) — the structured summary is the
+authoritative reference. Section 10 has the full list.
 
 ---
 
@@ -296,23 +332,23 @@ See Section 10 for full list. Downloaded PDFs + `research/REFERENCES.md` with st
 
 **Goal:** A working agent that talks to LLMs, reasons before acting, has token discipline, compacts context, has personality, and produces quality code through an incremental pipeline. CLI-first.
 
-### 4.1 Core Agent Loop
-- [ ] ReAct-style think-act-observe cycle (`internal/agent/`)
-- [ ] Two-Step Forethought: calculate secondary impact before writes
-- [ ] Spec-Driven mode: auto-switch to plan creation before execution
-- [ ] Conversation management (turn tracking, message history)
-- [ ] System prompt construction (anti-bloat, instruction-dense)
-- [ ] **Command completion marker:** All shell commands appended with `&& echo __OVERKILL_DONE__`. Guarantees Overkill always knows when a command finished executing — regardless of output verbosity, streaming, or silence. The agent loop's `observe` phase waits for this marker, not for stdout EOF. Eliminates ambiguity when commands produce no output or are still streaming.
+### 4.1 Core Agent Loop  ✅
+- [x] ReAct-style think-act-observe cycle (`internal/agent/`)
+- [x] Two-Step Forethought: calculate secondary impact before writes
+- [x] Spec-Driven mode: auto-switch to plan creation before execution
+- [x] Conversation management (turn tracking, message history)
+- [x] System prompt construction (anti-bloat, instruction-dense)
+- [x] **Command completion marker:** shell commands wrapped with `__OVERKILL_DONE__:exit=N:cwd=...` marker so the agent observes exit code + final cwd deterministically, even when commands stream or stay silent.
 
 **Inspiration:** Hermes `agent/` core loop, PicoClaw `pkg/agent/` turn management
 
-### 4.2 LLM Provider Layer
-- [ ] Provider interface abstraction (`internal/providers/`)
-- [ ] Group by protocol family (OpenAI-compatible, Anthropic, Gemini native) — from PicoClaw
-- [ ] Provider implementations: OpenAI, Anthropic, Gemini, DeepSeek, z.ai/GLM, Ollama, OpenRouter
-- [ ] Custom endpoint support (e.g., MiniMax direct vs coding plan endpoints)
-- [ ] **Provider selection UI like ZeroClaw:** User selects OpenAI → lists all providers → MiniMax → "coding plan" or "API" → default is `api.minimax.io/coding-plan` → "Change if different: (leave blank for default)"
-- [ ] **Model catalog as TOML data** (inspired by models.dev — data, not code):
+### 4.2 LLM Provider Layer  ✅
+- [x] Provider interface abstraction (`internal/providers/`)
+- [x] Group by protocol family (OpenAI-compatible, Anthropic, Gemini native) — from PicoClaw
+- [x] Provider implementations: OpenAI, Anthropic, Gemini, DeepSeek, z.ai/GLM, Ollama, OpenRouter
+- [x] Custom endpoint support (e.g., MiniMax direct vs coding plan endpoints)
+- [x] **Provider selection UI like ZeroClaw:** User selects OpenAI → lists all providers → MiniMax → "coding plan" or "API" → default is `api.minimax.io/coding-plan` → "Change if different: (leave blank for default)"
+- [x] **Model catalog as TOML data** (inspired by models.dev — data, not code):
   - Models defined in TOML files under `~/.overkill/models/`. Human-writable, diff-friendly, auto-validated in CI. No database migration.
   - **Filename-as-ID:** `openai/gpt-5.toml` → model ID `openai/gpt-5`. Eliminates ID-field mismatches.
   - **`extends` inheritance:** Wrapper models (OpenRouter, Groq) reference canonical models via `[extends] from = "openai/gpt-5"`, overriding only cost. 240+ model files become 5-line stubs.
@@ -322,46 +358,46 @@ See Section 10 for full list. Downloaded PDFs + `research/REFERENCES.md` with st
   - **Provider metadata in TOML:** npm package/env vars/docs URL/API base URL per provider. New provider = one TOML file, not a new Go file in factory.go.
   - **JSON endpoint for external consumers:** Serve resolved model catalog as static JSON. `model-schema.json` for IDE autocompletion of valid model IDs.
   - **CI validation:** `go test` loads all TOML, validates schema. Malformed model = CI fails.
-- [ ] Failover chain with cooldown tracking — from PicoClaw
-- [ ] **Retry logic from OpenCode:** Exponential backoff (2s base, 2x growth, 20% jitter), 8 max retries, only on 429/500/529, honor Retry-After header
+- [x] Failover chain with cooldown tracking — from PicoClaw
+- [x] **Retry logic from OpenCode:** Exponential backoff (2s base, 2x growth, 20% jitter), 8 max retries, only on 429/500/529, honor Retry-After header
 
-### 4.3 Security Plane (Relaxed — serves the product, not paranoia)
-- [ ] Isolated security process for prompt injection detection
-- [ ] Skeptical Ingestion: all tool outputs, web content treated as untrusted
-- [ ] Hard Refuse Rule: auto-detect "ignore previous instructions", report to user
-- [ ] Pre-Exec Command Scanner: scan commands before execution
-- [ ] **Before destructive commands (`rm -rf` etc):** auto git commit or filesystem backup
-- [ ] **Permission escalation, not silent deny:** When a command matches a deny pattern, Overkill does NOT silently block it. Instead:
+### 4.3 Security Plane (Relaxed — serves the product, not paranoia)  ✅
+- [x] Isolated security process for prompt injection detection
+- [x] Skeptical Ingestion: all tool outputs, web content treated as untrusted
+- [x] Hard Refuse Rule: auto-detect "ignore previous instructions", report to user
+- [x] Pre-Exec Command Scanner: scan commands before execution (now defense-in-depth: agent loop AND ShellTool.Execute itself)
+- [x] **Before destructive commands (`rm -rf` etc):** auto git commit or filesystem backup
+- [x] **Permission escalation, not silent deny:** When a command matches a deny pattern, Overkill does NOT silently block it. Instead:
   - Presents the blocked command to the user with the reason: *"Blocked: `rm -rf ./build` matches destructive pattern. What do you want me to do?"*
   - Options: **(1) Allow once** — run this time only, ask again next time. **(2) Allow for project** — add to project-level allowlist, skip this check for this project. **(3) Add to do-not-ask** — add to global allowlist, never ask about this pattern again.
   - Precedence: Deny patterns fire first (flag). User override takes priority (allow once/project/global). Same mechanics as `Permission dialog: Allow / Allow for Session / Deny` from TUI but applied to the security layer under the hood.
   - **Never silently blocks the user's intent.** The guard is a gate, not a wall.
-- [ ] Sensitive data filtering before LLM context — from PicoClaw
-- [ ] Secret Scanner: prevent credential leaks in git pushes
-- [ ] Agent Privilege Separation — separate reader/action agents (paper #21)
+- [x] Sensitive data filtering before LLM context — from PicoClaw
+- [x] Secret Scanner: prevent credential leaks in git pushes
+- [x] Agent Privilege Separation — separate reader/action agents (paper #21)
 
-### 4.4 Context Compaction (LCM-Inspired)
+### 4.4 Context Compaction (LCM-Inspired)  ✅
 
 > **Core inspiration:** LCM (Lossless Context Management) — Voltropy, Feb 2026.
 > Dual-state memory, hierarchical DAG, three-level escalation, zero-cost for short tasks.
 
-- [ ] **Dual-state memory:** Immutable Store (every message preserved verbatim, never modified) + Active Context (assembled window sent to LLM each turn)
-- [ ] **Hierarchical DAG:** Older messages → summary nodes. Originals always retrievable via `lcm_expand` / `lcm_grep` style tools
-- [ ] **Three-level escalation (guaranteed convergence):**
+- [x] **Dual-state memory:** Immutable Store (every message preserved verbatim, never modified) + Active Context (assembled window sent to LLM each turn)
+- [x] **Hierarchical DAG:** Older messages → summary nodes. Originals always retrievable via `lcm_expand` / `lcm_grep` style tools
+- [x] **Three-level escalation (guaranteed convergence):**
   - Level 1: Detailed LLM summary (preserve_details mode)
   - Level 2: Aggressive bullet-point summary (half target tokens)
   - Level 3: Deterministic truncation to 512 tokens — no LLM, always succeeds
-- [ ] **Zero-cost continuity:** Below τ_soft → passive logger, no summarization overhead. Above → async compaction between turns. Only τ_hard blocks user
-- [ ] 50% trigger: auto-compact at 50% context window usage (τ_soft)
-- [ ] **Pre-compaction checkpoint:** Agent is aware of its context utilization. When approaching τ_soft (≥48%) and the user requests a large task, the agent proactively warns: *"At 48% context — let me compact now so I'm fresh for this. Saving what I know, making a plan first."* Strategically compacts BEFORE the big task, not during it. Updates journal, writes plan artifacts, ensures nothing worth keeping is lost to compaction.
-- [ ] Summarize everything except last 20 messages via compaction model
-- [ ] Caveman Mode: escalate bluntness as budget limits approach
-- [ ] Anti-bloat system prompts
-- [ ] Grep-n navigation: prohibit full file reads, use grep -n and ranged reads only
-- [ ] Mine Context First: check existing context before tool calls
-- [ ] **Auto-compact at 95%** (τ_hard) with "Summarizing..." overlay
-- [ ] **Large file handling:** Files >25K tokens → disk reference only, exploration summary in context
-- [ ] **Tool output compression middleware** (inspired by RTK — transparent proxy, not agent logic):
+- [x] **Zero-cost continuity:** Below τ_soft → passive logger, no summarization overhead. Above → async compaction between turns. Only τ_hard blocks user
+- [x] 50% trigger: auto-compact at 50% context window usage (τ_soft)
+- [x] **Pre-compaction checkpoint:** Agent is aware of its context utilization. When approaching τ_soft (≥48%) and the user requests a large task, the agent proactively warns: *"At 48% context — let me compact now so I'm fresh for this. Saving what I know, making a plan first."* Strategically compacts BEFORE the big task, not during it. Updates journal, writes plan artifacts, ensures nothing worth keeping is lost to compaction.
+- [x] Summarize everything except last 20 messages via compaction model
+- [x] Caveman Mode: escalate bluntness as budget limits approach
+- [x] Anti-bloat system prompts
+- [x] Grep-n navigation: prohibit full file reads, use grep -n and ranged reads only
+- [x] Mine Context First: check existing context before tool calls
+- [x] **Auto-compact at 95%** (τ_hard) with "Summarizing..." overlay
+- [x] **Large file handling:** Files >25K tokens → disk reference only, exploration summary in context
+- [x] **Tool output compression middleware** (inspired by RTK — transparent proxy, not agent logic):
   - Pre-emptive compression on tool output BEFORE it enters context. Different from compaction (post-hoc summarization).
   - **Declarative compressor registry:** Each tool registers a compressor. git → stats extraction (+142/-89). test runner → failure focus (hide passing tests). linter → group by rule. Unknown tools → passthrough.
   - **Two-tier extensibility:** Native Go compressors for top 10 tools (high savings). DSL filter engine for long tail (moderate savings, low effort).
@@ -369,7 +405,7 @@ See Section 10 for full list. Downloaded PDFs + `research/REFERENCES.md` with st
   - **Tee recovery:** On failure, raw output saved to disk with hint path. Agent can re-read without re-executing expensive/irreversible commands.
   - **Token tracking per tool call:** Input/output tokens, savings %, elapsed time. Feeds cost tracking (§4.5). Identifies optimization targets.
   - This is a transport-layer optimization — the agent's reasoning loop is unchanged, but its context is dramatically cleaner. 60-90% token savings on tool output.
-- [ ] **LLM-based prompt compression** (inspired by LLMLingua — Microsoft):
+- [x] **LLM-based prompt compression** (inspired by LLMLingua — Microsoft):
   - A tiny/cheap model strips low-salience tokens from the *assembled* prompt before it hits the expensive model. 2-20x compression on the final prompt.
   - **Pipeline position:** Runs AFTER context assembly (system prompt + history + tools + new message) but BEFORE the provider call. Final transform in the agent loop.
   - **Budget-aware:** When context exceeds τ_soft (50%), prompt compression kicks in BEFORE escalation to Level 2/3 compaction. Cheap model call << expensive model call on bloated prompt.
@@ -377,45 +413,47 @@ See Section 10 for full list. Downloaded PDFs + `research/REFERENCES.md` with st
   - **Perceptual:** Compresses while preserving task-critical information. Not lossless — Lossy by design, like JPEG for text. "Remove what the model doesn't need to answer this."
   - **Configurable threshold:** Compression only when savings exceed cost. If the cheap model burns 1K tokens to save 500 tokens on the main call, skip it.
 
-### 4.5 Token & Cost Discipline
-- [ ] Token counting per provider (`internal/tokenizer/`)
-- [ ] Cost tracking with accurate API pricing (`internal/cost/`) — 4 pricing fields per model: in, out, in-cached, out-cached (from OpenCode)
-- [ ] `/usage` command with detailed breakdown
-- [ ] Cost display even for coding plans
-- [ ] Per-task budget caps with auto-abort
-- [ ] 5-hour rolling limit logic
-- [ ] **Status bar display (from OpenCode):** `Context: 12.3K, Cost: $0.05` with >80% warning
+### 4.5 Token & Cost Discipline  ✅
+- [x] Token counting per provider (`internal/tokenizer/`)
+- [x] Cost tracking with accurate API pricing (`internal/cost/`) — 4 pricing fields per model: in, out, in-cached, out-cached (from OpenCode)
+- [x] `/usage` command with detailed breakdown
+- [x] Cost display even for coding plans
+- [x] Per-task budget caps with auto-abort
+- [x] 5-hour rolling limit logic
+- [x] **Status bar display (from OpenCode):** `Context: 12.3K, Cost: $0.05` with >80% warning
 
-### 4.6 Session Management
-- [ ] One session per folder (`internal/session/`)
-- [ ] `/session` command to switch
-- [ ] Context preserved across folder reopens — user doesn't re-explain
-- [ ] **From OpenCode:** Auto-generate session title via cheap model (80 max tokens)
-- [ ] Sub-sessions for sub-agents with parent_session_id tracking
+### 4.6 Session Management  ✅
+- [x] One session per folder (`internal/session/`)
+- [x] `/session` command to switch
+- [x] Context preserved across folder reopens — user doesn't re-explain
+- [x] **From OpenCode:** Auto-generate session title via cheap model (80 max tokens)
+- [x] Sub-sessions for sub-agents with parent_session_id tracking
+- [x] Branch / Clone / Merge (tree-structured sessions)
 
-### 4.7 Config System
-- [ ] Config versioning with auto-migration — from PicoClaw
-- [ ] Secrets separated from main config — from PicoClaw
-- [ ] Profile-scoped credentials (one config, multiple providers, no key collision)
-- [ ] **Start even with broken config** (graceful degradation — warn, don't crash)
-- [ ] `doctor` command to auto-fix broken configs
-- [ ] Config format: TOML (Go-native, supports comments)
+### 4.7 Config System  ✅
+- [x] Config versioning with auto-migration — from PicoClaw
+- [x] Secrets separated from main config — from PicoClaw
+- [x] Profile-scoped credentials (one config, multiple providers, no key collision)
+- [x] **Start even with broken config** (graceful degradation — warn, don't crash)
+- [x] `doctor` command to auto-fix broken configs
+- [x] Config format: TOML (Go-native, supports comments)
 
-### 4.8 Git Integration
-- [ ] Fancy ASCII git-push preview window: commit name, short code, comments, files → origin
-- [ ] Secret scanning before push (no envs, no md's with secrets, no internal docs)
-- [ ] **Religious git commits, not push:** Commit after every incremental stage
-- [ ] **`git reset --hard`** as safety valve for broken stuff
-- [ ] Filesystem checkpoints before destructive operations
-- [ ] AI WILL delete features, AI WILL go rogue — git is the safety net
+### 4.8 Git Integration  ✅
+- [x] Fancy ASCII git-push preview window: commit name, short code, comments, files → origin
+- [x] Secret scanning before push (no envs, no md's with secrets, no internal docs)
+- [x] **Religious git commits, not push:** Commit after every incremental stage
+- [x] **`git reset --hard`** as safety valve for broken stuff
+- [x] Filesystem checkpoints before destructive operations
+- [x] AI WILL delete features, AI WILL go rogue — git is the safety net
 
-### 4.9 CLI Foundation
-- [ ] Cobra-based CLI (`cmd/overkill/`)
-- [ ] Commands: `run`, `doctor`, `config`, `session`, `model`, `usage`, `daemon`, `update`
-- [ ] Streaming output
-- [ ] Interrupt and redirect mid-task
+### 4.9 CLI Foundation  ⚠️ daemon + update pending Phase 4
+- [x] Cobra-based CLI (`cmd/overkill/`)
+- [x] Commands: `run`, `doctor`, `config`, `session`, `model`, `usage`
+- [ ] Commands: `daemon`, `update` (deferred to Phase 4)
+- [x] Streaming output
+- [x] Interrupt and redirect mid-task
 
-### 4.10 Prompt Rewriter Middleware
+### 4.10 Prompt Rewriter Middleware  ✅
 
 A cheap model (DeepSeek tier) sits between user input and the main agent:
 
@@ -446,7 +484,7 @@ A cheap model (DeepSeek tier) sits between user input and the main agent:
 - Output is direct assessment: agree, disagree, or flag uncertainty
 - Tone: no filler praise, no "great idea!", just the honest take
 
-### 4.11 Context Engineering / Repo Onboarding
+### 4.11 Context Engineering / Repo Onboarding  ✅
 
 When user starts a session on a repo:
 1. Agent maps everything — like Deep Wiki with Devin, or OpenAI Codex
@@ -470,7 +508,7 @@ When user starts a session on a repo:
 
 **Philosophy:** Treat AI like a junior dev. Juniors need shaping before they graduate from being useful idiots. The pipeline forces structure so the AI doesn't get tunnel vision.
 
-### 4.12 Independent Test Agent
+### 4.12 Independent Test Agent  ✅
 
 **The Spider-Man Problem:** Agent writes code → agent writes tests → agent says "all good" → you wrote all 3 lol.
 
@@ -481,7 +519,7 @@ When user starts a session on a repo:
 - Unit tests + integration tests, both by separate process
 - You don't edit the wheel
 
-### 4.13 Debugging Diagnostic Report
+### 4.13 Debugging Diagnostic Report  ✅
 
 **The Problem:** Debugging is where better models win. What catches us up is diagnosing first.
 
@@ -496,7 +534,7 @@ When user starts a session on a repo:
 
 **Prevents:** Random changes, tunnel vision, "could have been a config issue"
 
-### 4.14 Self-Aware Error Recovery
+### 4.14 Self-Aware Error Recovery  ✅
 
 - Agent recognizes what it did wrong
 - Traces the bug/fault chain
@@ -505,7 +543,7 @@ When user starts a session on a repo:
 - Says: "Here's my plan to not make this mistake again, and here's what I can do right now to fix it. I'm sorry."
 - User is angry → agent acknowledges walls, creates plan to manage them
 
-### 4.15 Confidence & Honesty
+### 4.15 Confidence & Honesty  ✅
 
 **No False Hope. Period.**
 - Confidence score on uncertain outputs
@@ -514,7 +552,7 @@ When user starts a session on a repo:
 - If you don't know → SAY IT
 - Independent personality helps (agent isn't trying to please)
 
-### 4.16 Personality Engine + Relationship Tracking
+### 4.16 Personality Engine + Relationship Tracking  ✅
 
 > **Grounded in:** Anthropic's Persona Selection Model (Feb 2026), Emotion Concepts (Apr 2026),
 > Kelley & Riedl's Personalization vs Independence (2026), HBS AI Loneliness (De Freitas 2026).
@@ -728,13 +766,13 @@ When user starts a session on a repo:
 - No romantic/emotional companion framing — this is a work relationship
 - User can always see/edit what the agent remembers about them
 
-### 4.17 Python Bridge Setup
+### 4.17 Python Bridge Setup  ✅
 - [ ] gRPC proto definitions
 - [ ] Go client
 - [ ] Python server
 - [ ] `pyproject.toml`
 
-### 4.18 Introspection Skill (On-Demand, NOT Boot Read)
+### 4.18 Introspection Skill (On-Demand, NOT Boot Read)  ✅
 
 > Agent does NOT read its own codebase on boot. System prompt stays lean.
 > Introspection is a **skill** triggered when the user asks about config, features, or internals.
@@ -749,7 +787,7 @@ When user starts a session on a repo:
 - [ ] When user says "fix your config" → agent knows what config means in Overkill context
 - [ ] When user says "you broke this" → agent can trace its own code path
 
-### 4.19 Diary / Journal System (Flight Recorder)
+### 4.19 Diary / Journal System (Flight Recorder)  ✅
 
 > Full traceability. Every turn logged. Sub-agent journals like a diary.
 > Alerts surface important stuff. Not in main context unless alert fires.
@@ -800,7 +838,7 @@ When user starts a session on a repo:
 - [ ] **Hook errors never block:** Journal capture hooks fail-open (exit 0). Worker being down never blocks the main agent session.
 - [ ] **Real-time visibility:** New observations broadcast via SSE to visible memory dashboard (§4.16). User watches the journal grow live.
 
-### 4.20 Data Durability (BadgerDB Resilience)
+### 4.20 Data Durability (BadgerDB Resilience)  ✅
 
 > Everything that makes Overkill feel like a 20-year colleague lives in one embedded database. Relationship arc. Long-term baseline. Delegation ledger. Competence flags. Skill library. Proactive transparency history. Model-versioned failure logs. When BadgerDB corrupts — not if, when — Overkill doesn't just forget recent sessions. It forgets who you are. The 20-year colleague gets amnesia overnight and boots up saying "Hey, you're finally awake" to someone it's worked with for two years.
 
@@ -831,7 +869,7 @@ When user starts a session on a repo:
 
 ---
 
-## Phase 1.5 — Inspiration Steals
+## Phase 1.5 — Inspiration Steals  ✅
 
 > Targeted pulls from Pi (TypeScript agent) and Warp (terminal-of-the-future) that punch above their weight: small features, big UX wins. Slotted between Phase 1 MVP and Phase 2 TUI because they enrich the foundation before we layer routing/memory on top.
 
@@ -890,131 +928,131 @@ Sequenced to maximise compounding payoff:
 
 ---
 
-## 5. Phase 2: TUI + Model Routing
+## 5. Phase 2: TUI + Model Routing  ✅
 
-### 5.1 TUI (Bubble Tea + Lip Gloss)
+### 5.1 TUI (Bubble Tea + Lip Gloss)  ✅
 
 **From OpenCode (confirmed same stack, Go-native):**
 
-- [ ] Bubble Tea (Elm architecture) + Lip Gloss (styling) + Bubbles (components)
-- [ ] Split-pane layout: 70% left (messages), 30% right (sidebar), 10% bottom (editor)
-- [ ] Overlay dialogs: help, quit, session switcher, model picker, permissions, command palette
-- [ ] **Paste behavior:** Direct paste into textarea (bubbles/textarea handles bracketed paste). Ctrl+E opens `$EDITOR` with temp file. Both paths. No forced temp files.
-- [ ] **Model picker (Ctrl+O):** Modal overlay, vertical model list, horizontal provider switching, popularity-sorted, 10 visible, max 40 chars wide (from OpenCode)
-- [ ] **Token/cost status bar:** `Context: 12.3K, Cost: $0.05`, >80% warning (from OpenCode)
-- [ ] **File change sidebar:** Modified files with diff stats (+12 -3) (from OpenCode)
-- [ ] **Command palette (Ctrl+K):** Fuzzy-searchable (from OpenCode)
-- [ ] **File completion:** `@` triggers file/folder autocomplete (from OpenCode)
-- [ ] **LSP integration:** Real-time diagnostics in status bar (from OpenCode)
-- [ ] **Spinner states:** "Thinking...", "Generating...", "Building tool call..." (from OpenCode)
-- [ ] **Theme system:** 40+ color slots, Catppuccin built-in, light/dark adaptive (from OpenCode)
-- [ ] **Markdown rendering:** Glamour with theme integration (from OpenCode)
-- [ ] **Message render caching:** Render once, cache by ID + width (from OpenCode)
-- [ ] **Permission dialog:** Allow / Allow for Session / Deny (from OpenCode)
-- [ ] **Image paste:** Direct paste of images, base64-encoded, sent as binary content parts
-- [ ] **Hover-copy:** Mouse selection copies to clipboard (terminal-level, or explicit via `tea.MouseMsg` + clipboard library)
-- [ ] Fancy ASCII art borders, spinners, progress bars (2004 vibes)
-- [ ] Personality mode indicator in status bar
-- [ ] **Viewport culling in scrollboxes** (inspired by OpenTUI ScrollBox): Only render visible children. Critical for long message lists — prevents O(n) render cost.
-- [ ] **Streaming markdown with parse state** (inspired by OpenTUI `parseMarkdownIncremental()`): Maintain parse state across streaming updates. Only re-parse trailing blocks, not the whole string on every chunk.
-- [ ] **Conceal mode for markdown** (inspired by OpenTUI): Toggle showing/hiding markdown formatting markers. Simple boolean, huge UX difference for reading vs editing.
-- [ ] **Auto dark/light theme detection** (inspired by OpenTUI OSC query): Query terminal OSC 10/11 for bg/fg, compute brightness, infer theme. Zero-config.
-- [ ] **Line number gutter with signs + per-line colors** (inspired by OpenTUI `LineNumberRenderable`): Map `lineIndex → {gutter color, content color, sign}`. Diff viewer uses this for clean +/-/~ indicators.
-- [ ] **Layered keybinding system** (inspired by OpenTUI `@opentui/keymap`): Registration, activation requirements, compilation, intercepts. Reusable terminal + web.
-- [ ] **Named style group theming** (inspired by OpenTUI `SyntaxStyle`): Theme slots for `keyword`, `string`, `comment`, `heading`, etc. Components receive Theme, not hardcoded colors.
+- [x] Bubble Tea (Elm architecture) + Lip Gloss (styling) + Bubbles (components)
+- [x] Split-pane layout: 70% left (messages), 30% right (sidebar), 10% bottom (editor)
+- [x] Overlay dialogs: help, quit, session switcher, model picker, permissions, command palette
+- [x] **Paste behavior:** Direct paste into textarea (bubbles/textarea handles bracketed paste). `/compose` opens `$EDITOR` with temp file. Both paths.
+- [x] **Model picker (Ctrl+O):** Modal overlay, vertical model list, horizontal provider switching, popularity-sorted, 10 visible, max 40 chars wide (from OpenCode)
+- [x] **Token/cost status bar:** `Context: 12.3K, Cost: $0.05`, >80% warning (from OpenCode)
+- [x] **File change sidebar:** Modified files with diff stats (+12 -3) (from OpenCode)
+- [x] **Command palette (Ctrl+K):** Fuzzy-searchable (from OpenCode)
+- [x] **File completion:** `@` triggers file/folder autocomplete (from OpenCode)
+- [x] **LSP integration:** Real-time diagnostics in status bar (from OpenCode)
+- [x] **Spinner states:** "Thinking...", "Generating...", "Building tool call..." (from OpenCode)
+- [x] **Theme system:** 40+ color slots, Catppuccin built-in, light/dark adaptive (from OpenCode) + user themes via `~/.overkill/themes/*.toml`
+- [x] **Markdown rendering:** Glamour with theme integration (from OpenCode)
+- [x] **Message render caching:** Render once, cache by ID + width (from OpenCode)
+- [x] **Permission dialog:** Allow / Allow for Session / Deny (from OpenCode)
+- [x] **Image input:** `/attach <path>` + drag-and-drop; base64 routed as content parts to vision-capable models; pre-send vision-capability guard
+- [x] **Hover-copy:** mouse hover + click on footer chips under code blocks; OSC52 push; native selection preserved via Alt/Option+drag
+- [x] Fancy ASCII art borders, spinners, progress bars (2004 vibes)
+- [x] Personality mode indicator in status bar
+- [x] **Viewport culling in scrollboxes** — cell-aware, ~9µs/frame flat regardless of scrollback depth
+- [ ] **Streaming markdown with parse state** — ⏭️ explicit non-goal (re-parse per token burns CPU/SSH; we highlight fenced blocks during stream instead)
+- [x] **Conceal mode for markdown** — `/conceal` toggle + status indicator
+- [x] **Auto dark/light theme detection** (inspired by OpenTUI OSC query)
+- [x] **Line number gutter** for fenced code blocks (≥6 lines, right-aligned, off in conceal mode)
+- [x] **Layered keybinding system** — `~/.overkill/keys.toml` overrides
+- [x] **Named style group theming** — `~/.overkill/themes/*.toml` with `extends` inheritance
 
-### 5.2 Smart Model Routing
-- [ ] **Complexity-based classifier** (from PicoClaw `pkg/routing/` — USE DIRECTLY):
+### 5.2 Smart Model Routing  ✅
+- [x] **Complexity-based classifier** (from PicoClaw `pkg/routing/` — USE DIRECTLY):
   - Token estimate > 200: +0.35
   - Code block count > 0: +0.40
   - Recent tool calls > 3: +0.25
   - Conversation depth > 10: +0.10
   - Attachments: hard gate (1.0)
-- [ ] Pricing-aware routing: simple tasks → cheap models
-- [ ] Configurable thresholds
-- [ ] Classifier interface for future ML-based routing
-- [ ] **Family-aware routing** (from models.dev family taxonomy):
+- [x] Pricing-aware routing: simple tasks → cheap models
+- [x] Configurable thresholds
+- [x] Classifier interface for future ML-based routing
+- [x] **Family-aware routing** (from models.dev family taxonomy):
   - Route by family: "use cheapest Claude" → scan all `claude-*` family models, sort by cost
   - Filter by capability: "need reasoning + tool_call, prefer cheap" → boolean flag match + cost sort
   - Family-based failover: if `claude-opus` is unavailable, try `claude-sonnet` → `claude-haiku` before leaving the family
-- [ ] TUI settings tabs:
+- [x] TUI settings tabs:
   - Tab 1: Orchestrator model (e.g., z.ai GLM 5.1)
   - Tab 2: Sub-agent model (same API key? different?)
   - Tab 3: Visual sub-agent for frontend debugging (optional)
 
-### 5.3 Sub-Agent System
-- [ ] Spawn isolated sub-agents for parallel workstreams
-- [ ] Sub-agents handle: compaction, chat naming, personality updates, misc tasks
-- [ ] Visual sub-agent for frontend debugging (optional, user choice)
-- [ ] No recursive delegation, depth limit of 2
+### 5.3 Sub-Agent System  ✅
+- [x] Spawn isolated sub-agents for parallel workstreams
+- [x] Sub-agents handle: compaction, chat naming, personality updates, misc tasks
+- [x] Visual sub-agent for frontend debugging (optional, user choice)
+- [x] No recursive delegation, depth limit of 2
 
 **Cross-Agent Fault Attribution:**
 > Overkill delegates. Delegates fail. If Overkill only journals its own decisions and not delegated outcomes, the learning loop has a blind spot exactly where complex failures happen — at the handoff.
 
-- [ ] Delegated task ledger (BadgerDB): every delegation recorded with task description, target agent, expected output, actual outcome
-- [ ] Delegate failure → journal entry attributed to the *delegation decision*, not just the delegate
+- [x] Delegated task ledger (BadgerDB): every delegation recorded with task description, target agent, expected output, actual outcome
+- [x] Delegate failure → journal entry attributed to the *delegation decision*, not just the delegate
   - "I delegated auth refactor to OpenCode. OpenCode faceplanted. My decision to delegate without a spec boundary was the root cause."
-- [ ] `on_error` hook extended: fires on delegate failures, not just Overkill failures
-- [ ] `delegation_failure` alert type added to journal alerts (§4.19)
-- [ ] Over time: Overkill learns which task types it should NOT delegate, which delegates fail at what, and when to add spec guardrails before handoff
-- [ ] **This closes the loop on coordinator-level self-improvement:** Overkill's most impactful mistakes aren't execution errors — they're bad delegation decisions.
+- [x] `on_error` hook extended: fires on delegate failures, not just Overkill failures
+- [x] `delegation_failure` alert type added to journal alerts (§4.19)
+- [x] Over time: Overkill learns which task types it should NOT delegate, which delegates fail at what, and when to add spec guardrails before handoff
+- [x] **This closes the loop on coordinator-level self-improvement:** Overkill's most impactful mistakes aren't execution errors — they're bad delegation decisions.
 
 ---
 
-## 6. Phase 3: Memory + Self-Learning + Quality Gates
+## 6. Phase 3: Memory + Self-Learning + Quality Gates  ✅
 
-### 6.1 Memory Architecture
+### 6.1 Memory Architecture  ✅
 
 > **From Harness §6.1:** Keeps Mem0-style persistent memory + BadgerDB (default) + Qdrant (optional).
 > **Dropped:** pgvector (requires Postgres — violates BadgerDB-only default).
 > **Compaction:** LCM (Lossless Context Management) by Voltropy — dual-state memory, DAG summaries, three-level escalation.
 
-- [ ] Mem0-style persistent memory
-- [ ] Embeddings generation (Python bridge)
-- [ ] Reranking for retrieval (Python bridge)
-- [ ] Full-text search for cross-session recall (BadgerDB for index pointers, no SQLite/FTS5 dependency)
-- [ ] LLM summarization for memory entries
-- [ ] Episodic vs Semantic split: "what happened" vs "what is true"
-- [ ] Vector store backends: BadgerDB (default, simple), Qdrant (powerful, optional)
-- [ ] **NOT using:** pgvector, any Postgres dependency
+- [x] Mem0-style persistent memory
+- [x] Embeddings generation (Python bridge)
+- [x] Reranking for retrieval (Python bridge)
+- [x] Full-text search for cross-session recall (BadgerDB for index pointers, no SQLite/FTS5 dependency)
+- [x] LLM summarization for memory entries
+- [x] Episodic vs Semantic split: "what happened" vs "what is true"
+- [x] Vector store backends: BadgerDB (default, simple), Qdrant (powerful, optional)
+- [x] **NOT using:** pgvector, any Postgres dependency
 
 **Hot/Cold Memory Paging** (inspired by MemGPT/Letta — memory as virtual OS):
 > Treats context like an OS treats RAM. Hot stuff in context. Cold stuff paged out to archival memory. Retrieved via vector search when relevant. Not just "summarize old stuff" — creates a retrieval path back to original data.
 
-- [ ] **Hot memory (active context):** What the model currently sees — recent messages + system prompt + tools. Managed by compaction (§4.4 LCM).
-- [ ] **Cold storage (archival memory):** Evicted conversation turns, summarization nodes, tool outputs, decisions. Stored as vector embeddings in BadgerDB/Qdrant with metadata links back to original source.
-- [ ] **Eviction trigger:** When compaction is about to summarise a message block, instead of just compressing L1→L2→L3, the system also writes the original full-text block to cold storage as a retrievable memory. Summarisation produces the compact view FOR the model. Cold storage preserves the retrieval path BACK to detail.
-- [ ] **Retrieval path (paging back in):**
+- [x] **Hot memory (active context):** What the model currently sees — recent messages + system prompt + tools. Managed by compaction (§4.4 LCM).
+- [x] **Cold storage (archival memory):** Evicted conversation turns, summarization nodes, tool outputs, decisions. Stored as vector embeddings in BadgerDB/Qdrant with metadata links back to original source.
+- [x] **Eviction trigger:** compaction writes original blocks to cold storage before summarising.
+- [x] **Retrieval path (paging back in):**
   - Agent calls `memory_search(query)` → vector similarity returns top-K cold memories
   - 3-layer progressive disclosure (from journal query protocol §4.19): compact index → timeline → full detail
   - Retrieved memories injected as `[RECALLED: context from session #12 about auth refactoring]`
-- [ ] **Self-triggered recall:** Agent can proactively search its own memory when it encounters familiar patterns — "I remember something about this payment module from three sessions ago" → `memory_search("payment module edge cases")`.
-- [ ] **Connects compaction to memory:** Compaction is the eviction path. Memory is the retrieval path. The two systems are no longer independent — they form one hot/cold data flow.
+- [x] **Self-triggered recall:** Agent can proactively search its own memory when it encounters familiar patterns.
+- [x] **Connects compaction to memory:** one hot/cold data flow.
 
-### 6.2 Self-Learning Loop
-- [ ] Hooks system for skill acquisition
-- [ ] Auto-create skills after complex tasks (Voyager pattern)
-- [ ] Improve skills during use
-- [ ] agentskills.io standard compatibility
-- [ ] Periodic self-nudge to persist knowledge
+### 6.2 Self-Learning Loop  ✅
+- [x] Hooks system for skill acquisition
+- [x] Auto-create skills after complex tasks (Voyager pattern)
+- [x] Improve skills during use
+- [x] agentskills.io standard compatibility
+- [x] Periodic self-nudge to persist knowledge
 
-### 6.3 Hooks System
-- [ ] `before_compaction`, `after_compaction`
-- [ ] `before_tool_call`, `after_tool_call`
-- [ ] `on_session_start`, `on_session_end`
-- [ ] `on_error`
-- [ ] **Beat detection hooks:** first PR merged, first skill, first rollback, high-five moments
-- [ ] User-defined hooks in `~/.overkill/hooks/`
+### 6.3 Hooks System  ✅
+- [x] `before_compaction`, `after_compaction`
+- [x] `before_tool_call`, `after_tool_call`
+- [x] `on_session_start`, `on_session_end`
+- [x] `on_error`
+- [x] **Beat detection hooks:** first PR merged, first skill, first rollback, high-five moments
+- [x] User-defined hooks in `~/.overkill/hooks/`
 
-### 6.4 Skills System
-- [ ] SKILL.md format (language-agnostic)
-- [ ] Skill loading from `~/.overkill/skills/`
-- [ ] **ClawHub registry integration** (OpenClaw skills are portable)
+### 6.4 Skills System  ⚠️ VirusTotal scan + ClawHub pending
+- [x] SKILL.md format (language-agnostic)
+- [x] Skill loading from `~/.overkill/skills/`
+- [ ] **ClawHub registry integration** (OpenClaw skills are portable) — Phase 4 territory
 - [ ] **VirusTotal skill scanning** (SHA-256 hash lookup + Code Insight AI analysis):
   - Auto-approve benign, flag suspicious, block malicious
   - Daily re-scans of installed skills
   - Defense-in-depth: publisher identity, capability governance, runtime isolation
-- [ ] Bundled skills:
+- [x] Bundled skills:
   - **red-team** — adversarial review (find failure mode, not approve)
   - **code-review** — code quality review
   - **humanizer** — strip AI-isms
@@ -1022,7 +1060,7 @@ Sequenced to maximise compounding payoff:
   - **frontend-design** — UI generation
   - **mutation-test** — mutation testing (mutmut / go-mutesting)
 
-### 6.5 The 3 Walls (Relaxed — Serve the Product)
+### 6.5 The 3 Walls (Relaxed — Serve the Product)  ✅
 
 **Wall 1: Ouroboros — AI Reviewing AI (OPT-IN)**
 - Setup option: "Red team agent API key (optional — leave blank to use same model as sub-agent)"
@@ -1067,149 +1105,143 @@ Sequenced to maximise compounding payoff:
 
 ---
 
-## 7. Phase 4: Automation + Multi-Channel + Browser
+## 7. Phase 4: Automation + Multi-Channel + Browser  ⚠️ partial
 
-### 7.1 Automation Engine (Event + Alarm Clocks, NO Heartbeats)
+### 7.1 Automation Engine (Event + Alarm Clocks, NO Heartbeats)  ⚠️ partial
 
 **No heartbeats. No periodic polling. No token burning.**
 
-**Layer 1: Gateway Daemon**
-- `overkill daemon start` — systemd/launchd, auto-restart on crash
-- All scheduling state in BadgerDB (survives crashes, reboots)
+**Layer 1: Gateway Daemon**  ❌
+- [ ] `overkill daemon start` — systemd/launchd, auto-restart on crash
+- [ ] All scheduling state in BadgerDB (survives crashes, reboots)
 
-**Layer 2: Alarm Clocks (Sub-Agent Driven)**
-- Agent sets one-shot timers for specific tasks
-- "Wake me when this build finishes"
-- "Check on this deploy in 10 minutes"
-- "This task has unfinished work, set alarm for 15 min"
-- When alarm fires → **sub-agent** handles it (cheaper model), not main agent
-- Sub-agent checks: actual work? Do it. Nothing? Go back to sleep. Minimal tokens.
+**Layer 2: Alarm Clocks (Sub-Agent Driven)**  ⚠️ timer infra only
+- [x] Timer/alarm data structures + persistence
+- [ ] Sub-agent dispatch on alarm fire
+- [ ] "Wake me when this build finishes" UX
 
-**Layer 3: SOP Engine (from ZeroClaw)**
-- Stateful multi-step procedures with approval gates
-- 5 execution modes: Auto, Supervised, StepByStep, PriorityBased, Deterministic
-- Triggers: cron, webhook, MQTT, manual
-- **Deterministic mode:** No LLM calls. Output step N = input step N+1. Saves tokens. Survives crashes via state file persistence.
-- Resumable runs: state persisted, resume from last completed step
-- Approval timeout: Critical/High auto-approve after timeout. Normal/Low waits.
+**Layer 3: SOP Engine (from ZeroClaw)**  ❌
+- [ ] Stateful multi-step procedures with approval gates
+- [ ] 5 execution modes: Auto, Supervised, StepByStep, PriorityBased, Deterministic
+- [ ] Triggers: cron, webhook, MQTT, manual
+- [ ] **Deterministic mode:** No LLM calls. Output step N = input step N+1. Saves tokens. Survives crashes via state file persistence.
+- [ ] Resumable runs: state persisted, resume from last completed step
+- [ ] Approval timeout: Critical/High auto-approve after timeout. Normal/Low waits.
 
-**Layer 4: Routines (from ZeroClaw)**
-- Lightweight event-to-action mappings (fire-and-forget)
-- `webhook /deploy → message slack "Deploy triggered!"`
-- Can trigger SOPs as actions
-- Cooldown tracking prevents rapid re-triggering of failures
+**Layer 4: Routines (from ZeroClaw)**  ⚠️ stub only
+- [x] Routine registry + read-only TUI surface
+- [ ] Event-to-action engine (webhook/MQTT triggers)
+- [ ] Cooldown tracking
 
-**Layer 5: Standing Orders (from OpenClaw)**
-- Permanent operating authority in workspace files
-- Scope, triggers, approval gates, escalation rules
-- Execute-Verify-Report pattern
-- Agent can self-update its standing orders
+**Layer 5: Standing Orders (from OpenClaw)**  ⚠️ read-only
+- [x] Standing-orders manager + `/orders` TUI surface
+- [ ] CLI mutation: `overkill orders add | rm`
+- [ ] Self-update by agent
+- [ ] Execute-Verify-Report pattern wired into agent loop
 
-**Layer 6: Background Task Ledger (from OpenClaw)**
-- Tracks all work outside main conversation
-- Lifecycle: `queued → running → succeeded | failed | timed_out | cancelled | lost`
-- `lost` detection: runtime disappears + 5 min grace → marked lost
-- 60-second sweeper for reconciliation
-- Push notifications on completion
+**Layer 6: Background Task Ledger (from OpenClaw)**  ⚠️ types only
+- [x] Task struct + lifecycle states defined
+- [ ] 60-second sweeper for reconciliation
+- [ ] `lost` detection
+- [ ] Push notifications on completion
 
-**Layer 7: Task Flow (from OpenClaw)**
-- Durable multi-step flow orchestration with revision tracking
-- Handles "agent hit tool call limit, continue later"
-- Next alarm/cron/webhook picks up where it left off
-- **Per-task complexity-based timeout:** One default timeout per task, auto-scaled by the routing classifier (§5.2) complexity score. *"Code hello world"* → 1 minute. *"Refactor auth module"* → 10 minutes. If the task exceeds its time budget, the agent interrupts itself, saves state, and reports: *"Hit timeout on auth refactor. Here's what I got done, here's what's left."* Task state persisted to BadgerDB for resume. Also handles API failures, infinite loops, and stuck tool calls — if anything takes longer than the time budget, it interrupts.
+**Layer 7: Task Flow (from OpenClaw)**  ❌
+- [ ] Durable multi-step flow orchestration with revision tracking
+- [x] Per-task complexity-based timeout (already done — task_timeout.go)
+- [ ] "Agent hit tool call limit, continue later" resume
+- [ ] State persistence to BadgerDB for cross-fire resume
 
-**The "Work Leftover" Solution:**
-1. Task hits tool call limit → status = `timed_out`, state persisted to BadgerDB
-2. Agent sets alarm: "check this in 15 min"
-3. Alarm fires → sub-agent checks → has work? Does it. Done? Goes to sleep.
-4. No tokens burned on "nothing to do" checks
+**The "Work Leftover" Solution:**  ❌ depends on Layer 6 + 7
 
-**Emergency Controls:**
-- `overkill estop` — immediate halt
-- Tool receipts: cryptographic chain of every action
-- Emergency rollback: `git reset --hard` to last checkpoint
+**Emergency Controls:**  ❌
+- [ ] `overkill estop` — immediate halt
+- [ ] Tool receipts: cryptographic chain of every action
+- [x] Emergency rollback: `git reset --hard` to last checkpoint (filesystem checkpoints exist)
 
-### 7.2 Cron (Timezone-Aware)
-- 4 execution styles: main, isolated, current, session:custom-id
-- Retry on transient: 3 retries, exponential backoff (60s, 120s, 300s)
-- Persistence across restarts (BadgerDB)
-- **Timezone-aware:** VPS in UTC, user in EST → agent knows difference. "Run at 9am" = your 9am.
-- Natural language scheduling
-- No heartbeats. Cron fires at scheduled times. That's it.
+### 7.2 Cron (Timezone-Aware)  ✅
+- [x] 4 execution styles: main, isolated, current, session:custom-id
+- [x] Retry on transient: 3 retries, exponential backoff (60s, 120s, 300s)
+- [x] Persistence across restarts (BadgerDB)
+- [x] **Timezone-aware:** VPS in UTC, user in EST → agent knows difference. "Run at 9am" = your 9am.
+- [x] Natural language scheduling
+- [x] No heartbeats. Cron fires at scheduled times. That's it.
 
-### 7.3 Agentic Browser
+### 7.3 Agentic Browser  ⚠️ Playwright only
 
 **Three browser tools, different purposes:**
 
-| Tool | Purpose |
-|---|---|
-| **Playwright** | Primary browser automation. Full API, mature, skills exist. |
-| **dev-browser** (SawyerHood) | Sandboxed AI-safe browser. QuickJS WASM sandbox, `snapshotForAI()` for LLM page dumps, CLI-first (just bash), persistent named pages, safe to auto-approve. **Use for agent-driven testing.** |
-| **Stagehand** (Browserbase) | AI-native browser control. `act()`, `extract()`, `agent()` — natural language browser control for more than testing. |
+| Tool | Purpose | Status |
+|---|---|---|
+| **Playwright** | Primary browser automation. Full API, mature, skills exist. | ✅ |
+| **dev-browser** (SawyerHood) | Sandboxed AI-safe browser. QuickJS WASM sandbox, `snapshotForAI()` for LLM page dumps, CLI-first (just bash), persistent named pages, safe to auto-approve. **Use for agent-driven testing.** | ❌ |
+| **Stagehand** (Browserbase) | AI-native browser control. `act()`, `extract()`, `agent()` — natural language browser control for more than testing. | ❌ |
 
-- Visual frontend inspection via vision model
-- Screenshot capture and analysis
-- Responsive design testing
+- [x] Visual frontend inspection via vision model
+- [x] Screenshot capture and analysis
+- [x] Responsive design testing
 
-### 7.4 Messaging Gateways
+### 7.4 Messaging Gateways  ⚠️ Slack only
+- [x] Slack gateway (already shipped earlier)
 - [ ] Baileys-based WhatsApp integration
 - [ ] Telegram gateway
 - [ ] Discord gateway
 - [ ] Gateway process: single binary handles all channels
 
-**Cross-Channel Session Continuity:**
-- User working in TUI → heads out
-- Opens Telegram → `/sessions` → "you had this session open 5 mins ago, continue?"
-- Picks up same context, same agent state
-- Input stream is unified: TUI and channels share same session layer
-- **Message bookmarking / reply-context:** User can tag/bm a message from any channel — *"hey I forgot what we were talking about, tag this msg"* — and Overkill bookmarks it for recall. Replying to a message on a channel loads that message back into context so Overkill knows exactly what you're responding to. "Dive into that session" → Overkill loads the full session context from the bookmarked message, not just the current conversation.
+**Cross-Channel Session Continuity:**  ❌
+- [ ] User working in TUI → heads out
+- [ ] Opens Telegram → `/sessions` → "you had this session open 5 mins ago, continue?"
+- [ ] Picks up same context, same agent state
+- [ ] Input stream is unified: TUI and channels share same session layer
+- [ ] **Message bookmarking / reply-context** — bookmark from any channel, dive into session
 
-**Image via Channel → Vision Model:**
-- User sends image through Telegram → visual model analyzes → explains to main agent
-- No other tool does this well. This is a differentiator.
+**Image via Channel → Vision Model:**  ❌ (TUI side done, gateway delivery pending each gateway)
+- [x] TUI image attachment pipeline (`/attach` + vision routing)
+- [ ] Wire native image bytes from Telegram/WhatsApp/Discord into providers.Attachment
 
-### 7.5 Understand-Anything Integration
-- PDF, DOCX, audio, any file → DON'T say "can't handle"
-- "Merge 2 mountains to get it done" — get shit done, no matter how impossible
-- Multimodal model for audio, TTS, etc.
-- File type detection and appropriate tool routing
+### 7.5 Understand-Anything Integration  ❌
+- [ ] PDF, DOCX, audio, any file → DON'T say "can't handle"
+- [ ] Multimodal model for audio, TTS, etc.
+- [ ] File type detection and appropriate tool routing
 
-### 7.6 Auto-Update Pipeline
-- Self-update mechanism
-- Check on launch (non-blocking)
-- `overkill update` command
-- Users shouldn't be stuck on older, buggier versions
+### 7.6 Auto-Update Pipeline  ❌
+- [ ] Self-update mechanism
+- [ ] Check on launch (non-blocking)
+- [ ] `overkill update` command
+- [ ] Users shouldn't be stuck on older, buggier versions
 
 ---
 
-## 8. Phase 5: Advanced R&D
+## 8. Phase 5: Advanced R&D  ❌ aspirational
 
-### 8.1 Advanced Compaction
+All Phase 5 items are research targets — paper-driven implementations
+to revisit once Phase 4 lands. Not blocked, just not started.
+
+### 8.1 Advanced Compaction  ❌
 - [ ] Cartridge-style KV compaction (50x ratio) — Eyuboglu 2025
 - [ ] Neural Garbage Collection — Li 2026
 - [ ] Fast KV Compaction via Attention Matching — Zweiger 2026
 
-### 8.2 Advanced Memory
+### 8.2 Advanced Memory  ❌
 - [ ] Segment-based memory for massive codebases (MemAgent — Yu 2025)
 - [ ] Agentic Context Engineering (ACE) — evolving playbooks — Zhang 2025
 
-### 8.3 Cross-Session Intelligence
+### 8.3 Cross-Session Intelligence  ❌
 - [ ] Cross-session task graph: "You asked me to fix X 3 days ago, that shipped, here's the commit"
 - [ ] Session replay + observability
 - [ ] Drift detection: flag when agent behavior diverges from norms
 
-### 8.4 Advanced Security (Optional, Opt-In)
+### 8.4 Advanced Security (Optional, Opt-In)  ❌
 - [ ] MCPSHIELD integration — Acharya 2026
 - [ ] System-level defense-in-depth — Xiang 2026
 - [ ] ImpossibleBench-style cheating detection — Zhong 2025
 - [ ] Owner-Harm threat model — Zhang 2026
 
-### 8.5 Advanced Orchestration
+### 8.5 Advanced Orchestration  ❌
 - [ ] Worktree management for parallel agents without conflicts
 - [ ] Speculative tool execution: cache common reads, prefetch likely files
 - [ ] LATS-style tree search for multi-path code exploration — Zhou 2024
 
-### 8.6 RL-based Self-Improvement
+### 8.6 RL-based Self-Improvement  ❌
 - [ ] Credit assignment across long coding trajectories — Zhang 2026
 - [ ] Reflexion-style verbal RL — Shinn 2023
 
