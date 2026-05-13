@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,15 +39,25 @@ func NewMetricsHook() *MetricsHook {
 
 func (m *MetricsHook) record(ctx context.Context, event Event) (context.Context, error) {
 	val, _ := m.counts.LoadOrStore(event.Point, new(int64))
-	counter := val.(*int64)
-	*counter++
+	counter, ok := val.(*int64)
+	if !ok {
+		// Defensive: another writer stored a non-*int64 under this key.
+		// Drop the metric rather than panicking inside a hook callback.
+		return ctx, nil
+	}
+	atomic.AddInt64(counter, 1)
 	return ctx, nil
 }
 
 func (m *MetricsHook) Counts() map[HookPoint]int64 {
 	result := make(map[HookPoint]int64)
 	m.counts.Range(func(key, value any) bool {
-		result[key.(HookPoint)] = *value.(*int64)
+		k, kok := key.(HookPoint)
+		v, vok := value.(*int64)
+		if !kok || !vok {
+			return true
+		}
+		result[k] = atomic.LoadInt64(v)
 		return true
 	})
 	return result
