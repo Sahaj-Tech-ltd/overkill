@@ -303,6 +303,17 @@ func (bt *BadgerTracker) CheckBudget(ctx context.Context, sessionID string) (Bud
 		}
 	}
 
+	// §4.5 rolling 5-hour cost cap. Independent of the daily cap so
+	// a single burst doesn't burn the user's whole day. 0 disables.
+	if bt.cfg.RollingLimitUSD > 0 {
+		pct := (rolling.TotalUSD / bt.cfg.RollingLimitUSD) * 100
+		if rolling.TotalUSD >= bt.cfg.RollingLimitUSD {
+			status.ShouldAbort = true
+		} else if pct >= float64(warnPct) && !status.ShouldWarn {
+			status.ShouldWarn = true
+		}
+	}
+
 	return status, nil
 }
 

@@ -583,6 +583,15 @@ func buildTUIApp() *tui.App {
 		toolReg.Register(tools.NewTagAddTool(app.Tags))
 		toolReg.Register(tools.NewTagRemoveTool(app.Tags))
 		toolReg.Register(tools.NewTagListTool(app.Tags))
+		// §7.4 message bookmarking: bookmark_create tags a journal
+		// entry ID with a label; bookmark_recall looks it up later.
+		// app.Journal is set later in setupAgent — we register at
+		// the SAME point with a closure-bound reader so the tool
+		// doesn't snapshot a nil. The journal is GUARANTEED non-nil
+		// by the time the agent fires a tool call.
+		toolReg.Register(tools.NewBookmarkCreateTool(app.Tags))
+		toolReg.Register(tools.NewBookmarkListTool(app.Tags))
+		toolReg.Register(tools.NewBookmarkRecallTool(app.Tags, journalReaderProxy{app: app}))
 	}
 
 	// Agentic browser — opt-in via config. The headless Chrome process is
@@ -673,6 +682,10 @@ func buildTUIApp() *tui.App {
 		MaxRetries: 2,
 	})
 	toolReg.Register(tools.NewPipelineTool(&pipelineRunnerAdapter{exec: pipelineExec}))
+	// §4.11 vertical slice decomposition — same pipeline package,
+	// different verb. No LLM call, just deterministic decomposition
+	// + topological sort.
+	toolReg.Register(tools.NewSliceDecomposeTool())
 
 	// Master plan §7.1 + §7.2: read-only bridges to the daemon-owned
 	// SOP / cron stores. The interactive agent had zero visibility into
@@ -1058,6 +1071,13 @@ func buildTUIApp() *tui.App {
 		_ = os.MkdirAll(jdir, 0o755)
 		recorder := journal.NewFlightRecorder(jdir, sid)
 		app.Journal = recorder
+
+		// §4.19 3-layer journal query: surface search/timeline/get to
+		// the agent so it can answer "what did we do last time we
+		// touched X" mid-session.
+		toolReg.Register(tools.NewJournalSearchTool(recorder))
+		toolReg.Register(tools.NewJournalTimelineTool(recorder))
+		toolReg.Register(tools.NewJournalGetTool(recorder))
 
 		// Boot-time alerts (master plan §4.19). Single AlertStore is wired to
 		// every producer (recovery, transparency, blindspot, compaction). Boot

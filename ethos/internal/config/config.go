@@ -242,8 +242,17 @@ type SessionConfig struct {
 type CostConfig struct {
 	DailyLimitUSD    float64 `toml:"daily_limit_usd"`
 	PerTaskLimitUSD  float64 `toml:"per_task_limit_usd"`
-	RollingWindowHrs int     `toml:"rolling_window_hrs"`
-	WarnAtPercent    int     `toml:"warn_at_percent"`
+	// RollingWindowHrs is the look-back window for RollingLimitUSD.
+	// Default 5 hours per master plan §4.5. Ignored when
+	// RollingLimitUSD is 0.
+	RollingWindowHrs int `toml:"rolling_window_hrs"`
+	// RollingLimitUSD caps total spend over the last RollingWindowHrs.
+	// 0 disables the rolling cap entirely. Exceeding the limit sets
+	// BudgetStatus.ShouldAbort; crossing WarnAtPercent of it sets
+	// ShouldWarn. Caps daily-spike protection independently of the
+	// daily limit (different bucket: 5h vs 24h).
+	RollingLimitUSD float64 `toml:"rolling_limit_usd"`
+	WarnAtPercent   int     `toml:"warn_at_percent"`
 }
 
 type CompactionConfig struct {
