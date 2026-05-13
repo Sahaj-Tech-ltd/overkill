@@ -39,6 +39,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/pipeline"
 	pluginpkg "github.com/Sahaj-Tech-ltd/overkill/internal/plugin"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cron"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/routing"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/rewriter"
@@ -115,6 +116,11 @@ func sanitizeAlertLine(s string) string {
 	}
 	return strings.TrimSpace(s)
 }
+
+// skillWatchCancel cancels the fsnotify-backed skill hot-reload watcher
+// started in buildTUIApp. It's invoked from runTUI's session-end defer so
+// the goroutine exits cleanly before FireSessionEnd runs.
+var skillWatchCancel context.CancelFunc
 
 var tuiCmd = &cobra.Command{
 	Use:   "tui",
@@ -308,6 +314,18 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		if app != nil && app.Browser != nil {
 			app.Browser.Close()
 		}
+		// Master plan §6.4: cancel the skill hot-reload watcher before we
+		// tear the agent down so the fsnotify goroutine exits cleanly.
+		if skillWatchCancel != nil {
+			skillWatchCancel()
+		}
+		// Cancel the agent's session-scoped context BEFORE firing
+		// SessionEnd so in-flight auto-compaction goroutines (and any
+		// other sessionCtx-derived workers) wind down promptly instead
+		// of leaking past TUI exit.
+		if app != nil && app.Agent != nil {
+			app.Agent.Shutdown()
+		}
 		// Master plan §6.3: fire on_session_end so user hooks can run
 		// cleanup (e.g. push session sync, prune snapshots).
 		if app != nil && app.Agent != nil {
@@ -488,10 +506,32 @@ func buildTUIApp() *tui.App {
 			_ = archWall.LoadRules(archRulesPath)
 		}
 		toolReg.Register(tools.NewArchitectureWallTool(archWall))
-		// Ouroboros wall (Wall 1) — registered without a provider for now.
-		// Tool will return a clear "not configured" error until a separate
-		// review-provider config lands. Better than silently missing.
-		toolReg.Register(tools.NewOuroborosWallTool(walls.NewOuroborosWall(walls.OuroborosConfig{Enabled: false})))
+		// Ouroboros wall (Wall 1). When [ouroboros] is enabled in the
+		// config we construct a SEPARATE provider (different model from
+		// the main agent) so the wall isn't reviewing itself. When
+		// disabled, the tool returns a clear "not configured" error.
+		ouroCfg := walls.OuroborosConfig{Enabled: false}
+		if cfg != nil && cfg.Ouroboros.Enabled {
+			ouroAPIKey := cfg.Ouroboros.APIKey
+			if ouroAPIKey == "" {
+				ouroAPIKey = os.Getenv(providerEnvVar(cfg.Ouroboros.Provider))
+			}
+			ouroProvider, ouroErr := providers.NewProvider(providers.FactoryConfig{
+				Name:    cfg.Ouroboros.Provider,
+				Type:    cfg.Ouroboros.Provider,
+				APIKey:  ouroAPIKey,
+				BaseURL: cfg.Ouroboros.BaseURL,
+			})
+			if ouroErr == nil {
+				ouroCfg = walls.OuroborosConfig{
+					Enabled:    true,
+					Provider:   ouroProvider,
+					Model:      cfg.Ouroboros.Model,
+					StrictMode: cfg.Ouroboros.StrictMode,
+				}
+			}
+		}
+		toolReg.Register(tools.NewOuroborosWallTool(walls.NewOuroborosWall(ouroCfg)))
 
 		// Filesystem checkpoints (master plan §4.8). The agent calls
 		// checkpoint_snapshot before destructive ops; users can roll back via
@@ -605,6 +645,26 @@ func buildTUIApp() *tui.App {
 		MaxRetries: 2,
 	})
 	toolReg.Register(tools.NewPipelineTool(&pipelineRunnerAdapter{exec: pipelineExec}))
+
+	// Master plan §7.1 + §7.2: read-only bridges to the daemon-owned
+	// SOP / cron stores. The interactive agent had zero visibility into
+	// scheduled work; now it can list pending SOPs and answer questions
+	// like "what cron fires in the next hour?" The daemon still owns
+	// dispatch — these tools only READ the same Badger DBs.
+	if home, err := os.UserHomeDir(); err == nil {
+		autoDir := filepath.Join(home, ".overkill", "automation")
+		if autoDB, err := badger.Open(badger.DefaultOptions(autoDir).WithLoggingLevel(badger.ERROR)); err == nil {
+			autoStore := automation.NewBadgerSOPStore(autoDB)
+			toolReg.Register(tools.NewAutomationListTool(autoStore))
+			// Note: we deliberately keep autoDB open for the session — the
+			// store is queried lazily on each tool call.
+		}
+		cronDir := filepath.Join(home, ".overkill", "cron")
+		if cronDB, err := badger.Open(badger.DefaultOptions(cronDir).WithLoggingLevel(badger.ERROR)); err == nil {
+			cronStore := cron.NewBadgerJobStore(cronDB)
+			toolReg.Register(tools.NewCronListTool(cronStore))
+		}
+	}
 
 	// dev-browser as the third browser flavor (master plan §7.3). Always
 	// registered; degrades to a clear "binary not on PATH" error when the
@@ -835,6 +895,28 @@ func buildTUIApp() *tui.App {
 			_ = reg.Register(&s)
 		}
 		a.SetSkillRegistry(reg)
+
+		// Master plan §6.4: hot-reload skills. Start an fsnotify-backed
+		// watcher on bundled + ~/.overkill/skills so edits land in the
+		// next agent turn without a restart. Session-scoped context is
+		// cancelled in the same defer that fires FireSessionEnd.
+		if home, herr := os.UserHomeDir(); herr == nil {
+			watchCtx, watchCancel := context.WithCancel(context.Background())
+			skillWatchCancel = watchCancel
+			watchLoader := skills.NewLoader("skills", filepath.Join(home, ".overkill", "skills"))
+			if werr := watchLoader.Watch(watchCtx, func(s skills.Skill) {
+				if !s.Enabled {
+					reg.Unregister(s.Name)
+					return
+				}
+				sk := s
+				_ = reg.Register(&sk)
+			}); werr != nil {
+				log.Printf("skills: watch start: %v", werr)
+				watchCancel()
+				skillWatchCancel = nil
+			}
+		}
 	}
 
 	// Master plan §6.3: fire on_session_start once the agent is wired so

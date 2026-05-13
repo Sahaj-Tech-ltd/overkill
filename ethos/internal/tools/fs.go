@@ -164,19 +164,44 @@ func (f *FSTool) edit(_ context.Context, in *FSInput) (json.RawMessage, error) {
 }
 
 func (f *FSTool) glob(_ context.Context, in *FSInput) (json.RawMessage, error) {
-	resolved := filepath.Join(f.rootDir, in.Pattern)
-	matches, err := filepath.Glob(resolved)
+	if in.Pattern == "" {
+		return nil, fmt.Errorf("fs glob: pattern is required")
+	}
+	// Reject patterns that try to break out of root before even touching
+	// the filesystem. resolve() does the same for plain paths; glob has
+	// its own escape hatches (`..`, absolute paths, symlinks resolved by
+	// filepath.Glob) so we belt-and-braces: cleaned-joined path must stay
+	// under root, AND we re-check each match below.
+	joined := filepath.Clean(filepath.Join(f.rootDir, in.Pattern))
+	root, err := filepath.Abs(f.rootDir)
+	if err != nil {
+		return nil, fmt.Errorf("fs glob: %w", err)
+	}
+	if !strings.HasPrefix(joined, root) {
+		return nil, fmt.Errorf("fs glob: path traversal rejected: %s", in.Pattern)
+	}
+	matches, err := filepath.Glob(joined)
 	if err != nil {
 		return nil, fmt.Errorf("fs glob: %w", err)
 	}
 
-	relPaths := make([]string, len(matches))
-	for i, m := range matches {
-		rel, err := filepath.Rel(f.rootDir, m)
+	// Filter matches whose resolved absolute path escaped root (e.g. via
+	// a symlink inside the tree pointing outside it). Surface only the
+	// in-root subset.
+	relPaths := make([]string, 0, len(matches))
+	for _, m := range matches {
+		absM, err := filepath.Abs(m)
 		if err != nil {
-			return nil, fmt.Errorf("fs glob: %w", err)
+			continue
 		}
-		relPaths[i] = rel
+		if !strings.HasPrefix(absM, root) {
+			continue
+		}
+		rel, err := filepath.Rel(root, absM)
+		if err != nil {
+			continue
+		}
+		relPaths = append(relPaths, rel)
 	}
 
 	out, _ := json.Marshal(relPaths)

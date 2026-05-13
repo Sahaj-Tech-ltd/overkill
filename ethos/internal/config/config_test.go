@@ -473,6 +473,41 @@ func TestMaskSecrets_DoesNotMutateOriginal(t *testing.T) {
 	assert.Equal(t, "sk-original-key-12345", cfg.Providers[0].APIKey)
 }
 
+func TestLoad_OuroborosSection(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "config.toml")
+
+	tomlContent := `version = 1
+
+[ouroboros]
+enabled = true
+provider = "anthropic"
+model = "claude-sonnet-4-5-20250929"
+api_key = "sk-ant-test"
+base_url = "https://api.example.com"
+strict_mode = true
+`
+	require.NoError(t, os.WriteFile(path, []byte(tomlContent), 0o644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.True(t, cfg.Ouroboros.Enabled)
+	assert.Equal(t, "anthropic", cfg.Ouroboros.Provider)
+	assert.Equal(t, "claude-sonnet-4-5-20250929", cfg.Ouroboros.Model)
+	assert.Equal(t, "sk-ant-test", cfg.Ouroboros.APIKey)
+	assert.Equal(t, "https://api.example.com", cfg.Ouroboros.BaseURL)
+	assert.True(t, cfg.Ouroboros.StrictMode)
+}
+
+func TestDefault_OuroborosDisabled(t *testing.T) {
+	cfg := Default()
+	assert.False(t, cfg.Ouroboros.Enabled)
+	assert.Empty(t, cfg.Ouroboros.Provider)
+	assert.False(t, cfg.Ouroboros.StrictMode)
+}
+
 func TestDoctor_CreatesMissingDirs(t *testing.T) {
 	fixes, err := Doctor()
 	require.NoError(t, err)

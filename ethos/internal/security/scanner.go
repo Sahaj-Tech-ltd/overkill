@@ -149,7 +149,11 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 		}
 	}
 
-	rateLimited := s.rateExceeded()
+	// checkAndRecord folds the rate-limit check and the timestamp append
+	// into a single critical section. The previous split (rateExceeded()
+	// + recordCall()) was a TOCTOU race: two goroutines could both pass
+	// the check and both append, allowing maxCmds+1 calls per window.
+	rateLimited := s.checkAndRecord()
 	if rateLimited {
 		findings = append(findings, Finding{
 			Type:        "rate_limit",
@@ -162,8 +166,6 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 			maxLevel = ThreatMedium
 		}
 	}
-
-	s.recordCall()
 
 	blocked := maxLevel >= ThreatHigh || rateLimited
 
@@ -191,7 +193,15 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 	}, nil
 }
 
-func (s *CommandScanner) rateExceeded() bool {
+// checkAndRecord evicts expired timestamps, decides whether this call
+// would exceed the rate limit, and (only if NOT limited) records the
+// timestamp — all under one mutex. Returns true when the caller is over
+// the limit and the timestamp was NOT recorded.
+//
+// Folding check+record fixes a TOCTOU where two concurrent Scan calls
+// could both observe "len(valid) < maxCmds" and both append, letting
+// the window briefly hold maxCmds+1 entries.
+func (s *CommandScanner) checkAndRecord() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -203,12 +213,10 @@ func (s *CommandScanner) rateExceeded() bool {
 			valid = append(valid, t)
 		}
 	}
-	s.timestamps = valid
-	return len(valid) >= s.maxCmds
-}
-
-func (s *CommandScanner) recordCall() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.timestamps = append(s.timestamps, time.Now())
+	if len(valid) >= s.maxCmds {
+		s.timestamps = valid
+		return true
+	}
+	s.timestamps = append(valid, now)
+	return false
 }

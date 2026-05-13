@@ -13,6 +13,7 @@ require (
 	github.com/chromedp/chromedp v0.15.1
 	github.com/creack/pty v1.1.24
 	github.com/dgraph-io/badger/v4 v4.9.1
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/minio/minio-go/v7 v7.1.0
 	github.com/muesli/termenv v0.16.0

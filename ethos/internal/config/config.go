@@ -24,6 +24,20 @@ type Config struct {
 	Vision      VisionConfig      `toml:"vision"`
 	Browser     BrowserConfig     `toml:"browser"`
 	Rewriter    RewriterConfig    `toml:"rewriter"`
+	Ouroboros   OuroborosConfig   `toml:"ouroboros"`
+}
+
+// OuroborosConfig governs the Ouroboros adversarial-review wall
+// (master plan §6.5 Wall 1). The wall MUST run against a different
+// provider/model than the main agent — otherwise it's just the agent
+// grading its own homework. Off by default.
+type OuroborosConfig struct {
+	Enabled    bool   `toml:"enabled"`
+	Provider   string `toml:"provider"`    // e.g. "openai", "anthropic"
+	Model      string `toml:"model"`       // model id on the review provider
+	APIKey     string `toml:"api_key"`     // falls back to <PROVIDER>_API_KEY
+	BaseURL    string `toml:"base_url"`    // optional override
+	StrictMode bool   `toml:"strict_mode"` // when true, warnings also block
 }
 
 // RewriterConfig governs the prompt rewriter middleware (master plan §4.10).

@@ -1,7 +1,6 @@
 package security
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -157,7 +156,3 @@ func classifyThreat(confidence float64, baseLevel ThreatLevel) ThreatLevel {
 	return ThreatLow
 }
 
-func fmtFinding(f Finding) string {
-	return fmt.Sprintf("[%s] %s (confidence: %.2f, match: %q)",
-		f.Level, f.Description, f.Confidence, f.Match)
-}

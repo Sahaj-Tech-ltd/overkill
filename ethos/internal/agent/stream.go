@@ -42,7 +42,7 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 				Result: &RunResult{
 					Blocked:     true,
 					BlockReason: fmt.Sprintf("blocked by %s: %s", scanner.Name(), result.Findings[0].Description),
-					Model:       a.model,
+					Model:       a.Model(),
 				},
 			}
 			close(ch)
@@ -63,7 +63,7 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 		defer close(out)
 
 		runResult := &RunResult{
-			Model: a.model,
+			Model: a.Model(),
 		}
 
 		for step := 0; step < a.maxSteps; step++ {
@@ -210,6 +210,32 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 					}
 
 					a.emitImpact(call.Name, input)
+
+					// §4.3 Pre-Exec Command Scanner — same fix as react.go
+					// path. A jailbroken model's tool call is scanned HERE,
+					// not just on the original user message.
+					if blocked, reason := a.preToolScan(call.Name, string(input)); blocked {
+						a.emit("tool_call_blocked", map[string]any{
+							"tool":       call.Name,
+							"reason":     reason,
+							"session_id": a.sessionID,
+						})
+						blockErr := fmt.Errorf("tool %q blocked by security scanner: %s", call.Name, reason)
+						toolResults[idx] = ToolResult{
+							ToolCallID: call.ID,
+							ToolName:   call.Name,
+							Output:     json.RawMessage(`{}`),
+							Error:      blockErr,
+						}
+						out <- StreamEvent{
+							Type:     EventToolOutput,
+							Content:  call.Name,
+							ToolCall: &call,
+							Metadata: map[string]interface{}{"output": "", "error": blockErr},
+						}
+						return
+					}
+
 					output, toolErr := a.executeTool(ctx, call.Name, input)
 
 					toolResults[idx] = ToolResult{

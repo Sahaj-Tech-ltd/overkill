@@ -3,12 +3,20 @@ package skills
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"gopkg.in/yaml.v3"
 )
+
+// watchDebounce coalesces editor save bursts (e.g. write-then-rename) so we
+// don't fire onChange multiple times for a single logical edit.
+const watchDebounce = 500 * time.Millisecond
 
 type Loader struct {
 	bundledDir string
@@ -115,8 +123,154 @@ func (l *Loader) LoadFile(path string) (*Skill, error) {
 	return skill, nil
 }
 
+// Watch monitors bundledDir and userDir for .md skill file changes and invokes
+// onChange whenever a skill is created, modified, or deleted. On delete the
+// callback receives a Skill with the inferred Name and Enabled=false so the
+// caller can drop it from its registry. Per-path debouncing (~500ms) coalesces
+// editor save bursts. The watcher stops cleanly when ctx.Done() fires.
+//
+// Errors during reload are logged via the standard log package and never
+// block the watcher loop.
 func (l *Loader) Watch(ctx interface{ Done() <-chan struct{} }, onChange func(skill Skill)) error {
-	return fmt.Errorf("skills: watch not implemented")
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("skills: creating fsnotify watcher: %w", err)
+	}
+
+	// Track which directories actually got added so we don't error out when
+	// only one of bundled/user exists. Recursively add subdirectories since
+	// bundled-skill layout is skills/<name>/SKILL.md.
+	addTree := func(root string) {
+		if root == "" {
+			return
+		}
+		if _, err := os.Stat(root); err != nil {
+			return
+		}
+		_ = filepath.Walk(root, func(path string, info os.FileInfo, werr error) error {
+			if werr != nil {
+				return nil
+			}
+			if info.IsDir() {
+				if aerr := w.Add(path); aerr != nil {
+					log.Printf("skills: watch add %q: %v", path, aerr)
+				}
+			}
+			return nil
+		})
+	}
+	addTree(l.bundledDir)
+	addTree(l.userDir)
+
+	// Per-path debounce: each path gets its own timer; latest event wins.
+	var (
+		mu     sync.Mutex
+		timers = make(map[string]*time.Timer)
+	)
+
+	// Remember last-known skill name per path so Remove events can emit a
+	// disabled stub with the correct Name (the file is gone, we can't parse).
+	var (
+		nameMu sync.Mutex
+		names  = make(map[string]string)
+	)
+
+	rememberName := func(path, name string) {
+		nameMu.Lock()
+		names[path] = name
+		nameMu.Unlock()
+	}
+	forgetName := func(path string) string {
+		nameMu.Lock()
+		defer nameMu.Unlock()
+		n := names[path]
+		delete(names, path)
+		return n
+	}
+
+	fire := func(path string, removed bool) {
+		if removed {
+			name := forgetName(path)
+			if name == "" {
+				// Fall back to filename stem so callers at least see a key.
+				name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			}
+			onChange(Skill{Name: name, FilePath: path, Enabled: false})
+			return
+		}
+		skill, err := l.LoadFile(path)
+		if err != nil {
+			log.Printf("skills: watch reload %q: %v", path, err)
+			return
+		}
+		// Bundled skills should keep their flag — heuristic: path under bundledDir.
+		if l.bundledDir != "" {
+			if rel, rerr := filepath.Rel(l.bundledDir, path); rerr == nil && !strings.HasPrefix(rel, "..") {
+				skill.Bundled = true
+			}
+		}
+		rememberName(path, skill.Name)
+		onChange(*skill)
+	}
+
+	schedule := func(path string, removed bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if t, ok := timers[path]; ok {
+			t.Stop()
+		}
+		timers[path] = time.AfterFunc(watchDebounce, func() {
+			fire(path, removed)
+			mu.Lock()
+			delete(timers, path)
+			mu.Unlock()
+		})
+	}
+
+	go func() {
+		defer w.Close()
+		for {
+			select {
+			case <-ctx.Done():
+				mu.Lock()
+				for _, t := range timers {
+					t.Stop()
+				}
+				mu.Unlock()
+				return
+			case ev, ok := <-w.Events:
+				if !ok {
+					return
+				}
+				// New directories (e.g. user creates skills/<name>/) need to be
+				// added so we see SKILL.md drops inside them.
+				if ev.Op&fsnotify.Create != 0 {
+					if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
+						if aerr := w.Add(ev.Name); aerr != nil {
+							log.Printf("skills: watch add %q: %v", ev.Name, aerr)
+						}
+						continue
+					}
+				}
+				if !isSkillFile(filepath.Base(ev.Name)) {
+					continue
+				}
+				switch {
+				case ev.Op&(fsnotify.Remove|fsnotify.Rename) != 0:
+					schedule(ev.Name, true)
+				case ev.Op&(fsnotify.Create|fsnotify.Write) != 0:
+					schedule(ev.Name, false)
+				}
+			case werr, ok := <-w.Errors:
+				if !ok {
+					return
+				}
+				log.Printf("skills: watch error: %v", werr)
+			}
+		}
+	}()
+
+	return nil
 }
 
 var knownFields = map[string]bool{

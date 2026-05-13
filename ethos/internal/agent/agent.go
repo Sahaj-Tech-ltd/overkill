@@ -57,8 +57,12 @@ type Agent struct {
 	rewriter PromptRewriter
 	// compactor, when set, owns the compaction strategy. When nil the agent
 	// falls back to its legacy single-LLM-call summary path.
-	compactor          HistoryCompactor
-	useCompactor       bool
+	compactor HistoryCompactor
+	// useCompactor is an atomic Bool because checkBudget reads it from the
+	// hot Run() loop without taking a.mu (the path can fire in the middle
+	// of buildRequest which already holds RLock — re-locking from there
+	// would self-deadlock). SetCompactor writes it.
+	useCompactor       atomic.Bool
 	compactionInFlight atomic.Bool
 
 	// userInputObserver, if set, is invoked once per Run with the raw user
@@ -105,6 +109,13 @@ type Agent struct {
 	// agent step error. Lazily constructed by emitRecovery; per-session
 	// state.
 	diagEscalator *diagnosticEscalator
+
+	// sessionCtx / sessionCancel parent every background goroutine the
+	// agent spawns (auto-compaction, lifecycle workers). Shutdown()
+	// cancels sessionCtx so leaked goroutines wind down promptly. Set
+	// in New(); never replaced.
+	sessionCtx    context.Context
+	sessionCancel context.CancelFunc
 
 	// learningRecorder receives a class key on each Run() that succeeds
 	// after a prior Run() failed with the same class — the "I recovered
@@ -214,9 +225,9 @@ func (a *Agent) SetCompactor(c HistoryCompactor, use bool) {
 		return
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.compactor = c
-	a.useCompactor = use && c != nil
+	a.mu.Unlock()
+	a.useCompactor.Store(use && c != nil)
 }
 
 // PromptRewriter is implemented by anything that can transform a user prompt
@@ -274,6 +285,12 @@ func New(cfg Config) *Agent {
 		specDrv = NewSpecDriver()
 	}
 
+	// Session-scoped context so background goroutines (auto-compaction,
+	// future async lifecycle work) can be cancelled on Shutdown without
+	// having to plumb a ctx through every code path. Plain
+	// context.Background() leaked goroutines when the TUI quit mid-Compact.
+	sCtx, sCancel := context.WithCancel(context.Background())
+
 	return &Agent{
 		provider:        cfg.Provider,
 		toolRegistry:    cfg.Tools,
@@ -294,7 +311,20 @@ func New(cfg Config) *Agent {
 		sessionID:       cfg.SessionID,
 		history:         make([]providers.Message, 0),
 		allowedTools:    make(map[string]bool),
+		sessionCtx:      sCtx,
+		sessionCancel:   sCancel,
 	}
+}
+
+// Shutdown cancels the agent's session-scoped context so background
+// goroutines (auto-compaction etc.) wind down. Safe to call multiple
+// times. The TUI's quit defer should call this before FireSessionEnd to
+// stop in-flight work cleanly.
+func (a *Agent) Shutdown() {
+	if a == nil || a.sessionCancel == nil {
+		return
+	}
+	a.sessionCancel()
 }
 
 // Bus returns the agent's internal event bus. Subscribers receive structured
@@ -361,7 +391,7 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		func() {
 			defer func() { _ = recover() }()
 			if id, reason, ok := r.PickModel(snap); ok && id != "" {
-				prev := a.model
+				prev := a.Model()
 				a.SetModel(id)
 				if prev != id {
 					a.emit("model_routed", map[string]any{
@@ -383,7 +413,7 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 			return &RunResult{
 				Blocked:     true,
 				BlockReason: fmt.Sprintf("blocked by %s: %s", scanner.Name(), result.Findings[0].Description),
-				Model:       a.model,
+				Model:       a.Model(),
 			}, nil
 		}
 	}
@@ -412,7 +442,7 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 	}
 
 	result := &RunResult{
-		Model: a.model,
+		Model: a.Model(),
 	}
 
 	for step := 0; step < a.maxSteps; step++ {
@@ -442,9 +472,10 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		result.TotalTokens += stepResult.Tokens.InputTokens + stepResult.Tokens.OutputTokens
 
 		if obs := a.usageObserver; obs != nil && (stepResult.Tokens.InputTokens > 0 || stepResult.Tokens.OutputTokens > 0) {
+			modelID := a.Model()
 			func() {
 				defer func() { _ = recover() }()
-				obs(a.model, stepResult.Tokens)
+				obs(modelID, stepResult.Tokens)
 			}()
 		}
 
@@ -515,12 +546,20 @@ func (a *Agent) checkBudget() {
 	// Master plan §4.4 50% trigger: when ShouldCompact crosses (default 0.5),
 	// trigger compaction proactively rather than waiting for the user to type
 	// /compact. Best-effort — failure is logged via emit, never fatal.
-	if report.ShouldCompact && a.useCompactor && a.compactor != nil && !a.compactionInFlight.Load() {
+	if report.ShouldCompact && a.useCompactor.Load() && a.compactor != nil && !a.compactionInFlight.Load() {
 		a.compactionInFlight.Store(true)
+		// Derive from sessionCtx (not Background()) so Shutdown cancels
+		// in-flight auto-compaction instead of leaking the goroutine
+		// past TUI exit. Fall back to Background only when sessionCtx
+		// is nil (defensive — shouldn't happen with New()).
+		parent := a.sessionCtx
+		if parent == nil {
+			parent = context.Background()
+		}
 		go func() {
 			defer a.compactionInFlight.Store(false)
 			defer func() { _ = recover() }()
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 			defer cancel()
 			if res, err := a.Compact(ctx); err != nil {
 				a.emit("auto_compact_failed", map[string]any{"error": err.Error()})
@@ -718,7 +757,7 @@ func (a *Agent) buildRequest() providers.Request {
 	prompt = a.applyPromptCompression(prompt)
 
 	return providers.Request{
-		Model:        a.model,
+		Model:        a.Model(),
 		Messages:     msgs,
 		Tools:        a.buildToolDefs(),
 		MaxTokens:    a.maxTokens,
@@ -730,7 +769,19 @@ func (a *Agent) buildToolDefs() []providers.Tool {
 	var toolDefs []providers.Tool
 	if a.toolRegistry != nil {
 		for _, name := range a.toolRegistry.List() {
-			t, _ := a.toolRegistry.Get(name)
+			t, err := a.toolRegistry.Get(name)
+			if err != nil || t == nil {
+				// Registry.List returned a name the registry now refuses
+				// to resolve — only happens if the registry was mutated
+				// concurrently between List and Get. Skip the entry and
+				// emit so the inconsistency is visible instead of
+				// crashing on a nil t.Name() call below.
+				a.emit("tool_registry_inconsistent", map[string]any{
+					"name":  name,
+					"error": fmt.Sprintf("%v", err),
+				})
+				continue
+			}
 			toolDefs = append(toolDefs, providers.Tool{
 				Name:        t.Name(),
 				Description: "Execute tool: " + t.Name(),
@@ -866,14 +917,15 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 	}
 
 	a.mu.RLock()
-	useC := a.useCompactor
 	c := a.compactor
 	a.mu.RUnlock()
+	useC := a.useCompactor.Load()
 
+	model := a.Model()
 	var summary string
 	if useC && c != nil {
 		// Delegate to the LCM 3-level escalation compactor.
-		s, err := c.Compact(ctx, history, a.model, a.maxTokens)
+		s, err := c.Compact(ctx, history, model, a.maxTokens)
 		if err != nil {
 			return nil, fmt.Errorf("agent: compact (lcm): %w", err)
 		}
@@ -892,7 +944,7 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 		msgs = append(msgs, providers.Message{Role: "user", Content: compactPrompt})
 
 		req := providers.Request{
-			Model:        a.model,
+			Model:        model,
 			Messages:     msgs,
 			MaxTokens:    a.maxTokens,
 			SystemPrompt: "You produce dense factual summaries of prior conversation.",

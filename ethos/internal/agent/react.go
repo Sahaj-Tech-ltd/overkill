@@ -37,7 +37,9 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 	}
 
 	if resp.Model != "" {
-		a.model = resp.Model
+		// SetModel takes the write lock; bare assignment races with the
+		// many RLock-protected reads of a.model elsewhere (OpenCode #2).
+		a.SetModel(resp.Model)
 	}
 
 	result := &StepResult{
@@ -100,6 +102,28 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		// so subscribers (plugins, journal, telemetry) can flag protected-path
 		// edits, dangerous shell, etc. Defensive — never panics the loop.
 		a.emitImpact(tc.Name, input)
+
+		// Master plan §4.3 Pre-Exec Command Scanner: re-run the security
+		// scanners against the LLM-generated tool call. The user-input
+		// scan at Run() entry doesn't see this — a jailbroken model can
+		// synthesise destructive commands that bypass that gate. We feed
+		// the scanner the actual command/path so deny patterns fire HERE
+		// even when the original user message looked benign.
+		if blocked, reason := a.preToolScan(tc.Name, string(input)); blocked {
+			a.emit("tool_call_blocked", map[string]any{
+				"tool":       tc.Name,
+				"reason":     reason,
+				"session_id": a.sessionID,
+			})
+			blockErr := fmt.Errorf("tool %q blocked by security scanner: %s", tc.Name, reason)
+			result.ToolResults = append(result.ToolResults, ToolResult{
+				ToolCallID: tc.ID,
+				ToolName:   tc.Name,
+				Error:      blockErr,
+			})
+			a.appendToolResultMessage(tc.ID, tc.Name, json.RawMessage(`{}`), blockErr)
+			continue
+		}
 
 		// Notify subscribers (plugins, journal) before execution.
 		a.emit("tool_call", map[string]any{

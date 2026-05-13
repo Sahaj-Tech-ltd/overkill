@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -120,7 +119,6 @@ func (t *PTYShellTool) Execute(ctx context.Context, input json.RawMessage) (json
 		case <-time.After(500 * time.Millisecond):
 			// Reader didn't see EOF yet (race); accept partial.
 		}
-		_ = io.EOF
 		return json.Marshal(ptyShellOutput{ExitCode: code, Output: out})
 	}
 }
