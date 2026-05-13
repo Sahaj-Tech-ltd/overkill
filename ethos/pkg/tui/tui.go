@@ -149,6 +149,14 @@ type appModel struct {
 	// stop a runaway loop from blowing the model's context budget.
 	pendingAttachments []pendingAttachment
 
+	// modelCatalog caches the providers.FetchCatalog result so the
+	// vision-capability guard can answer "does this model accept
+	// images?" without re-fetching on every send. nil = catalog not
+	// loaded yet; in that case the guard falls open (best UX — let the
+	// provider reject if needed rather than blocking a legitimate send
+	// on missing local state).
+	modelCatalog *providers.Catalog
+
 	// escArmedAt tracks the esc double-press window. When non-zero and no
 	// dialog is open, esc arms the exit; a second esc within 2s quits.
 	escArmedAt time.Time
@@ -1057,6 +1065,9 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuitypes.ModelCatalogLoadedMsg:
 		if ev.Catalog != nil {
+			// Cache for the vision-capability guard. The dialog and the
+			// guard both read this — single source of truth.
+			m.modelCatalog = ev.Catalog
 			m.modelDialog.SetCatalog(ev.Catalog, ev.Source)
 		} else {
 			m.modelDialog.SetLoading(false)
@@ -1176,7 +1187,25 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// next message. If the send fails downstream, the attachments are
 		// already consumed — that matches the "send is final" mental model
 		// and avoids stale attachments lingering through retries.
-		if atts := m.drainAttachments(); len(atts) > 0 {
+		atts := m.drainAttachments()
+		// Vision-capability guard: if the active model can't handle
+		// images and the user staged image(s), block the send and put
+		// the staged files BACK so the user can pick a vision-capable
+		// model via /model and retry without re-attaching everything.
+		if len(atts) > 0 && m.app != nil && m.app.Agent != nil {
+			res := checkVisionCapability(m.modelCatalog, m.app.Agent.Model(), atts)
+			if !res.OK {
+				// Re-stage the attachments — drain already cleared them.
+				for _, a := range atts {
+					m.pendingAttachments = append(m.pendingAttachments, pendingAttachment{
+						MediaType: a.MediaType,
+						Data:      a.Data,
+					})
+				}
+				return m, m.toastCmd("attach: "+res.Reason, "warning")
+			}
+		}
+		if len(atts) > 0 {
 			tatts := make([]tuitypes.Attachment, 0, len(atts))
 			for _, a := range atts {
 				tatts = append(tatts, tuitypes.Attachment{

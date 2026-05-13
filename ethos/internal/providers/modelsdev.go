@@ -287,6 +287,13 @@ func readCache() ([]byte, error) {
 // parseCatalog decodes the models.dev payload into a Catalog. The payload is a
 // flat object keyed by provider id; each value carries an optional `id` and a
 // `models` map.
+// ParseCatalog builds a Catalog from raw models.dev JSON bytes. Public
+// entry for tests + tools that want to construct a catalog without
+// hitting the network or the disk cache.
+func ParseCatalog(body []byte, source CatalogSource) (*Catalog, error) {
+	return parseCatalog(body, source)
+}
+
 func parseCatalog(body []byte, source CatalogSource) (*Catalog, error) {
 	raw := map[string]CatalogProvider{}
 	if err := json.Unmarshal(body, &raw); err != nil {
