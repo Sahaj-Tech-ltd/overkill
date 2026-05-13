@@ -277,32 +277,79 @@ func New(app *App) tea.Model {
 			})
 		}
 		// Wire personality into the agent system prompt (master plan §4.16).
-		// The provider runs every turn and combines: (a) the configured
-		// personality level's base directive, (b) a tone-mirror nudge when
-		// the frustration detector is hot in the last 5 minutes. Nil-safe:
-		// missing person/frustration just returns the available pieces.
-		if app != nil && app.Agent != nil && m.person != nil {
-			person := m.person
-			fd := app.Frustration
-			app.Agent.SetPersonalityProvider(func() string {
-				base := strings.TrimSpace(person.InjectPersonality(""))
-				if fd != nil && fd.IsHot(5*time.Minute) {
-					hint := "User shows frustration signal in recent turns. " +
-						"Drop preamble, shorten sentences, acknowledge before solving. " +
-						"Internal calm stays unchanged — quality bar does not drop."
-					if base == "" {
-						return hint
-					}
-					return base + "\n\n" + hint
-				}
-				return base
-			})
-		}
+		// Factored so Reconfigure() can re-install the binding on the new
+		// agent — without this re-wire, hot-swap silently drops personality.
+		m.installPersonalityProvider(app.Agent)
 		// Sessions are created lazily on the first user turn so the welcome
 		// screen doesn't list a phantom empty session.
 	}
 
 	return m
+}
+
+// installPersonalityProvider wires the agent's personality provider to read
+// from m.person + m.app.Frustration. Idempotent and re-callable: every
+// successful Reconfigure() returns a fresh *agent.Agent, and the closure
+// captured here referenced the OLD agent's slot — re-running this on the
+// new agent re-installs the bridge. Nil-safe at every level: an agent with
+// no personality or frustration detector simply gets an empty directive.
+func (m *appModel) installPersonalityProvider(a *agent.Agent) {
+	if a == nil || m.person == nil {
+		return
+	}
+	a.SetPersonalityProvider(m.buildPersonalityProvider())
+}
+
+// buildPersonalityProvider returns the closure installed as the agent's
+// personality provider. Factored out so it can be unit-tested without
+// building a full agent.
+func (m *appModel) buildPersonalityProvider() func() string {
+	if m == nil || m.person == nil {
+		return func() string { return "" }
+	}
+	person := m.person
+	var fd *personality.FrustrationDetector
+	var te *personality.TransparencyEngine
+	var bs *personality.BlindSpotDetector
+	if m.app != nil {
+		fd = m.app.Frustration
+		te = m.app.Transparency
+		bs = m.app.BlindSpot
+	}
+	return func() string {
+		out := strings.TrimSpace(person.InjectPersonality(""))
+		if fd != nil && fd.IsHot(5*time.Minute) {
+			hint := "User shows frustration signal in recent turns. " +
+				"Drop preamble, shorten sentences, acknowledge before solving. " +
+				"Internal calm stays unchanged — quality bar does not drop."
+			if out == "" {
+				out = hint
+			} else {
+				out = out + "\n\n" + hint
+			}
+		}
+		if te != nil {
+			if w := strings.TrimSpace(te.NextWarning()); w != "" {
+				line := "[heads-up] " + w
+				if out == "" {
+					out = line
+				} else {
+					out = out + "\n" + line
+				}
+			}
+		}
+		if bs != nil {
+			if w := strings.TrimSpace(bs.NextWarning()); w != "" {
+				line := "[heads-up] " + w
+				if out == "" {
+					out = line
+				} else {
+					out = out + "\n" + line
+				}
+			}
+		}
+		return out
+	}
 }
 
 // bootstrapSession creates a fresh session record (if a store is configured)
@@ -679,6 +726,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if newAgent, err := m.app.Reconfigure(cm.Config); err == nil && newAgent != nil {
 				m.chatPage.SetAgent(newAgent)
 				newAgent.SetApprovalFunc(m.makeApprovalFunc())
+				m.installPersonalityProvider(newAgent)
 				m.statusBar.SetModel(cm.Config.Agent.DefaultModel, cm.Config.Agent.DefaultProvider)
 			}
 		}
@@ -711,6 +759,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if newAgent, err := m.app.Reconfigure(m.app.Config); err == nil && newAgent != nil {
 				m.chatPage.SetAgent(newAgent)
 				newAgent.SetApprovalFunc(m.makeApprovalFunc())
+				m.installPersonalityProvider(newAgent)
 				m.statusBar.SetModel(saved.Model, saved.Provider)
 			}
 		}
@@ -1016,6 +1065,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if newAgent, err := m.app.Reconfigure(m.app.Config); err == nil && newAgent != nil {
 					m.chatPage.SetAgent(newAgent)
 					newAgent.SetApprovalFunc(m.makeApprovalFunc())
+				m.installPersonalityProvider(newAgent)
 				}
 				m.statusBar.SetModel(ev.Model, ev.Provider)
 			}
@@ -1455,6 +1505,7 @@ func (m *appModel) applyProviderConfigured(ev dialog.ProviderConfiguredMsg) tea.
 	if newAgent, err := m.app.Reconfigure(cfg); err == nil && newAgent != nil {
 		m.chatPage.SetAgent(newAgent)
 		newAgent.SetApprovalFunc(m.makeApprovalFunc())
+				m.installPersonalityProvider(newAgent)
 	}
 	m.statusBar.SetModel(ev.Model, ev.Provider)
 	return m.toastCmd("configured "+ev.Provider+" — switched to "+ev.Model, "success")

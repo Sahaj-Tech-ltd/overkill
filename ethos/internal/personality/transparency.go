@@ -124,6 +124,47 @@ func (te *TransparencyEngine) ResetWarnings() {
 	te.warned = 0
 }
 
+// NextWarning returns a single rate-limited heads-up string for the highest
+// failure-count task type, or "" when nothing should be surfaced (no
+// qualifying failures, or the per-session warning budget is exhausted).
+// It consumes one warning slot, so two calls in a row will not return the
+// same warning twice (§4.16 — proactive transparency is rate-limited).
+func (te *TransparencyEngine) NextWarning() string {
+	if te == nil {
+		return ""
+	}
+	if te.warned >= te.maxWarnings {
+		return ""
+	}
+	bestIdx := -1
+	bestCount := 0
+	for i, f := range te.failures {
+		if f.Model != te.currentModel {
+			continue
+		}
+		if f.Count >= 2 && f.Count > bestCount {
+			bestCount = f.Count
+			bestIdx = i
+		}
+	}
+	if bestIdx < 0 {
+		return ""
+	}
+	te.warned++
+	f := te.failures[bestIdx]
+	msg := fmt.Sprintf(
+		"Heads up — this type of task (%s) has failed %d times before with this model. Want me to try a different approach?",
+		f.TaskType, f.Count,
+	)
+	if te.sink != nil {
+		func() {
+			defer func() { _ = recover() }()
+			_ = te.sink.Create("frustration_signal", msg, te.sessionID)
+		}()
+	}
+	return msg
+}
+
 func extractTaskType(content string) string {
 	keywords := []string{
 		"refactoring", "debugging", "testing", "deployment",

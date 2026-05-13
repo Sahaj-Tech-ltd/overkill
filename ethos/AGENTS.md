@@ -137,6 +137,7 @@ When asked "how does X work in Claude Code / OpenCode / Hermes / ZeroClaw / Open
 | ZeroClaw | `https://deepwiki.com/zeroclaw-labs/zeroclaw` | `inspiration/zeroclaw/` |
 | OpenCode | `https://deepwiki.com/anomalyco/opencode` | `inspiration/opencode/` |
 | Pi | `https://deepwiki.com/earendil-works/pi` | `inspiration/pi/` |
+| Warp | `https://deepwiki.com/warpdotdev/warp` | `inspiration/warp/` |
 | Claw Code | `https://deepwiki.com/ultraworkers/claw-code` | N/A |
 
 **Procedure:**

@@ -88,12 +88,31 @@ type Agent struct {
 	// system prompt every turn. See skills_prompt.go for selection rules.
 	skillRegistry *skills.Registry
 
+	// memoryRetriever, if set, is consulted each turn for top-K memories
+	// relevant to the latest user message. The result renders into the
+	// system prompt between skills and personality. Best-effort: errors,
+	// panics, and timeouts never block the turn (see renderMemorySection).
+	memoryRetriever MemoryRetriever
+
 	// personalityProviderFn, if set, returns a personality directive block
 	// appended to the system prompt each turn. Separate from contextProviderFn
 	// because personality is a long-lived character directive, while context
 	// is per-turn factual (git status, jira ticket). Errors/panics are
 	// recovered; empty return means "no personality directive this turn".
 	personalityProviderFn func() string
+
+	// diagEscalator climbs the 10-tier diagnostic ladder (§4.13) on each
+	// agent step error. Lazily constructed by emitRecovery; per-session
+	// state.
+	diagEscalator *diagnosticEscalator
+
+	// learningRecorder receives a class key on each Run() that succeeds
+	// after a prior Run() failed with the same class — the "I recovered
+	// from this" signal (§6.2). Nil-safe.
+	learningRecorder LearningRecorder
+	// lastErrorClass holds the diagnostic class from the most recent
+	// emitRecovery. Consumed (and cleared) by the next successful Run().
+	lastErrorClass string
 }
 
 // PromptCompressor is the small interface the agent calls before assembling
@@ -432,6 +451,10 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		if stepResult.Done {
 			result.Response = stepResult.Thought
 			result.Confidence = a.assessTurnConfidence(userInput)
+			// §6.2: if a prior Run failed with a known class and this one
+			// completed cleanly, count it as a recovery. Self-learning's
+			// "you've solved this 3 times" trigger fires from these.
+			a.recordRecoverySuccess()
 			return result, nil
 		}
 	}
@@ -544,7 +567,15 @@ func (a *Agent) emitRecovery(stepErr error) {
 	if report == nil {
 		return
 	}
-	_ = rec.RecordLesson(report)
+	if err := rec.RecordLesson(report); err != nil {
+		// Lesson persistence failing silently meant the recovery system
+		// could appear empty even when reports were being analysed. Fire
+		// an event so the journal + telemetry catch it.
+		a.emit("recovery_write_failed", map[string]any{
+			"error":      err.Error(),
+			"session_id": a.sessionID,
+		})
+	}
 	rec.FireDeferralAlert(report)
 	a.emit("recovery", map[string]any{
 		"what_went_wrong": report.WhatWentWrong,
@@ -556,6 +587,33 @@ func (a *Agent) emitRecovery(stepErr error) {
 	a.emit("error", map[string]any{
 		"error":      stepErr.Error(),
 		"session_id": a.sessionID,
+	})
+
+	// Master plan §4.13: auto-escalate the diagnostic ladder. We classify
+	// the error, advance the per-class ladder, and emit a suggestion the
+	// recovery report (or the human) can act on. Cheap — no LLM call, just
+	// table lookup and counter increment.
+	a.mu.Lock()
+	if a.diagEscalator == nil {
+		a.diagEscalator = newDiagnosticEscalator()
+	}
+	esc := a.diagEscalator
+	a.mu.Unlock()
+	sugg := esc.suggest(stepErr.Error())
+	// Record the class so the NEXT successful Run() can fire a learning
+	// signal ("the user / I recovered from a compile error"). Cleared by
+	// recordRecoverySuccess on Done; overwritten by the next error.
+	a.mu.Lock()
+	a.lastErrorClass = sugg.Class
+	a.mu.Unlock()
+	a.emit("diagnostic_suggestion", map[string]any{
+		"class":       sugg.Class,
+		"tier":        sugg.Tier,
+		"name":        sugg.Name,
+		"description": sugg.Description,
+		"command":     sugg.Command,
+		"exhausted":   sugg.Exhausted,
+		"session_id":  a.sessionID,
 	})
 }
 
@@ -631,6 +689,12 @@ func (a *Agent) buildRequest() providers.Request {
 	}
 	if skillBlock := a.renderSkillSection(latestUser); skillBlock != "" {
 		prompt = prompt + "\n\n" + skillBlock
+	}
+	// Memory recall (master plan §6.1): top-K retrieval against latest user
+	// input. Slots between skills and personality so memory is framed as
+	// reference data while identity directives keep the last word.
+	if memBlock := a.renderMemorySection(context.Background(), latestUser); memBlock != "" {
+		prompt = prompt + "\n\n" + memBlock
 	}
 	// Personality directive (§4.16): long-lived character/tone block. Comes
 	// AFTER skills so skills can't be drowned by tone instructions, and BEFORE
@@ -742,6 +806,9 @@ func (a *Agent) BudgetReport() *BudgetReport {
 	}
 	if skillBlock := a.renderSkillSection(latestUser); skillBlock != "" {
 		systemPrompt = systemPrompt + "\n\n" + skillBlock
+	}
+	if memBlock := a.renderMemorySection(context.Background(), latestUser); memBlock != "" {
+		systemPrompt = systemPrompt + "\n\n" + memBlock
 	}
 	if persona := a.personalitySection(); persona != "" {
 		systemPrompt = systemPrompt + "\n\n" + persona

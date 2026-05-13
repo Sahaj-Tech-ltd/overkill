@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 )
 
 type BaseProvider struct {
@@ -26,7 +25,14 @@ func NewBaseProvider(name, baseURL, apiKey string, models []Model) *BaseProvider
 		apiKey:  apiKey,
 		models:  models,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			// No request-level timeout. http.Client.Timeout applies to the
+			// WHOLE request including reading the body, which silently kills
+			// streaming responses at wall-clock 30s. Cancellation is driven
+			// entirely by the context passed into doRequest — callers wrap
+			// with context.WithTimeout when they need a deadline for
+			// non-streaming requests. Streaming Stream() callers rely on
+			// the agent loop's ctx for cancellation.
+			Timeout: 0,
 		},
 		headers: make(map[string]string),
 	}

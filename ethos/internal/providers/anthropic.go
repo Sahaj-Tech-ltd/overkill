@@ -238,6 +238,15 @@ func (p *AnthropicProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 		}
 	}
 
+	// Loop exited without seeing message_stop. Distinguish clean EOF from
+	// transport failure — scanner.Err() returns non-nil when the underlying
+	// reader errored mid-stream (TCP reset, proxy timeout, body close). Without
+	// this check a dropped connection masquerades as a clean Done and the
+	// caller commits a partial assistant message as if it were complete.
+	if err := scanner.Err(); err != nil {
+		ch <- Chunk{Err: fmt.Errorf("anthropic stream: %w", err)}
+		return
+	}
 	ch <- Chunk{Done: true, Usage: usage}
 }
 

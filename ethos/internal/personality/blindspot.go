@@ -81,3 +81,15 @@ func (bsd *BlindSpotDetector) Reset() {
 	bsd.alerted = make(map[string]bool)
 	bsd.alertCount = 0
 }
+
+// NextWarning returns a single one-line gentle heads-up when a pattern is
+// undeniable (count >= Threshold), or "" otherwise. Rate-limited via the
+// same MaxAlerts budget Check() uses — once consumed for a pattern, the
+// same call will not re-surface it (§4.16).
+func (bsd *BlindSpotDetector) NextWarning() string {
+	if bsd == nil {
+		return ""
+	}
+	msg, _ := bsd.Check()
+	return msg
+}

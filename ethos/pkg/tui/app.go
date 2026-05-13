@@ -57,6 +57,15 @@ type App struct {
 	// tone mirroring (§4.16). Nil-safe.
 	Frustration *personality.FrustrationDetector
 
+	// Transparency surfaces a single rate-limited heads-up when the active
+	// model has repeatedly failed at the current task type (§4.16). Nil-safe.
+	Transparency *personality.TransparencyEngine
+
+	// BlindSpot surfaces a single gentle one-liner when the user has
+	// hammered the same verb past the detector's threshold (§4.16).
+	// Nil-safe.
+	BlindSpot *personality.BlindSpotDetector
+
 	// Build, when set, is used by Reconfigure to rebuild the agent after the
 	// user re-runs setup from inside the TUI. CLI wires this up.
 	Build AgentBuilder

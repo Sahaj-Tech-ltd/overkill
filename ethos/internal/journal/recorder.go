@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -134,7 +135,9 @@ func readFile(path string) ([]Entry, error) {
 	defer f.Close()
 
 	var entries []Entry
+	var skipped int
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -142,12 +145,20 @@ func readFile(path string) ([]Entry, error) {
 		}
 		var e Entry
 		if err := json.Unmarshal(line, &e); err != nil {
+			// Corrupt / truncated line (often from a crash mid-write).
+			// Surface ONCE per file so recovery analysis can see that
+			// the picture is incomplete — silently skipping was the
+			// previous behaviour and hid real fault chains.
+			skipped++
 			continue
 		}
 		entries = append(entries, e)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("journal: scanning file: %w", err)
+	}
+	if skipped > 0 {
+		log.Printf("journal: %s: skipped %d corrupt line(s) — recovery view may be incomplete", path, skipped)
 	}
 
 	return entries, nil

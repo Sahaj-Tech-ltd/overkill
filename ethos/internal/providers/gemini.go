@@ -202,6 +202,12 @@ func (p *GeminiProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 		}
 	}
 
+	// Surface mid-stream transport failures rather than swallowing them as a
+	// clean Done. See the matching note in the Anthropic and OpenAI providers.
+	if err := scanner.Err(); err != nil {
+		ch <- Chunk{Err: fmt.Errorf("gemini stream: %w", err)}
+		return
+	}
 	ch <- Chunk{Done: true, Usage: usage}
 }
 

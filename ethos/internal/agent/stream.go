@@ -95,12 +95,22 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 			var toolCalls []providers.ToolCall
 			var usage providers.Usage
 
+			var streamErr error
 			for chunk := range ch {
 				select {
 				case <-ctx.Done():
 					out <- StreamEvent{Type: EventError, Error: ctx.Err()}
 					return
 				default:
+				}
+
+				// Mid-stream transport failure: producer signals via
+				// Chunk.Err. We MUST NOT commit the accumulated partial
+				// content as an assistant message — that's the silent
+				// wrong-answer path. Surface the error and bail.
+				if chunk.Err != nil {
+					streamErr = chunk.Err
+					break
 				}
 
 				if chunk.Content != "" {
@@ -115,6 +125,18 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 				if chunk.Usage != nil {
 					usage = *chunk.Usage
 				}
+			}
+
+			if streamErr != nil {
+				if a.hooks != nil {
+					a.hooks.Fire(ctx, hooks.OnError, hooks.Event{
+						Error:     streamErr,
+						SessionID: a.sessionID,
+					})
+				}
+				a.emitRecovery(streamErr)
+				out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: stream: %w", streamErr)}
+				return
 			}
 
 			runResult.Steps++

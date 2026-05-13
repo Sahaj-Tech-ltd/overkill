@@ -239,6 +239,13 @@ func (p *OpenAIProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 		}
 	}
 
+	// Transport-level error (TCP reset, proxy timeout, body close) leaves the
+	// scanner in a non-nil err state. Surface it as a stream error instead of
+	// faking a clean Done — the consumer must NOT commit partial content.
+	if err := scanner.Err(); err != nil {
+		ch <- Chunk{Err: fmt.Errorf("openai stream: %w", err)}
+		return
+	}
 	ch <- Chunk{Done: true, Usage: usage}
 }
 

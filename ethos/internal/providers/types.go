@@ -60,6 +60,12 @@ type Chunk struct {
 	ToolCalls []ToolCall
 	Done      bool
 	Usage     *Usage
+	// Err carries a fatal streaming error (transport drop, scanner failure,
+	// parse error on the upstream protocol). Consumers MUST treat a non-nil
+	// Err as "this stream did not complete cleanly" — committing the
+	// accumulated content as if Done would be a silent wrong answer. The
+	// producer emits at most one Err chunk and then closes the channel.
+	Err error
 }
 
 type Model struct {
