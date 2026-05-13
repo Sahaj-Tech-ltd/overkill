@@ -229,48 +229,44 @@ pages, `snapshotForAI()` returning structured page content.
 
 ---
 
-### Batch K — Stagehand (Browserbase)  (M)
+### Batch K — Stagehand  **DROPPED**
 
-**Goal:** `act()`, `extract()`, `agent()` — natural language browser
-control. Wraps the Browserbase SaaS API.
-
-**Surfaces:**
-- `internal/browser/stagehand/` — HTTP client for Browserbase
-- Tools: `stagehand_act`, `stagehand_extract`, `stagehand_agent`
-
-**Tests:**
-- Mocked Browserbase API → integration tests cover the three verbs
-- API key missing → clear error, no panic
-- Rate limit → retry with backoff (Browserbase advertises 429s)
-
-**Depends on:** none
-
-**Open question:** Browserbase requires an account + API key.
-Acceptable third-party dependency, or skip? Default plan: ship it,
-disabled by default, opt-in via config.
+Skipped per 2026-05-13 decision. Stagehand wraps Browserbase, a paid
+SaaS for cloud-hosted browsers. Capability overlaps Playwright +
+dev-browser. Revisit if a user explicitly asks.
 
 ---
 
-### Batch L — WhatsApp via Baileys  (XL)
+### Batch L — WhatsApp (whatsmeow + Cloud API)  (XL)
 
-**Goal:** WhatsApp gateway for cross-channel continuity.
+**Goal:** WhatsApp gateway with two backends behind one router.
 
 **Surfaces:**
-- `internal/gateway/whatsapp/` — calls a Node sidecar process running
-  Baileys (Go port doesn't exist; wrap the Node lib)
-- Sidecar lifecycle managed by the daemon
+- `internal/gateway/whatsapp/router.go` — backend-agnostic entry point
+- `internal/gateway/whatsapp/whatsmeow/` — Go-native unofficial client
+  (go.mau.fi/whatsmeow). QR-pairing on first run; SQLite session store.
+- `internal/gateway/whatsapp/cloud/` — Meta Business Cloud API client.
+  Webhook receiver + send-message HTTP client.
+- Config switch: `gateway.whatsapp.backend = "whatsmeow"|"cloud"`
 
 **Tests:**
-- QR code pairing flow
-- Receive message → route to session
-- Send image → encode + dispatch
-- Sidecar crash → daemon restarts it within 5s
+- whatsmeow: QR code pairing flow → device added
+- whatsmeow: receive message → route to session
+- cloud: webhook signature verification (HMAC-SHA256 with app secret)
+- cloud: send message → 200 OK + message_id captured for delivery ack
+- cloud: 24h window enforcement — outside window, falls back to
+  approved template or surfaces clear error
+- Image attachments: both backends encode + dispatch
+- Backend swap via config → no code changes, only router lookup flips
 
 **Depends on:** Batch A
 
-**Risk:** WhatsApp's terms of service are restrictive about automated
-clients. Personal-use only is fine; productizing this is a legal
-question.
+**Risk notes:**
+- whatsmeow: same TOS posture as Baileys (occasional bans), personal
+  use only. NOT for productizing.
+- Cloud API: requires Meta Business verification + phone number
+  approval (1-2 weeks). Document the onboarding in
+  `docs/gateways-whatsapp.md`.
 
 ---
 
@@ -301,13 +297,21 @@ L (after A, last because Baileys is the biggest risk)
   + Stagehand).
 - **After L** — Phase 4 done.
 
-## What I need from you before starting
+## Decisions (locked in 2026-05-13)
 
-1. **Daemon UX:** systemd unit auto-install vs print-and-copy?  Default:
-   print-and-copy (less invasive).
-2. **WhatsApp scope:** ship Baileys-via-Node-sidecar, or skip and document
-   that WhatsApp isn't supported on launch?
-3. **Stagehand:** ship as opt-in with disabled-by-default, or skip until
-   someone asks?
-4. **Order preference:** the dependency graph above suggests A→B→C→D→E
-   first; happy to start there?
+1. **Daemon UX:** print-and-copy. We ship `~/.overkill/systemd-unit.template`
+   and `overkill daemon install` prints the unit content; user wires it.
+2. **WhatsApp:** ship two backends, user picks at config:
+   - **`whatsmeow`** (go.mau.fi/whatsmeow) — Go-native, no Node sidecar.
+     Strict upgrade over Baileys-via-Node: same TOS posture, less
+     operational complexity. Personal use.
+   - **WhatsApp Business Cloud API** (Meta official) — production path.
+     24h messaging window, template messages for outside that window,
+     no ban risk, paid per conversation at scale.
+   - Batch L scope changes: replace single Baileys impl with both
+     backends behind a `gateway.whatsapp.backend = "whatsmeow"|"cloud"`
+     config switch.
+3. **Stagehand:** **skip** — overlaps Playwright + dev-browser and
+   forces a Browserbase SaaS dependency. Revisit if users ask.
+   Batch K is dropped.
+4. **Order:** A→B→C→D→E in series. Confirmed.
