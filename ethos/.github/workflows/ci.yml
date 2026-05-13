@@ -14,11 +14,14 @@ env:
   GO_VERSION: "1.25"
 
 jobs:
-  # Native build + tests (gofmt, vet, race tests) on Linux.
-  test:
-    name: Test (linux/amd64)
+  # Build-correctness gates: gofmt, vet, and a native+cross-target build
+  # sanity check. The actual test suite (Go race tests + Python pytest)
+  # lives in tests.yml so a red test doesn't get buried under build logs
+  # and so result-watchers can subscribe to tests specifically.
+  lint-build:
+    name: Lint + build (linux/amd64)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -39,13 +42,6 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./...
-      - name: Test (race + coverage)
-        run: go test -race -count=1 -timeout=5m -coverprofile=coverage.out ./...
-      - name: Upload Go coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-coverage
-          path: coverage.out
 
   # Cross-compile sanity check on the other supported targets.
   cross-build:
@@ -76,24 +72,3 @@ jobs:
         run: |
           go build -trimpath -ldflags="-s -w -X main.Version=ci-${{ github.sha }}" \
             -o /tmp/overkill-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/overkill
-
-  # Python bridge tests + coverage.
-  python-tests:
-    name: Python tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: pip install -r bridge/requirements.txt
-      - name: Run Python tests
-        working-directory: bridge
-        run: pytest --cov=. --cov-report=xml -q
-      - name: Upload Python coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-coverage
-          path: bridge/coverage.xml
