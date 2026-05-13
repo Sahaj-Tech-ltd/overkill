@@ -34,6 +34,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 
 	"github.com/Sahaj-Tech-ltd/overkill/bridge"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/browser/devbrowser"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/mcp"
 	memorypkg "github.com/Sahaj-Tech-ltd/overkill/internal/memory"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/multimodal"
@@ -516,6 +517,16 @@ func buildTUIApp() *tui.App {
 		multimodal.DefaultRegistry(visionDescriber),
 		cwd,
 	))
+
+	// Batch J — dev-browser: sandboxed AI-safe browser. Four narrow
+	// tools (open/snapshot/click/type) over chromedp with SSRF
+	// guards + structured snapshotForAI. The agent can drive a
+	// browser without smuggling arbitrary JS or reaching local infra.
+	devBrowserMgr := devbrowser.NewManager()
+	toolReg.Register(tools.NewDevBrowserOpenTool(devBrowserMgr))
+	toolReg.Register(tools.NewDevBrowserSnapshotTool(devBrowserMgr))
+	toolReg.Register(tools.NewDevBrowserClickTool(devBrowserMgr))
+	toolReg.Register(tools.NewDevBrowserTypeTool(devBrowserMgr))
 
 	// Alarm tooling. Badger is single-process, so the TUI cannot open
 	// the alarm store directly while the daemon owns it. Instead the
