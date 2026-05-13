@@ -198,6 +198,21 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	}()
 	fmt.Printf("%s✓ daily snapshot ticker armed%s\n", colorGreen, colorReset)
 
+	// Background task ledger sweeper (§7.1 Layer 6). Marks stuck
+	// running/queued tasks as `lost` after a 5-min grace when the
+	// owning PID is dead or never recorded. 60s scan cadence by
+	// default — slow enough to not waste CPU, fast enough that the
+	// user sees stale rows update in roughly one breath.
+	sweeper := automation.NewSweeper(daemonLedger, automation.SweeperConfig{
+		OnLost: func(t automation.LedgerTask) {
+			fmt.Fprintf(os.Stderr, "ledger: lost task %s (%s/%s): %s\n",
+				t.ID, t.Source, t.Name, t.Error)
+		},
+	})
+	sweeper.Start(ctx)
+	defer sweeper.Stop()
+	fmt.Printf("%s✓ ledger sweeper started%s\n", colorGreen, colorReset)
+
 	// RPC socket so the TUI / CLI / future webhook receivers can talk
 	// to the running daemon without sharing in-process state. Bind
 	// errors are non-fatal — the daemon still runs in standalone mode
