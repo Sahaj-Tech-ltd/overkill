@@ -162,12 +162,14 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 
 	if autoDB, err := badger.Open(badger.DefaultOptions(autoDir).WithLoggingLevel(badger.ERROR)); err == nil {
 		defer autoDB.Close()
-		store := automation.NewBadgerSOPStore(autoDB)
-		_ = automation.NewSOPEngine(store, shellExecutor)
-		alarm := automation.NewAlarmClock(func(a *automation.Alarm) error {
-			fmt.Printf("%s🔔 alarm: %s%s\n", colorYellow, a.Name, colorReset)
-			return nil
-		})
+		sopStore := automation.NewBadgerSOPStore(autoDB)
+		_ = automation.NewSOPEngine(sopStore, shellExecutor)
+
+		alarmStore := automation.NewBadgerAlarmStore(autoDB)
+		alarm := automation.NewAlarmClockWithStore(
+			alarmDispatchFire(daemonLedger),
+			alarmStore,
+		)
 		alarm.Start()
 		defer alarm.Stop()
 		fmt.Printf("%s✓ automation engine started (%d alarms)%s\n", colorGreen, len(alarm.List()), colorReset)
