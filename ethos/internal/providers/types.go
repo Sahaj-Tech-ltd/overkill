@@ -27,6 +27,34 @@ type Message struct {
 	Content    string
 	ToolCalls  []ToolCall
 	ToolCallID string
+	// Attachments carry non-text inputs (images today, potentially
+	// audio/PDF later). Empty for the common case so a string Content
+	// still serializes as a plain string-content message to every
+	// provider. When non-empty, the provider's request builder emits
+	// the format-specific multi-part body (anthropic content blocks,
+	// OpenAI content parts, gemini inlineData). Order is preserved.
+	Attachments []Attachment
+}
+
+// AttachmentKind enumerates the modalities the agent can submit to a
+// provider. "image" is the only supported value today; the type stays
+// open so audio/PDF can land without re-shaping every call site.
+type AttachmentKind string
+
+const (
+	AttachmentImage AttachmentKind = "image"
+)
+
+// Attachment is a single non-text payload bound to a Message. Data is
+// the raw bytes (the provider layer base64-encodes when the API needs
+// it — keeping bytes in memory lets us size-check before send without
+// double-encoding). MediaType is the IANA media type (e.g. "image/png");
+// providers reject unknown types so we don't paper over a clipboard
+// read that returned the wrong MIME.
+type Attachment struct {
+	Kind      AttachmentKind
+	MediaType string
+	Data      []byte
 }
 
 type ToolCall struct {

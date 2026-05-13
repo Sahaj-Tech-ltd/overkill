@@ -3,6 +3,7 @@ package providers
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,10 +14,31 @@ import (
 )
 
 type openaiMessage struct {
-	Role       string           `json:"role"`
-	Content    string           `json:"content"`
+	Role string `json:"role"`
+	// Content is either a string (plain text, the common case) or a
+	// slice of openaiContentPart (when attachments are present). The
+	// OpenAI Chat Completions API accepts both shapes; we keep the
+	// string form for plain messages so request bodies stay small and
+	// match the common examples in the API docs.
+	Content    any              `json:"content"`
 	ToolCalls  []openaiToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
+}
+
+// openaiContentPart is one slot inside a multi-part content message.
+// We use Type="text" with Text set for prose and Type="image_url" with
+// ImageURL set for images. Anything else is rejected by the API.
+type openaiContentPart struct {
+	Type     string             `json:"type"`
+	Text     string             `json:"text,omitempty"`
+	ImageURL *openaiImageURLRef `json:"image_url,omitempty"`
+}
+
+type openaiImageURLRef struct {
+	// URL is a data: URL like "data:image/png;base64,...". The API also
+	// accepts https:// URLs but our pipeline only ever has in-memory
+	// bytes (clipboard paste) so we always inline.
+	URL string `json:"url"`
 }
 
 type openaiToolCall struct {
@@ -175,7 +197,13 @@ func (p *OpenAIProvider) parseResponse(result *openaiResponse) Response {
 
 	if len(result.Choices) > 0 {
 		choice := result.Choices[0]
-		resp.Content = choice.Message.Content
+		// Response content always comes back as a string for our request
+		// shape (we don't ask for tool-use blocks or images out). Defensive
+		// assertion in case the API ever evolves — non-string falls back
+		// to empty rather than panicking.
+		if s, ok := choice.Message.Content.(string); ok {
+			resp.Content = s
+		}
 
 		for _, tc := range choice.Message.ToolCalls {
 			resp.ToolCalls = append(resp.ToolCalls, ToolCall{
@@ -255,8 +283,35 @@ func openAIMessages(msgs []Message) []openaiMessage {
 	for _, msg := range msgs {
 		om := openaiMessage{
 			Role:       msg.Role,
-			Content:    msg.Content,
 			ToolCallID: msg.ToolCallID,
+		}
+
+		// Content shape: string when no attachments, []openaiContentPart
+		// when attachments are present. Mixing is not allowed by the API.
+		if len(msg.Attachments) > 0 && msg.Role == "user" {
+			parts := make([]openaiContentPart, 0, len(msg.Attachments)+1)
+			for _, att := range msg.Attachments {
+				if att.Kind != AttachmentImage {
+					continue
+				}
+				// data: URL inlines the image so the API doesn't need to
+				// fetch externally. base64 stdlib encoding matches what
+				// the API expects (RFC 4648, no line breaks).
+				dataURL := fmt.Sprintf("data:%s;base64,%s", att.MediaType, base64.StdEncoding.EncodeToString(att.Data))
+				parts = append(parts, openaiContentPart{
+					Type:     "image_url",
+					ImageURL: &openaiImageURLRef{URL: dataURL},
+				})
+			}
+			if strings.TrimSpace(msg.Content) != "" {
+				parts = append(parts, openaiContentPart{
+					Type: "text",
+					Text: msg.Content,
+				})
+			}
+			om.Content = parts
+		} else {
+			om.Content = msg.Content
 		}
 
 		for _, tc := range msg.ToolCalls {

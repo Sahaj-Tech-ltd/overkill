@@ -3,6 +3,7 @@ package providers
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,17 @@ type anthropicContentBlock struct {
 
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   any    `json:"content,omitempty"`
+
+	// Source is populated for image content blocks. Anthropic accepts
+	// base64-encoded image bytes with an explicit media_type so the API
+	// can decode without sniffing.
+	Source *anthropicImageSource `json:"source,omitempty"`
+}
+
+type anthropicImageSource struct {
+	Type      string `json:"type"`       // always "base64" for our upload path
+	MediaType string `json:"media_type"` // e.g. "image/png"
+	Data      string `json:"data"`       // base64-encoded image bytes
 }
 
 type anthropicMessage struct {
@@ -256,9 +268,43 @@ func anthropicMessages(msgs []Message) []anthropicMessage {
 	for _, msg := range msgs {
 		switch msg.Role {
 		case "user":
+			// Plain-text user message stays as a string Content for
+			// backwards compatibility with the API's most common shape.
+			// Once attachments enter the picture we must switch to the
+			// content-blocks array — the API rejects mixing.
+			if len(msg.Attachments) == 0 {
+				result = append(result, anthropicMessage{
+					Role:    "user",
+					Content: msg.Content,
+				})
+				break
+			}
+			blocks := make([]anthropicContentBlock, 0, len(msg.Attachments)+1)
+			// Attachments precede the text so the model has the visual
+			// context loaded before reading the user's question — same
+			// convention Anthropic's docs use in examples.
+			for _, att := range msg.Attachments {
+				if att.Kind != AttachmentImage {
+					continue
+				}
+				blocks = append(blocks, anthropicContentBlock{
+					Type: "image",
+					Source: &anthropicImageSource{
+						Type:      "base64",
+						MediaType: att.MediaType,
+						Data:      base64.StdEncoding.EncodeToString(att.Data),
+					},
+				})
+			}
+			if strings.TrimSpace(msg.Content) != "" {
+				blocks = append(blocks, anthropicContentBlock{
+					Type: "text",
+					Text: msg.Content,
+				})
+			}
 			result = append(result, anthropicMessage{
 				Role:    "user",
-				Content: msg.Content,
+				Content: blocks,
 			})
 		case "assistant":
 			if len(msg.ToolCalls) == 0 {

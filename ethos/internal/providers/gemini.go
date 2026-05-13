@@ -3,6 +3,7 @@ package providers
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,15 @@ import (
 
 type geminiPart struct {
 	Text string `json:"text,omitempty"`
+	// InlineData carries non-text payloads (image bytes today). Gemini
+	// requires base64 with an explicit mime_type; data: URLs aren't
+	// accepted here, only the raw base64 string.
+	InlineData *geminiInlineData `json:"inlineData,omitempty"`
+}
+
+type geminiInlineData struct {
+	MimeType string `json:"mimeType"` // e.g. "image/png"
+	Data     string `json:"data"`     // base64-encoded bytes, no prefix
 }
 
 type geminiContent struct {
@@ -223,9 +233,29 @@ func geminiMessages(msgs []Message) []geminiContent {
 			role = "user"
 		}
 
-		parts := []geminiPart{{Text: msg.Content}}
+		var parts []geminiPart
+		// Image parts precede text so the model has visual context
+		// loaded before reading the prompt — matches Gemini's example
+		// ordering in their multimodal docs.
+		if msg.Role == "user" {
+			for _, att := range msg.Attachments {
+				if att.Kind != AttachmentImage {
+					continue
+				}
+				parts = append(parts, geminiPart{
+					InlineData: &geminiInlineData{
+						MimeType: att.MediaType,
+						Data:     base64.StdEncoding.EncodeToString(att.Data),
+					},
+				})
+			}
+		}
 		if msg.Role == "tool" && msg.ToolCallID != "" {
-			parts = []geminiPart{{Text: fmt.Sprintf("Tool result for %s:\n%s", msg.ToolCallID, msg.Content)}}
+			parts = append(parts, geminiPart{Text: fmt.Sprintf("Tool result for %s:\n%s", msg.ToolCallID, msg.Content)})
+		} else if msg.Content != "" || len(parts) == 0 {
+			// Always include a text part when there's text OR when we
+			// have no other parts (gemini rejects empty parts arrays).
+			parts = append(parts, geminiPart{Text: msg.Content})
 		}
 
 		result = append(result, geminiContent{
