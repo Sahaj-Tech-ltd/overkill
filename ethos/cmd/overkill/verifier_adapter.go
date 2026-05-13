@@ -44,6 +44,45 @@ func (a *verifierAdapter) IsWriteTool(toolName string) bool {
 	return verify.IsWriteTool(toolName)
 }
 
+// ExtractWritePaths returns absolute paths the tool wrote to. The
+// agent's end-of-turn reward-hack auditor uses these to collect the
+// full per-turn picture across all write tools.
+func (a *verifierAdapter) ExtractWritePaths(toolName string, input json.RawMessage) []string {
+	paths := verify.ExtractWritePaths(toolName, input)
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if filepath.IsAbs(p) {
+			out = append(out, filepath.Clean(p))
+		} else {
+			out = append(out, filepath.Join(a.cwd, p))
+		}
+	}
+	return out
+}
+
+// AuditTurnPaths runs the reward-hack audit across every path
+// written in a single agent turn. Paths are converted back to
+// cwd-relative form for the rendered message so the model sees the
+// same labels it referenced.
+func (a *verifierAdapter) AuditTurnPaths(paths []string) string {
+	findings := verify.AuditPaths(paths)
+	if len(findings) == 0 {
+		return ""
+	}
+	for i := range findings {
+		if rel, err := filepath.Rel(a.cwd, findings[i].TestPath); err == nil && !strings.HasPrefix(rel, "..") {
+			findings[i].TestPath = rel
+		}
+		if rel, err := filepath.Rel(a.cwd, findings[i].ExpectedCode); err == nil && !strings.HasPrefix(rel, "..") {
+			findings[i].ExpectedCode = rel
+		}
+	}
+	return verify.FormatRewardHackMessage(findings)
+}
+
 // VerifyToolCall extracts paths from the tool input and runs the
 // matching verifier on each. Returns the consolidated tool-message
 // body when any verifier failed, or "" when everything passed (or

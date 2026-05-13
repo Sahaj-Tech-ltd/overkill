@@ -392,6 +392,10 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			// the verifier. Failures append as an extra tool message
 			// so the model sees "you wrote broken code" on its NEXT
 			// turn, inside the same step loop iteration.
+			//
+			// Also collects the per-turn write paths for the
+			// end-of-loop reward-hack audit (paper #48).
+			var turnWritePaths []string
 			if v := a.getPostWriteVerifier(); v != nil {
 				for i, tr := range toolResults {
 					if tr.Error != nil || !v.IsWriteTool(tr.ToolName) {
@@ -402,6 +406,8 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					if call.Arguments != "" {
 						input = json.RawMessage(call.Arguments)
 					}
+					turnWritePaths = append(turnWritePaths, v.ExtractWritePaths(tr.ToolName, input)...)
+
 					note := v.VerifyToolCall(ctx, tr.ToolName, input)
 					if note == "" {
 						continue
@@ -426,6 +432,20 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 						Role:    "system",
 						Content: note,
 					})
+				}
+				// Reward-hack audit (paper #48 design input). One
+				// pass per step-iteration over EVERY path the turn
+				// touched — sees the cross-file picture
+				// VerifyToolCall can't (each call only sees its own
+				// inputs). A note here lands BEFORE the next step
+				// runs, so the model self-corrects in the same turn.
+				if len(turnWritePaths) > 0 {
+					if note := v.AuditTurnPaths(dedupPaths(turnWritePaths)); note != "" {
+						a.appendMessage(providers.Message{
+							Role:    "system",
+							Content: note,
+						})
+					}
 				}
 			}
 		}

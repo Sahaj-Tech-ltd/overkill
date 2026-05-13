@@ -73,6 +73,23 @@ func (a *Agent) getPostWriteVerifier() PostWriteVerifier {
 	return a.postWriteVerifier
 }
 
+// dedupPaths returns paths with duplicates removed, preserving
+// first-occurrence order. Used by the end-of-turn reward-hack audit
+// to consolidate the path lists produced by multiple write tools
+// that touched the same files (e.g. patch + edit on same path).
+func dedupPaths(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
 // (verifierMu + postWriteVerifier fields live on Agent itself in
 // agent.go — declared here would create an init-order tangle. See
 // agent.go for the field block.)
