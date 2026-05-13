@@ -284,6 +284,13 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 							"error":  toolErr,
 						},
 					}
+					// §4.1 mid-loop steering drain (Phase 1.5 #1):
+					// inject queued user guidance into history so the
+					// next provider call sees it. Safe inside the
+					// per-call goroutine — drainSteering takes the
+					// agent mutex internally and appendMessage is
+					// already concurrent-safe.
+					a.drainSteering()
 				}(i, tc)
 			}
 

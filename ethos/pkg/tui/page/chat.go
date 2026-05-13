@@ -2,12 +2,15 @@ package page
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/bgpulse"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/chat"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/logo"
@@ -94,6 +97,114 @@ func (c *ChatPage) InterruptStream() (string, bool) {
 	return restore, true
 }
 
+// extractShellMetadata reads the tool name + output JSON off a
+// StreamEvent and, when the tool is shell-family, returns the formatted
+// per-command metadata line. Returns "" for non-shell tools or unparseable
+// payloads — silent skip is the right behaviour because the agent loop
+// keeps moving and metadata is decoration.
+func extractShellMetadata(ev agent.StreamEvent) string {
+	if ev.ToolCall == nil {
+		return ""
+	}
+	switch ev.ToolCall.Name {
+	case "shell", "pty_shell", "execute_command":
+	default:
+		return ""
+	}
+	raw, ok := ev.Metadata["output"].(string)
+	if !ok || raw == "" {
+		return ""
+	}
+	var out tools.ShellOutput
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return ""
+	}
+	return formatShellMetadataLine(out)
+}
+
+// directShellResultMsg carries the output of a $hell direct-exec back into
+// the Update loop so we can append the tool message in the main reducer
+// instead of mutating state from a goroutine.
+type directShellResultMsg struct {
+	Command string
+	Output  string
+	Err     error
+}
+
+// startDirectShell runs the $hell-prefixed command literally, bypassing
+// the agent. The user-typed line is appended as the user message; the
+// shell output (including metadata) lands under it as a tool message.
+// Goes through internal/tools.ShellTool so we inherit the §6 marker,
+// timeout policy, ANSI stripping, and the new exit/ms/cwd capture.
+func (c *ChatPage) startDirectShell(line string) (ChatPage, tea.Cmd) {
+	command := strings.TrimSpace(strings.TrimPrefix(line, "$"))
+	if command == "" {
+		return *c, nil
+	}
+	c.messages.Append(chat.NewMessage("user", line))
+
+	cmd := func() tea.Msg {
+		shell := tools.NewShellTool()
+		in, _ := json.Marshal(tools.ShellInput{Command: command})
+		raw, err := shell.Execute(context.Background(), in)
+		if err != nil {
+			return directShellResultMsg{Command: command, Err: err}
+		}
+		var out tools.ShellOutput
+		if uerr := json.Unmarshal(raw, &out); uerr != nil {
+			return directShellResultMsg{Command: command, Err: uerr}
+		}
+		return directShellResultMsg{
+			Command: command,
+			Output:  formatDirectShellOutput(out),
+		}
+	}
+	return *c, cmd
+}
+
+// formatDirectShellOutput renders the ShellTool result into a single
+// string we can drop into the messages list. Combines the §8 metadata
+// line with the actual stdout/stderr beneath it.
+func formatDirectShellOutput(out tools.ShellOutput) string {
+	var b strings.Builder
+	b.WriteString(formatShellMetadataLine(out))
+	b.WriteString("\n")
+	if out.Stdout != "" {
+		b.WriteString(out.Stdout)
+	}
+	if out.Stderr != "" {
+		b.WriteString(out.Stderr)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// formatShellMetadataLine produces just the inline metadata block —
+// exit code, elapsed time, cwd — for Phase 1.5 #8. Exported in
+// lowercase form (package-internal) because it's reused by both the
+// $hell direct-exec path and the agent-driven pump.
+func formatShellMetadataLine(out tools.ShellOutput) string {
+	var b strings.Builder
+	mark := "✓"
+	if out.ExitCode != 0 {
+		mark = "✗"
+	}
+	if out.TimedOut {
+		mark = "⏱"
+	}
+	fmt.Fprintf(&b, "%s exit %d", mark, out.ExitCode)
+	if out.ElapsedMs > 0 {
+		if out.ElapsedMs >= 1000 {
+			fmt.Fprintf(&b, " · %.1fs", float64(out.ElapsedMs)/1000)
+		} else {
+			fmt.Fprintf(&b, " · %dms", out.ElapsedMs)
+		}
+	}
+	if out.Cwd != "" {
+		fmt.Fprintf(&b, " · %s", out.Cwd)
+	}
+	return b.String()
+}
+
 // startStream constructs the tea.Cmd that begins streaming `input` to
 // the agent. Extracted from the SendMsg branch so it can also be
 // invoked when the queue drains after a prior stream finishes.
@@ -153,6 +264,13 @@ func (c *ChatPage) pump(ch <-chan agent.StreamEvent) tea.Cmd {
 			}
 			return tuitypes.AgentStreamMsg{ToolName: name}
 		case agent.EventToolOutput:
+			// Phase 1.5 #8: surface per-command metadata for
+			// shell-family tools so the user sees exit/ms/cwd
+			// inline under each shell call the agent made. Skips
+			// silently for other tools and for malformed payloads.
+			if line := extractShellMetadata(ev); line != "" {
+				return tuitypes.AgentStreamMsg{MetadataLine: line}
+			}
 			return tuitypes.AgentStreamMsg{Chunk: ""}
 		case agent.EventError:
 			return tuitypes.AgentStreamMsg{Err: ev.Error, Done: true}
@@ -256,7 +374,18 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 		return c, lcmd
 
 	case tuitypes.SendMsg:
-		if c.agent == nil || msg.Text == "" {
+		if msg.Text == "" {
+			return c, nil
+		}
+		// Phase 1.5 — $hell shortcut: lines starting with `$` bypass the
+		// agent entirely and execute literally. Zero tokens, zero
+		// ambiguity. Output renders as a tool message under the user's
+		// typed line. Works even when the agent is busy because there's
+		// no provider call to compete with.
+		if strings.HasPrefix(msg.Text, "$") {
+			return c.startDirectShell(msg.Text)
+		}
+		if c.agent == nil {
 			return c, nil
 		}
 		// While an existing stream runs we queue rather than refusing or
@@ -276,7 +405,28 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 	case streamReadyMsg:
 		return c, c.pump(msg.ch)
 
+	case directShellResultMsg:
+		// $hell completion: append the result as a tool message.
+		// Failure on the Execute call itself (vs non-zero exit, which
+		// is a successful run of a failing script) renders as error.
+		if msg.Err != nil {
+			c.messages.Append(chat.NewMessage("error", msg.Err.Error()))
+		} else {
+			c.messages.Append(chat.NewMessage("tool", msg.Output))
+		}
+		return c, nil
+
 	case tuitypes.AgentStreamMsg:
+		// Phase 1.5 #8: render the per-command metadata block under
+		// shell tool calls. Comes through as a standalone event from
+		// pump — append, then keep draining the stream.
+		if msg.MetadataLine != "" {
+			c.messages.Append(chat.NewMessage("tool", msg.MetadataLine))
+			if c.streamCh != nil {
+				return c, c.pump(c.streamCh)
+			}
+			return c, nil
+		}
 		if msg.Err != nil {
 			c.busy = false
 			c.streaming = false

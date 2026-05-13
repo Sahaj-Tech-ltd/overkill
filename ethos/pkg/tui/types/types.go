@@ -37,6 +37,11 @@ type AgentStreamMsg struct {
 	ToolOutput string
 	Done       bool
 	Err        error
+	// MetadataLine, when non-empty, is a single-line summary rendered
+	// inline under a tool call — e.g. "✓ exit 0 · 0.3s · ~/repo" for
+	// shell. Phase 1.5 #8. Pump fills this from EventToolOutput
+	// metadata; the chat reducer appends it as a "tool" message.
+	MetadataLine string
 }
 
 type SessionLoadedMsg struct {

@@ -173,6 +173,12 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		})
 
 		a.appendToolResultMessage(tc.ID, tc.Name, toolResult, toolErr)
+
+		// §4.1 mid-loop steering drain (Phase 1.5 #1): if the user
+		// injected guidance between tool calls, append it to history
+		// now so the next model step sees it. Two modes baked into
+		// the SteeringQueue: one-at-a-time and drain-all.
+		a.drainSteering()
 	}
 
 	return result, nil

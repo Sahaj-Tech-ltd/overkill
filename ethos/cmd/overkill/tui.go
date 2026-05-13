@@ -159,6 +159,18 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	if cfg != nil {
 		animation.SetEnabled(cfg.UI.Animations)
 	}
+
+	// Phase 1.5 #9: apply user keybinding overrides from
+	// ~/.overkill/keys.toml BEFORE the TUI renders any binding help.
+	// Missing file is fine; parse errors surface as warnings on stderr
+	// so the user can fix their TOML without the app refusing to boot.
+	if home, err := os.UserHomeDir(); err == nil {
+		keysPath := filepath.Join(home, ".overkill", "keys.toml")
+		if err := tui.LoadKeyOverrides(keysPath); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %v (using default bindings)\n", err)
+		}
+	}
+
 	app := buildTUIApp()
 	app.Build = func(c *config.Config) (*agent.Agent, error) {
 		cfg = c

@@ -2,12 +2,16 @@ package page
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
 )
 
@@ -189,6 +193,141 @@ func TestChatPage_QueueDrainOnDone(t *testing.T) {
 	}
 	if !p2.busy {
 		t.Error("draining a queued item must put the page back into busy state")
+	}
+}
+
+// TestExtractShellMetadata_AgentDrivenShell verifies that EventToolOutput
+// from an agent-driven shell call surfaces its metadata line via pump
+// → AgentStreamMsg.MetadataLine. This is the Phase 1.5 #8 surface.
+func TestExtractShellMetadata_AgentDrivenShell(t *testing.T) {
+	out := tools.ShellOutput{ExitCode: 0, Stdout: "hi\n", ElapsedMs: 42, Cwd: "/tmp"}
+	raw, _ := json.Marshal(out)
+	ev := agent.StreamEvent{
+		Type:     agent.EventToolOutput,
+		ToolCall: &providers.ToolCall{Name: "shell"},
+		Metadata: map[string]interface{}{"output": string(raw)},
+	}
+	line := extractShellMetadata(ev)
+	if !strings.Contains(line, "exit 0") || !strings.Contains(line, "42ms") || !strings.Contains(line, "/tmp") {
+		t.Errorf("metadata line missing pieces: %q", line)
+	}
+}
+
+func TestExtractShellMetadata_NonShellTool(t *testing.T) {
+	ev := agent.StreamEvent{
+		Type:     agent.EventToolOutput,
+		ToolCall: &providers.ToolCall{Name: "fs_read"},
+		Metadata: map[string]interface{}{"output": `{"ExitCode":0}`},
+	}
+	if got := extractShellMetadata(ev); got != "" {
+		t.Errorf("non-shell tool should not produce metadata, got %q", got)
+	}
+}
+
+func TestExtractShellMetadata_MalformedOutput(t *testing.T) {
+	ev := agent.StreamEvent{
+		Type:     agent.EventToolOutput,
+		ToolCall: &providers.ToolCall{Name: "shell"},
+		Metadata: map[string]interface{}{"output": "not-json"},
+	}
+	if got := extractShellMetadata(ev); got != "" {
+		t.Errorf("malformed output should silently skip, got %q", got)
+	}
+}
+
+func TestExtractShellMetadata_MissingToolCall(t *testing.T) {
+	ev := agent.StreamEvent{Type: agent.EventToolOutput}
+	if got := extractShellMetadata(ev); got != "" {
+		t.Errorf("nil ToolCall should skip, got %q", got)
+	}
+}
+
+// TestChatPage_DollarShell_BypassesAgent: lines starting with `$` are
+// routed through the direct shell path, never touching the agent. Even
+// works when the agent is nil or busy — the whole point of the bypass.
+func TestChatPage_DollarShell_BypassesAgent(t *testing.T) {
+	p := NewChatPage(nil) // nil agent intentionally
+	p2, cmd := p.Update(tuitypes.SendMsg{Text: "$echo hello"})
+	if cmd == nil {
+		t.Fatal("$hell SendMsg must return an exec cmd even with nil agent")
+	}
+	// Run the cmd synchronously to get the result, then feed it back.
+	result := cmd()
+	r, ok := result.(directShellResultMsg)
+	if !ok {
+		t.Fatalf("expected directShellResultMsg, got %T", result)
+	}
+	if r.Err != nil {
+		t.Errorf("unexpected exec error: %v", r.Err)
+	}
+	if r.Command != "echo hello" {
+		t.Errorf("expected command 'echo hello', got %q", r.Command)
+	}
+	if !strings.Contains(r.Output, "hello") {
+		t.Errorf("expected output to contain 'hello', got %q", r.Output)
+	}
+	if !strings.Contains(r.Output, "exit 0") {
+		t.Errorf("expected metadata 'exit 0', got %q", r.Output)
+	}
+
+	// Feed the result back through Update — should append a tool
+	// message under the user message, not crash.
+	p3, _ := p2.Update(r)
+	if p3.messages.Len() != 2 {
+		t.Errorf("expected 2 messages (user + tool), got %d", p3.messages.Len())
+	}
+}
+
+// TestChatPage_DollarShell_EmptyCommandIgnored: `$` alone is a no-op,
+// not an error — the user might be typing `$f` and paused.
+func TestChatPage_DollarShell_EmptyCommandIgnored(t *testing.T) {
+	p := NewChatPage(nil)
+	// startDirectShell returns (page, nil) when command after strip is empty.
+	_, cmd := p.startDirectShell("$   ")
+	if cmd != nil {
+		t.Error("empty $hell command should not spawn exec")
+	}
+}
+
+// TestChatPage_DollarShell_OutputFormat: the formatted output line one
+// must carry the metadata block (exit · elapsed · cwd). This is the
+// integration with Phase 1.5 §8.
+func TestChatPage_DollarShell_OutputFormat(t *testing.T) {
+	got := formatDirectShellOutput(tools.ShellOutput{
+		ExitCode:  0,
+		Stdout:    "hi\n",
+		ElapsedMs: 42,
+		Cwd:       "/tmp/x",
+	})
+	for _, want := range []string{"✓", "exit 0", "42ms", "/tmp/x", "hi"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("formatDirectShellOutput missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// TestChatPage_DollarShell_FailedExitMarkedDistinct: non-zero exits get
+// a different glyph so the user can scan results at a glance.
+func TestChatPage_DollarShell_FailedExitMarkedDistinct(t *testing.T) {
+	got := formatDirectShellOutput(tools.ShellOutput{
+		ExitCode:  1,
+		Stdout:    "",
+		ElapsedMs: 100,
+	})
+	if !strings.Contains(got, "✗") {
+		t.Errorf("expected ✗ for non-zero exit, got %q", got)
+	}
+	if strings.Contains(got, "✓") {
+		t.Errorf("✓ should not appear for failed exit, got %q", got)
+	}
+}
+
+// TestChatPage_DollarShell_ElapsedSecondsFormat: long-running commands
+// render seconds (5.2s) not milliseconds for readability.
+func TestChatPage_DollarShell_ElapsedSecondsFormat(t *testing.T) {
+	got := formatDirectShellOutput(tools.ShellOutput{ElapsedMs: 5200})
+	if !strings.Contains(got, "5.2s") {
+		t.Errorf("expected '5.2s', got %q", got)
 	}
 }
 
