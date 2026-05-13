@@ -33,6 +33,21 @@ type PostWriteVerifier interface {
 	// failed — the string is the tool-message body the agent should
 	// append to history. Empty string = nothing to surface.
 	VerifyToolCall(ctx context.Context, toolName string, input json.RawMessage) string
+
+	// ExtractWritePaths returns the absolute (or cwd-relative) paths
+	// the tool wrote to. Used by the end-of-turn reward-hack audit
+	// to collect every path touched across all write tools in this
+	// turn, then run a cross-file check ('test changed without
+	// code'). Empty when the tool isn't a write or the input has no
+	// recognizable path keys.
+	ExtractWritePaths(toolName string, input json.RawMessage) []string
+
+	// AuditTurnPaths takes the deduplicated list of every path
+	// written by every write-class tool call in a single agent turn
+	// and returns a tool-message body summarising any reward-hack
+	// findings (test files modified without their code). Empty
+	// string = nothing to surface.
+	AuditTurnPaths(paths []string) string
 }
 
 // SetPostWriteVerifier wires the verifier. nil disables. The agent

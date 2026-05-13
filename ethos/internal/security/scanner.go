@@ -149,6 +149,18 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 		}
 	}
 
+	// Encoded-bypass scan (paper #48 design input). Decode base64/hex
+	// runs in the input and re-scan against the same deny patterns;
+	// also flag the decode-and-execute shapes (base64 -d | sh, eval
+	// $(...|base64...), xxd -r | bash) which have no legitimate
+	// purpose in agent traffic. See decode.go for the full rationale.
+	for _, f := range s.decodeAndScan(input) {
+		findings = append(findings, f)
+		if f.Level > maxLevel {
+			maxLevel = f.Level
+		}
+	}
+
 	// checkAndRecord folds the rate-limit check and the timestamp append
 	// into a single critical section. The previous split (rateExceeded()
 	// + recordCall()) was a TOCTOU race: two goroutines could both pass
