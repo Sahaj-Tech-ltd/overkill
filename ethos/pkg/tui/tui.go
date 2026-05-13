@@ -34,6 +34,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/viewer"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/layout"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/page"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 	tuitypes "github.com/Sahaj-Tech-ltd/overkill/pkg/tui/types"
 )
 
@@ -141,6 +142,12 @@ type appModel struct {
 	// quitArmed tracks the ctrl+c double-press window. When non-zero, a second
 	// ctrl+c within 2 seconds exits cleanly. Otherwise we toast and arm.
 	quitArmedAt time.Time
+
+	// pendingAttachments are files staged via /attach for the NEXT send.
+	// They clear after every send (successful or not) so a paste doesn't
+	// silently re-attach to a later message. Capped at maxAttachments to
+	// stop a runaway loop from blowing the model's context budget.
+	pendingAttachments []pendingAttachment
 
 	// escArmedAt tracks the esc double-press window. When non-zero and no
 	// dialog is open, esc arms the exit; a second esc within 2s quits.
@@ -706,6 +713,8 @@ func (m *appModel) registerCommands() {
 		{ID: "mode", Title: "/mode", Description: "toggle reader/writer privilege mode"},
 		{ID: "conceal", Title: "/conceal", Description: "toggle raw markdown rendering for clean copy-paste"},
 		{ID: "compose", Title: "/compose", Description: "open $EDITOR to draft a long prompt"},
+		{ID: "attach", Title: "/attach", Description: "stage an image file for the next message"},
+		{ID: "attach-clear", Title: "/attach-clear", Description: "drop all staged attachments"},
 		{ID: "usage", Title: "/usage", Description: "show cost + token usage for the active session"},
 	} {
 		m.cmdDialog.RegisterCommand(c)
@@ -1161,6 +1170,22 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Surface "busy" state to the user instead of silently dropping input.
 		if m.chatPage.IsBusy() {
 			return m, m.toastCmd("agent busy, please wait", "warning")
+		}
+		// Pull staged attachments into the outgoing message. drain() clears
+		// pendingAttachments so a successful send doesn't re-attach on the
+		// next message. If the send fails downstream, the attachments are
+		// already consumed — that matches the "send is final" mental model
+		// and avoids stale attachments lingering through retries.
+		if atts := m.drainAttachments(); len(atts) > 0 {
+			tatts := make([]tuitypes.Attachment, 0, len(atts))
+			for _, a := range atts {
+				tatts = append(tatts, tuitypes.Attachment{
+					Name:    string(a.Kind),
+					Type:    a.MediaType,
+					Content: a.Data,
+				})
+			}
+			ev.Attachments = append(ev.Attachments, tatts...)
 		}
 		return m, m.sendToChat(ev)
 
@@ -2301,6 +2326,8 @@ func (m *appModel) dispatchCommandWithArgs(id, args string) tea.Cmd {
 		return m.runVariantWith(args)
 	case "view":
 		return m.runViewWith(args)
+	case "attach":
+		return m.runAttach(args)
 	}
 	return m.dispatchCommand(id)
 }
@@ -2500,6 +2527,10 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return m.runConceal()
 	case "compose":
 		return m.runCompose()
+	case "attach":
+		return m.runAttach("")
+	case "attach-clear":
+		return m.runAttachClear()
 	case "usage":
 		return m.runUsage()
 	}
@@ -3020,8 +3051,19 @@ func (m *appModel) View() string {
 
 	statusView := m.statusBar.View()
 	subagentView := m.subagentFooterView()
+	attachmentChips := m.renderAttachmentChips()
 
 	parts := []string{chatView}
+	if attachmentChips != "" {
+		// Render staged attachments in muted accent color, indented to
+		// match the editor's left padding so the chips visually attach
+		// to the input box.
+		chipLine := lipgloss.NewStyle().
+			Foreground(theme.CurrentTheme().Accent()).
+			Padding(0, 2).
+			Render(attachmentChips)
+		parts = append(parts, chipLine)
+	}
 	if subagentView != "" {
 		parts = append(parts, subagentView)
 	}

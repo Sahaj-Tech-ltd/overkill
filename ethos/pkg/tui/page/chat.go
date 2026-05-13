@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/bgpulse"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/chat"
@@ -55,6 +56,10 @@ type ChatPage struct {
 	// edit; (2) the user explicitly said "msg thats in queue comes back
 	// to the tui field" (singular).
 	pendingQueue []string
+	// pendingAttachments mirrors pendingQueue 1:1 — the entry at index i
+	// belongs to the message at pendingQueue[i]. nil-or-empty slot is
+	// fine for text-only queued messages.
+	pendingAttachments [][]providers.Attachment
 }
 
 // CancelStream aborts the in-flight LLM stream (if any) by cancelling its
@@ -203,6 +208,65 @@ func formatShellMetadataLine(out tools.ShellOutput) string {
 		fmt.Fprintf(&b, " · %s", out.Cwd)
 	}
 	return b.String()
+}
+
+// convertAttachments maps the TUI-side attachment shape (tuitypes) to
+// the providers-side shape. We treat any tuitypes.Attachment with a
+// "image/" media type as a providers.AttachmentImage. The TUI's
+// Attachment.Name field carries the original AttachmentKind for now;
+// future kinds (audio, pdf) will need a richer mapping.
+func convertAttachments(in []tuitypes.Attachment) []providers.Attachment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]providers.Attachment, 0, len(in))
+	for _, a := range in {
+		if !strings.HasPrefix(a.Type, "image/") {
+			continue
+		}
+		out = append(out, providers.Attachment{
+			Kind:      providers.AttachmentImage,
+			MediaType: a.Type,
+			Data:      a.Content,
+		})
+	}
+	return out
+}
+
+// startStreamWith is the attachment-aware sibling of startStream. The
+// plain startStream delegates here with no attachments, so existing
+// callers (queue drain on plain-text retries) keep working unchanged.
+func (c *ChatPage) startStreamWith(input string, attachments []providers.Attachment) tea.Cmd {
+	c.busy = true
+	c.streaming = true
+	c.streamBuf = ""
+	userText := input
+	if len(attachments) > 0 {
+		// Hint to the user that the attachment is in flight. The model
+		// sees the unmodified text via StreamWithAttachments.
+		hint := fmt.Sprintf("[📎 %d image(s) attached]", len(attachments))
+		if userText == "" {
+			userText = hint
+		} else {
+			userText = userText + "\n\n" + hint
+		}
+	}
+	c.messages.Append(chat.NewMessage("user", userText))
+	c.messages.Append(chat.NewMessage("assistant", ""))
+	c.pulse.SetWidth(c.width)
+	pulseCmd := c.pulse.Start()
+
+	agt := c.agent
+	ctx, cancel := context.WithCancel(context.Background())
+	c.streamCancel = cancel
+	streamStart := func() tea.Msg {
+		ch, err := agt.StreamWithAttachments(ctx, input, attachments)
+		if err != nil {
+			return tuitypes.AgentResponseMsg{Err: err, Done: true}
+		}
+		return streamReadyMsg{ch: ch}
+	}
+	return tea.Batch(pulseCmd, streamStart)
 }
 
 // startStream constructs the tea.Cmd that begins streaming `input` to
@@ -374,7 +438,10 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 		return c, lcmd
 
 	case tuitypes.SendMsg:
-		if msg.Text == "" {
+		// Empty text + no attachments = nothing to send. With attachments,
+		// the user may want to send images only ("describe this") so we
+		// accept an empty Text as long as Attachments is non-empty.
+		if msg.Text == "" && len(msg.Attachments) == 0 {
 			return c, nil
 		}
 		// Phase 1.5 — $hell shortcut: lines starting with `$` bypass the
@@ -388,14 +455,16 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 		if c.agent == nil {
 			return c, nil
 		}
+		atts := convertAttachments(msg.Attachments)
 		// While an existing stream runs we queue rather than refusing or
 		// starting in parallel. The queue drains FIFO on natural Done.
 		// User can interrupt via double-Esc (see InterruptStream).
 		if c.busy {
 			c.pendingQueue = append(c.pendingQueue, msg.Text)
+			c.pendingAttachments = append(c.pendingAttachments, atts)
 			return c, nil
 		}
-		return c, c.startStream(msg.Text)
+		return c, c.startStreamWith(msg.Text, atts)
 
 	case bgpulse.TickMsg:
 		var pcmd tea.Cmd
@@ -453,7 +522,12 @@ func (c ChatPage) Update(msg tea.Msg) (ChatPage, tea.Cmd) {
 			if len(c.pendingQueue) > 0 {
 				next := c.pendingQueue[0]
 				c.pendingQueue = c.pendingQueue[1:]
-				return c, c.startStream(next)
+				var atts []providers.Attachment
+				if len(c.pendingAttachments) > 0 {
+					atts = c.pendingAttachments[0]
+					c.pendingAttachments = c.pendingAttachments[1:]
+				}
+				return c, c.startStreamWith(next, atts)
 			}
 			return c, nil
 		}

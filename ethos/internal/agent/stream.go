@@ -30,6 +30,15 @@ type StreamEvent struct {
 }
 
 func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEvent, error) {
+	return a.StreamWithAttachments(ctx, userInput, nil)
+}
+
+// StreamWithAttachments is the attachment-aware entry point. The plain
+// Stream() delegates here with no attachments so existing call sites are
+// untouched. Attachments are scanned-against the text input only — the
+// bytes themselves bypass the text command scanners since they wouldn't
+// produce meaningful matches against image data.
+func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, attachments []providers.Attachment) (<-chan StreamEvent, error) {
 	for _, scanner := range a.scanners {
 		result, err := scanner.Scan(userInput)
 		if err != nil {
@@ -52,8 +61,9 @@ func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEven
 
 	a.mu.Lock()
 	a.history = append(a.history, providers.Message{
-		Role:    "user",
-		Content: userInput,
+		Role:        "user",
+		Content:     userInput,
+		Attachments: attachments,
 	})
 	a.mu.Unlock()
 
