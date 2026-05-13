@@ -1,8 +1,16 @@
 package chat
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// messageGap is the blank-line separator between rendered messages.
+// Two newlines = one blank line between bubbles. Counted into the
+// viewport budget so culling doesn't render a message whose body would
+// fit but whose separator would push it off-screen.
+const messageGap = 2
 
 type MessageListModel struct {
 	messages []Message
@@ -30,8 +38,12 @@ func (m *MessageListModel) SetSize(w, h int) {
 
 func (m *MessageListModel) Append(msg Message) {
 	m.messages = append(m.messages, msg)
-	maxOffset := maxOffset(len(m.messages), m.height)
-	m.offset = maxOffset
+	// Auto-scroll to the bottom on append. The exact offset is computed
+	// lazily in View() based on rendered line counts — we just signal
+	// "stick to bottom" with a sentinel large enough that View clamps it
+	// back to the right index. Doing the height math here would double
+	// the render work (count once on append, count again on View).
+	m.offset = len(m.messages)
 }
 
 // UpdateLastAssistant rewrites the most recent assistant message in place. Used
@@ -76,38 +88,95 @@ func (m MessageListModel) Update(msg tea.Msg) (MessageListModel, tea.Cmd) {
 	return m, nil
 }
 
+// View renders the visible window of messages. Two things happen here
+// that didn't in the old implementation:
+//
+//  1. Cell-aware culling. The old code treated m.height as "messages
+//     that fit" — for a 40-cell panel and 40 tall messages, it would
+//     render ~2000 lines and let the parent layout discard them. We
+//     now walk messages from offset forward and stop once their
+//     rendered line counts exceed the panel budget.
+//
+//  2. Bottom-stickiness. Append() sets offset to len(messages) as a
+//     "stick to bottom" sentinel. View() clamps that back to whichever
+//     index lets the last message fit fully — picking the offset by
+//     scanning backwards until the cumulative height fills the panel.
+//
+// All Message.View calls are cache hits after the first frame for a
+// given (id, width, content-len, streaming) tuple, so the line-count
+// pass is essentially a hash lookup per message.
 func (m MessageListModel) View() string {
 	if len(m.messages) == 0 {
 		return ""
 	}
+	budget := max(1, m.height)
 
-	maxFit := max(1, m.height)
-	maxOff := maxOffset(len(m.messages), maxFit)
-	if m.offset > maxOff {
-		m.offset = maxOff
-	}
-
-	start := m.offset
-	end := start + maxFit
-	if end > len(m.messages) {
-		end = len(m.messages)
-	}
-
-	var lines []string
-	for i := start; i < end; i++ {
-		lines = append(lines, m.messages[i].View(m.width))
-	}
-
-	var result string
-	for i, line := range lines {
-		if i > 0 {
-			result += "\n\n"
+	// Clamp offset to a valid index. Append() sets it to len(messages)
+	// as a stick-to-bottom signal; we resolve that here by scanning
+	// backwards from the end until the cumulative rendered height
+	// exceeds the budget, then nudging forward by one so the last
+	// message stays fully visible.
+	last := len(m.messages) - 1
+	if m.offset > last {
+		m.offset = last
+		used := 0
+		for i := last; i >= 0; i-- {
+			h := m.renderedHeight(i)
+			if i < last {
+				used += messageGap
+			}
+			if used+h > budget {
+				m.offset = i + 1
+				if m.offset > last {
+					m.offset = last
+				}
+				break
+			}
+			used += h
+			m.offset = i
 		}
-		result += line
 	}
-	return result
+	if m.offset < 0 {
+		m.offset = 0
+	}
+
+	// Forward render pass: include messages from offset until the
+	// cumulative height exceeds the panel. The very first message is
+	// always included even if it overflows — the outer layout can clip
+	// what doesn't fit, but a totally-empty viewport on a tall message
+	// would be confusing.
+	var rendered []string
+	used := 0
+	for i := m.offset; i < len(m.messages); i++ {
+		view := m.messages[i].View(m.width)
+		h := strings.Count(view, "\n") + 1
+		gap := 0
+		if len(rendered) > 0 {
+			gap = messageGap
+		}
+		if len(rendered) > 0 && used+gap+h > budget {
+			break
+		}
+		rendered = append(rendered, view)
+		used += gap + h
+	}
+
+	return strings.Join(rendered, "\n\n")
 }
 
+// renderedHeight returns the line count of message i at the current
+// width. Hits the same render cache the View method uses, so
+// computing heights for the scrollback is free after the first frame.
+func (m MessageListModel) renderedHeight(i int) int {
+	if i < 0 || i >= len(m.messages) {
+		return 0
+	}
+	return strings.Count(m.messages[i].View(m.width), "\n") + 1
+}
+
+// maxOffset is retained for callers that need a quick upper bound but
+// is no longer used by View — kept for backwards compatibility with
+// keybinding handlers that paginate by message count.
 func maxOffset(totalMessages, height int) int {
 	fit := max(1, height)
 	if totalMessages <= fit {
