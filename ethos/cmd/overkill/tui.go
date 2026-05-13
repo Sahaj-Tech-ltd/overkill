@@ -504,6 +504,24 @@ func buildTUIApp() *tui.App {
 	toolReg.Register(tools.NewWorktreeRemoveTool(cwd))
 	toolReg.Register(tools.NewACPSendTool())
 
+	// Alarm tooling. Badger is single-process, so the TUI cannot open
+	// the alarm store directly while the daemon owns it. Instead the
+	// tools route through the daemon's RPC socket. When the daemon
+	// isn't running, alarm_set will return a clear "is the daemon
+	// running?" error to the user.
+	if alarmGW, err := newDaemonAlarmGateway(); err != nil {
+		log.Printf("alarm gateway: %v (alarm tools disabled)", err)
+	} else {
+		toolReg.Register(tools.NewAlarmSetTool(alarmGW, func() string {
+			if app == nil || app.Agent == nil {
+				return ""
+			}
+			return app.Agent.SessionID()
+		}))
+		toolReg.Register(tools.NewAlarmListTool(alarmGW))
+		toolReg.Register(tools.NewAlarmCancelTool(alarmGW))
+	}
+
 	// Sub-agent manager + contract-driven tooling.
 	app.Subagent = subagent.NewManager(subagent.Config{MaxDepth: 2, MaxChildren: 3})
 	toolReg.Register(tools.NewDelegateTool(app.Subagent))

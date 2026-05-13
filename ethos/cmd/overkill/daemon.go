@@ -160,19 +160,20 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "daemon: cron Badger open failed: %v\n", err)
 	}
 
+	var daemonAlarm *automation.AlarmClock
 	if autoDB, err := badger.Open(badger.DefaultOptions(autoDir).WithLoggingLevel(badger.ERROR)); err == nil {
 		defer autoDB.Close()
 		sopStore := automation.NewBadgerSOPStore(autoDB)
 		_ = automation.NewSOPEngine(sopStore, shellExecutor)
 
 		alarmStore := automation.NewBadgerAlarmStore(autoDB)
-		alarm := automation.NewAlarmClockWithStore(
+		daemonAlarm = automation.NewAlarmClockWithStore(
 			alarmDispatchFire(daemonLedger),
 			alarmStore,
 		)
-		alarm.Start()
-		defer alarm.Stop()
-		fmt.Printf("%s✓ automation engine started (%d alarms)%s\n", colorGreen, len(alarm.List()), colorReset)
+		daemonAlarm.Start()
+		defer daemonAlarm.Stop()
+		fmt.Printf("%s✓ automation engine started (%d alarms)%s\n", colorGreen, len(daemonAlarm.List()), colorReset)
 		startedAuto = true
 	} else {
 		fmt.Fprintf(os.Stderr, "daemon: automation Badger open failed: %v\n", err)
@@ -229,6 +230,9 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	} else {
 		sock = daemon.NewServer(sockPath)
 		sock.Register("ping", pingHandler)
+		if daemonAlarm != nil {
+			registerAlarmHandlers(sock, daemonAlarm)
+		}
 		if err := sock.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "daemon: socket bind failed: %v\n", err)
 			sock = nil
