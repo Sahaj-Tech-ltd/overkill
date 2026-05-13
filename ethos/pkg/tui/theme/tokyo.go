@@ -1,6 +1,10 @@
 package theme
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"sort"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // TokyoNight is the Tokyo Night Storm palette.
 type TokyoNight struct{}
@@ -47,20 +51,41 @@ func (t *TokyoNight) SidebarBorder() lipgloss.Color              { return "#3b42
 func (t *TokyoNight) SidebarActiveTab() lipgloss.Color           { return "#7aa2f7" }
 func (t *TokyoNight) SidebarInactiveTab() lipgloss.Color         { return "#565f89" }
 
-// Registry returns the available built-in themes.
+// Registry returns the available themes — built-ins plus any TOML
+// themes loaded via LoadFromDir. Built-ins always take precedence on
+// name collision (LoadFromDir rejects conflicting names at load time,
+// but this is the second line of defense).
 func Registry() map[string]Theme {
-	return map[string]Theme{
+	r := map[string]Theme{
 		"catppuccin":  &Catppuccin{},
 		"tokyo-night": &TokyoNight{},
 	}
+	for k, v := range FileThemes() {
+		if _, exists := r[k]; exists {
+			continue
+		}
+		r[k] = v
+	}
+	return r
 }
 
-// Names returns the registered theme names in display order.
+// Names returns the registered theme names in display order: built-ins
+// first (catppuccin, tokyo-night) then user themes alphabetized. The
+// stable ordering matters because the picker dialog uses positional
+// indexes for keyboard navigation.
 func Names() []string {
-	return []string{"catppuccin", "tokyo-night"}
+	out := []string{"catppuccin", "tokyo-night"}
+	file := FileThemes()
+	userNames := make([]string, 0, len(file))
+	for name := range file {
+		userNames = append(userNames, name)
+	}
+	sort.Strings(userNames)
+	return append(out, userNames...)
 }
 
-// ByName returns a theme by name (case-sensitive). Returns nil if not found.
+// ByName returns a theme by name (case-sensitive). Returns nil if not
+// found.
 func ByName(name string) Theme {
 	if t, ok := Registry()[name]; ok {
 		return t

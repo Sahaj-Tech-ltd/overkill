@@ -59,6 +59,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/cellrender"
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/components/animation"
+	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 	"golang.org/x/term"
 )
 
@@ -168,6 +169,14 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		keysPath := filepath.Join(home, ".overkill", "keys.toml")
 		if err := tui.LoadKeyOverrides(keysPath); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: %v (using default bindings)\n", err)
+		}
+		// Load user themes from ~/.overkill/themes/*.toml. Same
+		// permissive policy as keys.toml — bad file → stderr warning,
+		// other themes still load. Built-ins (catppuccin, tokyo-night)
+		// remain available even if every user theme fails to parse.
+		themesDir := filepath.Join(home, ".overkill", "themes")
+		if err := theme.LoadFromDir(themesDir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: theme: %v\n", err)
 		}
 	}
 
