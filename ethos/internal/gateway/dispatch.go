@@ -32,6 +32,11 @@ type Dispatcher struct {
 	Logger      *log.Logger
 	UpdateEvery time.Duration // batch reply edits; default 750ms
 
+	// Bookmark, when set, handles the /bm <label> slash command from
+	// any gateway. Nil leaves the command unwired; users see a
+	// helpful error rather than a silent no-op.
+	Bookmark BookmarkFn
+
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex // session id → serializer
 }
@@ -46,6 +51,17 @@ func NewDispatcher(ag AgentSender, r *SessionRouter) *Dispatcher {
 		locks:       map[string]*sync.Mutex{},
 	}
 }
+
+// BookmarkFn is the callback invoked when a user runs /bm <label>
+// in any gateway. The dispatcher resolves the active session for the
+// chat, then asks this function to persist a bookmark with that
+// label against that session. Return non-nil error to signal failure
+// — the reply to the user surfaces it verbatim.
+//
+// Defined as a field rather than a constructor argument so the
+// caller can wire it after construction (some bookmark backends
+// need the dispatcher to exist first).
+type BookmarkFn func(ctx context.Context, sessionID, label string) error
 
 // Handle is called by a Channel for each Inbound it receives. Reply is
 // the channel's own transport. Errors are logged and surfaced via
@@ -309,6 +325,32 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 	case "/end":
 		_ = d.Router.Follow(in.ChatKey, "")
 		d.respond(ctx, in, reply, "follow cleared. binding kept; reply here to keep using this session.")
+	case "/bm", "/bookmark":
+		// §7.4 message bookmarking. Tag the active session with a
+		// label so a future "dive into that session" can recall it.
+		// The label is everything after /bm — quoted or bare, both
+		// fine; we don't try to parse a structure.
+		if d.Bookmark == nil {
+			d.respond(ctx, in, reply, "bookmark backend not wired on this build")
+			return
+		}
+		label := strings.TrimSpace(arg)
+		if label == "" {
+			d.respond(ctx, in, reply, "usage: /bm <label> — describe what we were talking about")
+			return
+		}
+		sid := d.resolveSession(in)
+		// 10s budget: bookmark stores are typically Badger writes
+		// (sub-ms), but allowing more headroom keeps us robust to
+		// network-backed stores users might plug in later.
+		bmCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := d.Bookmark(bmCtx, sid, label)
+		cancel()
+		if err != nil {
+			d.respond(ctx, in, reply, "bookmark failed: "+err.Error())
+			return
+		}
+		d.respond(ctx, in, reply, "bookmarked: "+label)
 	default:
 		// Unknown slash → treat as agent input.
 		sid := d.resolveSession(in)
@@ -356,6 +398,7 @@ func helpText() string {
 		"  /unfollow         clear follow mode",
 		"  /new              start a fresh session for this chat",
 		"  /end              clear follow but keep the binding",
+		"  /bm <label>       bookmark the active session with a label",
 		"  /help             this message",
 		"anything else is sent to the agent.",
 	}, "\n")

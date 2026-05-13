@@ -60,6 +60,17 @@ func runGateway(cmd *cobra.Command, args []string) error {
 		disp.Vision = v
 		logger.Printf("vision: %s/%s wired for inbound images", cfg.Vision.Provider, cfg.Vision.Model)
 	}
+	// §7.4 bookmark wiring. /bm <label> from any gateway tags the
+	// active session with a bookmark-prefixed label so the agent can
+	// later recall it. We reuse the tui App's Tags manager when
+	// present so bookmarks made from gateway + TUI land in the same
+	// store. Nil-safe: Bookmark stays nil and the dispatcher surfaces
+	// a clear error.
+	if app.Tags != nil {
+		disp.Bookmark = func(ctx context.Context, sessionID, label string) error {
+			return app.Tags.Tag(sessionID, "bookmark/"+label, "gateway-bookmark")
+		}
+	}
 
 	hub := gateway.NewHub()
 	hub.Logger = logger
