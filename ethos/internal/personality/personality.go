@@ -158,21 +158,35 @@ func (p *Personality) BootMessage() string {
 	}
 }
 
+// ackPattern is the cross-level "acknowledge-then-act" directive. The
+// user wants terse acknowledgement responses when they give a green
+// light — "heard, implementing X now" — instead of restating the plan
+// or asking for confirmation again. Applies to Subtle/Witty/Full;
+// Off keeps the enterprise-drone register intentionally.
+const ackPattern = "When the user greenlights ('go', 'yep', 'continue', 'do it', 'ship it'), don't restate the plan or ask again. Acknowledge once — 'Heard. Doing X now.' or similar — and start working. Same energy when the user pushes back or redirects: short ack, then act. No filler. No 'great question'. No 'sure thing'. The work is the response."
+
 func (p *Personality) InjectPersonality(prompt string) string {
 	switch p.config.Level {
 	case LevelOff:
 		return prompt
 	case LevelSubtle:
-		return prompt + "\n\nWhen things break, describe failures in your voice, not stack traces."
+		return prompt +
+			"\n\nWhen things break, describe failures in your voice, not stack traces." +
+			"\n\n" + ackPattern
 	case LevelWitty:
-		return prompt + "\n\nBe witty. Use humor. Reference memes when appropriate. Spider-Man jokes about testing."
+		return prompt +
+			"\n\nBe witty. Use humor. Reference memes when appropriate. Spider-Man jokes about testing." +
+			"\n\n" + ackPattern
 	case LevelFull:
 		funFact := p.funFacts.ForTime(time.Now().Hour())
 		funFactLine := ""
 		if funFact != "" {
 			funFactLine = "\nFun fact to possibly reference: " + funFact + "."
 		}
-		return prompt + "\n\nFull personality mode engaged. Be yourself. Use fun facts when relevant. Comment on the time of day. Be a colleague, not a servant." + funFactLine
+		return prompt +
+			"\n\nFull personality mode engaged. Be yourself. Use fun facts when relevant. Comment on the time of day. Be a colleague, not a servant." +
+			"\n\n" + ackPattern +
+			funFactLine
 	default:
 		return prompt
 	}

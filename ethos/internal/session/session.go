@@ -23,6 +23,18 @@ type Session struct {
 	Metadata   map[string]string   `json:"metadata,omitempty"`
 	Status     string              `json:"status"`
 	Messages   []providers.Message `json:"messages,omitempty"`
+
+	// Children lists the session IDs that branched FROM this one
+	// (Phase 1.5 #3 — tree-structured sessions). Maintained by Branch().
+	// Empty for leaf sessions; never nil after first branch.
+	Children []string `json:"children,omitempty"`
+
+	// BranchedAtTurn records which turn-index in the parent's history
+	// was the branch point. Only meaningful when ParentID is set.
+	// Zero is a valid value (branched from the very start) so we
+	// distinguish "branched at turn 0" from "not a branch" by the
+	// ParentID field, not by this value.
+	BranchedAtTurn int `json:"branched_at_turn,omitempty"`
 }
 
 func NewSession(folder string) *Session {

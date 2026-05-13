@@ -159,7 +159,28 @@ func (r *Registry) Search(query string) []*Skill {
 	return result
 }
 
+// Match returns trigger-matched skills using an empty MatchContext —
+// equivalent to the pre-Phase-1.5 behaviour. Skills declaring
+// Conditions that REQUIRE context (cwd, language, time...) fail those
+// checks here and are excluded. Use MatchWithContext for
+// context-aware activation.
 func (r *Registry) Match(input string) []*Skill {
+	return r.MatchWithContext(input, MatchContext{})
+}
+
+// MatchWithContext returns skills whose Triggers fire AND whose
+// Conditions all hold against ctx. Phase 1.5 #7.
+//
+// Semantics:
+//   - Trigger match: case-insensitive substring of input (unchanged).
+//   - Condition match: every populated field in skill.Conditions must
+//     hold against ctx; missing fields are wildcards.
+//   - Both gates apply (AND). A skill with triggers but no conditions
+//     behaves like before. A skill with conditions but no triggers
+//     is not returned here — the agent's renderSkillSection handles
+//     always-on skills via a separate List walk and also applies
+//     conditions there.
+func (r *Registry) MatchWithContext(input string, ctx MatchContext) []*Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -168,17 +189,24 @@ func (r *Registry) Match(input string) []*Skill {
 	var result []*Skill
 
 	for trigger, names := range r.index {
-		if strings.Contains(lower, trigger) {
-			for _, name := range names {
-				key := strings.ToLower(name)
-				if !seen[key] {
-					seen[key] = true
-					if skill, ok := r.skills[key]; ok {
-						cp := *skill
-						result = append(result, &cp)
-					}
-				}
+		if !strings.Contains(lower, trigger) {
+			continue
+		}
+		for _, name := range names {
+			key := strings.ToLower(name)
+			if seen[key] {
+				continue
 			}
+			skill, ok := r.skills[key]
+			if !ok {
+				continue
+			}
+			if !skill.Conditions.matches(ctx) {
+				continue
+			}
+			seen[key] = true
+			cp := *skill
+			result = append(result, &cp)
 		}
 	}
 
