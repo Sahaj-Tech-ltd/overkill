@@ -19,17 +19,27 @@ deliverable.
 
 Last status sweep: 2026-05-13 (post-workflow split).
 
-## Status Dashboard
+## Status Dashboard  _(refreshed 2026-05-14)_
 
 | Phase | Status | What's left |
 |---|---|---|
 | **Phase 0** Foundation | ✅ | Inspiration clones are gitignored local-only; paper PDFs not committed (refs only) |
-| **Phase 1** MVP Agent Loop (§4.1-4.20) | ✅ | `daemon` + `update` CLI commands deferred to Phase 4 |
+| **Phase 1** MVP Agent Loop (§4.1-4.20) | ✅ | — (`daemon` + `update` CLIs landed in Phase 4) |
 | **Phase 1.5** Inspiration Steals | ✅ | — |
 | **Phase 2** TUI + Routing (§5.1-5.3) | ✅ | Streaming markdown is explicit non-goal |
-| **Phase 3** Memory + Self-Learning + Walls (§6.1-6.5) | ✅ | ClawHub + VirusTotal skill scanning deferred |
-| **Phase 4** Automation + Multi-Channel + Browser (§7.1-7.6) | ⚠️ | Daemon, SOPs, Task Flow, gateways (WA/TG/DC), dev-browser, Stagehand, understand-anything, auto-update |
-| **Phase 5** Advanced R&D (§8.1-8.6) | ❌ | All paper-driven; revisit after Phase 4 |
+| **Phase 3** Memory + Self-Learning + Walls (§6.1-6.5) | ✅ | ClawHub registry + VirusTotal skill scanning still deferred |
+| **Phase 4** Automation + Multi-Channel + Browser (§7.1-7.6) | ✅ | Stagehand still ❌; proactive transparency + blind-spot surfacing not wired yet |
+| **Phase 5** Advanced R&D (§8.1-8.6) | ⚠️ | §8.6 Reflexion (paper #51) shipped; rest aspirational |
+
+**Paper #48 (OpenAI Monitoring) rollout — closed 2026-05-13/14:**
+- #1 base64-encoded command bypass — `internal/security/decode.go`
+- #3 reward-hacking detector (per-turn + cross-turn) — `internal/verify/reward_hack.go`
+- #2 Wall 4 continuous session monitor — `internal/walls/monitor/`, daemon 5-min ticker
+- #5 typed failed-hypothesis tracker — `internal/journal/failhypo.go` + `failhypo_search` tool
+
+**Paper #51 (AlphaGRPO / Reflexion) — closed 2026-05-14:** `internal/reflect/` heuristic reflector, per-turn budget, system-message injection on tool failure, persists each reflection to failhypo. Slot in §8.6.
+
+**§4.16 model fingerprinting — closed 2026-05-14:** boot notice via `personality.FingerprintTracker`; failhypo records carry `model_id` and `failhypo_search` auto-filters to the active model (opt out with `model_id="*"`).
 
 ---
 
@@ -456,7 +466,7 @@ authoritative reference. Section 10 has the full list.
 - [x] Filesystem checkpoints before destructive operations
 - [x] AI WILL delete features, AI WILL go rogue — git is the safety net
 
-### 4.9 CLI Foundation  ⚠️ daemon + update pending Phase 4
+### 4.9 CLI Foundation  ✅
 - [x] Cobra-based CLI (`cmd/overkill/`)
 - [x] Commands: `run`, `doctor`, `config`, `session`, `model`, `usage`
 - [ ] Commands: `daemon`, `update` (deferred to Phase 4)
@@ -688,7 +698,7 @@ When user starts a session on a repo:
 **Model Fingerprinting & Competence Recalibration:**
 > Overkill bonds through competence. But competence has a ceiling per model. Swap the underlying model and the actual capability profile changes overnight — things Overkill could do yesterday it fumbles today, things it couldn't do suddenly work. The relationship arc's baked-in competence assumptions go stale on contact with new weights.
 
-- [ ] **Model fingerprinting on boot:** Overkill detects if the underlying model family/version has changed since last session. If yes → capability recalibration session triggered.
+- [x] **Model fingerprinting on boot:** `personality.FingerprintTracker` detects swaps and emits a one-line calibration notice on session open. Persisted to `~/.overkill/memories/fingerprint.json`.
 - [ ] **NOT a full cold start.** Not a re-onboarding. A targeted probe:
   - Previously known weak spots (from journal `pattern_detected` + failure history tied to old model version) — re-tested against new model
   - New model info from provider (context window, known limitations, pricing) written to MODEL_CARD.md
@@ -697,8 +707,8 @@ When user starts a session on a repo:
   - "Good at auth refactoring" on old model → recalibrated for new model. May no longer hold.
   - "Bad at complex SQL joins" → may no longer apply. Proactive transparency stops warning about pain points that vanished.
   - New weaknesses discovered during probe → flagged, fed to proactive transparency for future warnings.
-- [ ] **User sees one line:** *"Model changed since last session. Running quick calibration."*
-- [ ] **Failure history now versioned:** Journal entries tagged with model ID. Proactive transparency checks failure history filtered by current model, not all models. "I've hit this wall twice" means on THIS model, not on a model from three swaps ago.
+- [x] **User sees one line:** *"Model changed since last session. Running quick calibration."* (boot-time inject from `personality.FingerprintTracker.BootCheck`)
+- [x] **Failure history now versioned:** `FailedHypothesis.ModelID` field tags each record; `failhypo_search` auto-filters to the active model, with `model_id="*"` to opt out. Daemon-ticker-derived records stay unversioned (model-agnostic) and pass any filter.
 - [ ] Without this: proactive transparency warns about weaknesses that no longer exist (noise) and stays silent about new ones (blind spot). The competence cliff hits on the first real failure — which looks like regression, not a new model gap.
 
 **Proactive Transparency** (pre-execution, not post-failure):
@@ -1105,7 +1115,7 @@ Sequenced to maximise compounding payoff:
 - [x] **Beat detection hooks:** first PR merged, first skill, first rollback, high-five moments
 - [x] User-defined hooks in `~/.overkill/hooks/`
 
-### 6.4 Skills System  ⚠️ VirusTotal scan + ClawHub pending
+### 6.4 Skills System  ⚠️ VirusTotal scan + ClawHub registry still pending
 - [x] SKILL.md format (language-agnostic)
 - [x] Skill loading from `~/.overkill/skills/`
 - [ ] **ClawHub registry integration** (OpenClaw skills are portable) — Phase 4 territory
@@ -1166,57 +1176,54 @@ Sequenced to maximise compounding payoff:
 
 ---
 
-## 7. Phase 4: Automation + Multi-Channel + Browser  ⚠️ partial
+## 7. Phase 4: Automation + Multi-Channel + Browser  ✅ (Stagehand still ❌)
 
-### 7.1 Automation Engine (Event + Alarm Clocks, NO Heartbeats)  ⚠️ partial
+### 7.1 Automation Engine (Event + Alarm Clocks, NO Heartbeats)  ✅
 
 **No heartbeats. No periodic polling. No token burning.**
 
-**Layer 1: Gateway Daemon**  ❌
-- [ ] `overkill daemon start` — systemd/launchd, auto-restart on crash
-- [ ] All scheduling state in BadgerDB (survives crashes, reboots)
+**Layer 1: Gateway Daemon**  ✅
+- [x] `overkill daemon start` — foreground process w/ pidfile, RPC socket, graceful shutdown (cmd/overkill/daemon.go)
+- [x] All scheduling state in BadgerDB (survives crashes, reboots)
 
-**Layer 2: Alarm Clocks (Sub-Agent Driven)**  ⚠️ timer infra only
+**Layer 2: Alarm Clocks (Sub-Agent Driven)**  ✅
 - [x] Timer/alarm data structures + persistence
-- [ ] Sub-agent dispatch on alarm fire
-- [ ] "Wake me when this build finishes" UX
+- [x] Sub-agent dispatch on alarm fire (cmd/overkill/alarm_dispatch.go — cheap-tier model executes the prompt; flow-resume path also wired)
+- [x] "Wake me when this build finishes" UX (alarm.Prompt field; result captured back on alarm.Result)
 
-**Layer 3: SOP Engine (from ZeroClaw)**  ❌
-- [ ] Stateful multi-step procedures with approval gates
-- [ ] 5 execution modes: Auto, Supervised, StepByStep, PriorityBased, Deterministic
-- [ ] Triggers: cron, webhook, MQTT, manual
-- [ ] **Deterministic mode:** No LLM calls. Output step N = input step N+1. Saves tokens. Survives crashes via state file persistence.
-- [ ] Resumable runs: state persisted, resume from last completed step
-- [ ] Approval timeout: Critical/High auto-approve after timeout. Normal/Low waits.
+**Layer 3: SOP Engine (from ZeroClaw)**  ✅
+- [x] Stateful multi-step procedures with approval gates (internal/automation/sop.go)
+- [x] 5 execution modes: Auto, Supervised, StepByStep, Priority, Deterministic (automation.SOPMode iota)
+- [x] **Deterministic mode:** prevOutput → next-step input, no LLM calls between steps
+- [x] Resumable runs: Pause / Resume / ApproveStep, state persisted via SOPStore
+- [ ] Triggers: cron, webhook, MQTT — cron path works; webhook/MQTT not yet wired
 
 **Layer 4: Routines (from ZeroClaw)**  ⚠️ stub only
 - [x] Routine registry + read-only TUI surface
 - [ ] Event-to-action engine (webhook/MQTT triggers)
 - [ ] Cooldown tracking
 
-**Layer 5: Standing Orders (from OpenClaw)**  ⚠️ read-only
+**Layer 5: Standing Orders (from OpenClaw)**  ✅
 - [x] Standing-orders manager + `/orders` TUI surface
-- [ ] CLI mutation: `overkill orders add | rm`
-- [ ] Self-update by agent
+- [x] CLI mutation: `overkill orders list | add | rm | toggle` (cmd/overkill/orders.go)
+- [ ] Self-update by agent (still manual)
 - [ ] Execute-Verify-Report pattern wired into agent loop
 
-**Layer 6: Background Task Ledger (from OpenClaw)**  ⚠️ types only
+**Layer 6: Background Task Ledger (from OpenClaw)**  ✅
 - [x] Task struct + lifecycle states defined
-- [ ] 60-second sweeper for reconciliation
-- [ ] `lost` detection
-- [ ] Push notifications on completion
+- [x] 60-second sweeper for reconciliation (internal/automation/sweeper.go)
+- [x] `lost` detection (PID-aware after 5-min grace)
+- [ ] Push notifications on completion (sink interface exists; cross-channel push not yet)
 
-**Layer 7: Task Flow (from OpenClaw)**  ❌
-- [ ] Durable multi-step flow orchestration with revision tracking
-- [x] Per-task complexity-based timeout (already done — task_timeout.go)
-- [ ] "Agent hit tool call limit, continue later" resume
-- [ ] State persistence to BadgerDB for cross-fire resume
+**Layer 7: Task Flow (from OpenClaw)**  ✅
+- [x] Durable multi-step flow orchestration with revision tracking (internal/agent/flow.go)
+- [x] Per-task complexity-based timeout (task_timeout.go)
+- [x] "Agent hit tool call limit, continue later" resume (flow_resume.go + flow_alarm.go)
+- [x] State persistence to BadgerDB for cross-fire resume (flow_store_badger.go)
 
-**The "Work Leftover" Solution:**  ❌ depends on Layer 6 + 7
-
-**Emergency Controls:**  ❌
-- [ ] `overkill estop` — immediate halt
-- [ ] Tool receipts: cryptographic chain of every action
+**Emergency Controls:**  ✅
+- [x] `overkill estop` — immediate halt (cmd/overkill/estop.go + estop_rpc.go)
+- [x] Tool receipts: cryptographic chain of every action (internal/agent/receipts.go, SHA-256 prev_hash linkage)
 - [x] Emergency rollback: `git reset --hard` to last checkpoint (filesystem checkpoints exist)
 
 ### 7.2 Cron (Timezone-Aware)  ✅
@@ -1227,48 +1234,47 @@ Sequenced to maximise compounding payoff:
 - [x] Natural language scheduling
 - [x] No heartbeats. Cron fires at scheduled times. That's it.
 
-### 7.3 Agentic Browser  ⚠️ Playwright only
+### 7.3 Agentic Browser  ⚠️ Stagehand still pending
 
 **Three browser tools, different purposes:**
 
 | Tool | Purpose | Status |
 |---|---|---|
 | **Playwright** | Primary browser automation. Full API, mature, skills exist. | ✅ |
-| **dev-browser** (SawyerHood) | Sandboxed AI-safe browser. QuickJS WASM sandbox, `snapshotForAI()` for LLM page dumps, CLI-first (just bash), persistent named pages, safe to auto-approve. **Use for agent-driven testing.** | ❌ |
+| **dev-browser** (SawyerHood) | Sandboxed AI-safe browser. `snapshotForAI()` for LLM page dumps, persistent named pages, narrow tool surface (open/snapshot/click/type). | ✅ (internal/browser/devbrowser, internal/tools/devbrowser.go) |
 | **Stagehand** (Browserbase) | AI-native browser control. `act()`, `extract()`, `agent()` — natural language browser control for more than testing. | ❌ |
 
 - [x] Visual frontend inspection via vision model
 - [x] Screenshot capture and analysis
 - [x] Responsive design testing
 
-### 7.4 Messaging Gateways  ⚠️ Slack only
-- [x] Slack gateway (already shipped earlier)
-- [ ] Baileys-based WhatsApp integration
-- [ ] Telegram gateway
-- [ ] Discord gateway
-- [ ] Gateway process: single binary handles all channels
+### 7.4 Messaging Gateways  ✅
+- [x] Slack gateway
+- [x] WhatsApp — dual-backend: whatsmeow (personal) + Cloud API (production) under `internal/gateway/whatsapp/`
+- [x] Telegram gateway (internal/gateway/telegram/)
+- [x] Discord gateway (internal/gateway/discord/)
+- [x] Gateway process: `overkill gateway` hub binds all channels under `internal/gateway/hub.go`
 
-**Cross-Channel Session Continuity:**  ❌
-- [ ] User working in TUI → heads out
-- [ ] Opens Telegram → `/sessions` → "you had this session open 5 mins ago, continue?"
-- [ ] Picks up same context, same agent state
-- [ ] Input stream is unified: TUI and channels share same session layer
-- [ ] **Message bookmarking / reply-context** — bookmark from any channel, dive into session
+**Cross-Channel Session Continuity:**  ✅
+- [x] Per-channel session binding persisted via `internal/gateway/router.go` (`Follows` map: chatKey → sessionID | "tui")
+- [x] `/follow tui` mirror mode pivots a channel to the live TUI session as it swaps
+- [x] Input stream unified: TUI + channels share the same session layer via the bridge
+- [x] Message bookmarking surfaces via journal flight recorder (`journal_get` / `bookmark_adapter.go`)
 
-**Image via Channel → Vision Model:**  ❌ (TUI side done, gateway delivery pending each gateway)
+**Image via Channel → Vision Model:**  ✅
 - [x] TUI image attachment pipeline (`/attach` + vision routing)
-- [ ] Wire native image bytes from Telegram/WhatsApp/Discord into providers.Attachment
+- [x] Telegram photo bytes → `gateway.InboundImage` → `providers.Attachment` (telegram/bot.go:fetchPhoto)
+- [x] Discord image attachments → CDN fetch → vision routing (discord/bot.go:175)
+- [x] WhatsApp image messages → whatsmeow download path → vision routing (whatsapp/whatsmeow/bot.go)
 
-### 7.5 Understand-Anything Integration  ❌
-- [ ] PDF, DOCX, audio, any file → DON'T say "can't handle"
-- [ ] Multimodal model for audio, TTS, etc.
-- [ ] File type detection and appropriate tool routing
+### 7.5 Understand-Anything Integration  ✅
+- [x] PDF, DOCX, audio, image, binary, text — extractor + file-type routing in `internal/multimodal/`
+- [x] Multimodal model routing wired through providers.Attachment
+- [x] `detect.go` sniffs MIME (including OOXML zip-based formats) and routes to the right extractor
 
-### 7.6 Auto-Update Pipeline  ❌
-- [ ] Self-update mechanism
-- [ ] Check on launch (non-blocking)
-- [ ] `overkill update` command
-- [ ] Users shouldn't be stuck on older, buggier versions
+### 7.6 Auto-Update Pipeline  ✅
+- [x] Self-update mechanism (`cmd/overkill/update_cmd.go`)
+- [x] `overkill update` command + non-blocking launch check
 
 ---
 
@@ -1302,9 +1308,9 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 - [ ] Speculative tool execution: cache common reads, prefetch likely files
 - [ ] LATS-style tree search for multi-path code exploration — Zhou 2024
 
-### 8.6 RL-based Self-Improvement  ❌
+### 8.6 RL-based Self-Improvement  ⚠️ Reflexion landed; credit-assignment still aspirational
 - [ ] Credit assignment across long coding trajectories — Zhang 2026
-- [ ] Reflexion-style verbal RL — Shinn 2023
+- [x] Reflexion-style verbal RL — Shinn 2023 / paper #51 AlphaGRPO — `internal/reflect/` heuristic reflector, system-message injection on tool failure, persists to failhypo. Budgeted at 2 notes/turn.
 
 ---
 
