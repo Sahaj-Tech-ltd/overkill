@@ -151,7 +151,7 @@ DeepWiki pages are fully indexed and map every function to its source location. 
 
 When the user asks where a file or directory is:
 
-1. **Give the full system path** — `/home/harsh/docker/overkill/internal/agent/loop.go`, not `internal/agent/loop.go`. User should be able to copy-paste and `cd` or `cat` directly.
+1. **Give the full system path** — `/home/user/overkill/internal/agent/loop.go`, not `internal/agent/loop.go`. User should be able to copy-paste and `cd` or `cat` directly.
 
 2. **If the user is on a channel (Telegram, Discord, etc.)** — `cat` the whole file and show it. Channel users can't browse the filesystem. Don't make them ask twice. Say "looks good?" so they can confirm or ask for edits. If the file is too long for one message, chunk it.
 

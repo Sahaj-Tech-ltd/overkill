@@ -32,11 +32,11 @@ func TestEnabled_UserOverrideWins(t *testing.T) {
 		Name:    "f",
 		Default: false,
 		UserOverrides: map[string]bool{
-			"harsh": true,
+			"alice": true,
 			"bob":   false,
 		},
 	})
-	if !m.Enabled("f", EvalContext{UserID: "harsh"}) {
+	if !m.Enabled("f", EvalContext{UserID: "alice"}) {
 		t.Error("user override should beat default-false")
 	}
 	if m.Enabled("f", EvalContext{UserID: "bob"}) {
@@ -67,10 +67,10 @@ func TestEnabled_UserOverridePrecedesChannelOverride(t *testing.T) {
 	m.Register(&Flag{
 		Name:             "f",
 		Default:          false,
-		UserOverrides:    map[string]bool{"harsh": false},
+		UserOverrides:    map[string]bool{"alice": false},
 		ChannelOverrides: map[string]bool{"slack": true},
 	})
-	got := m.Enabled("f", EvalContext{UserID: "harsh", Channel: "slack"})
+	got := m.Enabled("f", EvalContext{UserID: "alice", Channel: "slack"})
 	if got {
 		t.Error("user override (false) should beat channel override (true)")
 	}
@@ -150,7 +150,7 @@ func TestEnabled_PercentSubjectFallsBackToUserID(t *testing.T) {
 	m.Register(&Flag{Name: "f", Default: false, Percent: 100})
 	// percent=100 with a subject derived from UserID should always
 	// enable.
-	if !m.Enabled("f", EvalContext{UserID: "harsh"}) {
+	if !m.Enabled("f", EvalContext{UserID: "alice"}) {
 		t.Error("percent=100 with UserID subject should enable")
 	}
 }
@@ -163,7 +163,7 @@ func TestLoadFromTOML_Roundtrip(t *testing.T) {
 default = false
 percent = 25
 [experimental_steering.users]
-"harsh" = true
+"alice" = true
 
 [show_per_command_metadata]
 default = true
@@ -178,7 +178,7 @@ default = true
 	if got := m.Get("experimental_steering"); got == nil {
 		t.Fatal("expected experimental_steering flag to load")
 	}
-	if !m.Enabled("experimental_steering", EvalContext{UserID: "harsh"}) {
+	if !m.Enabled("experimental_steering", EvalContext{UserID: "alice"}) {
 		t.Error("user override should fire")
 	}
 	if !m.Enabled("show_per_command_metadata", EvalContext{}) {

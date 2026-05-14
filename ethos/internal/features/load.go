@@ -13,7 +13,7 @@ import (
 //	default = false
 //	percent = 0
 //	[bridge_compressor.users]
-//	"harsh" = true
+//	"alice" = true
 //	[bridge_compressor.channels]
 //	"slack" = false
 //
