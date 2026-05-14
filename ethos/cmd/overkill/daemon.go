@@ -232,6 +232,14 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	defer sweeper.Stop()
 	fmt.Printf("%s✓ ledger sweeper started%s\n", colorGreen, colorReset)
 
+	// §7.1 Layer 6: push notification on terminal task transitions.
+	// The ledger fires SetTerminalSink once per task as it lands in
+	// Completed / Failed / Cancelled / Lost / TimedOut. We file an
+	// AlertTaskCompleted record; the gateway hub (running in a
+	// separate process) reads pending alerts and delivers them to
+	// the user's bound channels.
+	daemonLedger.SetTerminalSink(taskCompletionAlertSink())
+
 	// Behavior monitor + failhypo extraction ticker (paper #48).
 	// Runs Wall 4 detectors and the failed-hypothesis regex pass over
 	// today's journal entries every 5 minutes. Findings land in the

@@ -39,6 +39,13 @@ const (
 	// I knew. Last export was 3 days ago — want me to restore from
 	// that?"
 	AlertMemoryCorruption AlertType = "memory_corruption"
+
+	// AlertTaskCompleted fires from the ledger when a long-running
+	// background task transitions to a terminal state (Completed /
+	// Failed / Cancelled / Lost / TimedOut). §7.1 Layer 6: push
+	// notification on completion. The gateway hub reads these out
+	// of the alert store and delivers to the user's active channels.
+	AlertTaskCompleted AlertType = "task_completed"
 )
 
 type Alert struct {

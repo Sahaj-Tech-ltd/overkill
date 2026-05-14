@@ -79,6 +79,11 @@ type TelegramConfig struct {
 	Enabled      bool    `toml:"enabled"`
 	BotToken     string  `toml:"bot_token"`
 	AllowedChats []int64 `toml:"allowed_chats"` // empty = any chat the bot is in
+	// NotifyChatID is the chat the gateway pushes unsolicited
+	// notifications to (§7.1 Layer 6 task-completion alerts). When
+	// zero, Telegram is not used for push delivery even if the
+	// gateway is otherwise enabled.
+	NotifyChatID int64 `toml:"notify_chat_id"`
 }
 
 // BridgeConfig governs the HTTP webhook bridge for sidecar gateways
@@ -106,6 +111,10 @@ type DiscordConfig struct {
 	// (set explicitly in config if you want the bot to react to every
 	// channel message — usually a bad idea).
 	RequireMention bool `toml:"require_mention"`
+	// NotifyChannelID is the channel the gateway pushes unsolicited
+	// notifications to (§7.1 Layer 6). Empty = no Discord push
+	// delivery.
+	NotifyChannelID string `toml:"notify_channel_id"`
 }
 
 // WhatsAppConfig governs the optional WhatsApp gateway. Two backends:

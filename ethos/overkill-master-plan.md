@@ -28,7 +28,7 @@ Last status sweep: 2026-05-13 (post-workflow split).
 | **Phase 1.5** Inspiration Steals | ✅ | — |
 | **Phase 2** TUI + Routing (§5.1-5.3) | ✅ | Streaming markdown is explicit non-goal |
 | **Phase 3** Memory + Self-Learning + Walls (§6.1-6.5) | ✅ | — |
-| **Phase 4** Automation + Multi-Channel + Browser (§7.1-7.6) | ✅ | Stagehand still ❌; proactive transparency + blind-spot surfacing not wired yet |
+| **Phase 4** Automation + Multi-Channel + Browser (§7.1-7.6) | ✅ | — |
 | **Phase 5** Advanced R&D (§8.1-8.6) | ⚠️ | §8.6 Reflexion (paper #51) shipped; rest aspirational |
 
 **Paper #48 (OpenAI Monitoring) rollout — closed 2026-05-13/14:**
@@ -1176,7 +1176,7 @@ Sequenced to maximise compounding payoff:
 
 ---
 
-## 7. Phase 4: Automation + Multi-Channel + Browser  ✅ (Stagehand still ❌)
+## 7. Phase 4: Automation + Multi-Channel + Browser  ✅
 
 ### 7.1 Automation Engine (Event + Alarm Clocks, NO Heartbeats)  ✅
 
@@ -1235,15 +1235,14 @@ Sequenced to maximise compounding payoff:
 - [x] Natural language scheduling
 - [x] No heartbeats. Cron fires at scheduled times. That's it.
 
-### 7.3 Agentic Browser  ⚠️ Stagehand still pending
+### 7.3 Agentic Browser  ✅
 
-**Three browser tools, different purposes:**
+**Two browser tools, different purposes:**
 
 | Tool | Purpose | Status |
 |---|---|---|
 | **Playwright** | Primary browser automation. Full API, mature, skills exist. | ✅ |
 | **dev-browser** (SawyerHood) | Sandboxed AI-safe browser. `snapshotForAI()` for LLM page dumps, persistent named pages, narrow tool surface (open/snapshot/click/type). | ✅ (internal/browser/devbrowser, internal/tools/devbrowser.go) |
-| **Stagehand** (Browserbase) | AI-native browser control. `act()`, `extract()`, `agent()` — natural language browser control for more than testing. | ❌ |
 
 - [x] Visual frontend inspection via vision model
 - [x] Screenshot capture and analysis
@@ -1735,7 +1734,7 @@ If someone asks "how is this different from OpenClaw with security fixes?":
 - [ ] Automation engine (event + alarm clocks, SOP, routines)
 - [ ] Cron (timezone-aware)
 - [ ] Gateway daemon
-- [ ] Browser (Playwright + dev-browser + Stagehand)
+- [x] Browser (Playwright + dev-browser)
 - [ ] WhatsApp / Telegram / Discord gateways
 - [ ] Cross-channel session continuity
 - [ ] Image → vision model pipeline

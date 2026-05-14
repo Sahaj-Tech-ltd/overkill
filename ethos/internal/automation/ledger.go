@@ -71,10 +71,31 @@ type LedgerTask struct {
 
 // Ledger is the in-memory store of LedgerTasks. Bounded by maxEntries; the
 // oldest completed/failed/cancelled rows are evicted when the cap is hit.
+// TerminalSink is fired exactly once per task when it transitions to
+// a terminal state (Completed / Failed / Cancelled / Lost / TimedOut).
+// Receives the post-update task snapshot. Optional — set via
+// Ledger.SetTerminalSink; nil disables the hook.
+//
+// Used by the daemon to file an AlertTaskCompleted record so the
+// gateway hub can push a notification to the user's active channels
+// (§7.1 Layer 6).
+type TerminalSink func(LedgerTask)
+
 type Ledger struct {
-	mu         sync.RWMutex
-	tasks      map[string]*LedgerTask
-	maxEntries int
+	mu           sync.RWMutex
+	tasks        map[string]*LedgerTask
+	maxEntries   int
+	terminalSink TerminalSink
+}
+
+// SetTerminalSink installs a hook that fires once per task when it
+// transitions to a terminal state. Idempotent — setting nil clears
+// the existing hook. Daemon wires this to AlertStore writes for
+// §7.1 Layer 6 push notifications.
+func (l *Ledger) SetTerminalSink(sink TerminalSink) {
+	l.mu.Lock()
+	l.terminalSink = sink
+	l.mu.Unlock()
 }
 
 // NewLedger creates an in-memory ledger that retains up to maxEntries rows.
@@ -132,21 +153,42 @@ func (l *Ledger) HeartbeatAt(id string, when time.Time) {
 }
 
 // Update mutates state on an in-flight task. No-op when ID is unknown.
+// Fires the TerminalSink (if installed) exactly once per terminal
+// transition — re-issuing the same terminal state is a no-op for the
+// sink so a Complete→Complete double-call doesn't double-notify.
 func (l *Ledger) Update(id string, state TaskState, result string, err error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	t, ok := l.tasks[id]
 	if !ok {
+		l.mu.Unlock()
 		return
 	}
+	wasTerminal := terminalState(t.State)
 	t.State = state
 	t.Result = result
 	if err != nil {
 		t.Error = err.Error()
 	}
 	t.UpdatedAt = time.Now().UTC()
-	if terminalState(state) {
+	nowTerminal := terminalState(state)
+	if nowTerminal {
 		t.EndedAt = t.UpdatedAt
+	}
+	// Snapshot under lock; fire callback OUTSIDE the lock so a slow
+	// sink (e.g. disk write) doesn't serialize other ledger ops.
+	var snap LedgerTask
+	var firing bool
+	if nowTerminal && !wasTerminal && l.terminalSink != nil {
+		snap = *t
+		firing = true
+	}
+	sink := l.terminalSink
+	l.mu.Unlock()
+	if firing {
+		func() {
+			defer func() { _ = recover() }()
+			sink(snap)
+		}()
 	}
 }
 
