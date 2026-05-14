@@ -1397,11 +1397,20 @@ func buildTUIApp() *tui.App {
 		app.StylePath = stylePath
 
 		// Compose observer that fans out to frustration + cold-start
-		// processing + style inference. Cold-start fires once
+		// processing + style inference + blindspot verb tracking +
+		// last-input-for-transparency capture. Cold-start fires once
 		// (idempotent inside ProcessFirstResponse).
+		lastUserInputForFailure := ""
 		a.SetUserInputObserver(func(input string) {
 			fd.Observe(input)
 			styleInf.Observe(input)
+			lastUserInputForFailure = input
+			// §4.16 cognitive blind-spot detection: classify the
+			// user's verb and feed the detector. Empty string
+			// (no canonical verb) is a no-op.
+			if v := personality.ExtractVerb(input); v != "" {
+				bs.Observe(v)
+			}
 			if coldStart {
 				if _, err := csm.ProcessFirstResponse(input); err != nil {
 					// Best-effort: log + continue. The relationship
@@ -1410,6 +1419,44 @@ func buildTUIApp() *tui.App {
 				}
 			}
 		})
+
+		// §4.16 proactive transparency hook: when a recovery event
+		// fires, classify the last user input and record the failure
+		// against the current model. "I've failed at refactoring
+		// twice on this model" becomes a heads-up the next time the
+		// user asks for a refactor. Wired via the existing event
+		// adapter so we don't grow the Agent API just for this.
+		transparencyFn := func(_ string) {
+			taskType := personality.ExtractTaskType(lastUserInputForFailure)
+			if taskType == "" {
+				return
+			}
+			defer func() { _ = recover() }()
+			te.RecordFailure(taskType, a.Model())
+		}
+
+		// Boot-time seed: replay today's flight-recorder entries
+		// into both engines so cross-session "I've hit this wall
+		// twice" surfaces from history, not just within-session
+		// observations.
+		if recorder != nil {
+			if entries, err := recorder.ReadDay(time.Now()); err == nil && len(entries) > 0 {
+				bsEntries := make([]personality.BlindSpotEntry, 0, len(entries))
+				teEntries := make([]personality.JournalEntry, 0, len(entries))
+				for _, e := range entries {
+					bsEntries = append(bsEntries, personality.BlindSpotEntry{
+						Type:    string(e.Type),
+						Content: e.Content,
+					})
+					teEntries = append(teEntries, personality.JournalEntry{
+						Type:    string(e.Type),
+						Content: e.Content,
+					})
+				}
+				bs.LoadFromJournal(bsEntries)
+				_ = te.LoadFromJournal(teEntries)
+			}
+		}
 		// Expose to TUI so the personality provider can read short-term
 		// frustration state for tone mirroring each turn.
 		app.Frustration = fd
@@ -1447,9 +1494,10 @@ func buildTUIApp() *tui.App {
 		// Forward agent lifecycle events into the journal. Best-effort: any
 		// write failure is silently dropped so a full disk doesn't kill chat.
 		journalAdapter := &journalEventAdapter{
-			rec:      recorder,
-			failHypo: fhStore,
-			modelFn:  a.Model,
+			rec:       recorder,
+			failHypo:  fhStore,
+			modelFn:   a.Model,
+			onFailure: transparencyFn,
 		}
 		a.SetEventFn(journalAdapter.Handle)
 		a.SetRecoveryWriter(journalAdapter)
@@ -1524,9 +1572,10 @@ func (x *acpAgentAdapter) StreamACP(ctx context.Context, in string) (<-chan acp.
 // and agent.JournalEntryWriter (via WriteEntry) so the same instance can serve
 // streaming events and recovery lessons.
 type journalEventAdapter struct {
-	rec      *journal.FlightRecorder
-	failHypo *journal.FailedHypothesisStore // optional; nil disables realtime extraction
-	modelFn  func() string                  // optional; nil = no model tagging on extracted records
+	rec       *journal.FlightRecorder
+	failHypo  *journal.FailedHypothesisStore // optional; nil disables realtime extraction
+	modelFn   func() string                  // optional; nil = no model tagging on extracted records
+	onFailure func(errMsg string)            // optional; called on "recovery" events (§4.16 transparency)
 }
 
 func (j *journalEventAdapter) Handle(event string, payload map[string]any) {
@@ -1567,7 +1616,21 @@ func (j *journalEventAdapter) Handle(event string, payload map[string]any) {
 	case "error":
 		msg, _ := payload["error"].(string)
 		_ = j.rec.RecordError(fmt.Errorf("%s", msg))
-	case "tool_impact", "budget_warning", "compact", "recovery":
+	case "recovery":
+		// Promote to system entry AND feed the transparency hook
+		// (§4.16). The hook receives the error message so its
+		// classifier has something to work with even if the wiring
+		// layer hasn't been tracking the last user input.
+		raw, _ := jsonMarshal(payload)
+		_ = j.rec.Record(journal.EntrySystem, event, raw)
+		if j.onFailure != nil {
+			msg, _ := payload["what_went_wrong"].(string)
+			func() {
+				defer func() { _ = recover() }()
+				j.onFailure(msg)
+			}()
+		}
+	case "tool_impact", "budget_warning", "compact":
 		// Promote structured events to system entries for later analysis.
 		raw, _ := jsonMarshal(payload)
 		_ = j.rec.Record(journal.EntrySystem, event, raw)

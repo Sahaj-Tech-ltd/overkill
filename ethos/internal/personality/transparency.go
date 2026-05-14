@@ -166,13 +166,26 @@ func (te *TransparencyEngine) NextWarning() string {
 }
 
 func extractTaskType(content string) string {
+	return ExtractTaskType(content)
+}
+
+// ExtractTaskType is the exported, case-insensitive task-type
+// classifier. The wiring layer (cmd/overkill) uses it to feed
+// RecordFailure when the agent's recovery event fires — the last
+// user input is what we classify, not the error message.
+func ExtractTaskType(content string) string {
+	lowered := strings.ToLower(content)
 	keywords := []string{
 		"refactoring", "debugging", "testing", "deployment",
 		"migration", "generation", "compilation", "build",
 		"editing", "writing", "analysis", "review",
+		// Verbs covered too — overlap with blind-spot vocabulary
+		// is intentional: a "refactor" user input feeds both.
+		"refactor", "debug", "test", "deploy", "migrate", "build",
+		"write", "review",
 	}
 	for _, kw := range keywords {
-		if strings.Contains(content, kw) {
+		if strings.Contains(lowered, kw) {
 			return kw
 		}
 	}

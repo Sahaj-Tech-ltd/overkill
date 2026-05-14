@@ -62,19 +62,36 @@ func (bsd *BlindSpotDetector) Check() (string, bool) {
 }
 
 func (bsd *BlindSpotDetector) LoadFromJournal(entries []BlindSpotEntry) {
-	verbs := []string{"fix", "refactor", "debug", "add", "remove", "update", "create", "delete", "move", "rename"}
 	for _, entry := range entries {
 		if entry.Type != "tool_call" && entry.Type != "user_input" {
 			continue
 		}
-		lowered := strings.ToLower(entry.Content)
-		for _, verb := range verbs {
-			if strings.Contains(lowered, verb) {
-				bsd.patterns[verb]++
-				break
-			}
+		if verb := ExtractVerb(entry.Content); verb != "" {
+			bsd.patterns[verb]++
 		}
 	}
+}
+
+// blindSpotVerbs is the canonical verb list. Kept package-level so
+// ExtractVerb and LoadFromJournal share the same vocabulary —
+// otherwise a verb that gets observed via Observe but not counted
+// by LoadFromJournal would silently undercount across boots.
+var blindSpotVerbs = []string{
+	"fix", "refactor", "debug", "add", "remove", "update",
+	"create", "delete", "move", "rename",
+}
+
+// ExtractVerb returns the first matching verb in `content`
+// (case-insensitive substring), or "" when no canonical verb is
+// present. Suitable for live calls from a user-input observer.
+func ExtractVerb(content string) string {
+	lowered := strings.ToLower(content)
+	for _, v := range blindSpotVerbs {
+		if strings.Contains(lowered, v) {
+			return v
+		}
+	}
+	return ""
 }
 
 func (bsd *BlindSpotDetector) Reset() {
