@@ -87,7 +87,7 @@ func (c *LCMCompactor) Compact(ctx context.Context, messages []providers.Message
 		targetTokens = originalTokens / 2
 	}
 
-	result, level, err := c.compactLevels(ctx, toCompact, targetTokens)
+	result, level, err := c.compactLevels(ctx, toCompact, targetTokens, opts.CompactionModel)
 	if err != nil {
 		return &CompactionResult{
 			Summary:           "",
@@ -129,12 +129,12 @@ func (c *LCMCompactor) Compact(ctx context.Context, messages []providers.Message
 	return res, nil
 }
 
-func (c *LCMCompactor) compactLevels(ctx context.Context, messages []providers.Message, targetTokens int) (string, Level, error) {
+func (c *LCMCompactor) compactLevels(ctx context.Context, messages []providers.Message, targetTokens int, model string) (string, Level, error) {
 	if err := ctx.Err(); err != nil {
 		return "", LevelNone, fmt.Errorf("compaction: context cancelled before level 1: %w", err)
 	}
 
-	summary, err := c.tryLevel1(ctx, messages, targetTokens)
+	summary, err := c.tryLevel1(ctx, messages, targetTokens, model)
 	if err == nil && c.tokenizer.Estimate(summary) <= targetTokens {
 		return summary, Level1Detailed, nil
 	}
@@ -143,7 +143,7 @@ func (c *LCMCompactor) compactLevels(ctx context.Context, messages []providers.M
 		return "", LevelNone, fmt.Errorf("compaction: context cancelled before level 2: %w", err)
 	}
 
-	summary, err = c.tryLevel2(ctx, messages, targetTokens)
+	summary, err = c.tryLevel2(ctx, messages, targetTokens, model)
 	if err == nil && c.tokenizer.Estimate(summary) <= targetTokens {
 		return summary, Level2Aggressive, nil
 	}
@@ -151,19 +151,24 @@ func (c *LCMCompactor) compactLevels(ctx context.Context, messages []providers.M
 	return c.level3Truncate(messages, targetTokens), Level3Truncate, nil
 }
 
-func (c *LCMCompactor) tryLevel1(ctx context.Context, messages []providers.Message, targetTokens int) (string, error) {
+func (c *LCMCompactor) tryLevel1(ctx context.Context, messages []providers.Message, targetTokens int, model string) (string, error) {
 	prompt := buildDetailedSummaryPrompt(messages, targetTokens)
-	return c.callLLM(ctx, prompt)
+	return c.callLLM(ctx, prompt, model)
 }
 
-func (c *LCMCompactor) tryLevel2(ctx context.Context, messages []providers.Message, targetTokens int) (string, error) {
+func (c *LCMCompactor) tryLevel2(ctx context.Context, messages []providers.Message, targetTokens int, model string) (string, error) {
 	prompt := buildAggressiveSummaryPrompt(messages, targetTokens)
-	return c.callLLM(ctx, prompt)
+	return c.callLLM(ctx, prompt, model)
 }
 
-func (c *LCMCompactor) callLLM(ctx context.Context, prompt string) (string, error) {
+func (c *LCMCompactor) callLLM(ctx context.Context, prompt, model string) (string, error) {
+	// Fall back to the historical default if the caller passed an empty
+	// model — keeps old direct-call sites working until they migrate.
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
 	resp, err := c.provider.Complete(ctx, providers.Request{
-		Model:    "gpt-4o-mini",
+		Model:    model,
 		Messages: []providers.Message{{Role: "user", Content: prompt}},
 	})
 	if err != nil {

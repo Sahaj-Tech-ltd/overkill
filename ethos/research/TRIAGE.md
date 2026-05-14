@@ -1,4 +1,4 @@
-# Research Paper Triage for Ethos
+# Research Paper Triage for Overkill
 
 Sorted from VoltAgent/awesome-ai-agent-papers (363 papers, 2026).
 

@@ -20,12 +20,43 @@ type Client struct {
 	HTTP    *http.Client
 }
 
-// NewClient returns a Client with sensible defaults.
+// DefaultRequestTimeout is the per-call ceiling applied to GetInfo /
+// ListSessions / Send when the caller hasn't set its own deadline.
+// Stream is exempt — it sets up an SSE connection that legitimately
+// outlives a request timeout.
+const DefaultRequestTimeout = 30 * time.Second
+
+// NewClient returns a Client with sensible defaults. HTTP.Timeout is
+// left at zero so the streaming endpoint isn't truncated; non-stream
+// methods enforce DefaultRequestTimeout via the request context.
 func NewClient(baseURL, token string) *Client {
 	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), Token: token, HTTP: &http.Client{Timeout: 0}}
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body any) (*http.Response, error) {
+	// Cap unbounded callers via a per-call client with response-header
+	// timeout. We can't set http.Client.Timeout on the shared client —
+	// Stream() reuses the same client for an SSE body that legitimately
+	// lives much longer than 30s. ResponseHeaderTimeout only constrains
+	// time-to-first-byte, so a slow server can't stall non-stream calls
+	// while leaving Stream untouched.
+	cli := c.HTTP
+	if cli == nil {
+		cli = http.DefaultClient
+	}
+	if cli.Timeout == 0 {
+		// Build a derived client whose transport caps response-headers
+		// at DefaultRequestTimeout. Reusing the underlying RoundTripper
+		// keeps connection pooling intact.
+		base, _ := cli.Transport.(*http.Transport)
+		if base == nil {
+			base = http.DefaultTransport.(*http.Transport).Clone()
+		} else {
+			base = base.Clone()
+		}
+		base.ResponseHeaderTimeout = DefaultRequestTimeout
+		cli = &http.Client{Transport: base}
+	}
 	var rdr io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -43,10 +74,6 @@ func (c *Client) request(ctx context.Context, method, path string, body any) (*h
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
-	}
-	cli := c.HTTP
-	if cli == nil {
-		cli = http.DefaultClient
 	}
 	return cli.Do(req)
 }

@@ -16,7 +16,7 @@
 [![Go](https://img.shields.io/badge/go-1.23+-00ADD8?style=flat-square&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-blue?style=flat-square)](#license)
 [![Build](https://img.shields.io/badge/build-passing-success?style=flat-square)](#)
-[![Release](https://img.shields.io/badge/release-pre--alpha-yellow?style=flat-square)](#)
+[![Release](https://img.shields.io/badge/release-v0.9.0--pre-yellow?style=flat-square)](#)
 
 </div>
 
@@ -79,7 +79,7 @@ do an OAuth device flow for Anthropic/Copilot), pick a model, pick a theme.
 Then type a question and hit Enter. Type `/help` for the full surface.
 
 <!-- SCREENSHOT -->
-<!-- Screenshots intentionally omitted for the pre-alpha drop. They will land
+<!-- Screenshots intentionally omitted for the v0.9 pre-release. They will land
      once the boot animation, the cell renderer, and the diff viewer have
      stabilised on a single demo workflow. -->
 

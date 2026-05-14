@@ -11,10 +11,20 @@ import (
 // AgentCompactor adapts LCMCompactor to the agent.HistoryCompactor interface.
 // Constructed via NewAgentCompactor; safe to use as the agent's compactor.
 type AgentCompactor struct {
-	lcm           *LCMCompactor
-	preserveLast  int
-	softThreshold float64
-	hardThreshold float64
+	lcm             *LCMCompactor
+	preserveLast    int
+	softThreshold   float64
+	hardThreshold   float64
+	compactionModel string
+}
+
+// SetCompactionModel overrides the model used for the summarisation LLM
+// call. Empty string restores the DefaultCompactOptions default.
+func (c *AgentCompactor) SetCompactionModel(model string) {
+	if c == nil {
+		return
+	}
+	c.compactionModel = model
 }
 
 // NewAgentCompactor builds an LCM-backed compactor adapter for use with
@@ -52,6 +62,9 @@ func (c *AgentCompactor) Compact(ctx context.Context, msgs []providers.Message, 
 	opts.PreserveLast = c.preserveLast
 	opts.SoftThreshold = c.softThreshold
 	opts.HardThreshold = c.hardThreshold
+	if c.compactionModel != "" {
+		opts.CompactionModel = c.compactionModel
+	}
 
 	res, err := c.lcm.Compact(ctx, msgs, opts)
 	if err != nil {

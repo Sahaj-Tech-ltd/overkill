@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/pty"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 // PTYShellTool runs a command inside a pseudo-terminal so that progress bars,
@@ -16,10 +17,19 @@ import (
 type PTYShellTool struct {
 	maxTimeout time.Duration
 	cwd        string
+	// scanner mirrors ShellTool: defense-in-depth check on the raw command
+	// before exec. The agent-level preToolScan also runs for agent
+	// dispatch, but a scanner here catches direct callers (plugins,
+	// subagents) that bypass the agent loop.
+	scanner *security.CommandScanner
 }
 
 func NewPTYShellTool(cwd string) *PTYShellTool {
-	return &PTYShellTool{maxTimeout: 5 * time.Minute, cwd: cwd}
+	return &PTYShellTool{
+		maxTimeout: 5 * time.Minute,
+		cwd:        cwd,
+		scanner:    security.NewCommandScanner(security.WithProjectPath(cwd)),
+	}
 }
 
 func (t *PTYShellTool) Name() string { return "pty_shell" }
@@ -43,6 +53,21 @@ func (t *PTYShellTool) Execute(ctx context.Context, input json.RawMessage) (json
 	}
 	if strings.TrimSpace(in.Command) == "" {
 		return nil, fmt.Errorf("pty_shell: command is required")
+	}
+
+	// Defense-in-depth scan, identical to ShellTool. Mismatched gates here
+	// were the original concern: agent-level scan covers agent dispatch,
+	// but a plugin or subagent calling PTYShellTool directly previously
+	// got zero filtering.
+	if t.scanner != nil {
+		res, err := t.scanner.Scan(in.Command)
+		if err == nil && res != nil && res.Blocked {
+			reason := "blocked by command scanner"
+			if len(res.Findings) > 0 {
+				reason = res.Findings[0].Description
+			}
+			return nil, fmt.Errorf("pty_shell: %s", reason)
+		}
 	}
 
 	timeout := 60 * time.Second

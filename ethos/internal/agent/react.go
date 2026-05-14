@@ -29,6 +29,9 @@ type ToolResult struct {
 }
 
 func (a *Agent) step(ctx context.Context) (*StepResult, error) {
+	if a.provider == nil {
+		return nil, fmt.Errorf("agent: provider not configured (Config.Provider was nil)")
+	}
 	req := a.buildRequest()
 
 	resp, err := a.provider.Complete(ctx, req)

@@ -112,6 +112,10 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 
 			a.checkBudget()
 
+			if a.provider == nil {
+				out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: provider not configured (Config.Provider was nil)")}
+				return
+			}
 			req := a.buildRequest()
 
 			ch, err := a.provider.Stream(ctx, req)

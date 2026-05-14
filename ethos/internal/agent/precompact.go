@@ -40,11 +40,11 @@ func (a *Agent) preCompactCheck(ctx context.Context, userInput string) bool {
 		return false
 	}
 	useC := a.useCompactor.Load()
+	cBox := a.compactor.Load()
 	a.mu.RLock()
-	c := a.compactor
 	last := a.lastPreCompactAt
 	a.mu.RUnlock()
-	if !useC || c == nil {
+	if !useC || cBox == nil {
 		return false
 	}
 	// Throttle: at most one pre-compact per 60s. The auto-compact at

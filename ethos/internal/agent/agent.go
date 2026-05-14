@@ -56,20 +56,26 @@ type Agent struct {
 	// prompt is built. Errors fall back to the original message; never blocks.
 	rewriter PromptRewriter
 	// compactor, when set, owns the compaction strategy. When nil the agent
-	// falls back to its legacy single-LLM-call summary path.
-	compactor HistoryCompactor
+	// falls back to its legacy single-LLM-call summary path. Stored as an
+	// atomic.Pointer because checkBudget reads it from the hot Run() loop
+	// without taking a.mu (the path can fire while buildRequest already
+	// holds RLock — RWMutex isn't reentrant, so RLocking again would
+	// deadlock with a concurrent SetCompactor caller waiting for Lock).
+	// The boxed struct lets us atomic-swap a Go interface (two-word value
+	// — not safe under a plain field read).
+	compactor atomic.Pointer[compactorBox]
 	// useCompactor is an atomic Bool because checkBudget reads it from the
-	// hot Run() loop without taking a.mu (the path can fire in the middle
-	// of buildRequest which already holds RLock — re-locking from there
-	// would self-deadlock). SetCompactor writes it.
+	// same hot path that motivated the compactor pointer. SetCompactor
+	// writes it.
 	useCompactor       atomic.Bool
 	compactionInFlight atomic.Bool
 
 	// userInputObserver, if set, is invoked once per Run with the raw user
 	// input before scanners or rewriter. Used by the frustration detector
 	// (and anything else that wants a non-blocking peek). Best-effort:
-	// panics are recovered.
-	userInputObserver func(input string)
+	// panics are recovered. Stored as atomic.Pointer so Run can read it
+	// without holding a.mu (which the setter takes).
+	userInputObserver atomic.Pointer[userInputObserverBox]
 
 	// flowStore, if set, persists agent state when the loop hits
 	// maxSteps so a follow-up alarm can resume the task. Nil-safe —
@@ -125,8 +131,9 @@ type Agent struct {
 
 	// usageObserver, if set, is fired after each step with the per-call
 	// token usage. Wired by cmd/overkill to feed cost.Tracker.Record().
-	// Best-effort: panics are recovered.
-	usageObserver func(modelID string, usage providers.Usage)
+	// Best-effort: panics are recovered. atomic.Pointer for the same
+	// reason as userInputObserver.
+	usageObserver atomic.Pointer[usageObserverBox]
 
 	// promptCompressor, if set, is invoked on the assembled system prompt
 	// when token utilization is high (>= compressTrigger). Failures fall
@@ -223,9 +230,17 @@ func (a *Agent) SetPromptCompressor(c PromptCompressor, threshold float64) {
 // SetUsageObserver wires a callback fired after every step with the
 // per-step token usage. Pass nil to clear.
 func (a *Agent) SetUsageObserver(fn func(modelID string, usage providers.Usage)) {
-	a.mu.Lock()
-	a.usageObserver = fn
-	a.mu.Unlock()
+	if fn == nil {
+		a.usageObserver.Store(nil)
+		return
+	}
+	a.usageObserver.Store(&usageObserverBox{fn: fn})
+}
+
+// usageObserverBox wraps the func so it can be stored in atomic.Pointer
+// (which only accepts concrete struct pointers, not bare func values).
+type usageObserverBox struct {
+	fn func(modelID string, usage providers.Usage)
 }
 
 // ModelRouter is the small interface the agent calls into to pick a model.
@@ -256,9 +271,16 @@ func (a *Agent) SetModelRouter(r ModelRouter) {
 // SetUserInputObserver wires a callback fired once per Run with the user's
 // raw text. Pass nil to clear.
 func (a *Agent) SetUserInputObserver(fn func(input string)) {
-	a.mu.Lock()
-	a.userInputObserver = fn
-	a.mu.Unlock()
+	if fn == nil {
+		a.userInputObserver.Store(nil)
+		return
+	}
+	a.userInputObserver.Store(&userInputObserverBox{fn: fn})
+}
+
+// userInputObserverBox: same box pattern as usageObserverBox.
+type userInputObserverBox struct {
+	fn func(input string)
 }
 
 // SetFlowStore wires durable flow checkpointing. When set, hitting
@@ -382,11 +404,18 @@ func (a *Agent) SetCompactor(c HistoryCompactor, use bool) {
 	if a == nil {
 		return
 	}
-	a.mu.Lock()
-	a.compactor = c
-	a.mu.Unlock()
+	if c == nil {
+		a.compactor.Store(nil)
+	} else {
+		a.compactor.Store(&compactorBox{HistoryCompactor: c})
+	}
 	a.useCompactor.Store(use && c != nil)
 }
+
+// compactorBox wraps the HistoryCompactor interface so it can be stored
+// atomically. Storing a bare interface in atomic.Pointer is impossible —
+// atomic.Pointer wants a concrete pointer type.
+type compactorBox struct{ HistoryCompactor }
 
 // PromptRewriter is implemented by anything that can transform a user prompt
 // before the agent ships it to the model. The agent itself does not depend on
@@ -529,10 +558,10 @@ type RunResult struct {
 }
 
 func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
-	if obs := a.userInputObserver; obs != nil {
+	if obs := a.userInputObserver.Load(); obs != nil {
 		func() {
 			defer func() { _ = recover() }()
-			obs(userInput)
+			obs.fn(userInput)
 		}()
 	}
 
@@ -652,11 +681,11 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		result.ToolCalls += len(stepResult.ToolCalls)
 		result.TotalTokens += stepResult.Tokens.InputTokens + stepResult.Tokens.OutputTokens
 
-		if obs := a.usageObserver; obs != nil && (stepResult.Tokens.InputTokens > 0 || stepResult.Tokens.OutputTokens > 0) {
+		if obs := a.usageObserver.Load(); obs != nil && (stepResult.Tokens.InputTokens > 0 || stepResult.Tokens.OutputTokens > 0) {
 			modelID := a.Model()
 			func() {
 				defer func() { _ = recover() }()
-				obs(modelID, stepResult.Tokens)
+				obs.fn(modelID, stepResult.Tokens)
 			}()
 		}
 
@@ -727,7 +756,7 @@ func (a *Agent) checkBudget() {
 	// Master plan §4.4 50% trigger: when ShouldCompact crosses (default 0.5),
 	// trigger compaction proactively rather than waiting for the user to type
 	// /compact. Best-effort — failure is logged via emit, never fatal.
-	if report.ShouldCompact && a.useCompactor.Load() && a.compactor != nil && !a.compactionInFlight.Load() {
+	if report.ShouldCompact && a.useCompactor.Load() && a.compactor.Load() != nil && !a.compactionInFlight.Load() {
 		a.compactionInFlight.Store(true)
 		// Derive from sessionCtx (not Background()) so Shutdown cancels
 		// in-flight auto-compaction instead of leaking the goroutine
@@ -928,12 +957,16 @@ func (a *Agent) buildRequest() providers.Request {
 		prompt = prompt + "\n\n" + persona
 	}
 	// Append plugin/host-supplied per-turn context (git status, jira ticket,
-	// project conventions, etc.). The callback is responsible for its own
-	// timeouts; recover() inside providedContext keeps a misbehaving plugin
-	// from killing the loop.
-	if extra := a.providedContext(context.Background()); extra != "" {
+	// project conventions, etc.). The comment used to claim "the callback
+	// is responsible for its own timeouts" — in practice nothing enforced
+	// that, and a blocking plugin would stall every Run. Wrap in a 5s
+	// budget so a misbehaving callback degrades to "no extra context" for
+	// this turn instead of hanging the loop.
+	pctx, pcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if extra := a.providedContext(pctx); extra != "" {
 		prompt = prompt + "\n\n" + extra
 	}
+	pcancel()
 	// Caveman Mode (master plan §4.4): escalate bluntness as token budget
 	// approaches the cap so the model voluntarily compresses its output.
 	prompt = a.applyCaveman(prompt)
@@ -1102,9 +1135,10 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 		}
 	}
 
-	a.mu.RLock()
-	c := a.compactor
-	a.mu.RUnlock()
+	var c HistoryCompactor
+	if box := a.compactor.Load(); box != nil {
+		c = box.HistoryCompactor
+	}
 	useC := a.useCompactor.Load()
 
 	model := a.Model()

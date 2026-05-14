@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Ethos are tracked in this file.
+All notable changes to Overkill are tracked in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build-time version injection via `-ldflags="-X main.Version=..."` in the Makefile.
 
 ### Changed
-- `cmd/ethos.Version` is now a `var` (was `const`) so it can be overridden at link time.
+- `cmd/overkill.Version` is now a `var` (was `const`) so it can be overridden at link time.
 - Dependabot moved to weekly cadence with minor/patch grouping per ecosystem.
 
 ### Removed
-- Tracked `ethos` binary at the repo root (now `.gitignore`d).
+- Tracked `overkill` binary at the repo root (now `.gitignore`d).

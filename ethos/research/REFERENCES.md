@@ -1,10 +1,10 @@
 # Research References
 
-54 papers informing Ethos architecture. Organized by category.
+54 papers informing Overkill architecture. Organized by category.
 
 ## Core Reasoning & Planning
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 1 | Wei et al | Chain-of-Thought Prompting Elicits Reasoning in Large Language Models | 2022 | NeurIPS | Intermediate reasoning steps improve results on complex tasks | Core reasoning in agent loop |
 | 2 | Yao et al | ReAct: Synergizing Reasoning and Acting in Language Models | 2022 | ICLR | Interleave reasoning with actions for better task completion | Agent loop architecture |
@@ -16,7 +16,7 @@
 
 ## Context & Compaction
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 8 | Wang et al | Intelligence Degradation in Long-Context LLMs | 2026 | arXiv | Performance collapses at 40-50% of max context window | 50% compaction trigger |
 | 9 | Eyuboglu et al | Cartridges: Lightweight KV Cache for Contextual AI | 2025 | arXiv | Offline KV compaction achieves 38.6x compression | Advanced compaction |
@@ -28,7 +28,7 @@
 
 ## Memory & Self-Learning
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 15 | Packer et al | MemGPT: Towards LLMs as Operating Systems | 2023 | ICLR | OS-style hierarchical memory management | Multi-tier memory |
 | 16 | Wang et al | Voyager: An Open-Ended Embodied Agent with Large Language Models | 2023 | NeurIPS | Growing skill library from experience | Skill library design |
@@ -40,7 +40,7 @@
 
 ## Security
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 19 | Greshake et al | More Than You've Asked For: A Comprehensive Analysis of Indirect Prompt Injection | 2023 | CCS | Data/instruction boundary blurs in agentic systems | Security plane |
 | 20 | Acharya & Gupta | MCPSHIELD: Security Analysis of MCP Servers | 2026 | arXiv | 7 threat categories, 23 attack vectors on tool servers | Tool security |
@@ -52,7 +52,7 @@
 
 ## Evaluation
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 26 | Jimenez et al | SWE-bench: Can Language Models Resolve Real-World GitHub Issues? | 2023 | ICLR | Real GitHub issue benchmark for code agents | Evaluation framework |
 | 27 | Yang et al | SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering | 2024 | arXiv | Agent-Computer Interface design significantly impacts performance | Tool interface design |
@@ -62,7 +62,7 @@
 
 ## Tool Use & Orchestration
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 30 | Schick et al | Toolformer: Language Models Can Teach Themselves to Use Tools | 2023 | NeurIPS | Self-supervised tool use learning | Tool invocation patterns |
 | 31 | OWL/Anemoi Team | Semi-Centralized Multi-Agent Orchestration | 2025 | arXiv | Semi-centralized multi-agent coordination +9% improvement | Agent orchestration |
@@ -72,7 +72,7 @@
 
 ## Personality & Persona
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 32 | Anthropic | Persona Selection Model | 2026 | Anthropic Research | Personality is persona selection, not engineering. Post-training selects from pre-existing personas | Personality engine architecture |
 | 33 | Anthropic | Persona Vectors in Language Models | 2025 | Anthropic Research | Neural activation patterns for personality traits can be extracted, monitored, and steered | Sycophancy and quality control |
@@ -82,7 +82,7 @@
 
 ## Behavioral Science — Human-AI Interaction
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 37 | De Freitas et al (HBS) | AI Companions Reduce Loneliness | 2026 | Nature | AI companions reduce loneliness comparable to human interaction | Relationship tracking justification |
 | 38 | Kelley & Riedl | Personalization vs Independence in AI Advisors | 2026 | CHI | Advisor role PRESERVES independence under personalization. Peer role DESTROYS it | Role framing as advisor, not peer |
@@ -92,7 +92,7 @@
 
 ## Metacognition & Self-Model
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 42 | Li et al | AI Awareness: Metacognition in Language Models | 2025 | arXiv | 4 forms of awareness: metacognition, self-awareness, social, situational | Self-model design |
 | 43 | Wang | MIRROR: Models Cannot Self-Calibrate | 2026 | arXiv | Models CANNOT self-calibrate. External scaffolding reduces confident failure 76% | TDD/verification mandatory |
@@ -100,7 +100,7 @@
 
 ## Agent Architecture
 
-| # | Authors | Title | Year | Venue | Key Insight | Ethos Feature |
+| # | Authors | Title | Year | Venue | Key Insight | Overkill Feature |
 |---|---------|-------|------|-------|-------------|---------------|
 | 45 | Anthropic | Building Trustworthy Agents | 2026 | Anthropic Research | 4 layers: model, harness, tools, environment. Plan Mode pattern | Security architecture |
 | 46 | Anthropic | Automated Alignment Researchers | 2026 | Anthropic Research | 9 Claude copies did alignment research autonomously. Evaluation is bottleneck | Self-improvement loop |
