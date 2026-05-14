@@ -33,6 +33,11 @@ import (
 // closure doesn't have to thread it through every layer.
 var daemonFlowStore agent.FlowStore
 
+// daemonRoutines is the live RoutineEngine, set in runDaemonStart so
+// the agent event bus can deliver events to registered routines.
+// Nil when the automation Badger DB failed to open.
+var daemonRoutines *automation.RoutineEngine
+
 
 // alarmDispatchModel is the env override for the cheap-tier model the
 // alarm sub-agent uses. Default values are tried in order until one

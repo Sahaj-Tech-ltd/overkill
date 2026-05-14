@@ -21,6 +21,11 @@ type RoutineEngine struct {
 	mu       sync.RWMutex
 	routines map[string]*Routine
 	fire     func(action string) (string, error)
+	// store persists mutations so a daemon restart preserves
+	// registered routines AND their cooldown state. Optional;
+	// nil disables persistence (test ergonomics + memory-only
+	// embeddings).
+	store RoutineStore
 }
 
 func NewRoutineEngine(fire func(action string) (string, error)) *RoutineEngine {
@@ -28,6 +33,31 @@ func NewRoutineEngine(fire func(action string) (string, error)) *RoutineEngine {
 		routines: make(map[string]*Routine),
 		fire:     fire,
 	}
+}
+
+// NewRoutineEngineWithStore wires the engine to a durable store and
+// replays every persisted routine into the in-memory map. The
+// store is consulted on every mutation (Register / Unregister /
+// Enable / Disable / HandleEvent's LastFired update).
+//
+// Returns an error only on the initial Load; persistence failures
+// during operation are surfaced from the individual mutator
+// methods.
+func NewRoutineEngineWithStore(fire func(action string) (string, error), store RoutineStore) (*RoutineEngine, error) {
+	e := NewRoutineEngine(fire)
+	e.store = store
+	if store == nil {
+		return e, nil
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		return e, fmt.Errorf("automation: load routines: %w", err)
+	}
+	for _, r := range loaded {
+		cp := *r
+		e.routines[r.ID] = &cp
+	}
+	return e, nil
 }
 
 func (e *RoutineEngine) Register(routine *Routine) error {
@@ -40,7 +70,7 @@ func (e *RoutineEngine) Register(routine *Routine) error {
 
 	cp := *routine
 	e.routines[routine.ID] = &cp
-	return nil
+	return e.persistLocked(&cp)
 }
 
 func (e *RoutineEngine) Unregister(id string) bool {
@@ -52,6 +82,12 @@ func (e *RoutineEngine) Unregister(id string) bool {
 		return false
 	}
 	delete(e.routines, id)
+	if e.store != nil {
+		// Persistence failure here is best-effort — the routine
+		// is gone from memory either way. Log via the engine's
+		// own error channel if we ever add one.
+		_ = e.store.Delete(id)
+	}
 	return true
 }
 
@@ -81,6 +117,12 @@ func (e *RoutineEngine) HandleEvent(trigger string) (bool, error) {
 		r.LastFired = now
 		r.FireCount++
 		fired = true
+		if err := e.persistLocked(r); err != nil {
+			// Persisting cooldown state mid-event is best-effort.
+			// Surface via the error return so a daemon-level
+			// handler can log it, but don't drop the firing.
+			return fired, fmt.Errorf("automation: routine %s persist cooldown: %w", r.ID, err)
+		}
 	}
 
 	return fired, nil
@@ -107,7 +149,7 @@ func (e *RoutineEngine) Enable(id string) error {
 		return fmt.Errorf("automation: enable routine %s: %w", id, ErrNotFound)
 	}
 	r.Enabled = true
-	return nil
+	return e.persistLocked(r)
 }
 
 func (e *RoutineEngine) Disable(id string) error {
@@ -119,5 +161,16 @@ func (e *RoutineEngine) Disable(id string) error {
 		return fmt.Errorf("automation: disable routine %s: %w", id, ErrNotFound)
 	}
 	r.Enabled = false
-	return nil
+	return e.persistLocked(r)
+}
+
+// persistLocked saves a routine via the store, if wired. Caller MUST
+// hold e.mu. nil store is a no-op so tests and in-memory uses don't
+// have to wire one.
+func (e *RoutineEngine) persistLocked(r *Routine) error {
+	if e.store == nil {
+		return nil
+	}
+	cp := *r
+	return e.store.Save(&cp)
 }

@@ -1198,10 +1198,11 @@ Sequenced to maximise compounding payoff:
 - [x] Resumable runs: Pause / Resume / ApproveStep, state persisted via SOPStore
 - [ ] Triggers: cron, webhook, MQTT — cron path works; webhook/MQTT not yet wired
 
-**Layer 4: Routines (from ZeroClaw)**  ⚠️ stub only
+**Layer 4: Routines (from ZeroClaw)**  ✅
 - [x] Routine registry + read-only TUI surface
-- [ ] Event-to-action engine (webhook/MQTT triggers)
-- [ ] Cooldown tracking
+- [x] Event-to-action engine — agent lifecycle events flow via `routine_forwarder.go` → daemon RPC `routine.fire` → `RoutineEngine.HandleEvent`. Webhook / MQTT triggers can attach as additional event sources behind the same RPC.
+- [x] Cooldown tracking (persisted across restarts via `BadgerRoutineStore`)
+- [x] CLI: `overkill routine list | add | rm | enable | disable`
 
 **Layer 5: Standing Orders (from OpenClaw)**  ✅
 - [x] Standing-orders manager + `/orders` TUI surface

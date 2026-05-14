@@ -176,6 +176,17 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		defer daemonAlarm.Stop()
 		fmt.Printf("%s✓ automation engine started (%d alarms)%s\n", colorGreen, len(daemonAlarm.List()), colorReset)
 
+		// Routine engine (§7.1 Layer 4). Persists across restarts
+		// so registered event→action rules survive reboots with
+		// their cooldown timers intact.
+		routineStore := automation.NewBadgerRoutineStore(autoDB)
+		routineEngine, rerr := automation.NewRoutineEngineWithStore(shellExecutor, routineStore)
+		if rerr != nil {
+			fmt.Fprintf(os.Stderr, "daemon: routine load: %v\n", rerr)
+		}
+		daemonRoutines = routineEngine
+		fmt.Printf("%s✓ routine engine started (%d routines)%s\n", colorGreen, len(routineEngine.List()), colorReset)
+
 		// Flow store for Task Flow durable resume (§7.1 Layer 7).
 		// Shares the same Badger DB as alarms/SOPs.
 		daemonFlowStore = agent.NewBadgerFlowStore(autoDB)
@@ -244,6 +255,9 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		if daemonAlarm != nil {
 			registerAlarmHandlers(sock, daemonAlarm)
 			registerFlowHandlers(sock, daemonFlowStore, daemonAlarm)
+		}
+		if daemonRoutines != nil {
+			registerRoutineHandlers(sock, daemonRoutines)
 		}
 		// Estop: graceful halt path. Cancels every pending alarm so
 		// scheduled work doesn't fire after the user said "stop". If

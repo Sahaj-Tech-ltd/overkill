@@ -1521,7 +1521,15 @@ func buildTUIApp() *tui.App {
 			modelFn:   a.Model,
 			onFailure: transparencyFn,
 		}
-		a.SetEventFn(journalAdapter.Handle)
+		// Compose with the routine-RPC forwarder so each agent event
+		// also delivers to the daemon's routine engine (§7.1 Layer 4).
+		// Best-effort: missing daemon → event drops silently. The
+		// agent never blocks on a routine fire.
+		routineForward := newRoutineEventForwarder()
+		a.SetEventFn(func(event string, payload map[string]any) {
+			journalAdapter.Handle(event, payload)
+			routineForward.Fire(event)
+		})
 		a.SetRecoveryWriter(journalAdapter)
 	}
 
