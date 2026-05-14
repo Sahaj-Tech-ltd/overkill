@@ -28,7 +28,7 @@ Last status sweep: 2026-05-13 (post-workflow split).
 | **Phase 1.5** Inspiration Steals | ✅ | — |
 | **Phase 2** TUI + Routing (§5.1-5.3) | ✅ | Streaming markdown is explicit non-goal |
 | **Phase 3** Memory + Self-Learning + Walls (§6.1-6.5) | ✅ | — |
-| **Phase 4** Automation + Multi-Channel + Browser (§7.1-7.6) | ✅ | — |
+| **Phase 4** Automation + Multi-Channel + Browser (§7.1-7.6) | ✅ closed 2026-05-14 | — |
 | **Phase 5** Advanced R&D (§8.1-8.6) | ⚠️ | §8.6 Reflexion (paper #51) shipped; rest aspirational |
 
 **Paper #48 (OpenAI Monitoring) rollout — closed 2026-05-13/14:**
@@ -1146,7 +1146,21 @@ Sequenced to maximise compounding payoff:
 
 ---
 
-## 7. Phase 4: Automation + Multi-Channel + Browser  ✅
+## 7. Phase 4: Automation + Multi-Channel + Browser  ✅ closed 2026-05-14
+
+> **Phase 4 close.** All seven Layer-X sub-systems landed (daemon,
+> alarm clocks with sub-agent dispatch, SOP engine with 5 modes +
+> webhook trigger, routine engine with persistence + RPC, standing
+> orders with self-update + EVR, task ledger with sweeper + push
+> notifications, durable Task Flow with cross-fire resume). Cron is
+> timezone-aware. Browser surface is Playwright + dev-browser
+> (Stagehand removed from scope). All four messaging gateways
+> (Telegram / Discord / WhatsApp-whatsmeow / WhatsApp-Cloud) speak
+> the same Inbound/Reply contract, share session state across
+> channels via the router's Follows map, and now deliver
+> task-completion push notifications. Understand-anything is full
+> (PDF / DOCX / audio / image / binary / text with MIME sniffing).
+> `overkill update` self-updates the binary on launch.
 
 ### 7.1 Automation Engine (Event + Alarm Clocks, NO Heartbeats)  ✅
 
