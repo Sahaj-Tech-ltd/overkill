@@ -25,6 +25,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
@@ -42,6 +43,11 @@ var daemonRoutines *automation.RoutineEngine
 // dispatcher and the §7.1 Layer 3 webhook server so an external
 // trigger and an internal alarm can drive the same procedures.
 var daemonSOPEngine *automation.SOPEngine
+
+// daemonDashboard is the live §4.19 SSE memory dashboard. Set in
+// runDaemonStart; callers (alert sink, observation pipeline)
+// broadcast to it when present.
+var daemonDashboard *journal.DashboardServer
 
 
 // alarmDispatchModel is the env override for the cheap-tier model the

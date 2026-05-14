@@ -863,9 +863,9 @@ governs WHO the agent is.
 - [x] Always recording, never injected into context unless explicitly queried — `journalEventAdapter` fans agent events to the recorder
 - [x] Goes with traceability — raw logs are the source of truth for failhypo extraction, Wall 4 monitor scans, transparency replay
 
-**Journal Sub-Agent:**  ⚠️ summarizer exists, no daily-narrative sub-agent yet
+**Journal Sub-Agent:**  ✅
 - [x] `journal.Summarizer` exists for compact summaries (used by post-mortem flows)
-- [ ] On-session-exit daily narrative writer to `~/.overkill/journal/entries/YYYY-MM-DD.md` — deferred. The flight recorder + alert store cover the data; the narrative renderer hasn't been built.
+- [x] Daily-narrative renderer: `Summarizer.NarrateSession` reads the flight recorder, calls the model with a structured diary system prompt (What we did / Skipped / Broke / Friction / Notes for tomorrow), and writes to `~/.overkill/journal/entries/YYYY-MM-DD.md`. Multiple sessions on the same day append under `## session <id>` sub-sections — one file per day per §4.19 spec. Fired automatically on TUI session-end (60s budget, best-effort, errors logged not surfaced). On-demand via `overkill journal narrate <session-id>` for cron / catch-up.
 
 **Alerts:**  ✅
 - [x] `journal.AlertStore` writes to `~/.overkill/alerts/` (atomic JSON file)
@@ -879,9 +879,9 @@ governs WHO the agent is.
 - [x] **Structured observation types** via `journal.Observation` (ObservationType, Title, Narrative, Facts, Concepts, FilesRead, FilesModified)
 - [x] **Idempotent storage:** SHA-256 content hash; ObservationStore dedupes by `ContentHash` on Store
 - [x] **Journal capture is non-blocking** — agent events go to the recorder via best-effort writes; recorder failures never propagate into the agent loop
-- [ ] **Hybrid search with vector similarity via Python bridge** — text/FTS path is live; vector similarity path is stubbed pending §8.2 advanced memory work
-- [ ] **CLAIM-CONFIRM async compression queue** — not built; current store is synchronous
-- [ ] **Real-time SSE broadcast to a memory dashboard** — dashboard surface isn't built yet
+- [x] **Hybrid search with vector similarity via Python bridge** — `journal.VectorEnabledStore` wraps `ObservationStore` with a `VectorIndex` interface. cmd-side wires `memory.BridgeAdapter` in; nil index degrades to FTS-only. `StoreWithVector` embeds + persists; `SearchSimilar` embeds the query and returns top-K cosine neighbors with configurable threshold. Best-effort + bounded timeouts so bridge outages never block the agent.
+- [x] **CLAIM-CONFIRM async compression queue** — `journal.CompressionQueue` (file-per-job under `<dir>/queue/`). Lifecycle: Enqueue → Claim (atomic, with worker PID + lease deadline) → Confirm. Crashed workers' claims expire by deadline; another worker re-claims. Idempotent enqueue. Fail with retries until `maxAttempts` then `QueueFailed` for operator review.
+- [x] **Real-time SSE broadcast to a memory dashboard** — `journal.DashboardServer` runs in the daemon on `127.0.0.1:7802` (configurable via `OVERKILL_DASHBOARD_LISTEN`). `GET /dashboard/events` streams observation + alert events as SSE; 30s heartbeat keeps idle connections alive; slow subscribers drop events rather than back up the broadcaster. Bearer auth via `OVERKILL_DASHBOARD_TOKEN`. Curl-able shape — no built-in UI, the user can build whatever frontend they want against the protocol.
 
 ### 4.20 Data Durability (BadgerDB Resilience)  ✅
 

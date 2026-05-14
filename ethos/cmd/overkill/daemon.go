@@ -26,6 +26,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cron"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/daemon"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 )
 
 // daemonStartedAt is captured on Start so the `ping` RPC can report
@@ -240,6 +241,29 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	// separate process) reads pending alerts and delivers them to
 	// the user's bound channels.
 	daemonLedger.SetTerminalSink(taskCompletionAlertSink())
+
+	// §4.19 SSE memory dashboard. Streams observation + alert events
+	// over Server-Sent Events so users can build their own dashboard
+	// or just `curl` the endpoint. Loopback-only by default; bearer
+	// auth when OVERKILL_DASHBOARD_TOKEN is set.
+	dashboard := journal.NewDashboardServer()
+	dashboard.Listen = os.Getenv("OVERKILL_DASHBOARD_LISTEN")
+	dashboard.Token = os.Getenv("OVERKILL_DASHBOARD_TOKEN")
+	daemonDashboard = dashboard
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := dashboard.Run(ctx); err != nil && err != context.Canceled {
+			fmt.Fprintf(os.Stderr, "daemon: dashboard: %v\n", err)
+		}
+	}()
+	{
+		addr := dashboard.Listen
+		if addr == "" {
+			addr = "127.0.0.1:7802"
+		}
+		fmt.Printf("%s✓ SSE dashboard armed at http://%s/dashboard/events%s\n", colorGreen, addr, colorReset)
+	}
 
 	// §7.1 Layer 3: SOP webhook trigger. External systems (CI hooks,
 	// monitoring alerts, MQTT-to-HTTP relays) POST /sop/{id} on the

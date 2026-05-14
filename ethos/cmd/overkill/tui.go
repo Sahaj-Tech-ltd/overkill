@@ -361,6 +361,10 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		if app != nil && app.Agent != nil {
 			app.Agent.FireSessionEnd(context.Background())
 		}
+		// §4.19 daily-narrative renderer. Best-effort: a missing
+		// provider, an LLM error, or an empty session all degrade to
+		// no-op. Bounded 60s so a stuck model doesn't wedge exit.
+		writeJournalNarrative(app)
 		// §6.3 persist the relationship arc so milestones survive
 		// across sessions. Best-effort.
 		if app != nil && app.Relationship != nil {

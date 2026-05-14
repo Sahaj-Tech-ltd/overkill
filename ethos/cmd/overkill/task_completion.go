@@ -37,6 +37,18 @@ func taskCompletionAlertSink() automation.TerminalSink {
 	return func(t automation.LedgerTask) {
 		msg := formatTaskCompletionMessage(t)
 		_ = store.Create(journal.AlertTaskCompleted, msg, "" /* daemon-wide, no session id */)
+		// §4.19 SSE broadcast — live subscribers see completion in
+		// real time instead of waiting for the next poll. Best-
+		// effort and non-blocking; nil dashboard (server not
+		// running) is a no-op.
+		if daemonDashboard != nil {
+			alert := &journal.Alert{
+				Type:      journal.AlertTaskCompleted,
+				Message:   msg,
+				SessionID: "",
+			}
+			daemonDashboard.BroadcastAlert(alert)
+		}
 	}
 }
 
