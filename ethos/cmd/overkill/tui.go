@@ -31,6 +31,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/plan"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/playbooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tasks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/reflect"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/lsp"
@@ -1230,6 +1231,20 @@ func buildTUIApp() *tui.App {
 		// failhypo_search — agent can query "have we already tried this?"
 		// before going down a known-dead path. Same disclosure pattern,
 		// different stream (paper #48 design input #5).
+		// §8.2 ACE playbooks. Stored prompt patterns for recurring
+		// task shapes, ranked by task-type match + success rate +
+		// recency. Agent calls playbook_rank → playbook_use →
+		// playbook_record_outcome to close the feedback loop.
+		pbDir := filepath.Join(home, ".overkill", "playbooks")
+		_ = os.MkdirAll(pbDir, 0o755)
+		pbStore := playbooks.NewStore(pbDir)
+		toolReg.Register(tools.NewPlaybookCreateTool(pbStore))
+		toolReg.Register(tools.NewPlaybookRankTool(pbStore))
+		toolReg.Register(tools.NewPlaybookUseTool(pbStore))
+		toolReg.Register(tools.NewPlaybookRecordOutcomeTool(pbStore))
+		toolReg.Register(tools.NewPlaybookRefineTool(pbStore))
+		toolReg.Register(tools.NewPlaybookListTool(pbStore))
+
 		// §8.2 MemAgent segment-based memory. Agent defines labeled
 		// slices of the codebase (auth module, payment tests, etc.)
 		// and retrieves top-K relevant ones for a query instead of

@@ -1272,9 +1272,9 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 - [ ] Neural Garbage Collection — Li 2026
 - [ ] Fast KV Compaction via Attention Matching — Zweiger 2026
 
-### 8.2 Advanced Memory  ⚠️ segments done; ACE pending
+### 8.2 Advanced Memory  ✅
 - [x] Segment-based memory for massive codebases (MemAgent — Yu 2025) — `internal/memory/segments.go` stores labeled glob-based slices with retrieval scoring (recency half-life × name/desc/tag match × inverse size). Agent tools: `segment_create / list / rank / load / delete`. Recursive `**` glob support; LoadFiles caches stats for future ranking.
-- [ ] Agentic Context Engineering (ACE) — evolving playbooks — Zhang 2025 — Phase 5 #6
+- [x] Agentic Context Engineering (ACE) — evolving playbooks — Zhang 2025 — `internal/playbooks/playbooks.go` stores per-playbook records with success/failure counters, use count, recency. `Rank()` scores by exact-task-type match × success rate × recency half-life (7d) × use-count bump. `Refine()` creates child playbooks linked via ParentID — parent history stays intact, child starts with neutral prior. Agent tools: `playbook_create / rank / use / record_outcome / refine / list`. Closes the feedback loop: rank → use → execute → record_outcome → winning playbooks float to the top.
 
 ### 8.3 Cross-Session Intelligence  ⚠️ task graph + replay done; drift pending
 - [x] Cross-session task graph — `internal/tasks/tasks.go` stores per-task records (intent, status, linked commits, notes). Tools: `task_open / task_close / task_link_commit / task_note / task_list`. Stale-but-open tasks surface automatically at session boot via `FormatOpenerSummary` (filters by 2h+ age). Operator CLI: `overkill thread list | show | close`.
