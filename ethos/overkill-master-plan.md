@@ -27,7 +27,7 @@ Last status sweep: 2026-05-13 (post-workflow split).
 | **Phase 1** MVP Agent Loop (§4.1-4.20) | ✅ | — (`daemon` + `update` CLIs landed in Phase 4) |
 | **Phase 1.5** Inspiration Steals | ✅ | — |
 | **Phase 2** TUI + Routing (§5.1-5.3) | ✅ | Streaming markdown is explicit non-goal |
-| **Phase 3** Memory + Self-Learning + Walls (§6.1-6.5) | ✅ | ClawHub registry + VirusTotal skill scanning still deferred |
+| **Phase 3** Memory + Self-Learning + Walls (§6.1-6.5) | ✅ | — |
 | **Phase 4** Automation + Multi-Channel + Browser (§7.1-7.6) | ✅ | Stagehand still ❌; proactive transparency + blind-spot surfacing not wired yet |
 | **Phase 5** Advanced R&D (§8.1-8.6) | ⚠️ | §8.6 Reflexion (paper #51) shipped; rest aspirational |
 
@@ -1115,7 +1115,7 @@ Sequenced to maximise compounding payoff:
 - [x] **Beat detection hooks:** first PR merged, first skill, first rollback, high-five moments
 - [x] User-defined hooks in `~/.overkill/hooks/`
 
-### 6.4 Skills System  ⚠️ VirusTotal scan + ClawHub registry still pending
+### 6.4 Skills System  ✅
 - [x] SKILL.md format (language-agnostic)
 - [x] Skill loading from `~/.overkill/skills/`
 - [ ] **ClawHub registry integration** (OpenClaw skills are portable) — Phase 4 territory

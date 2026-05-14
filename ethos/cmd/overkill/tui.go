@@ -450,8 +450,12 @@ func buildTUIApp() *tui.App {
 			app.Workspace = wm
 		}
 		// Skill loader — try ~/.overkill/skills then bundled ./skills as a fallback.
+		// §6.4: user-dir skills are safety-scanned at load time.
+		// Bundled skills bypass — they ship with the binary. The
+		// scanner is constructed from OVERKILL_VT_API_KEY; empty
+		// key → NoopScanner (open by default, today's behaviour).
 		userSkillsDir := filepath.Join(home, ".overkill", "skills")
-		loader := skills.NewLoader("skills", userSkillsDir)
+		loader := skills.NewLoader("skills", userSkillsDir).WithScanner(defaultScanner())
 		if all, err := loader.LoadAll(); err == nil {
 			enabled := map[string]bool{}
 			if cfg != nil {
