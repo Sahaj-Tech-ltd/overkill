@@ -106,7 +106,25 @@ func (e *SOPEngine) Execute(ctx context.Context, id string) error {
 func (e *SOPEngine) executeSteps(ctx context.Context, id string) error {
 	indices := e.stepOrder(id)
 
+	// Seed prevOutput from the last already-done step so
+	// ModeDeterministic preserves the step-N output → step-N+1
+	// input chain across Pause/Resume. Without this, every Resume
+	// silently fed "" into the first remaining deterministic step
+	// and the chain broke.
 	var prevOutput string
+	e.mu.RLock()
+	if sop, ok := e.sops[id]; ok {
+		for _, idx := range indices {
+			if idx >= len(sop.Steps) {
+				continue
+			}
+			if sop.Steps[idx].Status == StepDone {
+				prevOutput = sop.Steps[idx].Output
+			}
+		}
+	}
+	e.mu.RUnlock()
+
 	for _, idx := range indices {
 		select {
 		case <-ctx.Done():
@@ -128,6 +146,13 @@ func (e *SOPEngine) executeSteps(ctx context.Context, id string) error {
 		}
 
 		step := &sop.Steps[idx]
+		// Skip steps already completed (Resume path) or explicitly
+		// skipped. Otherwise we re-run done work, defeating the
+		// resumable-from-last-completed-step guarantee.
+		if step.Status == StepDone || step.Status == StepSkipped {
+			e.mu.Unlock()
+			continue
+		}
 		step.Status = StepRunning
 		sop.CurrentStep = idx
 		sop.UpdatedAt = time.Now().UTC()

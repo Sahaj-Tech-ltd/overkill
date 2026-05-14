@@ -433,22 +433,17 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					if note == "" {
 						continue
 					}
-					// Surface as a separate tool message so it
-					// renders distinctly from the write's own
-					// success message. Same role/ID convention as
-					// real tool results — model treats it as a
-					// follow-up observation.
-					a.appendToolResultMessage(
-						tr.ToolCallID+":verify",
-						tr.ToolName+"_verify",
-						json.RawMessage(`{}`),
-						nil,
-					)
-					// The actual content lives in a synthetic
-					// assistant-readable note rather than the tool
-					// result body, because tool result bodies are
-					// JSON. The verifier note is prose for the
-					// model.
+					// Surface the verifier note as a system message
+					// only. The previous design also appended a
+					// synthetic tool_result with a fabricated
+					// tool_use_id ("<id>:verify") to make the verify
+					// note look like a tool turn — Anthropic and
+					// OpenAI both 400 on tool_result blocks whose
+					// tool_use_id isn't in the prior assistant turn,
+					// so that path broke every write-class turn.
+					// System-message-only is enough: the model reads
+					// it on the next step, same as the reward-hack
+					// audit below.
 					a.appendMessage(providers.Message{
 						Role:    "system",
 						Content: note,

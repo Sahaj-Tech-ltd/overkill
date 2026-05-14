@@ -186,8 +186,17 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		if rerr != nil {
 			fmt.Fprintf(os.Stderr, "daemon: routine load: %v\n", rerr)
 		}
-		daemonRoutines = routineEngine
-		fmt.Printf("%s✓ routine engine started (%d routines)%s\n", colorGreen, len(routineEngine.List()), colorReset)
+		// Defensive: NewRoutineEngineWithStore returns a non-nil engine
+		// even on load failure today, but a future refactor could make
+		// the nil case live. Guard so a single edit upstream can't
+		// surface as a daemon-boot panic (which autoheal would then
+		// restart-loop — see commit f335821).
+		if routineEngine != nil {
+			daemonRoutines = routineEngine
+			fmt.Printf("%s✓ routine engine started (%d routines)%s\n", colorGreen, len(routineEngine.List()), colorReset)
+		} else {
+			fmt.Fprintf(os.Stderr, "daemon: routine engine nil — routines disabled this run\n")
+		}
 
 		// Flow store for Task Flow durable resume (§7.1 Layer 7).
 		// Shares the same Badger DB as alarms/SOPs.

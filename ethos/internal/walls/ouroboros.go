@@ -91,7 +91,15 @@ func (w *OuroborosWall) Check(ctx context.Context, code string, spec string) (*W
 	if severity == SeverityInfo {
 		passed = true
 	}
-	if len(parsed.Issues) == 0 {
+	// Empty-issues bypass guard: the prior version coerced
+	// passed=true whenever Issues was empty, regardless of declared
+	// severity. A jailbroken Ouroboros that returns
+	// {"severity":"block","issues":[]} could trivially mark itself
+	// as passed. Now: empty issues at Info severity are still pass
+	// (model truly found nothing), but empty issues at Warning or
+	// Block stay failed — the model is contradicting itself, treat
+	// it as a fault, not as a pass.
+	if len(parsed.Issues) == 0 && severity == SeverityInfo {
 		passed = true
 		effectiveSeverity = SeverityInfo
 	}

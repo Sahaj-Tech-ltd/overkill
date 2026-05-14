@@ -109,7 +109,13 @@ func (s *Scheduler) tickJobs(now time.Time) {
 		}
 		nextInLoc := j.NextRun.In(loc)
 
-		if !now.Before(nextInLoc) && now.Sub(nextInLoc) < 2*s.tick {
+		// We're past the scheduled time. The previous design used a
+		// tight 2-tick window: if we missed the window (long GC pause,
+		// suspended host, daemon downtime), NextRun never advanced and
+		// the job was silently dead forever. Now: fire once if we're
+		// past due, then advance NextRun. Catch-up semantics, never
+		// re-fire skipped intermediate times.
+		if !now.Before(nextInLoc) {
 			s.fireJob(j)
 		}
 	}
