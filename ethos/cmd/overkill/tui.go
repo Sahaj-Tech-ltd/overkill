@@ -1258,10 +1258,22 @@ func buildTUIApp() *tui.App {
 		toolReg.Register(tools.NewRecordLearningTool(learnStore, a).WithCurrentModel(a))
 		toolReg.Register(tools.NewLearningsSearchTool(learnStore).WithCurrentModel(a))
 
+		// §7.1 Layer 5 self-update: standing-orders mutation tools.
+		// app.StandingOrders is constructed earlier in setupAgent; if
+		// it failed to open (rare — usually a permissions issue) the
+		// tools refuse cleanly at execute time.
+		if app.StandingOrders != nil {
+			toolReg.Register(tools.NewStandingOrderAddTool(app.StandingOrders))
+			toolReg.Register(tools.NewStandingOrderRemoveTool(app.StandingOrders))
+			toolReg.Register(tools.NewStandingOrderToggleTool(app.StandingOrders))
+			toolReg.Register(tools.NewStandingOrderListTool(app.StandingOrders))
+		}
+
 		// One-time system inject so the model knows the plan / tick-
-		// off / learnings flow exists. Without this the tools are
-		// invisible to the model unless the user explicitly mentions
-		// them. Kept terse — long boot prompts cost tokens forever.
+		// off / learnings / standing-orders flow exists. Without this
+		// the tools are invisible to the model unless the user
+		// explicitly mentions them. Kept terse — long boot prompts
+		// cost tokens forever.
 		a.Inject(providers.Message{
 			Role: "system",
 			Content: "Task discipline:\n" +
@@ -1269,6 +1281,7 @@ func buildTUIApp() *tui.App {
 				"  - As you complete each step, call plan_check with the item_id. Add a one-line note if the outcome was unusual.\n" +
 				"  - At end of task, call record_learning with topic+lesson if you learned anything non-obvious. This is append-only — past learnings cannot be edited.\n" +
 				"  - Before starting work on a problem area, call learnings_search and failhypo_search to check whether you've already tried something here.\n" +
+				"  - When the user gives you a durable rule (\"always X\", \"never Y\"), call standing_order_add. The optional `verify` + `report` fields let you encode an Execute-Verify-Report pattern. Remove with standing_order_remove. Past orders are NEVER silently overwritten.\n" +
 				"You are FORBIDDEN from writing directly to ~/.overkill/* via Write/Edit — those paths are scanner-blocked. Use the typed tools.",
 		})
 

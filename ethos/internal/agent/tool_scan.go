@@ -113,6 +113,15 @@ var protectedSubdirs = []string{
 	"receipts",            // §6.5 tool-receipt chain
 	"plans",               // per-session plan store (mutate via plan_* tools)
 	"learnings",           // append-only learnings stream (mutate via record_learning)
+	"automation",          // alarms, SOPs, routines, flow state (Badger DB)
+}
+
+// protectedFiles are top-level ~/.overkill/ filenames that aren't
+// in their own subdirectory but still need write protection.
+// standing-orders.jsonl is the canonical example: agent must
+// mutate it via standing_order_* tools, never via Write/Edit.
+var protectedFiles = []string{
+	"standing-orders.jsonl",
 }
 
 // writeToolPathExtractors maps a write-class tool name to the input
@@ -203,6 +212,11 @@ func pathInProtectedSubdir(p string) (string, bool) {
 				return sub, true
 			}
 		}
+		for _, fname := range protectedFiles {
+			if clean == filepath.Join(root, fname) {
+				return fname, true
+			}
+		}
 	}
 	// Fallback: structural match against the dir names. Catches
 	// the case where home-dir resolution fails or the path is
@@ -211,6 +225,12 @@ func pathInProtectedSubdir(p string) (string, bool) {
 		marker := ".overkill" + string(filepath.Separator) + sub
 		if strings.Contains(clean, marker) {
 			return sub, true
+		}
+	}
+	for _, fname := range protectedFiles {
+		marker := ".overkill" + string(filepath.Separator) + fname
+		if strings.HasSuffix(clean, marker) {
+			return fname, true
 		}
 	}
 	return "", false

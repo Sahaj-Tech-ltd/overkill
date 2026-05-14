@@ -22,10 +22,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// StandingOrder is one always-on instruction.
+// StandingOrder is one always-on instruction. The optional
+// Verify/Report fields encode the Execute-Verify-Report pattern
+// (master plan §7.1 Layer 5): when set, the agent should not just
+// honor `Text` but also run `Verify` afterwards and `Report` the
+// outcome. Empty Verify/Report means a plain "always honor"
+// directive.
 type StandingOrder struct {
 	ID        string    `json:"id"`
 	Text      string    `json:"text"`
+	Verify    string    `json:"verify,omitempty"`
+	Report    string    `json:"report,omitempty"`
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -102,6 +109,14 @@ func (o *OrdersFile) Active() []StandingOrder {
 
 // Add appends a new standing order and persists.
 func (o *OrdersFile) Add(text string) (*StandingOrder, error) {
+	return o.AddEVR(text, "", "")
+}
+
+// AddEVR is Add with the Execute-Verify-Report fields populated.
+// Plain `Add` is the common case; `AddEVR` is for orders the agent
+// itself promotes ("from now on always do X, verify with Y, report
+// Z"). Either verify or report may be empty.
+func (o *OrdersFile) AddEVR(text, verify, report string) (*StandingOrder, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil, errors.New("standing orders: text required")
@@ -109,6 +124,8 @@ func (o *OrdersFile) Add(text string) (*StandingOrder, error) {
 	so := StandingOrder{
 		ID:        uuid.NewString(),
 		Text:      text,
+		Verify:    strings.TrimSpace(verify),
+		Report:    strings.TrimSpace(report),
 		Enabled:   true,
 		CreatedAt: time.Now().UTC(),
 	}
@@ -165,6 +182,15 @@ func (o *OrdersFile) PromptSnippet() string {
 	b.WriteString("STANDING ORDERS (always honor):\n")
 	for i, so := range active {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, so.Text)
+		// Execute-Verify-Report continuation: render verify +
+		// report on indented lines so the model reads them as
+		// part of the same directive (§7.1 Layer 5).
+		if so.Verify != "" {
+			fmt.Fprintf(&b, "   verify: %s\n", so.Verify)
+		}
+		if so.Report != "" {
+			fmt.Fprintf(&b, "   report: %s\n", so.Report)
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

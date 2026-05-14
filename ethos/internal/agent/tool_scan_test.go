@@ -165,3 +165,16 @@ func TestPathInProtectedSubdir_RelativeContaining(t *testing.T) {
 	}
 }
 
+func TestCheckProtectedPaths_BlocksStandingOrdersFile(t *testing.T) {
+	cases := []string{
+		`{"file_path": "~/.overkill/standing-orders.jsonl"}`,
+		`{"file_path": "/home/user/.overkill/standing-orders.jsonl"}`,
+	}
+	for _, c := range cases {
+		blocked, _ := checkProtectedPaths("Write", c)
+		if !blocked {
+			t.Errorf("standing-orders.jsonl should block: %s", c)
+		}
+	}
+}
+

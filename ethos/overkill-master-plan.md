@@ -1207,8 +1207,8 @@ Sequenced to maximise compounding payoff:
 **Layer 5: Standing Orders (from OpenClaw)**  ✅
 - [x] Standing-orders manager + `/orders` TUI surface
 - [x] CLI mutation: `overkill orders list | add | rm | toggle` (cmd/overkill/orders.go)
-- [ ] Self-update by agent (still manual)
-- [ ] Execute-Verify-Report pattern wired into agent loop
+- [x] Self-update by agent — `standing_order_add / remove / toggle / list` typed tools. Raw writes to `standing-orders.jsonl` are scanner-blocked (`protectedFiles`), so the only mutation path is through these tools.
+- [x] Execute-Verify-Report wired via optional `verify` + `report` fields on each StandingOrder. PromptSnippet renders both as indented continuations so the model reads "do X; verify with Y; report Z" as one directive.
 
 **Layer 6: Background Task Ledger (from OpenClaw)**  ✅
 - [x] Task struct + lifecycle states defined
