@@ -105,6 +105,20 @@ func NewBot(phoneNumberID, accessToken, appSecret, verifyToken, listen string, a
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "whatsapp-cloud" }
 
+// Notify sends an unsolicited WhatsApp message via the Cloud API.
+// `to` is the recipient phone number in E.164 form (no leading +).
+// WhatsApp enforces a 24-hour messaging window: free-form outbound
+// messages outside an active conversation will be rejected by Meta
+// unless they fit an approved template. The §7.1 Layer 6 task
+// alerts are free-form; they'll succeed when sent during the
+// window and fail (logged by the poller) otherwise.
+func (b *Bot) Notify(ctx context.Context, to, text string) error {
+	if to == "" {
+		return fmt.Errorf("whatsapp-cloud: notify: to required")
+	}
+	return b.sendMessage(ctx, to, text)
+}
+
 // Run starts the webhook HTTP server and blocks until ctx is
 // cancelled. Returns ctx.Err() on cancel; wrapped errors for missing
 // config or listen failures.

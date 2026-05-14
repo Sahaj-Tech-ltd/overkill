@@ -76,6 +76,13 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	hub := gateway.NewHub()
 	hub.Logger = logger
 
+	// notifyBots captures references to running bots so the
+	// §7.1 Layer 6 completion-push poller can call their Notify
+	// methods. Each block sets the matching field when its bot is
+	// successfully constructed; nil entries mean "channel not
+	// enabled this run".
+	var nb notifyBots
+
 	if t := cfg.Gateways.Telegram; t.Enabled || os.Getenv("TELEGRAM_BOT_TOKEN") != "" {
 		token := t.BotToken
 		if token == "" {
@@ -88,6 +95,7 @@ func runGateway(cmd *cobra.Command, args []string) error {
 			tb := telegram.NewBot(client, disp, t.AllowedChats)
 			tb.Logger = logger
 			hub.Add(tb)
+			nb.telegramClient = client
 			logger.Printf("telegram: registered (%d chat(s) on allow-list, 0 = all)", len(t.AllowedChats))
 		}
 	}
@@ -112,13 +120,14 @@ func runGateway(cmd *cobra.Command, args []string) error {
 			db := discord.NewBot(token, disp, dc.AllowedGuilds, dc.AllowedChannels, requireMention)
 			db.Logger = logger
 			hub.Add(db)
+			nb.discordBot = db
 			logger.Printf("discord: registered (%d guild(s), %d channel(s) on allow-list, 0 = any; mention required=%v)",
 				len(dc.AllowedGuilds), len(dc.AllowedChannels), requireMention)
 		}
 	}
 
 	if wa := cfg.Gateways.WhatsApp; wa.Enabled {
-		if err := registerWhatsApp(hub, disp, wa, logger); err != nil {
+		if err := registerWhatsApp(hub, disp, wa, logger, &nb); err != nil {
 			logger.Printf("whatsapp: %v", err)
 		}
 	}
@@ -150,7 +159,7 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	// and push them to configured channels. The daemon writes
 	// AlertTaskCompleted records; the gateway delivers. Two-process
 	// design via shared file store — no RPC required.
-	notifyShutdown := startCompletionNotifyPoller(ctx, cfg, logger)
+	notifyShutdown := startCompletionNotifyPoller(ctx, cfg, logger, nb)
 	defer notifyShutdown()
 
 	if err := hub.Run(ctx); err != nil && err != context.Canceled {

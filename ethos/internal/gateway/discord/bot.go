@@ -71,6 +71,29 @@ func NewBot(token string, d *gateway.Dispatcher, allowedGuilds, allowedChannels 
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "discord" }
 
+// Notify sends an unsolicited message to channelID. Returns an
+// error when the bot's gateway session isn't open yet (Run hasn't
+// established it, or has already shut down). Used by the §7.1
+// Layer 6 completion-push poller to deliver task alerts to a
+// configured channel without a prior inbound message.
+func (b *Bot) Notify(ctx context.Context, channelID, text string) error {
+	if channelID == "" {
+		return fmt.Errorf("discord: notify: channel id required")
+	}
+	b.mu.Lock()
+	sess := b.session
+	closed := b.closed
+	b.mu.Unlock()
+	if sess == nil || closed {
+		return fmt.Errorf("discord: notify: session not open")
+	}
+	_, err := sess.ChannelMessageSend(channelID, text)
+	if err != nil {
+		return fmt.Errorf("discord: notify: %w", err)
+	}
+	return nil
+}
+
 // Run opens the Discord gateway connection and blocks until ctx is
 // cancelled. Returns ctx.Err() on cancel, or a wrapped error if the
 // initial Open fails.

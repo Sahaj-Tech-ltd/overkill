@@ -75,6 +75,32 @@ func NewBot(storePath string, allowedFrom []string, d *gateway.Dispatcher) *Bot 
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "whatsapp-whatsmeow" }
 
+// Notify sends an unsolicited WhatsApp message to the given JID.
+// Used by the §7.1 Layer 6 completion-push poller. Returns an
+// error when the whatsmeow client isn't connected (Run hasn't
+// finished pairing, or the session has dropped).
+func (b *Bot) Notify(ctx context.Context, jidStr, text string) error {
+	if jidStr == "" {
+		return fmt.Errorf("whatsmeow: notify: jid required")
+	}
+	jid, err := types.ParseJID(jidStr)
+	if err != nil {
+		return fmt.Errorf("whatsmeow: notify: parse jid %q: %w", jidStr, err)
+	}
+	b.mu.Lock()
+	client := b.client
+	b.mu.Unlock()
+	if client == nil {
+		return fmt.Errorf("whatsmeow: notify: client not connected")
+	}
+	if _, err := client.SendMessage(ctx, jid, &waE2E.Message{
+		Conversation: proto.String(text),
+	}); err != nil {
+		return fmt.Errorf("whatsmeow: notify send: %w", err)
+	}
+	return nil
+}
+
 // Run loads the paired device, connects, and blocks until ctx is
 // cancelled. Disconnect is automatic on ctx cancel.
 func (b *Bot) Run(ctx context.Context) error {

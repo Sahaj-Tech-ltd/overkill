@@ -34,7 +34,7 @@ import (
 // registerWhatsApp wires whichever backend the config asked for.
 // Errors are returned (caller logs); we don't fail the whole gateway
 // hub over one misconfigured channel.
-func registerWhatsApp(hub *gateway.Hub, disp *gateway.Dispatcher, wa config.WhatsAppConfig, logger *log.Logger) error {
+func registerWhatsApp(hub *gateway.Hub, disp *gateway.Dispatcher, wa config.WhatsAppConfig, logger *log.Logger, nb *notifyBots) error {
 	backend := strings.ToLower(strings.TrimSpace(wa.Backend))
 	switch backend {
 	case "", "whatsmeow":
@@ -52,6 +52,9 @@ func registerWhatsApp(hub *gateway.Hub, disp *gateway.Dispatcher, wa config.What
 		bot := wameow.NewBot(storePath, wa.AllowedFrom, disp)
 		bot.Logger = logger
 		hub.Add(bot)
+		if nb != nil {
+			nb.whatsmeowBot = bot
+		}
 		logger.Printf("whatsapp/whatsmeow: registered (store=%s, %d sender(s) on allow-list)",
 			storePath, len(wa.AllowedFrom))
 	case "cloud":
@@ -75,6 +78,9 @@ func registerWhatsApp(hub *gateway.Hub, disp *gateway.Dispatcher, wa config.What
 		bot := cloud.NewBot(c.PhoneNumberID, c.AccessToken, c.AppSecret, c.VerifyToken, listen, wa.AllowedFrom, disp)
 		bot.Logger = logger
 		hub.Add(bot)
+		if nb != nil {
+			nb.whatsappCloudBot = bot
+		}
 		logger.Printf("whatsapp/cloud: registered (phone_id=%s, listen=%s, %d sender(s) on allow-list)",
 			c.PhoneNumberID, listen, len(wa.AllowedFrom))
 	default:

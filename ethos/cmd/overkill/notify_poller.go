@@ -8,12 +8,26 @@ import (
 	"sync"
 	"time"
 
-	"go.mau.fi/whatsmeow/types"
-
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/discord"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/telegram"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/whatsapp/cloud"
+	wameow "github.com/Sahaj-Tech-ltd/overkill/internal/gateway/whatsapp/whatsmeow"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 )
+
+// notifyBots captures references to the bot instances the gateway
+// command constructs so the §7.1 Layer 6 completion-push poller can
+// deliver alerts through their already-open connections (instead of
+// duplicating auth + sessions). Each field is independently nil-
+// safe: a channel that's disabled, missing credentials, or hasn't
+// finished its Run handshake just skips its send branch.
+type notifyBots struct {
+	telegramClient   *telegram.Client
+	discordBot       *discord.Bot
+	whatsmeowBot     *wameow.Bot
+	whatsappCloudBot *cloud.Bot
+}
 
 // startCompletionNotifyPoller spins up a goroutine that reads
 // AlertTaskCompleted records out of the on-disk AlertStore and pushes
@@ -28,8 +42,10 @@ import (
 //
 // On send success, the alert is Acknowledge'd so the next poll
 // doesn't re-deliver. On send failure we leave it pending; next
-// poll retries until ack succeeds.
-func startCompletionNotifyPoller(ctx context.Context, cfg *config.Config, logger *log.Logger) func() {
+// poll retries until ack succeeds. Per-channel failures don't
+// block fan-out to other channels — a wedged WhatsApp won't keep
+// Telegram from delivering.
+func startCompletionNotifyPoller(ctx context.Context, cfg *config.Config, logger *log.Logger, bots notifyBots) func() {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		logger.Printf("notify-poller: skip (no HOME): %v", err)
@@ -41,7 +57,7 @@ func startCompletionNotifyPoller(ctx context.Context, cfg *config.Config, logger
 		return func() {}
 	}
 
-	senders := buildNotifySenders(cfg, logger)
+	senders := buildNotifySenders(cfg, bots, logger)
 	if len(senders) == 0 {
 		// No channel has a notify target configured. Pollster is a
 		// no-op — the alerts still accumulate for whoever else reads
@@ -81,19 +97,27 @@ type notifySender struct {
 	send func(ctx context.Context, text string) error
 }
 
-func buildNotifySenders(cfg *config.Config, logger *log.Logger) []notifySender {
+func buildNotifySenders(cfg *config.Config, bots notifyBots, logger *log.Logger) []notifySender {
 	var out []notifySender
 	if cfg == nil {
 		return out
 	}
 
 	if t := cfg.Gateways.Telegram; t.NotifyChatID != 0 {
-		token := t.BotToken
-		if token == "" {
-			token = os.Getenv("TELEGRAM_BOT_TOKEN")
+		client := bots.telegramClient
+		if client == nil {
+			// Fall back to constructing a one-shot client from the
+			// configured token. Useful when the user runs gateway
+			// without telegram in [gateways] but still wants push.
+			token := t.BotToken
+			if token == "" {
+				token = os.Getenv("TELEGRAM_BOT_TOKEN")
+			}
+			if token != "" {
+				client = telegram.New(token)
+			}
 		}
-		if token != "" {
-			client := telegram.New(token)
+		if client != nil {
 			chatID := t.NotifyChatID
 			out = append(out, notifySender{
 				name: "telegram",
@@ -108,21 +132,47 @@ func buildNotifySenders(cfg *config.Config, logger *log.Logger) []notifySender {
 		}
 	}
 
-	// Discord notify: ChannelMessageSend doesn't need a live session
-	// reference — discordgo gives us the channel ID and we send via
-	// REST. But constructing a discordgo.Session here would duplicate
-	// what bot.go owns. Defer to a future iteration; the alert still
-	// lands in the store and the TUI boot reader picks it up.
 	if dc := cfg.Gateways.Discord; dc.NotifyChannelID != "" {
-		logger.Printf("notify-poller: discord notify wired (TODO: push via REST without session sharing)")
+		if bots.discordBot == nil {
+			logger.Printf("notify-poller: discord notify_channel_id set but discord bot not in this hub; skipping")
+		} else {
+			bot := bots.discordBot
+			channelID := dc.NotifyChannelID
+			out = append(out, notifySender{
+				name: "discord",
+				send: func(ctx context.Context, text string) error {
+					return bot.Notify(ctx, channelID, text)
+				},
+			})
+			logger.Printf("notify-poller: discord channel %s", channelID)
+		}
 	}
 
-	// WhatsApp notify: similar story. The whatsmeow client maintains
-	// state inside the bot; reusing it for push requires sharing the
-	// instance. Future work.
 	if wa := cfg.Gateways.WhatsApp; wa.NotifyJID != "" {
-		_ = types.NewJID // keep the import referenced for the future wiring
-		logger.Printf("notify-poller: whatsapp notify wired (TODO: push via shared whatsmeow client)")
+		switch {
+		case bots.whatsmeowBot != nil:
+			bot := bots.whatsmeowBot
+			jid := wa.NotifyJID
+			out = append(out, notifySender{
+				name: "whatsapp/whatsmeow",
+				send: func(ctx context.Context, text string) error {
+					return bot.Notify(ctx, jid, text)
+				},
+			})
+			logger.Printf("notify-poller: whatsapp/whatsmeow jid %s", jid)
+		case bots.whatsappCloudBot != nil:
+			bot := bots.whatsappCloudBot
+			jid := wa.NotifyJID
+			out = append(out, notifySender{
+				name: "whatsapp/cloud",
+				send: func(ctx context.Context, text string) error {
+					return bot.Notify(ctx, jid, text)
+				},
+			})
+			logger.Printf("notify-poller: whatsapp/cloud to %s", jid)
+		default:
+			logger.Printf("notify-poller: whatsapp notify_jid set but no whatsapp bot in this hub; skipping")
+		}
 	}
 
 	return out
@@ -131,6 +181,12 @@ func buildNotifySenders(cfg *config.Config, logger *log.Logger) []notifySender {
 // drainCompletionAlerts reads pending alerts, pushes the
 // AlertTaskCompleted ones, and acknowledges on success. Other alert
 // types are left alone — the TUI boot reader is their consumer.
+//
+// Per-channel failures are logged but don't abort the alert: if at
+// least ONE channel succeeds, the alert is acknowledged. This means
+// a chronically-broken channel won't block the others, at the cost
+// of that broken channel never catching up on backlog. Operator
+// problem, not protocol problem.
 func drainCompletionAlerts(ctx context.Context, store *journal.AlertStore, senders []notifySender, logger *log.Logger) {
 	pending := store.Pending()
 	for _, a := range pending {
