@@ -1289,7 +1289,7 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 
 ### 8.5 Advanced Orchestration  ⚠️ worktrees done; speculative + LATS pending
 - [x] Worktree management for parallel agents without conflicts — `internal/worktree/manager.go` allocates one git worktree per subagent under `<repo>/.overkill-worktrees/<task-id>`, branch `overkill/parallel/<task-id>`. `cmd/overkill/parallel_runner.go` wires it into the subagent runtime: SpawnInWorktree acquires + spawns + waits + releases. CLI: `overkill worktree list | release | prune`. Reclaim path rediscovers trees after daemon restart.
-- [ ] Speculative tool execution: cache common reads, prefetch likely files
+- [x] Speculative tool execution: cache common reads, prefetch likely files — `internal/speculative/` ships `ReadCache` (TTL + LRU + mtime-freshness check, defensive bytes copy, telemetry) and `Prefetcher` (worker pool + bounded queue, drops on overflow rather than blocking). Heuristics in `heuristics.go`: `TestPairHeuristic` (Go/Python/TS/Rust pairings), `PackageNeighborHeuristic` (same-ext siblings), `DocHeuristic` — composable via `CombineHeuristics` which dedupes. Filesystem-existence filter so non-existent test pairs don't get queued.
 - [ ] LATS-style tree search for multi-path code exploration — Zhou 2024 (out of Wave 1–2 scope)
 
 ### 8.6 RL-based Self-Improvement  ⚠️ Reflexion landed; credit-assignment still aspirational
