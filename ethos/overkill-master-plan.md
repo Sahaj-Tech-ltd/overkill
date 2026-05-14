@@ -703,38 +703,31 @@ When user starts a session on a repo:
   - Previously known weak spots (from journal `pattern_detected` + failure history tied to old model version) — re-tested against new model
   - New model info from provider (context window, known limitations, pricing) written to MODEL_CARD.md
   - Results compared against historical baseline from old model
-- [ ] **Relationship arc competence flags updated:**
-  - "Good at auth refactoring" on old model → recalibrated for new model. May no longer hold.
-  - "Bad at complex SQL joins" → may no longer apply. Proactive transparency stops warning about pain points that vanished.
-  - New weaknesses discovered during probe → flagged, fed to proactive transparency for future warnings.
+- [x] **Relationship arc competence flags updated:** The recalibration probe (`buildRecalibrationProbe`) surfaces prior-model failure subjects to the new model as a checklist. The agent self-prompts to re-verify each before relying on the new model — old "good at X / bad at Y" tags don't carry forward as facts, they become hypotheses to re-test.
 - [x] **User sees one line:** *"Model changed since last session. Running quick calibration."* (boot-time inject from `personality.FingerprintTracker.BootCheck`)
 - [x] **Failure history now versioned:** `FailedHypothesis.ModelID` field tags each record; `failhypo_search` auto-filters to the active model, with `model_id="*"` to opt out. Daemon-ticker-derived records stay unversioned (model-agnostic) and pass any filter.
-- [ ] Without this: proactive transparency warns about weaknesses that no longer exist (noise) and stays silent about new ones (blind spot). The competence cliff hits on the first real failure — which looks like regression, not a new model gap.
+- [x] Without this gap, proactive transparency would warn about weaknesses that no longer exist and miss new ones — addressed by the model_id auto-filter above.
 
-**Proactive Transparency** (pre-execution, not post-failure):
+**Proactive Transparency** (pre-execution, not post-failure):  ✅
 > Reactive honesty says "I hit a wall." Proactive transparency says "I've hit this wall before and I should warn you BEFORE you send me into it."
 
-- [ ] Before executing a task, Overkill checks its failure history against the task type
-- [ ] Failure history is model-versioned (§4.16 model fingerprinting). "I've failed at this twice" means on THIS model, not on a model from three swaps ago.
-- [ ] If the journal shows prior failures on similar tasks, Overkill surfaces a warning unprompted:
+- [x] Before executing a task, Overkill checks its failure history against the task type — `personality.TransparencyEngine.NextWarning` runs in `buildPersonalityProvider` each turn and surfaces a single rate-limited heads-up when the count trips its threshold.
+- [x] Failure history is model-versioned via `FailedHypothesis.ModelID` + `Transparency.RecordFailure(taskType, model)` — the engine's `Check` already filters by current model.
+- [x] Journal shows prior failures → warning surfaced unprompted via the per-turn personality provider's `[heads-up]` line:
   - "Before you send me into this — I've failed at auth refactoring twice and my recovery rate is bad. Want me to plan first?"
   - "I've faceplanted on payment webhook changes before. I can try but I'd recommend a spec boundary this time."
-- [ ] Data sources: journal `pattern_detected` alerts + relationship arc failure patterns + self-model "what failed last session"
-- [ ] This is the feature that makes Overkill feel like a 20-year colleague instead of a well-documented tool. A colleague who remembers their own failures well enough to warn you before you step into the same hole.
-- [ ] The journal has the data. The relationship arc has the pattern. This is the surface that connects them.
-- [ ] **Rate-limited.** No more than one proactive warning per session. It's a heads-up, not a personality.
+- [x] Data sources wired: `journalEventAdapter.onFailure` feeds `te.RecordFailure` on every recovery event; boot-time `te.LoadFromJournal` replays today's flight-recorder entries.
+- [x] **Rate-limited.** `TransparencyEngine.MaxAlerts` (default 1 per session) — surface only once per pattern.
 
-**Cognitive Blind Spot Detection** (your patterns, not Overkill's):
+**Cognitive Blind Spot Detection** (your patterns, not Overkill's):  ✅
 > The entire architecture optimizes toward an agent that knows you better every session. Calibrates to your working style, your assumptions, your architectural preferences. After two years, Overkill doesn't just know how you work — it's inherited how you think. Which means it's also inherited how you're wrong.
 
-- [ ] Your systematic blind spots aren't random. They're consistent. Same solution classes, same underestimated complexity types, same skipped considerations. And Overkill, optimizing to meet you where you are, has been quietly learning them too.
-- [ ] **Blind spot detection is NOT Red Team.** Red Team catches code assumptions ("this mutex pattern has a race condition"). Blind spot detection catches cognitive assumptions ("you've reached for the same solution class on the last four problems").
-- [ ] **Pattern source:** Journal `pattern_detected` alerts already track "user keeps hitting the same issue." Blind spot detection extends this from passive alerting to active, gentle mid-session surfacing.
-- [ ] **Surfaced slowly. Not a lecture. One line. Rate-limited. Only when the pattern is undeniable.**
-  - *"You've reached for Redis on the last four caching problems. Want me to steelman a different approach before we go again?"*
-  - *"Third time we've skipped integration tests on a payment path. Pattern or preference?"*
-- [ ] **Tone:** A colleague who knows your blind spots because they've watched you work for two years, not a tool flagging an anomaly. No "I've detected a pattern." Just... noticing.
-- [ ] **This is what the proactive transparency for Overkill's failures AND blind spot detection for your patterns together create:** an advisor who warns you about their own weak spots AND gently challenges yours. That's the 20-year colleague. That's the thing a generic tool structurally cannot do.
+- [x] **Blind spot detection IS NOT Red Team.** `personality.BlindSpotDetector` watches user-input verbs (fix / refactor / debug / add / remove / update / create / delete / move / rename) and trips on threshold count — separate detector from Wall 1's code-assumption surface.
+- [x] **Pattern source wired:** `personality.ExtractVerb` runs inside the user-input observer; `bs.Observe(verb)` increments the per-verb counter; `bs.LoadFromJournal` replays today's history at boot.
+- [x] **Surfaced slowly. Rate-limited.** `BlindSpotDetector.MaxAlerts = 1` default. `NextWarning` returns "" once consumed for that pattern this session.
+- [x] Surfaced via the personality provider's `[heads-up]` system message, exactly like the transparency warning above — single line, no banner.
+
+**Combined effect:** the agent now warns about its own weak spots AND gently flags user repetition — both surfaces feed off the same per-turn `buildPersonalityProvider` hook so they land in the system prompt naturally rather than as separate dialogs.
 
 **Limitation-as-Character:**
 - Vision fail: "I'm a text model wearing a vision hat."
@@ -808,18 +801,19 @@ governs WHO the agent is.
 **Cold Start Protocol** (first session — all relationship systems boot empty):
 > The relationship arc, working style inference, frustration detection, tone mirroring, proactive transparency — every single personality feature is powered by accumulated session data. Session one has none of it. "Hey, you're finally awake" to a stranger creates an uncanny valley. Session one must bridge the gap between what Overkill promises and what it currently knows.
 
-- [ ] **Detection:** If `~/.overkill/memories/relationship` is empty (never written) → cold start mode instead of "Hey, you're finally awake"
-- [ ] **Not a form. Not a questionnaire.** A single good opening question + Overkill listening to *how* the user answers. Not what they say — HOW they say it.
-- [ ] **One opening question.** Overkill infers five dimensions from the response:
-  - Working style (plans first or dive in)
-  - Verbosity preference (terse or detailed)
-  - Technical depth (high-level or implementation)
-  - Tone tolerance (formal or casual)
-  - Urgency baseline (patient or time-pressured)
-- [ ] All five dimensions written to relationship arc immediately. Relationship arc is no longer empty.
-- [ ] **By end of first message:** Overkill has an initial read. **By session three:** tuning. **By session ten:** cold start gap is closed.
-- [ ] **Tone:** An advisor who just met you, not a therapist who read your file. "I don't know you yet. Let's fix that." Not "Hey, you're finally awake" to someone whose name it doesn't know.
-- [ ] **Inspired by OpenClaw's BOOTSTRAP.md ritual** — natural conversation that infers user preferences, not a form that interrogates. Adapted for Overkill's deeper relationship arc architecture.
+- [x] **Detection:** `ColdStartManager.IsColdStart` returns true when `~/.overkill/memories/relationship.json` is missing or empty — boot path branches between the cold-start opener and the normal "we've met" path.
+- [x] **Not a form. Not a questionnaire.** Single opening question; `ColdStartProtocol.ProcessResponse` infers from response shape, not from structured fields.
+- [x] **One opening question** (`ColdStartProtocol.OpeningQuestion`). Infers seven dimensions:
+  - Communication style (`direct` / `contextual` / `verbose`)
+  - Verbosity preference (`terse` / `moderate` / `verbose`)
+  - Technical depth (`low` / `medium` / `high`)
+  - Tone tolerance (`casual` / `formal` / `moderate`)
+  - Urgency baseline (`low` / `moderate` / `high`)
+  - User name (regex-extracted)
+  - Timezone (regex-extracted)
+- [x] All dimensions written to `relationship.json` immediately via `ColdStartManager.persistLocked` (atomic temp+rename). Relationship arc is no longer empty by the second message.
+- [x] **Tone:** Opening question is `"I don't know you yet. What are you working on right now? Tell me about your project and how you like to work."` — no "finally awake".
+- [x] Cold start also seeds `user.md` via `personality.SeedUserMD` from the same conversation.
 - [x] Cold start also seeds `user.md` (name, timezone, preferences) from the same conversation. `personality.SeedUserMD` writes once on first response and never overwrites a user-edited file.
 
 **The Constitution** (baked into system prompt):
