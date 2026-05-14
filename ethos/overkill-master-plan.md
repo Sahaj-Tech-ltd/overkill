@@ -1272,9 +1272,9 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 - [ ] Neural Garbage Collection — Li 2026
 - [ ] Fast KV Compaction via Attention Matching — Zweiger 2026
 
-### 8.2 Advanced Memory  ❌
-- [ ] Segment-based memory for massive codebases (MemAgent — Yu 2025)
-- [ ] Agentic Context Engineering (ACE) — evolving playbooks — Zhang 2025
+### 8.2 Advanced Memory  ⚠️ segments done; ACE pending
+- [x] Segment-based memory for massive codebases (MemAgent — Yu 2025) — `internal/memory/segments.go` stores labeled glob-based slices with retrieval scoring (recency half-life × name/desc/tag match × inverse size). Agent tools: `segment_create / list / rank / load / delete`. Recursive `**` glob support; LoadFiles caches stats for future ranking.
+- [ ] Agentic Context Engineering (ACE) — evolving playbooks — Zhang 2025 — Phase 5 #6
 
 ### 8.3 Cross-Session Intelligence  ⚠️ task graph done; replay + drift pending
 - [x] Cross-session task graph — `internal/tasks/tasks.go` stores per-task records (intent, status, linked commits, notes). Tools: `task_open / task_close / task_link_commit / task_note / task_list`. Stale-but-open tasks surface automatically at session boot via `FormatOpenerSummary` (filters by 2h+ age). Operator CLI: `overkill thread list | show | close`.

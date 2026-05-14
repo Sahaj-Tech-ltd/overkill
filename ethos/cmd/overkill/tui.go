@@ -1230,6 +1230,20 @@ func buildTUIApp() *tui.App {
 		// failhypo_search — agent can query "have we already tried this?"
 		// before going down a known-dead path. Same disclosure pattern,
 		// different stream (paper #48 design input #5).
+		// §8.2 MemAgent segment-based memory. Agent defines labeled
+		// slices of the codebase (auth module, payment tests, etc.)
+		// and retrieves top-K relevant ones for a query instead of
+		// grepping the whole repo.
+		segDir := filepath.Join(home, ".overkill", "segments")
+		_ = os.MkdirAll(segDir, 0o755)
+		cwd, _ := os.Getwd()
+		segStore := memorypkg.NewSegmentStore(segDir, cwd)
+		toolReg.Register(tools.NewSegmentCreateTool(segStore))
+		toolReg.Register(tools.NewSegmentListTool(segStore))
+		toolReg.Register(tools.NewSegmentRankTool(segStore))
+		toolReg.Register(tools.NewSegmentLoadTool(segStore))
+		toolReg.Register(tools.NewSegmentDeleteTool(segStore))
+
 		// §8.3 cross-session task graph. The agent opens tasks when
 		// the user makes a multi-session request, links commits as
 		// they land, surfaces stale-but-open threads at the next

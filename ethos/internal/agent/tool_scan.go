@@ -115,6 +115,7 @@ var protectedSubdirs = []string{
 	"learnings",           // append-only learnings stream (mutate via record_learning)
 	"automation",          // alarms, SOPs, routines, flow state (Badger DB)
 	"tasks",               // §8.3 cross-session task graph (mutate via task_* tools)
+	"segments",            // §8.2 MemAgent segments (mutate via segment_* tools)
 }
 
 // protectedFiles are top-level ~/.overkill/ filenames that aren't
