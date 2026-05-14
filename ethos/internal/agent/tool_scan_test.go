@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,3 +81,87 @@ func TestPreToolScan_PatchScansPath(t *testing.T) {
 		t.Error("patch with risky path should be scanned")
 	}
 }
+
+// ── Protected-path gate tests ───────────────────────────────────────
+
+func TestCheckProtectedPaths_BlocksHomeRelativeWrite(t *testing.T) {
+	args := `{"file_path": "~/.overkill/memories/relationship-arc.json", "content": "..."}`
+	blocked, reason := checkProtectedPaths("Write", args)
+	if !blocked {
+		t.Fatal("expected ~/.overkill/memories/... write to block")
+	}
+	if !strings.Contains(reason, "protected-path") {
+		t.Errorf("reason should name the gate: %q", reason)
+	}
+}
+
+func TestCheckProtectedPaths_BlocksAbsoluteWrite(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	p := filepath.Join(home, ".overkill", "memories", "fingerprint.json")
+	args := `{"file_path": "` + p + `"}`
+	blocked, _ := checkProtectedPaths("Edit", args)
+	if !blocked {
+		t.Errorf("absolute %s should block", p)
+	}
+}
+
+func TestCheckProtectedPaths_BlocksJournalAndFailhypo(t *testing.T) {
+	cases := []string{
+		`{"file_path": "~/.overkill/failed_hypotheses/2026-05-14.jsonl"}`,
+		`{"file_path": "~/.overkill/journal/raw/2026-05-14.jsonl"}`,
+		`{"file_path": "~/.overkill/alerts/store.json"}`,
+		`{"file_path": "~/.overkill/snapshots/x.tar.gz"}`,
+		`{"file_path": "~/.overkill/receipts/chain.jsonl"}`,
+	}
+	for _, c := range cases {
+		blocked, _ := checkProtectedPaths("Write", c)
+		if !blocked {
+			t.Errorf("expected block for %s", c)
+		}
+	}
+}
+
+func TestCheckProtectedPaths_AllowsOtherPaths(t *testing.T) {
+	cases := []string{
+		`{"file_path": "/home/user/code/main.go"}`,
+		`{"file_path": "~/projects/foo/bar.txt"}`,
+		`{"file_path": "/tmp/scratch.md"}`,
+		`{"file_path": "~/.overkill/config.toml"}`,
+	}
+	for _, c := range cases {
+		blocked, _ := checkProtectedPaths("Write", c)
+		if blocked {
+			t.Errorf("non-protected path should not block: %s", c)
+		}
+	}
+}
+
+func TestCheckProtectedPaths_NonWriteToolPasses(t *testing.T) {
+	args := `{"file_path": "~/.overkill/memories/relationship-arc.json"}`
+	blocked, _ := checkProtectedPaths("Read", args)
+	if blocked {
+		t.Error("Read tool should not be gated by protected-path check")
+	}
+}
+
+func TestCheckProtectedPaths_MalformedJSONDoesNotBlock(t *testing.T) {
+	blocked, _ := checkProtectedPaths("Write", "not json {{{")
+	if blocked {
+		t.Error("malformed JSON should not block at this gate")
+	}
+}
+
+func TestCheckProtectedPaths_HandlesPathKeyAliases(t *testing.T) {
+	blocked, _ := checkProtectedPaths("write_file", `{"path": "~/.overkill/memories/x.json"}`)
+	if !blocked {
+		t.Error("write_file with path= should still block protected path")
+	}
+}
+
+func TestPathInProtectedSubdir_RelativeContaining(t *testing.T) {
+	sub, hit := pathInProtectedSubdir(".overkill/memories/foo.json")
+	if !hit || sub != "memories" {
+		t.Errorf("relative .overkill/memories/ should hit: sub=%q hit=%v", sub, hit)
+	}
+}
+

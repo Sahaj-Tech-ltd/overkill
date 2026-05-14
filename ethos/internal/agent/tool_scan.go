@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,6 +19,17 @@ import (
 // suitable for surfacing in the tool result so the LLM sees WHY it was
 // denied and can re-plan.
 func (a *Agent) preToolScan(toolName, args string) (bool, string) {
+	// Protected-path gate runs FIRST and independently of the
+	// scanner sweep — it doesn't need a scanner pattern, it just
+	// needs the tool input. Stops the LLM from rewriting
+	// ~/.overkill/memories/* (relationship arc, fingerprint, style)
+	// or the append-only journals (failhypo, alerts, flight
+	// recorder) via a generic write tool. The agent must mutate
+	// these via typed tools that perform structured appends.
+	if blocked, reason := checkProtectedPaths(toolName, args); blocked {
+		return true, reason
+	}
+
 	if len(a.scanners) == 0 {
 		return false, ""
 	}
@@ -80,4 +93,123 @@ func extractScanPayload(toolName, args string) string {
 		return v.File
 	}
 	return ""
+}
+
+// protectedSubdirs are paths UNDER ~/.overkill/ that the agent must
+// not touch via generic write tools. The list is intentionally
+// narrow: only state we've decided needs structural protection
+// because losing it (or having it overwritten) costs the user real
+// continuity. New protected dirs land here as we make them.
+//
+// Read access is NOT restricted — the agent can `cat ~/.overkill/
+// memories/relationship-arc.json` to introspect itself; only writes
+// are gated.
+var protectedSubdirs = []string{
+	"memories",            // relationship arc, fingerprint, style, coldstart
+	"failed_hypotheses",   // append-only failhypo JSONL
+	"journal",             // flight recorder + alerts
+	"alerts",              // boot alert store
+	"snapshots",           // §4.20 BadgerDB snapshots
+	"receipts",            // §6.5 tool-receipt chain
+}
+
+// writeToolPathExtractors maps a write-class tool name to the input
+// fields whose values are filesystem paths to validate. The same
+// tool may bind the path under different keys depending on how it
+// was registered — we list all the variants we've seen.
+//
+// Tools not in this map are not write-class for the purposes of
+// path protection. The catch-all "shell" tool is intentionally
+// excluded — we don't try to parse arbitrary shell strings for
+// embedded paths here; the regex scanners and the audit chain are
+// the layers that catch malicious shell. Path protection's job is
+// to stop the easy case: agent calls Write(path="~/.overkill/...").
+var writeToolPathFields = map[string][]string{
+	"Write":      {"file_path", "path", "file"},
+	"Edit":       {"file_path", "path", "file"},
+	"MultiEdit":  {"file_path", "path", "file"},
+	"write_file": {"path", "file_path", "file"},
+	"edit_file":  {"path", "file_path", "file"},
+	"fs_write":   {"path", "file_path", "file"},
+	"patch":      {"path", "file_path", "file"},
+}
+
+// checkProtectedPaths returns (true, reason) when toolName is a
+// write-class tool whose target path resolves into a protected
+// subdir under ~/.overkill/. The check tolerates relative paths
+// and ~ expansion.
+func checkProtectedPaths(toolName, args string) (bool, string) {
+	fields, ok := writeToolPathFields[toolName]
+	if !ok {
+		return false, ""
+	}
+	if args == "" {
+		return false, ""
+	}
+	// Parse loosely — write-tool inputs are always JSON objects.
+	// If we can't parse, fall back to NOT blocking; the scanner
+	// sweep below still runs.
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(args), &raw); err != nil {
+		return false, ""
+	}
+	for _, f := range fields {
+		v, ok := raw[f]
+		if !ok {
+			continue
+		}
+		path, ok := v.(string)
+		if !ok || path == "" {
+			continue
+		}
+		if sub, hit := pathInProtectedSubdir(path); hit {
+			return true, "protected-path: writes under ~/.overkill/" + sub +
+				"/ are blocked. Use the typed tool (e.g. learn_record, " +
+				"failhypo_search, journal_search) instead of editing this " +
+				"file directly."
+		}
+	}
+	return false, ""
+}
+
+// pathInProtectedSubdir resolves p against the user's home and
+// reports whether the cleaned path sits under any protectedSubdir
+// of ~/.overkill/. Returns ("memories", true) when the path is
+// ~/.overkill/memories/relationship-arc.json; ("", false) otherwise.
+func pathInProtectedSubdir(p string) (string, bool) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return "", false
+	}
+	// ~ expansion. If we can't resolve home, fall back to plain
+	// substring match — better partial coverage than none.
+	if strings.HasPrefix(p, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
+		}
+	}
+	// Absolute path resolution. For relative paths we just clean —
+	// the agent's tools usually pass absolute paths anyway.
+	clean := filepath.Clean(p)
+
+	home, err := os.UserHomeDir()
+	if err == nil {
+		root := filepath.Join(home, ".overkill")
+		for _, sub := range protectedSubdirs {
+			needle := filepath.Join(root, sub)
+			if clean == needle || strings.HasPrefix(clean, needle+string(filepath.Separator)) {
+				return sub, true
+			}
+		}
+	}
+	// Fallback: structural match against the dir names. Catches
+	// the case where home-dir resolution fails or the path is
+	// relative-but-clearly-targeting (e.g.  ".overkill/memories/x").
+	for _, sub := range protectedSubdirs {
+		marker := ".overkill" + string(filepath.Separator) + sub
+		if strings.Contains(clean, marker) {
+			return sub, true
+		}
+	}
+	return "", false
 }
