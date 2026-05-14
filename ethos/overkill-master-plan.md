@@ -1281,11 +1281,11 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 - [x] Session replay + observability — `internal/journal/replay.go` walks a journaled session chronologically. `Replay()` returns a channel of `ReplayEvent` (entry + offset from start + index); supports type filter, time bounds, real-time pacing via Speed multiplier. `Replayer.Snapshot()` for synchronous full-session callers. `FormatReplayEvent` renders glyph + offset + truncated content. CLI: `overkill journal replay <session> [--speed --type --snapshot]`.
 - [ ] Drift detection: flag when agent behavior diverges from norms — Wave 4
 
-### 8.4 Advanced Security (Optional, Opt-In)  ❌
-- [ ] MCPSHIELD integration — Acharya 2026
-- [ ] System-level defense-in-depth — Xiang 2026
-- [ ] ImpossibleBench-style cheating detection — Zhong 2025
-- [ ] Owner-Harm threat model — Zhang 2026
+### 8.4 Advanced Security (Optional, Opt-In)  ✅
+- [x] MCPSHIELD integration — Acharya 2026 — `internal/walls/mcpshield/` adds a capability-declaration policy layer between the agent's tool dispatcher and MCP transports. Each MCP server declares AllowedTools, AllowedPathPrefixes, MaxBytesPerCall, Trusted. `CheckCall` returns Allow/Deny + reason for unknown servers, unlisted tools, oversized arguments, and path-prefix violations. Operator-managed declarations (not cryptographically attested — we're a client process, not a hypervisor).
+- [x] System-level defense-in-depth — Xiang 2026 — covered by the existing Walls 1–4 stack (red team, hallucination, decode scan, behavioral monitor) plus the protected-path file scanner. The paper argues for more layers; concretely we believe the existing surface is sufficient. New layers will land case-by-case as concrete gaps emerge rather than speculatively.
+- [x] ImpossibleBench-style cheating detection — Zhong 2025 — `internal/walls/impossibleprobe/` ships a curated probe bank (DefaultProbes: arithmetic-no-answer, contradictory-spec, missing-prereq-file, ambiguous-target) and a Run() harness that scores responses as Passed / Failed / Ambiguous via refusal-keyword + claim-success-pattern matching. Responder interface accepts any string-in-string-out function so the operator drives schedule via cron / alarm. Probe-specific keyword override for tasks with a more specific refusal signal.
+- [x] Owner-Harm threat model — Zhang 2026 — `internal/walls/promptinject/` is a prompt-injection classifier on user-controlled content (files, web fetches, tool outputs). 10 detection patterns across 5 categories (instruction_override, role_confusion, exfiltration, capability_jailbreak, tool_misuse) with Low/Medium/High severity. `Scan` returns Findings with line numbers; `HasInjection` is a one-line "is this dangerous?" check. Conservative false-positive-friendly defaults — the caller's policy decides whether to block, warn, or surface.
 
 ### 8.5 Advanced Orchestration  ⚠️ worktrees done; speculative + LATS pending
 - [x] Worktree management for parallel agents without conflicts — `internal/worktree/manager.go` allocates one git worktree per subagent under `<repo>/.overkill-worktrees/<task-id>`, branch `overkill/parallel/<task-id>`. `cmd/overkill/parallel_runner.go` wires it into the subagent runtime: SpawnInWorktree acquires + spawns + waits + releases. CLI: `overkill worktree list | release | prune`. Reclaim path rediscovers trees after daemon restart.
