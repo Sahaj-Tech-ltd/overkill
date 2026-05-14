@@ -13,6 +13,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/lsp"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/mcp"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/plan"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/plugin"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/routing"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
@@ -106,6 +107,16 @@ type App struct {
 	// ACPServer hosts the inbound HTTP/SSE surface for other agents. Nil
 	// when ACP is disabled.
 	ACPServer *acp.Server
+
+	// Plan is the per-session plan store backing the right-pane Plan
+	// panel. The agent mutates it via plan_set / plan_check tools;
+	// the sidebar reads it for rendering. Nil-safe.
+	Plan *plan.Store
+
+	// Learnings is the append-only end-of-task lesson stream
+	// (§6.2 prose layer). Tools record_learning + learnings_search
+	// read/write it. Nil-safe.
+	Learnings *plan.LearningsStore
 }
 
 // Reconfigure swaps in a new config and rebuilds the agent. Returns the new

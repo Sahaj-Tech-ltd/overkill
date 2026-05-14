@@ -111,6 +111,8 @@ var protectedSubdirs = []string{
 	"alerts",              // boot alert store
 	"snapshots",           // §4.20 BadgerDB snapshots
 	"receipts",            // §6.5 tool-receipt chain
+	"plans",               // per-session plan store (mutate via plan_* tools)
+	"learnings",           // append-only learnings stream (mutate via record_learning)
 }
 
 // writeToolPathExtractors maps a write-class tool name to the input

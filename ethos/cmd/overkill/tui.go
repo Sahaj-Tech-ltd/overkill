@@ -30,6 +30,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/introspection"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/plan"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/reflect"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/lsp"
 	"github.com/dgraph-io/badger/v4"
@@ -1227,6 +1228,45 @@ func buildTUIApp() *tui.App {
 		// agent doesn't see failures from a previous swap unless it
 		// asks (`model_id: "*"`). §4.16 model fingerprinting.
 		toolReg.Register(tools.NewFailHypoSearchTool(fhStore).WithCurrentModel(a))
+
+		// Per-session plan store (§4.11 right-pane todo flow). One
+		// active plan per session; the TUI right pane reads from
+		// this store. Raw writes to plansDir are blocked by the
+		// protected-path scanner gate — agent must mutate via the
+		// plan_set / plan_check tools.
+		plansDir := filepath.Join(home, ".overkill", "plans")
+		_ = os.MkdirAll(plansDir, 0o755)
+		planStore := plan.NewStore(plansDir, sid)
+		_, _ = planStore.Load() // best-effort: pick up an in-flight plan after a TUI restart
+		app.Plan = planStore
+		toolReg.Register(tools.NewPlanSetTool(planStore))
+		toolReg.Register(tools.NewPlanCheckTool(planStore))
+		toolReg.Register(tools.NewPlanStatusTool(planStore))
+		toolReg.Register(tools.NewPlanClearTool(planStore))
+
+		// Durable learnings stream (§6.2 prose layer). Append-only
+		// JSONL; the agent records a one-line lesson at end-of-task
+		// via record_learning and reads back via learnings_search.
+		learnDir := filepath.Join(home, ".overkill", "learnings")
+		_ = os.MkdirAll(learnDir, 0o755)
+		learnStore := plan.NewLearningsStore(learnDir)
+		app.Learnings = learnStore
+		toolReg.Register(tools.NewRecordLearningTool(learnStore, a).WithCurrentModel(a))
+		toolReg.Register(tools.NewLearningsSearchTool(learnStore).WithCurrentModel(a))
+
+		// One-time system inject so the model knows the plan / tick-
+		// off / learnings flow exists. Without this the tools are
+		// invisible to the model unless the user explicitly mentions
+		// them. Kept terse — long boot prompts cost tokens forever.
+		a.Inject(providers.Message{
+			Role: "system",
+			Content: "Task discipline:\n" +
+				"  - For any task with multiple steps, first call plan_set with a short title and an items array. The user's right pane will show these.\n" +
+				"  - As you complete each step, call plan_check with the item_id. Add a one-line note if the outcome was unusual.\n" +
+				"  - At end of task, call record_learning with topic+lesson if you learned anything non-obvious. This is append-only — past learnings cannot be edited.\n" +
+				"  - Before starting work on a problem area, call learnings_search and failhypo_search to check whether you've already tried something here.\n" +
+				"You are FORBIDDEN from writing directly to ~/.overkill/* via Write/Edit — those paths are scanner-blocked. Use the typed tools.",
+		})
 
 		// Reflexion self-correction (paper #51). After a failed tool
 		// the heuristic reflector produces a structured note that

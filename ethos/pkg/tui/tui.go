@@ -129,6 +129,7 @@ type appModel struct {
 	filesPanel   sidebar.FilesPanel
 	costPanel    sidebar.CostPanel
 	sessionPanel sidebar.SessionPanel
+	todoPanel    sidebar.TodoPanel
 
 	currentSession *session.Session
 
@@ -211,6 +212,10 @@ func New(app *App) tea.Model {
 		filesPanel:           sidebar.NewFilesPanel(),
 		costPanel:            sidebar.NewCostPanel(),
 		sessionPanel:         sidebar.NewSessionPanel(),
+		todoPanel:            sidebar.NewTodoPanel(nil), // provider wired below once we have app.Plan
+	}
+	if app != nil && app.Plan != nil {
+		m.todoPanel = sidebar.NewTodoPanel(app.Plan)
 	}
 
 	m.helpDialog.SetBindings(AllBindings())
@@ -222,7 +227,7 @@ func New(app *App) tea.Model {
 		DocsURL:   "https://github.com/Sahaj-Tech-ltd/overkill",
 	})
 
-	m.sidebar.SetPanels([]sidebar.Panel{&m.costPanel, &m.filesPanel, &m.sessionPanel})
+	m.sidebar.SetPanels([]sidebar.Panel{&m.todoPanel, &m.costPanel, &m.filesPanel, &m.sessionPanel})
 
 	// Build chat page first so registerCommands can wire its editor
 	// (autocomplete entries) without a nil deref.
