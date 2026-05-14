@@ -3,6 +3,7 @@ package personality
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,7 +27,14 @@ type AlertSink interface {
 	Create(alertType, message, sessionID string) error
 }
 
+// TransparencyEngine accumulates failure counts per (taskType, model)
+// and surfaces a rate-limited heads-up before the agent retries a
+// known-bad path. All mutators + reads take the mutex; concurrent
+// access from the journal adapter (RecordFailure on recovery events)
+// and the personality provider (per-turn NextWarning) is now race-
+// safe.
 type TransparencyEngine struct {
+	mu           sync.Mutex
 	failures     []FailureRecord
 	maxWarnings  int
 	warned       int
@@ -45,6 +53,8 @@ func NewTransparencyEngine(model string) *TransparencyEngine {
 }
 
 func (te *TransparencyEngine) RecordFailure(taskType, model string) {
+	te.mu.Lock()
+	defer te.mu.Unlock()
 	for i := range te.failures {
 		if te.failures[i].TaskType == taskType && te.failures[i].Model == model {
 			te.failures[i].Count++
@@ -63,30 +73,39 @@ func (te *TransparencyEngine) RecordFailure(taskType, model string) {
 // SetAlertSink wires a sink that receives a frustration_signal alert each time
 // Check() returns warn-worthy state. Pass nil to disable.
 func (te *TransparencyEngine) SetAlertSink(s AlertSink, sessionID string) {
+	te.mu.Lock()
+	defer te.mu.Unlock()
 	te.sink = s
 	te.sessionID = sessionID
 }
 
 func (te *TransparencyEngine) Check(taskType string) (string, bool) {
+	te.mu.Lock()
 	for _, f := range te.failures {
 		if f.TaskType == taskType && f.Model == te.currentModel {
 			if f.Count >= 2 && te.warned < te.maxWarnings {
 				te.warned++
+				sink := te.sink
+				sid := te.sessionID
+				count := f.Count
+				te.mu.Unlock()
 				msg := fmt.Sprintf(
 					"Heads up — this type of task (%s) has failed %d times before with this model. Want me to try a different approach?",
-					taskType, f.Count,
+					taskType, count,
 				)
-				if te.sink != nil {
+				if sink != nil {
 					func() {
 						defer func() { _ = recover() }()
-						_ = te.sink.Create("frustration_signal", msg, te.sessionID)
+						_ = sink.Create("frustration_signal", msg, sid)
 					}()
 				}
 				return msg, true
 			}
+			te.mu.Unlock()
 			return "", false
 		}
 	}
+	te.mu.Unlock()
 	return "", false
 }
 
@@ -121,6 +140,8 @@ func (te *TransparencyEngine) LoadFromJournal(entries []JournalEntry) error {
 }
 
 func (te *TransparencyEngine) ResetWarnings() {
+	te.mu.Lock()
+	defer te.mu.Unlock()
 	te.warned = 0
 }
 
@@ -133,7 +154,9 @@ func (te *TransparencyEngine) NextWarning() string {
 	if te == nil {
 		return ""
 	}
+	te.mu.Lock()
 	if te.warned >= te.maxWarnings {
+		te.mu.Unlock()
 		return ""
 	}
 	bestIdx := -1
@@ -148,18 +171,22 @@ func (te *TransparencyEngine) NextWarning() string {
 		}
 	}
 	if bestIdx < 0 {
+		te.mu.Unlock()
 		return ""
 	}
 	te.warned++
 	f := te.failures[bestIdx]
+	sink := te.sink
+	sid := te.sessionID
+	te.mu.Unlock()
 	msg := fmt.Sprintf(
 		"Heads up — this type of task (%s) has failed %d times before with this model. Want me to try a different approach?",
 		f.TaskType, f.Count,
 	)
-	if te.sink != nil {
+	if sink != nil {
 		func() {
 			defer func() { _ = recover() }()
-			_ = te.sink.Create("frustration_signal", msg, te.sessionID)
+			_ = sink.Create("frustration_signal", msg, sid)
 		}()
 	}
 	return msg

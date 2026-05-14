@@ -3,6 +3,7 @@ package personality
 import (
 	"fmt"
 	"strings"
+	"sync"
 )
 
 type BlindSpotEntry struct {
@@ -10,7 +11,13 @@ type BlindSpotEntry struct {
 	Content string
 }
 
+// BlindSpotDetector tracks repeated user task-types and surfaces a
+// rate-limited heads-up once a pattern is undeniable. All mutators
+// + Check() take the mutex; concurrent access from input observers
+// (per-turn Observe) and the personality provider (per-turn
+// NextWarning) is now race-safe.
 type BlindSpotDetector struct {
+	mu         sync.Mutex
 	patterns   map[string]int
 	Threshold  int
 	MaxAlerts  int
@@ -23,6 +30,8 @@ type BlindSpotDetector struct {
 // SetAlertSink wires a sink that receives a pattern_detected alert when
 // Check() trips its threshold. Pass nil to disable.
 func (bsd *BlindSpotDetector) SetAlertSink(s AlertSink, sessionID string) {
+	bsd.mu.Lock()
+	defer bsd.mu.Unlock()
 	bsd.sink = s
 	bsd.sessionID = sessionID
 }
@@ -37,11 +46,15 @@ func NewBlindSpotDetector() *BlindSpotDetector {
 }
 
 func (bsd *BlindSpotDetector) Observe(taskType string) {
+	bsd.mu.Lock()
+	defer bsd.mu.Unlock()
 	bsd.patterns[taskType]++
 }
 
 func (bsd *BlindSpotDetector) Check() (string, bool) {
+	bsd.mu.Lock()
 	if bsd.alertCount >= bsd.MaxAlerts {
+		bsd.mu.Unlock()
 		return "", false
 	}
 	for taskType, count := range bsd.patterns {
@@ -49,19 +62,28 @@ func (bsd *BlindSpotDetector) Check() (string, bool) {
 			bsd.alerted[taskType] = true
 			bsd.alertCount++
 			msg := fmt.Sprintf("You've asked me to %s %d times. Maybe there's a deeper issue worth addressing?", taskType, count)
-			if bsd.sink != nil {
+			sink := bsd.sink
+			sid := bsd.sessionID
+			bsd.mu.Unlock()
+			// Sink fire OUTSIDE the lock — sink may be slow (disk
+			// write), and we don't want to serialise the next
+			// Observe behind it.
+			if sink != nil {
 				func() {
 					defer func() { _ = recover() }()
-					_ = bsd.sink.Create("pattern_detected", msg, bsd.sessionID)
+					_ = sink.Create("pattern_detected", msg, sid)
 				}()
 			}
 			return msg, true
 		}
 	}
+	bsd.mu.Unlock()
 	return "", false
 }
 
 func (bsd *BlindSpotDetector) LoadFromJournal(entries []BlindSpotEntry) {
+	bsd.mu.Lock()
+	defer bsd.mu.Unlock()
 	for _, entry := range entries {
 		if entry.Type != "tool_call" && entry.Type != "user_input" {
 			continue
@@ -95,6 +117,8 @@ func ExtractVerb(content string) string {
 }
 
 func (bsd *BlindSpotDetector) Reset() {
+	bsd.mu.Lock()
+	defer bsd.mu.Unlock()
 	bsd.alerted = make(map[string]bool)
 	bsd.alertCount = 0
 }

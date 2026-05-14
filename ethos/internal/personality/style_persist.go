@@ -31,11 +31,13 @@ func (si *StyleInferencer) SaveToFile(path string) error {
 	if path == "" || si == nil {
 		return nil
 	}
+	si.mu.Lock()
 	state := stylePersistState{
-		Baseline:     si.baseline,
-		LastSession:  si.shortTerm, // distilled view of this session
+		Baseline:     copyStyle(si.baseline),
+		LastSession:  copyStyle(si.shortTerm), // distilled view of this session
 		StreakLength: si.sessionCount,
 	}
+	si.mu.Unlock()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("personality: style mkdir: %w", err)
 	}
@@ -83,11 +85,13 @@ func (si *StyleInferencer) LoadFromFile(path string) error {
 	if state.Baseline != nil {
 		si.SetBaseline(state.Baseline)
 	}
+	si.mu.Lock()
 	si.sessionCount = state.StreakLength
 	// Note: shortTerm doesn't seed from LastSession — it starts fresh
 	// each session and observes the user's actual messages. LastSession
 	// is recorded for ConsecutiveSessionCommit's comparison instead.
 	si.lastCommittedStyle = state.LastSession
+	si.mu.Unlock()
 	return nil
 }
 
@@ -110,7 +114,12 @@ func (si *StyleInferencer) LoadFromFile(path string) error {
 // switch to this on session-end. The old method stays for backward
 // compatibility.
 func (si *StyleInferencer) ConsecutiveSessionCommit() (promoted bool) {
-	if si == nil || si.shortTerm == nil {
+	if si == nil {
+		return false
+	}
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	if si.shortTerm == nil {
 		return false
 	}
 	prev := si.lastCommittedStyle
@@ -125,18 +134,10 @@ func (si *StyleInferencer) ConsecutiveSessionCommit() (promoted bool) {
 		si.sessionCount = 1
 	}
 	// Snapshot for next session's comparison.
-	dup := *si.shortTerm
-	dup.DomainTerms = append([]string{}, si.shortTerm.DomainTerms...)
-	si.lastCommittedStyle = &dup
+	si.lastCommittedStyle = copyStyle(si.shortTerm)
 
 	if si.sessionCount >= si.sessionsForBaseline {
-		si.baseline = &WorkingStyle{
-			Communication:      si.shortTerm.Communication,
-			ResponseExpect:     si.shortTerm.ResponseExpect,
-			FrustrationTrigger: si.shortTerm.FrustrationTrigger,
-			Approach:           si.shortTerm.Approach,
-			DomainTerms:        append([]string{}, si.shortTerm.DomainTerms...),
-		}
+		si.baseline = copyStyle(si.shortTerm)
 		si.sessionCount = 0
 		return true
 	}

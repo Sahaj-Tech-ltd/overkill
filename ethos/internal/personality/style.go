@@ -2,6 +2,7 @@ package personality
 
 import (
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -45,7 +46,14 @@ type styleObservation struct {
 	terms          []string
 }
 
+// StyleInferencer tracks per-turn observations + per-session
+// baseline drift. All state mutators + readers hold the mutex.
+// Concurrent callers: per-input Observe (input observer goroutine),
+// session-end CommitSession + SaveToFile (TUI exit defer), per-turn
+// Baseline/Current (personality provider). Returned *WorkingStyle
+// pointers are defensive copies so callers can't mutate live state.
 type StyleInferencer struct {
+	mu                  sync.Mutex
 	baseline            *WorkingStyle
 	shortTerm           *WorkingStyle
 	sessionCount        int
@@ -80,6 +88,8 @@ func NewStyleInferencer() *StyleInferencer {
 }
 
 func (si *StyleInferencer) Observe(userInput string) {
+	si.mu.Lock()
+	defer si.mu.Unlock()
 	obs := si.parseObservation(userInput)
 	si.observations = append(si.observations, obs)
 
@@ -90,39 +100,55 @@ func (si *StyleInferencer) Observe(userInput string) {
 	si.updateShortTerm(obs)
 }
 
+// Baseline returns a defensive copy of the baseline style so the
+// caller cannot mutate live state.
 func (si *StyleInferencer) Baseline() *WorkingStyle {
-	return si.baseline
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	return copyStyle(si.baseline)
 }
 
+// Current returns a defensive copy of the short-term style.
 func (si *StyleInferencer) Current() *WorkingStyle {
-	return si.shortTerm
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	return copyStyle(si.shortTerm)
 }
 
 func (si *StyleInferencer) ShouldUpdateBaseline() bool {
+	si.mu.Lock()
+	defer si.mu.Unlock()
 	return si.sessionCount >= si.sessionsForBaseline && si.shortTerm != nil
 }
 
 func (si *StyleInferencer) CommitSession() {
+	si.mu.Lock()
+	defer si.mu.Unlock()
 	si.sessionCount++
 	if si.sessionCount >= si.sessionsForBaseline && si.shortTerm != nil {
-		si.baseline = &WorkingStyle{
-			Communication:      si.shortTerm.Communication,
-			ResponseExpect:     si.shortTerm.ResponseExpect,
-			FrustrationTrigger: si.shortTerm.FrustrationTrigger,
-			Approach:           si.shortTerm.Approach,
-			DomainTerms:        append([]string{}, si.shortTerm.DomainTerms...),
-		}
+		si.baseline = copyStyle(si.shortTerm)
 		si.sessionCount = 0
 	}
 }
 
 func (si *StyleInferencer) SetBaseline(style *WorkingStyle) {
-	si.baseline = &WorkingStyle{
-		Communication:      style.Communication,
-		ResponseExpect:     style.ResponseExpect,
-		FrustrationTrigger: style.FrustrationTrigger,
-		Approach:           style.Approach,
-		DomainTerms:        append([]string{}, style.DomainTerms...),
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	si.baseline = copyStyle(style)
+}
+
+// copyStyle returns a deep copy of style (or nil for a nil input)
+// so callers holding returned pointers can't mutate live state.
+func copyStyle(s *WorkingStyle) *WorkingStyle {
+	if s == nil {
+		return nil
+	}
+	return &WorkingStyle{
+		Communication:      s.Communication,
+		ResponseExpect:     s.ResponseExpect,
+		FrustrationTrigger: s.FrustrationTrigger,
+		Approach:           s.Approach,
+		DomainTerms:        append([]string{}, s.DomainTerms...),
 	}
 }
 

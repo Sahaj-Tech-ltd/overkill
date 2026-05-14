@@ -3,6 +3,7 @@ package personality
 import (
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -13,7 +14,13 @@ type ModelFingerprint struct {
 	DetectedAt    time.Time `json:"detected_at"`
 }
 
+// FingerprintTracker holds the previous + current model fingerprint
+// so boot-time swap detection survives across BootCheck / Update /
+// Current calls. All mutators + readers take the mutex; concurrent
+// access from the boot path + an async config-reload is now race-
+// safe.
 type FingerprintTracker struct {
+	mu       sync.Mutex
 	current  *ModelFingerprint
 	previous *ModelFingerprint
 	changed  bool
@@ -53,14 +60,19 @@ func (ft *FingerprintTracker) Detect(modelID string) *ModelFingerprint {
 }
 
 func (ft *FingerprintTracker) HasChanged(newModelID string) bool {
-	if ft.current == nil {
+	ft.mu.Lock()
+	cur := ft.current
+	ft.mu.Unlock()
+	if cur == nil {
 		return false
 	}
 	detected := ft.Detect(newModelID)
-	return detected.Family != ft.current.Family
+	return detected.Family != cur.Family
 }
 
 func (ft *FingerprintTracker) CalibratePrompt() string {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
 	if !ft.changed || ft.previous == nil || ft.current == nil {
 		return ""
 	}
@@ -68,16 +80,22 @@ func (ft *FingerprintTracker) CalibratePrompt() string {
 }
 
 func (ft *FingerprintTracker) Update(fp *ModelFingerprint) {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
 	ft.previous = ft.current
 	ft.current = fp
 	ft.changed = ft.previous != nil && ft.previous.Family != fp.Family
 }
 
 func (ft *FingerprintTracker) Current() *ModelFingerprint {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
 	return ft.current
 }
 
 func (ft *FingerprintTracker) Previous() *ModelFingerprint {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
 	return ft.previous
 }
 

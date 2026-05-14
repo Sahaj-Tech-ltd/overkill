@@ -39,7 +39,9 @@ func (ft *FingerprintTracker) LoadFromFile(path string) error {
 	if err := json.Unmarshal(data, &fp); err != nil {
 		return fmt.Errorf("personality: fingerprint parse: %w", err)
 	}
+	ft.mu.Lock()
 	ft.current = &fp
+	ft.mu.Unlock()
 	return nil
 }
 
@@ -47,13 +49,19 @@ func (ft *FingerprintTracker) LoadFromFile(path string) error {
 // Update with the live session's model so the next boot can compare.
 // No-op when no current fingerprint is tracked.
 func (ft *FingerprintTracker) SaveToFile(path string) error {
-	if path == "" || ft == nil || ft.current == nil {
+	if path == "" || ft == nil {
+		return nil
+	}
+	ft.mu.Lock()
+	cur := ft.current
+	ft.mu.Unlock()
+	if cur == nil {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("personality: fingerprint mkdir: %w", err)
 	}
-	data, err := json.MarshalIndent(ft.current, "", "  ")
+	data, err := json.MarshalIndent(cur, "", "  ")
 	if err != nil {
 		return fmt.Errorf("personality: fingerprint marshal: %w", err)
 	}
