@@ -90,6 +90,10 @@ type anthropicStreamDelta struct {
 	Type       string `json:"type"`
 	Text       string `json:"text,omitempty"`
 	StopReason string `json:"stop_reason,omitempty"`
+	// PartialJSON carries one fragment of a tool_use block's input. The
+	// full JSON object is the concatenation of every input_json_delta
+	// for that content_block_start, in order.
+	PartialJSON string `json:"partial_json,omitempty"`
 }
 
 type AnthropicProvider struct {
@@ -212,6 +216,18 @@ func (p *AnthropicProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	var usage *Usage
+	// Anthropic streams tool_use blocks as content_block_start (with id +
+	// name + an empty input object) followed by N input_json_delta events
+	// carrying `partial_json` fragments, then a content_block_stop. The
+	// fragments are concatenated to form the full JSON arguments string —
+	// they are NOT valid JSON on their own. Index identifies which block
+	// each delta belongs to (text vs tool_use can interleave).
+	type toolAccum struct {
+		id   string
+		name string
+		args strings.Builder
+	}
+	toolBlocks := map[int]*toolAccum{}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -240,9 +256,48 @@ func (p *AnthropicProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 					OutputTokens: msg.Usage.OutputTokens,
 				}
 			}
+		case "content_block_start":
+			if msg.ContentBlock != nil && msg.ContentBlock.Type == "tool_use" {
+				toolBlocks[msg.Index] = &toolAccum{
+					id:   msg.ContentBlock.ID,
+					name: msg.ContentBlock.Name,
+				}
+			}
 		case "content_block_delta":
-			if msg.Delta != nil && msg.Delta.Text != "" {
-				ch <- Chunk{Content: msg.Delta.Text}
+			if msg.Delta == nil {
+				continue
+			}
+			switch msg.Delta.Type {
+			case "text_delta":
+				if msg.Delta.Text != "" {
+					ch <- Chunk{Content: msg.Delta.Text}
+				}
+			case "input_json_delta":
+				if a, ok := toolBlocks[msg.Index]; ok {
+					a.args.WriteString(msg.Delta.PartialJSON)
+				}
+			default:
+				// Older event shape carried text without a delta.type — keep
+				// the fallback so we don't silently drop content on a model
+				// that doesn't tag deltas.
+				if msg.Delta.Text != "" {
+					ch <- Chunk{Content: msg.Delta.Text}
+				}
+			}
+		case "content_block_stop":
+			if a, ok := toolBlocks[msg.Index]; ok {
+				args := a.args.String()
+				if args == "" {
+					// Tools with no input still get a valid JSON object so
+					// downstream JSON-unmarshal of arguments doesn't error.
+					args = "{}"
+				}
+				ch <- Chunk{ToolCalls: []ToolCall{{
+					ID:        a.id,
+					Name:      a.name,
+					Arguments: args,
+				}}}
+				delete(toolBlocks, msg.Index)
 			}
 		case "message_stop":
 			ch <- Chunk{Done: true, Usage: usage}

@@ -19,6 +19,15 @@ type geminiPart struct {
 	// requires base64 with an explicit mime_type; data: URLs aren't
 	// accepted here, only the raw base64 string.
 	InlineData *geminiInlineData `json:"inlineData,omitempty"`
+	// FunctionCall is set on assistant parts when the model wants to
+	// invoke a tool. Args is a JSON object (already parsed by the API,
+	// not a string fragment like OpenAI/Anthropic streaming).
+	FunctionCall *geminiFunctionCall `json:"functionCall,omitempty"`
+}
+
+type geminiFunctionCall struct {
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args"`
 }
 
 type geminiInlineData struct {
@@ -169,8 +178,30 @@ func (p *GeminiProvider) parseResponse(result *geminiResponse) Response {
 		},
 	}
 
-	if len(result.Candidates) > 0 && len(result.Candidates[0].Content.Parts) > 0 {
-		resp.Content = result.Candidates[0].Content.Parts[0].Text
+	if len(result.Candidates) > 0 {
+		// Gemini returns the assistant turn as a sequence of parts in one
+		// candidate. Parts can be plain text OR functionCall — concatenate
+		// the text and lift every functionCall into ToolCalls so write-path
+		// callers see a complete, ordered turn. The old code grabbed only
+		// parts[0].Text and silently dropped both extra text parts and
+		// every tool call.
+		var sb strings.Builder
+		for _, part := range result.Candidates[0].Content.Parts {
+			if part.Text != "" {
+				sb.WriteString(part.Text)
+			}
+			if part.FunctionCall != nil {
+				args := part.FunctionCall.Args
+				if len(args) == 0 {
+					args = json.RawMessage("{}")
+				}
+				resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+					Name:      part.FunctionCall.Name,
+					Arguments: string(args),
+				})
+			}
+		}
+		resp.Content = sb.String()
 	}
 
 	return resp
@@ -204,10 +235,26 @@ func (p *GeminiProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 			}
 		}
 
-		if len(chunk.Candidates) > 0 && len(chunk.Candidates[0].Content.Parts) > 0 {
-			text := chunk.Candidates[0].Content.Parts[0].Text
-			if text != "" {
-				ch <- Chunk{Content: text}
+		if len(chunk.Candidates) > 0 {
+			// Walk every part: emit text fragments as Content chunks and
+			// lift any functionCall into a ToolCalls chunk. Gemini does
+			// NOT fragment functionCall.args across multiple events —
+			// when a part has a functionCall it carries the complete
+			// args object, so we can emit immediately without a buffer.
+			for _, part := range chunk.Candidates[0].Content.Parts {
+				if part.Text != "" {
+					ch <- Chunk{Content: part.Text}
+				}
+				if part.FunctionCall != nil {
+					args := part.FunctionCall.Args
+					if len(args) == 0 {
+						args = json.RawMessage("{}")
+					}
+					ch <- Chunk{ToolCalls: []ToolCall{{
+						Name:      part.FunctionCall.Name,
+						Arguments: string(args),
+					}}}
+				}
 			}
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -42,6 +43,9 @@ type openaiImageURLRef struct {
 }
 
 type openaiToolCall struct {
+	// Index is set on streaming deltas to identify which parallel tool
+	// call this fragment belongs to. Non-stream responses omit it.
+	Index    *int               `json:"index,omitempty"`
 	ID       string             `json:"id,omitempty"`
 	Type     string             `json:"type,omitempty"`
 	Function openaiFunctionCall `json:"function"`
@@ -222,6 +226,47 @@ func (p *OpenAIProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	var usage *Usage
+	// OpenAI streams tool_calls as a sequence of deltas, each carrying
+	// an `index` plus partial id / function.name / function.arguments
+	// fragments. Arguments is a JSON string that is NOT valid mid-stream
+	// — it must be concatenated until `finish_reason: "tool_calls"`. The
+	// prior code emitted each fragment as a complete ToolCall, so the
+	// consumer saw bursts of half-parsed args and bogus empty IDs.
+	type accum struct {
+		order int
+		id    string
+		name  string
+		args  strings.Builder
+	}
+	toolAccum := map[int]*accum{}
+	var orderCounter int
+	flushTools := func() []ToolCall {
+		if len(toolAccum) == 0 {
+			return nil
+		}
+		// Emit in insertion order (matches the order OpenAI streamed
+		// them, which preserves index → call alignment for the next
+		// turn).
+		indices := make([]int, 0, len(toolAccum))
+		for i := range toolAccum {
+			indices = append(indices, i)
+		}
+		sort.Slice(indices, func(a, b int) bool {
+			return toolAccum[indices[a]].order < toolAccum[indices[b]].order
+		})
+		out := make([]ToolCall, 0, len(indices))
+		for _, i := range indices {
+			a := toolAccum[i]
+			out = append(out, ToolCall{
+				ID:        a.id,
+				Name:      a.name,
+				Arguments: a.args.String(),
+			})
+		}
+		toolAccum = map[int]*accum{}
+		return out
+	}
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -257,14 +302,41 @@ func (p *OpenAIProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 		}
 
 		for _, tc := range choice.Delta.ToolCalls {
-			ch <- Chunk{
-				ToolCalls: []ToolCall{{
-					ID:        tc.ID,
-					Name:      tc.Function.Name,
-					Arguments: tc.Function.Arguments,
-				}},
+			// Default index to 0 when the API omits it — the
+			// non-parallel case streams a single tool with no index.
+			idx := 0
+			if tc.Index != nil {
+				idx = *tc.Index
+			}
+			a, ok := toolAccum[idx]
+			if !ok {
+				a = &accum{order: orderCounter}
+				orderCounter++
+				toolAccum[idx] = a
+			}
+			if tc.ID != "" {
+				a.id = tc.ID
+			}
+			if tc.Function.Name != "" {
+				a.name = tc.Function.Name
+			}
+			if tc.Function.Arguments != "" {
+				a.args.WriteString(tc.Function.Arguments)
 			}
 		}
+
+		// On finish_reason transition, flush accumulated tool calls in
+		// one Chunk so the consumer sees fully-formed JSON arguments.
+		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			if tools := flushTools(); len(tools) > 0 {
+				ch <- Chunk{ToolCalls: tools}
+			}
+		}
+	}
+	// Belt + suspenders: some proxies drop finish_reason. Flush anything
+	// still accumulated before signalling Done.
+	if tools := flushTools(); len(tools) > 0 {
+		ch <- Chunk{ToolCalls: tools}
 	}
 
 	// Transport-level error (TCP reset, proxy timeout, body close) leaves the
