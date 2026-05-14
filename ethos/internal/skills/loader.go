@@ -2,6 +2,7 @@ package skills
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"gopkg.in/yaml.v3"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/skills/safety"
 )
 
 // watchDebounce coalesces editor save bursts (e.g. write-then-rename) so we
@@ -21,6 +24,25 @@ const watchDebounce = 500 * time.Millisecond
 type Loader struct {
 	bundledDir string
 	userDir    string
+
+	// scanner gates user-dir skills at load time (§6.4 safety
+	// scanning). Bundled skills bypass — they ship with the binary
+	// and are trusted by definition. nil scanner → noop (open).
+	scanner safety.Scanner
+	// blocked captures user-dir skills that were rejected by the
+	// scanner. Exposed via BlockedSkills so the TUI can show
+	// "we found <name> but VT flagged it; review or set
+	// OVERKILL_SKILL_ALLOW_UNKNOWN=1 if you trust it".
+	blockedMu sync.Mutex
+	blocked   []BlockedSkill
+}
+
+// BlockedSkill is one skill that the safety scanner refused to
+// install. Surface to the user via overkill skill block-list.
+type BlockedSkill struct {
+	Path    string
+	Verdict safety.Verdict
+	Reason  string
 }
 
 func NewLoader(bundledDir, userDir string) *Loader {
@@ -28,6 +50,34 @@ func NewLoader(bundledDir, userDir string) *Loader {
 		bundledDir: bundledDir,
 		userDir:    userDir,
 	}
+}
+
+// WithScanner installs a safety scanner. The loader calls
+// ScanDir on each user-dir skill before adding it to the registry;
+// Malicious / Suspicious verdicts are blocked and recorded in
+// BlockedSkills. Bundled skills are not scanned. Nil scanner →
+// today's open behaviour.
+func (l *Loader) WithScanner(s safety.Scanner) *Loader {
+	l.scanner = s
+	return l
+}
+
+// BlockedSkills returns the list of skills rejected by the
+// scanner since the loader was constructed. Caller-side filtering
+// (per-session, per-day) is the consumer's responsibility — this
+// is a flat append log.
+func (l *Loader) BlockedSkills() []BlockedSkill {
+	l.blockedMu.Lock()
+	defer l.blockedMu.Unlock()
+	return append([]BlockedSkill(nil), l.blocked...)
+}
+
+// recordBlock appends to the blocked list under mutex. Best-effort
+// — never errors back to the caller.
+func (l *Loader) recordBlock(b BlockedSkill) {
+	l.blockedMu.Lock()
+	l.blocked = append(l.blocked, b)
+	l.blockedMu.Unlock()
 }
 
 func (l *Loader) LoadAll() ([]Skill, error) {
@@ -49,10 +99,77 @@ func (l *Loader) LoadAll() ([]Skill, error) {
 		if err != nil {
 			return nil, fmt.Errorf("skills: loading user: %w", err)
 		}
+		// Safety gate: scan each user-dir skill's containing
+		// directory and drop the ones that come back Malicious /
+		// Suspicious. Clean and Unknown pass through (Unknown is
+		// the "new file, VT hasn't seen it" state — alarming on
+		// that would block every brand-new skill the user wrote).
+		if l.scanner != nil {
+			user = l.filterUnsafe(user)
+		}
 		skills = append(skills, user...)
 	}
 
 	return skills, nil
+}
+
+// filterUnsafe walks the candidate skills and drops the ones whose
+// directory (or single file, for top-level .md skills) the scanner
+// flags Malicious or Suspicious. Dropped entries land in
+// BlockedSkills. Errors are recorded as Unknown but don't drop
+// the skill — the scanner's job is to surface concrete signal,
+// not to fail-closed on operational glitches.
+func (l *Loader) filterUnsafe(in []Skill) []Skill {
+	out := in[:0]
+	for _, s := range in {
+		// Scope of scan: the containing directory for a SKILL.md
+		// (so we catch sibling scripts) or just the file itself
+		// for a top-level <name>.md. Filepath helps us decide.
+		target := s.FilePath
+		if filepath.Base(target) == "SKILL.md" || filepath.Base(target) == "skill.md" {
+			target = filepath.Dir(target)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		results, worst, err := safety.ScanDir(ctx, l.scanner, target)
+		cancel()
+		if err != nil {
+			log.Printf("skills: safety scan error on %s: %v", target, err)
+			// Don't drop — proceed and let the user decide. We
+			// recorded the error.
+		}
+		switch worst {
+		case safety.VerdictMalicious, safety.VerdictSuspicious:
+			reason := summariseScan(results, worst)
+			l.recordBlock(BlockedSkill{Path: target, Verdict: worst, Reason: reason})
+			log.Printf("skills: BLOCKED %s — %s: %s", s.Name, worst, reason)
+			continue
+		default:
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// summariseScan produces a one-line reason for a blocked skill,
+// listing up to three engine detections from the worst result.
+func summariseScan(results []safety.Result, worst safety.Verdict) string {
+	for _, r := range results {
+		if r.Verdict != worst {
+			continue
+		}
+		if len(r.Detections) == 0 {
+			return r.Reason
+		}
+		labels := []string{}
+		for engine, label := range r.Detections {
+			labels = append(labels, fmt.Sprintf("%s:%s", engine, label))
+			if len(labels) >= 3 {
+				break
+			}
+		}
+		return fmt.Sprintf("%s (%s)", r.Reason, strings.Join(labels, ", "))
+	}
+	return string(worst)
 }
 
 func (l *Loader) LoadDir(dir string) ([]Skill, error) {
