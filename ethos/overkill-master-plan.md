@@ -1214,7 +1214,7 @@ Sequenced to maximise compounding payoff:
 - [x] Task struct + lifecycle states defined
 - [x] 60-second sweeper for reconciliation (internal/automation/sweeper.go)
 - [x] `lost` detection (PID-aware after 5-min grace)
-- [ ] Push notifications on completion (sink interface exists; cross-channel push not yet)
+- [x] Push notifications on completion. Ledger fires `TerminalSink` on Complete/Fail/Cancel/Lost/Timeout → daemon writes `AlertTaskCompleted` to the shared AlertStore → gateway poller (5s) reads pending alerts and fans out to configured `notify_chat` per channel (telegram wired; discord/whatsapp TODO at the send-call layer but config + plumbing in place).
 
 **Layer 7: Task Flow (from OpenClaw)**  ✅
 - [x] Durable multi-step flow orchestration with revision tracking (internal/agent/flow.go)

@@ -146,6 +146,13 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// §7.1 Layer 6: poll the alert store for task-completion alerts
+	// and push them to configured channels. The daemon writes
+	// AlertTaskCompleted records; the gateway delivers. Two-process
+	// design via shared file store — no RPC required.
+	notifyShutdown := startCompletionNotifyPoller(ctx, cfg, logger)
+	defer notifyShutdown()
+
 	if err := hub.Run(ctx); err != nil && err != context.Canceled {
 		return err
 	}

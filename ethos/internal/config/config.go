@@ -143,6 +143,10 @@ type WhatsAppConfig struct {
 	Whatsmeow WhatsAppWhatsmeowConfig `toml:"whatsmeow"`
 	// Cloud sub-config — only consulted when Backend = "cloud".
 	Cloud WhatsAppCloudConfig `toml:"cloud"`
+	// NotifyJID is the WhatsApp JID (e.g. "1234567890@s.whatsapp.net")
+	// the gateway pushes unsolicited notifications to (§7.1 Layer 6).
+	// Empty = no WhatsApp push delivery.
+	NotifyJID string `toml:"notify_jid"`
 }
 
 // WhatsAppWhatsmeowConfig holds settings for the unofficial backend.
