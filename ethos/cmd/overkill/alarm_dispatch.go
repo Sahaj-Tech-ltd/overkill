@@ -38,6 +38,11 @@ var daemonFlowStore agent.FlowStore
 // Nil when the automation Badger DB failed to open.
 var daemonRoutines *automation.RoutineEngine
 
+// daemonSOPEngine is the live SOP engine, shared between the alarm
+// dispatcher and the §7.1 Layer 3 webhook server so an external
+// trigger and an internal alarm can drive the same procedures.
+var daemonSOPEngine *automation.SOPEngine
+
 
 // alarmDispatchModel is the env override for the cheap-tier model the
 // alarm sub-agent uses. Default values are tried in order until one

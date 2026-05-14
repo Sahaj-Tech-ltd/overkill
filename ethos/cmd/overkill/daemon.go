@@ -165,7 +165,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	if autoDB, err := badger.Open(badger.DefaultOptions(autoDir).WithLoggingLevel(badger.ERROR)); err == nil {
 		defer autoDB.Close()
 		sopStore := automation.NewBadgerSOPStore(autoDB)
-		_ = automation.NewSOPEngine(sopStore, shellExecutor)
+		daemonSOPEngine = automation.NewSOPEngine(sopStore, shellExecutor)
 
 		alarmStore := automation.NewBadgerAlarmStore(autoDB)
 		daemonAlarm = automation.NewAlarmClockWithStore(
@@ -175,6 +175,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		daemonAlarm.Start()
 		defer daemonAlarm.Stop()
 		fmt.Printf("%s✓ automation engine started (%d alarms)%s\n", colorGreen, len(daemonAlarm.List()), colorReset)
+
 
 		// Routine engine (§7.1 Layer 4). Persists across restarts
 		// so registered event→action rules survive reboots with
@@ -239,6 +240,32 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	// separate process) reads pending alerts and delivers them to
 	// the user's bound channels.
 	daemonLedger.SetTerminalSink(taskCompletionAlertSink())
+
+	// §7.1 Layer 3: SOP webhook trigger. External systems (CI hooks,
+	// monitoring alerts, MQTT-to-HTTP relays) POST /sop/{id} on the
+	// configured listen address to kick off a registered procedure.
+	// Loopback-only by default; bearer-token auth when
+	// OVERKILL_SOP_WEBHOOK_TOKEN is set.
+	if daemonSOPEngine != nil {
+		listen := os.Getenv("OVERKILL_SOP_WEBHOOK_LISTEN")
+		webhook := &automation.SOPWebhookServer{
+			Engine: daemonSOPEngine,
+			Listen: listen,
+			Token:  os.Getenv("OVERKILL_SOP_WEBHOOK_TOKEN"),
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := webhook.Run(ctx); err != nil && err != context.Canceled {
+				fmt.Fprintf(os.Stderr, "daemon: sop webhook: %v\n", err)
+			}
+		}()
+		addr := listen
+		if addr == "" {
+			addr = "127.0.0.1:7801"
+		}
+		fmt.Printf("%s✓ SOP webhook armed at http://%s%s\n", colorGreen, addr, colorReset)
+	}
 
 	// Behavior monitor + failhypo extraction ticker (paper #48).
 	// Runs Wall 4 detectors and the failed-hypothesis regex pass over

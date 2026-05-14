@@ -1196,7 +1196,7 @@ Sequenced to maximise compounding payoff:
 - [x] 5 execution modes: Auto, Supervised, StepByStep, Priority, Deterministic (automation.SOPMode iota)
 - [x] **Deterministic mode:** prevOutput → next-step input, no LLM calls between steps
 - [x] Resumable runs: Pause / Resume / ApproveStep, state persisted via SOPStore
-- [ ] Triggers: cron, webhook, MQTT — cron path works; webhook/MQTT not yet wired
+- [x] Triggers: cron + webhook. `POST /sop/{id}` to the daemon's webhook listener (127.0.0.1:7801 default; configurable via `OVERKILL_SOP_WEBHOOK_LISTEN`; bearer auth via `OVERKILL_SOP_WEBHOOK_TOKEN`). MQTT deferred — bridge via mqtt-to-http relay.
 
 **Layer 4: Routines (from ZeroClaw)**  ✅
 - [x] Routine registry + read-only TUI surface
