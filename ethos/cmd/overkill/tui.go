@@ -1216,6 +1216,14 @@ func buildTUIApp() *tui.App {
 		toolReg.Register(tools.NewJournalTimelineTool(recorder))
 		toolReg.Register(tools.NewJournalGetTool(recorder))
 
+		// failhypo_search — agent can query "have we already tried this?"
+		// before going down a known-dead path. Same disclosure pattern,
+		// different stream (paper #48 design input #5).
+		fhDir := filepath.Join(home, ".overkill", "failed_hypotheses")
+		_ = os.MkdirAll(fhDir, 0o755)
+		fhStore := journal.NewFailedHypothesisStore(fhDir)
+		toolReg.Register(tools.NewFailHypoSearchTool(fhStore))
+
 		// Boot-time alerts (master plan §4.19). Single AlertStore is wired to
 		// every producer (recovery, transparency, blindspot, compaction). Boot
 		// reader in pkg/tui surfaces pending alerts as toasts.
