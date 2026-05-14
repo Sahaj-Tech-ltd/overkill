@@ -194,6 +194,49 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		a.drainSteering()
 	}
 
+	// Reflexion pass (paper #51 AlphaGRPO / Shinn 2023). Same shape
+	// as the stream-path injection in stream.go — for each failed
+	// tool, produce a structured note and append as a system message
+	// before the next model turn. Budgeted to avoid drowning the
+	// next prompt when many tools fail at once.
+	if rf, budget := a.getReflector(); rf != nil && budget > 0 {
+		notes := 0
+		for _, tr := range result.ToolResults {
+			if notes >= budget {
+				break
+			}
+			errStr := ""
+			if tr.Error != nil {
+				errStr = tr.Error.Error()
+			}
+			outStr := string(tr.Output)
+			if errStr == "" && !rf.IsFailure(tr.ToolName, outStr, "") {
+				continue
+			}
+			f := Failure{
+				ToolName: tr.ToolName,
+				Output:   outStr,
+				Error:    errStr,
+			}
+			refl := rf.Reflect(f)
+			note := rf.FormatNote(tr.ToolName, refl)
+			if note == "" {
+				continue
+			}
+			a.appendMessage(providers.Message{
+				Role:    "system",
+				Content: note,
+			})
+			notes++
+			a.emit("reflexion", map[string]any{
+				"tool":       tr.ToolName,
+				"mode":       refl.Mode,
+				"confidence": refl.Confidence,
+				"session_id": a.sessionID,
+			})
+		}
+	}
+
 	return result, nil
 }
 

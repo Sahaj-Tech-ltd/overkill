@@ -93,6 +93,18 @@ type Agent struct {
 	verifierMu        sync.RWMutex
 	postWriteVerifier PostWriteVerifier
 
+	// reflector runs Reflexion-class self-correction (paper #51
+	// AlphaGRPO recipe). On a failed tool result it produces a
+	// structured "you tried X, it failed because Y, try Z" note
+	// that gets injected as a system message before the next model
+	// call. Optional; nil disables. Shares verifierMu since both
+	// hook into the same post-tool-batch site.
+	reflector Reflector
+	// reflectionBudget caps how many reflection notes we inject per
+	// turn (one tool batch can have many failures; we don't want to
+	// flood the next prompt). 2 is the default; 0 disables.
+	reflectionBudget int
+
 	// hallucinationScanner annotates the assembled response with
 	// [?] markers after unverified identifier references (Batch G3).
 	// Optional; nil disables. Uses a.mu since reads happen on the

@@ -469,6 +469,51 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					}
 				}
 			}
+
+			// Reflexion pass (paper #51 AlphaGRPO / Shinn 2023). For
+			// each failed tool in this batch, ask the reflector for a
+			// structured "you tried X, it failed because Y, try Z"
+			// note and inject it as a system message. Budgeted so a
+			// many-failure batch doesn't drown the next prompt.
+			if rf, budget := a.getReflector(); rf != nil && budget > 0 {
+				notes := 0
+				for i, tr := range toolResults {
+					if notes >= budget {
+						break
+					}
+					errStr := ""
+					if tr.Error != nil {
+						errStr = tr.Error.Error()
+					}
+					outStr := string(tr.Output)
+					if errStr == "" && !rf.IsFailure(tr.ToolName, outStr, "") {
+						continue
+					}
+					call := toolCalls[i]
+					f := Failure{
+						ToolName: tr.ToolName,
+						Input:    call.Arguments,
+						Output:   outStr,
+						Error:    errStr,
+					}
+					refl := rf.Reflect(f)
+					note := rf.FormatNote(tr.ToolName, refl)
+					if note == "" {
+						continue
+					}
+					a.appendMessage(providers.Message{
+						Role:    "system",
+						Content: note,
+					})
+					notes++
+					a.emit("reflexion", map[string]any{
+						"tool":       tr.ToolName,
+						"mode":       refl.Mode,
+						"confidence": refl.Confidence,
+						"session_id": a.sessionID,
+					})
+				}
+			}
 		}
 
 		// Max-steps exit. If a FlowStore is wired we checkpoint the

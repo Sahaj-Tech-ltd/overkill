@@ -30,6 +30,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/introspection"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/reflect"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/lsp"
 	"github.com/dgraph-io/badger/v4"
 
@@ -1223,6 +1224,23 @@ func buildTUIApp() *tui.App {
 		_ = os.MkdirAll(fhDir, 0o755)
 		fhStore := journal.NewFailedHypothesisStore(fhDir)
 		toolReg.Register(tools.NewFailHypoSearchTool(fhStore))
+
+		// Reflexion self-correction (paper #51). After a failed tool
+		// the heuristic reflector produces a structured note that
+		// gets injected as a system message before the next model
+		// call. Each reflection also persists to the failhypo store
+		// keyed by tool name, so cross-session lookups see them too.
+		a.SetReflector(newReflectorAdapter(func(tool string, r reflect.Reflection) {
+			defer func() { _ = recover() }()
+			_ = fhStore.Append(journal.FailedHypothesis{
+				ID:         "", // store assigns
+				SessionID:  a.SessionID(),
+				Subject:    tool,
+				Hypothesis: r.RootCause,
+				Reason:     r.Hypothesis,
+				Timestamp:  time.Now().UTC(),
+			})
+		}))
 
 		// Boot-time alerts (master plan §4.19). Single AlertStore is wired to
 		// every producer (recovery, transparency, blindspot, compaction). Boot
