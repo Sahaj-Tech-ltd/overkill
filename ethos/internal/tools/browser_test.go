@@ -34,7 +34,7 @@ func TestBrowserHostPolicy(t *testing.T) {
 		{"chrome scheme blocked", BrowserHostPolicy{}, "chrome://flags", true},
 		{"data scheme blocked", BrowserHostPolicy{}, "data:text/html,hi", true},
 		{"unknown scheme blocked", BrowserHostPolicy{}, "gopher://example.com/", true},
-		{"file scheme allowed", BrowserHostPolicy{}, "file:///etc/hosts", false},
+		{"file scheme blocked", BrowserHostPolicy{}, "file:///etc/hosts", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

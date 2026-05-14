@@ -10,11 +10,13 @@ package bridge
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -91,17 +93,25 @@ func (b *Bridge) Name() string { return "bridge" }
 // connect over loopback by default — exposing this publicly without a
 // reverse proxy is a foot-gun.
 func (b *Bridge) Run(ctx context.Context) error {
+	addr := b.Listen
+	if addr == "" {
+		addr = "127.0.0.1:7799"
+	}
+	// Refuse to start without auth unless the bind is loopback-only.
+	// Empty Token + non-loopback listen made the bridge an open RCE
+	// shim — anyone reachable on the network could POST /v1/in and
+	// have it dispatched to the agent. Loopback-only with empty
+	// token is still allowed for trusted local sidecars.
+	if b.Token == "" && !bindsLoopback(addr) {
+		return fmt.Errorf("bridge: refusing to start on %s with empty token — set Token or bind to 127.0.0.1/::1", addr)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/in", b.handleIn)
 	mux.HandleFunc("/v1/out", b.handleOut)
 	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-
-	addr := b.Listen
-	if addr == "" {
-		addr = "127.0.0.1:7799"
-	}
 	b.server = &http.Server{
 		Addr:              addr,
 		Handler:           mux,
@@ -130,7 +140,29 @@ func (b *Bridge) authorized(r *http.Request) bool {
 		return true
 	}
 	h := r.Header.Get("Authorization")
-	return strings.TrimPrefix(h, "Bearer ") == b.Token
+	if !strings.HasPrefix(h, "Bearer ") {
+		return false
+	}
+	presented := strings.TrimPrefix(h, "Bearer ")
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(b.Token)) == 1
+}
+
+// bindsLoopback reports whether addr binds exclusively to a
+// loopback interface. Empty host or "0.0.0.0"/"[::]"/no-host
+// counts as non-loopback (binds all interfaces).
+func bindsLoopback(addr string) bool {
+	// addr is "host:port"; SplitHostPort handles both ipv4 and
+	// bracketed ipv6.
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// No port → assume binds-all; refuse.
+		return false
+	}
+	switch host {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	}
+	return false
 }
 
 // handleIn accepts an inbound message and dispatches it. We do NOT

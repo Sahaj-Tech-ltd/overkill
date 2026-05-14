@@ -50,54 +50,63 @@ func NewCommandScanner(opts ...CommandScannerOption) *CommandScanner {
 				confidence:  0.95,
 			},
 			{
+				id:          "fork_bomb",
 				regex:       regexp.MustCompile(`\(\)\{\s*:\|\:&\s*\}`),
 				description: "fork bomb",
 				level:       ThreatCritical,
 				confidence:  0.95,
 			},
 			{
+				id:          "mkfs",
 				regex:       regexp.MustCompile(`(?i)mkfs\.`),
 				description: "filesystem format",
 				level:       ThreatCritical,
 				confidence:  0.95,
 			},
 			{
+				id:          "dd_raw_disk",
 				regex:       regexp.MustCompile(`(?i)dd\s+if=.*of=/dev/`),
 				description: "raw disk write",
 				level:       ThreatCritical,
 				confidence:  0.95,
 			},
 			{
+				id:          "direct_device_write",
 				regex:       regexp.MustCompile(`(?i)>\s*/dev/sd`),
 				description: "direct device write",
 				level:       ThreatCritical,
 				confidence:  0.9,
 			},
 			{
+				id:          "chmod_777_root",
 				regex:       regexp.MustCompile(`(?i)chmod\s+(-R\s+)?777\s+/`),
 				description: "world-writable root",
 				level:       ThreatHigh,
 				confidence:  0.85,
 			},
 			{
+				id:          "curl_pipe_sh",
 				regex:       regexp.MustCompile(`(?i)curl\s+.*\|\s*(ba)?sh`),
 				description: "pipe curl to shell",
 				level:       ThreatHigh,
 				confidence:  0.9,
 			},
 			{
+				id:          "wget_pipe_sh",
 				regex:       regexp.MustCompile(`(?i)wget\s+.*\|\s*(ba)?sh`),
 				description: "pipe wget to shell",
 				level:       ThreatHigh,
 				confidence:  0.9,
 			},
 			{
+				id:          "system_shutdown",
 				regex:       regexp.MustCompile(`(?i)\b(shutdown|reboot|poweroff|halt)\b`),
 				description: "system shutdown command",
 				level:       ThreatHigh,
 				confidence:  0.85,
 			},
 			{
+				id:          "overwrite_etc",
 				regex:       regexp.MustCompile(`(?i)(: >|>)\s*/etc/`),
 				description: "overwrite system files",
 				level:       ThreatHigh,
@@ -182,13 +191,26 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 	blocked := maxLevel >= ThreatHigh || rateLimited
 
 	if s.permissions != nil && blocked {
+		// Only consult the permission manager for patterns that actually
+		// matched THIS input. Iterating every pattern and checking on its
+		// id (some of which used to be "") meant a single AllowOnce on
+		// the empty key would silently un-block any future scan.
+		matched := make(map[string]bool, len(findings))
 		for _, p := range s.patterns {
-			status := s.permissions.Check(p.id, input, s.projectPath)
+			if p.id == "" {
+				continue
+			}
+			if p.regex.MatchString(input) {
+				matched[p.id] = true
+			}
+		}
+		for id := range matched {
+			status := s.permissions.Check(id, input, s.projectPath)
 			if status.Action == ActionAllowOnce || status.Action == ActionAllowProject {
 				findings = append(findings, Finding{
 					Type:        "permission_override",
 					Level:       ThreatNone,
-					Description: fmt.Sprintf("blocked by %s, but allowed by permission", p.id),
+					Description: fmt.Sprintf("blocked by %s, but allowed by permission", id),
 					Confidence:  1.0,
 				})
 				blocked = false

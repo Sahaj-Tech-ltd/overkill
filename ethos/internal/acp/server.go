@@ -3,10 +3,12 @@ package acp
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -184,7 +186,14 @@ func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		got := r.Header.Get("Authorization")
-		if !strings.HasPrefix(got, "Bearer ") || strings.TrimPrefix(got, "Bearer ") != s.token {
+		if !strings.HasPrefix(got, "Bearer ") {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// Constant-time compare so an attacker can't recover the
+		// token byte-by-byte via response-time differences.
+		presented := strings.TrimPrefix(got, "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(presented), []byte(s.token)) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -209,9 +218,20 @@ func (s *Server) cors(h http.Handler) http.Handler {
 	})
 }
 
+// originAllowed compares the request origin against the allow-list
+// EXACTLY — scheme + host + port must match. Prior code used
+// strings.HasPrefix which let `http://localhost.evil.com` match the
+// allow-listed `http://localhost`. Combined with
+// Access-Control-Allow-Credentials: true that was a real CSRF /
+// token-exfil surface.
 func (s *Server) originAllowed(origin string) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	canonical := parsed.Scheme + "://" + parsed.Host
 	for _, a := range s.allowedOrigins {
-		if origin == a || strings.HasPrefix(origin, a) {
+		if canonical == a || origin == a {
 			return true
 		}
 	}

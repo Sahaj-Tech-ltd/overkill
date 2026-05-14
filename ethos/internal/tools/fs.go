@@ -67,7 +67,17 @@ func (f *FSTool) resolve(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("fs: %w", err)
 	}
-	if !strings.HasPrefix(abs, root) {
+	root = filepath.Clean(root)
+	// Compare via filepath.Rel: "../" prefix indicates escape, "."
+	// is the root itself (allowed), anything else is a child. The
+	// prior strings.HasPrefix(abs, root) check let "/home/user/wo"
+	// match against "/home/user/work" — classic prefix-without-
+	// separator bug.
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", fmt.Errorf("fs: path traversal rejected: %s", path)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("fs: path traversal rejected: %s", path)
 	}
 	return abs, nil

@@ -42,7 +42,7 @@ func (p BrowserHostPolicy) CheckURL(rawURL string) error {
 	if scheme == "javascript" || scheme == "chrome" || scheme == "data" {
 		return fmt.Errorf("browser: scheme %q not allowed", scheme)
 	}
-	if scheme != "http" && scheme != "https" && scheme != "file" && scheme != "about" && scheme != "ftp" {
+	if scheme != "http" && scheme != "https" && scheme != "about" {
 		return fmt.Errorf("browser: scheme %q not allowed", scheme)
 	}
 	host := u.Hostname()

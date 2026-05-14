@@ -18,6 +18,7 @@ package automation
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -93,7 +94,10 @@ func (s *SOPWebhookServer) authorized(r *http.Request) bool {
 		return true
 	}
 	h := r.Header.Get("Authorization")
-	return strings.TrimPrefix(h, "Bearer ") == s.Token
+	got := strings.TrimPrefix(h, "Bearer ")
+	// Constant-time compare so token-length / prefix-equality timing
+	// can't be used to recover the secret one byte at a time.
+	return subtle.ConstantTimeCompare([]byte(got), []byte(s.Token)) == 1
 }
 
 func (s *SOPWebhookServer) handleList(w http.ResponseWriter, r *http.Request) {
