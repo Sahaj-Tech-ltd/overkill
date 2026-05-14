@@ -49,6 +49,12 @@ type FailedHypothesis struct {
 	Subject    string    `json:"subject,omitempty"`
 	Hypothesis string    `json:"hypothesis"`
 	Reason     string    `json:"reason"`
+	// ModelID tags the record with the model that produced the
+	// failure. Optional (older records lack it). Used at read time
+	// to filter "I've hit this wall twice" down to the CURRENT
+	// model — a stale record from a previous model swap is noise.
+	// See §4.16 model fingerprinting.
+	ModelID string `json:"model_id,omitempty"`
 }
 
 // extraction patterns — all conservative, designed to fire only on
@@ -176,6 +182,26 @@ func (s *FailedHypothesisStore) All() ([]FailedHypothesis, error) {
 			return nil, err
 		}
 		out = append(out, recs...)
+	}
+	return out, nil
+}
+
+// SearchForModel is Search restricted to records produced by the
+// given model ID. Empty modelID returns no filtering (same as
+// Search). Records without a ModelID (older entries that predate
+// fingerprinting) are INCLUDED — we'd rather show stale-but-marked
+// records than silently drop them. The caller can dedupe by Subject
+// if needed.
+func (s *FailedHypothesisStore) SearchForModel(query, modelID string) ([]FailedHypothesis, error) {
+	hits, err := s.Search(query)
+	if err != nil || modelID == "" {
+		return hits, err
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		if h.ModelID == "" || h.ModelID == modelID {
+			out = append(out, h)
+		}
 	}
 	return out, nil
 }

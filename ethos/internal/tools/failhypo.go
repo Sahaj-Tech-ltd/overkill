@@ -22,15 +22,32 @@ import (
 // take a hard dep on the concrete store type.
 type FailHypoQuerier interface {
 	Search(query string) ([]journal.FailedHypothesis, error)
+	SearchForModel(query, modelID string) ([]journal.FailedHypothesis, error)
 	All() ([]journal.FailedHypothesis, error)
+}
+
+// CurrentModelProvider lets the tool ask for the model that's
+// active RIGHT NOW so default-on filtering applies. Optional —
+// nil disables auto-filter (returns everything).
+type CurrentModelProvider interface {
+	Model() string
 }
 
 type FailHypoSearchTool struct {
 	q FailHypoQuerier
+	m CurrentModelProvider // optional; nil = no auto-filter
 }
 
 func NewFailHypoSearchTool(q FailHypoQuerier) *FailHypoSearchTool {
 	return &FailHypoSearchTool{q: q}
+}
+
+// WithCurrentModel attaches a model provider so the tool defaults
+// to filtering hits to the active model. Callers can still pass
+// model_id="*" in the request to opt out and see every model.
+func (t *FailHypoSearchTool) WithCurrentModel(m CurrentModelProvider) *FailHypoSearchTool {
+	t.m = m
+	return t
 }
 
 func (t *FailHypoSearchTool) Name() string { return "failhypo_search" }
@@ -45,6 +62,12 @@ type failhypoSearchInput struct {
 	// Limit caps the returned record count. Defaults to 20 — the
 	// agent rarely needs more, and the prompt cost adds up fast.
 	Limit int `json:"limit,omitempty"`
+
+	// ModelID restricts results to records produced by this model.
+	// Empty (default) AND a current-model provider is wired → the
+	// tool auto-filters to the active model. Pass "*" to disable
+	// filtering and see records from every model. §4.16.
+	ModelID string `json:"model_id,omitempty"`
 }
 
 func (t *FailHypoSearchTool) Execute(_ context.Context, in json.RawMessage) (json.RawMessage, error) {
@@ -62,14 +85,27 @@ func (t *FailHypoSearchTool) Execute(_ context.Context, in json.RawMessage) (jso
 		limit = 20
 	}
 
+	// Resolve the effective model filter. Explicit "*" → no filter.
+	// Empty + current-model provider wired → active model. Empty
+	// + no provider → no filter (mirrors prior behaviour).
+	modelFilter := req.ModelID
+	if modelFilter == "*" {
+		modelFilter = ""
+	} else if modelFilter == "" && t.m != nil {
+		modelFilter = t.m.Model()
+	}
+
 	var (
 		hits []journal.FailedHypothesis
 		err  error
 	)
-	if req.Query == "" {
+	switch {
+	case req.Query == "" && modelFilter == "":
 		hits, err = t.q.All()
-	} else {
+	case modelFilter == "":
 		hits, err = t.q.Search(req.Query)
+	default:
+		hits, err = t.q.SearchForModel(req.Query, modelFilter)
 	}
 	if err != nil {
 		return errorJSON(err.Error()), nil

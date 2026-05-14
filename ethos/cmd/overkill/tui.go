@@ -1223,7 +1223,10 @@ func buildTUIApp() *tui.App {
 		fhDir := filepath.Join(home, ".overkill", "failed_hypotheses")
 		_ = os.MkdirAll(fhDir, 0o755)
 		fhStore := journal.NewFailedHypothesisStore(fhDir)
-		toolReg.Register(tools.NewFailHypoSearchTool(fhStore))
+		// failhypo_search auto-filters to the active model so the
+		// agent doesn't see failures from a previous swap unless it
+		// asks (`model_id: "*"`). §4.16 model fingerprinting.
+		toolReg.Register(tools.NewFailHypoSearchTool(fhStore).WithCurrentModel(a))
 
 		// Reflexion self-correction (paper #51). After a failed tool
 		// the heuristic reflector produces a structured note that
@@ -1239,6 +1242,7 @@ func buildTUIApp() *tui.App {
 				Hypothesis: r.RootCause,
 				Reason:     r.Hypothesis,
 				Timestamp:  time.Now().UTC(),
+				ModelID:    a.Model(),
 			})
 		}))
 
@@ -1317,8 +1321,12 @@ func buildTUIApp() *tui.App {
 		if notice, err := fingerprinter.BootCheck(fpPath, modelName); err == nil && notice != "" {
 			a.Inject(providers.Message{
 				Role: "system",
-				Content: notice + " — Historical failure patterns from the previous model may not apply. Be ready to recalibrate.",
+				Content: notice + " — Historical failure patterns from the previous model may not apply. Be ready to recalibrate. " +
+					"`failhypo_search` defaults to filtering by the current model; pass `model_id: \"*\"` if you specifically want cross-model failure history.",
 			})
+			// Also file as a pattern_detected alert so the next boot
+			// reader / journal query can see the swap event.
+			_ = alertStore.Create(journal.AlertPatternDetected, notice, sid)
 		}
 		// Persist the new fingerprint immediately so a crash mid-
 		// session doesn't lose the record.
@@ -1394,7 +1402,11 @@ func buildTUIApp() *tui.App {
 
 		// Forward agent lifecycle events into the journal. Best-effort: any
 		// write failure is silently dropped so a full disk doesn't kill chat.
-		journalAdapter := &journalEventAdapter{rec: recorder, failHypo: fhStore}
+		journalAdapter := &journalEventAdapter{
+			rec:      recorder,
+			failHypo: fhStore,
+			modelFn:  a.Model,
+		}
 		a.SetEventFn(journalAdapter.Handle)
 		a.SetRecoveryWriter(journalAdapter)
 	}
@@ -1470,6 +1482,7 @@ func (x *acpAgentAdapter) StreamACP(ctx context.Context, in string) (<-chan acp.
 type journalEventAdapter struct {
 	rec      *journal.FlightRecorder
 	failHypo *journal.FailedHypothesisStore // optional; nil disables realtime extraction
+	modelFn  func() string                  // optional; nil = no model tagging on extracted records
 }
 
 func (j *journalEventAdapter) Handle(event string, payload map[string]any) {
@@ -1501,6 +1514,9 @@ func (j *journalEventAdapter) Handle(event string, payload map[string]any) {
 				Content:   content,
 			}
 			for _, h := range journal.ExtractFailedHypotheses(synthetic) {
+				if j.modelFn != nil {
+					h.ModelID = j.modelFn()
+				}
 				_ = j.failHypo.Append(h)
 			}
 		}

@@ -31,6 +31,24 @@ func (s *stubFHStore) All() ([]journal.FailedHypothesis, error) {
 	return append([]journal.FailedHypothesis(nil), s.records...), nil
 }
 
+func (s *stubFHStore) SearchForModel(query, modelID string) ([]journal.FailedHypothesis, error) {
+	hits, err := s.Search(query)
+	if err != nil || modelID == "" {
+		return hits, err
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		if h.ModelID == "" || h.ModelID == modelID {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
+type stubModelProvider struct{ id string }
+
+func (s stubModelProvider) Model() string { return s.id }
+
 func containsFold(s, q string) bool {
 	if len(q) > len(s) {
 		return false
@@ -129,6 +147,52 @@ func TestFailHypoSearch_LimitApplied(t *testing.T) {
 	_ = json.Unmarshal(raw, &resp)
 	if resp.Count != 5 {
 		t.Errorf("limit=5 should cap, got %d", resp.Count)
+	}
+}
+
+func TestFailHypoSearch_AutoFiltersToCurrentModel(t *testing.T) {
+	store := newStubWith(
+		journal.FailedHypothesis{ID: "1", ModelID: "claude-opus-4-7", Hypothesis: "a"},
+		journal.FailedHypothesis{ID: "2", ModelID: "gpt-5.4", Hypothesis: "b"},
+		journal.FailedHypothesis{ID: "3", ModelID: "", Hypothesis: "c"}, // unversioned record passes
+	)
+	tool := NewFailHypoSearchTool(store).WithCurrentModel(stubModelProvider{id: "claude-opus-4-7"})
+
+	raw, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resp struct {
+		Hits []journal.FailedHypothesis `json:"hits"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	ids := map[string]bool{}
+	for _, h := range resp.Hits {
+		ids[h.ID] = true
+	}
+	if ids["2"] {
+		t.Errorf("gpt-5.4 record should be filtered out: %+v", resp.Hits)
+	}
+	if !ids["1"] || !ids["3"] {
+		t.Errorf("current-model and unversioned records should be included: %+v", resp.Hits)
+	}
+}
+
+func TestFailHypoSearch_StarOptsOutOfModelFilter(t *testing.T) {
+	store := newStubWith(
+		journal.FailedHypothesis{ID: "1", ModelID: "claude-opus-4-7", Hypothesis: "a"},
+		journal.FailedHypothesis{ID: "2", ModelID: "gpt-5.4", Hypothesis: "b"},
+	)
+	tool := NewFailHypoSearchTool(store).WithCurrentModel(stubModelProvider{id: "claude-opus-4-7"})
+
+	in, _ := json.Marshal(map[string]any{"model_id": "*"})
+	raw, _ := tool.Execute(context.Background(), in)
+	var resp struct {
+		Count int `json:"count"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Count != 2 {
+		t.Errorf("model_id=* should return both records, got %d", resp.Count)
 	}
 }
 
