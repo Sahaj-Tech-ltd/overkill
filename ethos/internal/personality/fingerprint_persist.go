@@ -19,12 +19,18 @@ func (ft *FingerprintTracker) LoadFromFile(path string) error {
 	if path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	// Event-log fallback for corruption/wipes — see eventlog.go.
+	valid := func(b []byte) bool {
+		var tmp ModelFingerprint
+		return json.Unmarshal(b, &tmp) == nil
+	}
+	data, err := LoadWithFallback(path, NewEventLog(path), valid)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("personality: fingerprint load: %w", err)
+		// Both snapshot and log unreadable → cold start.
+		return nil
 	}
 	if len(data) == 0 {
 		return nil
@@ -51,6 +57,10 @@ func (ft *FingerprintTracker) SaveToFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("personality: fingerprint marshal: %w", err)
 	}
+	// Append to event log BEFORE rewriting the snapshot — recovery
+	// path if the snapshot is corrupted between this save and the
+	// next load.
+	_ = NewEventLog(path).Append(data)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("personality: fingerprint write: %w", err)

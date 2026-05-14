@@ -43,6 +43,8 @@ func (si *StyleInferencer) SaveToFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("personality: style marshal: %w", err)
 	}
+	// Event-log append for corruption recovery — see eventlog.go.
+	_ = NewEventLog(path).Append(data)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("personality: style write: %w", err)
@@ -60,12 +62,16 @@ func (si *StyleInferencer) LoadFromFile(path string) error {
 	if path == "" || si == nil {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	valid := func(b []byte) bool {
+		var tmp stylePersistState
+		return json.Unmarshal(b, &tmp) == nil
+	}
+	data, err := LoadWithFallback(path, NewEventLog(path), valid)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("personality: style load: %w", err)
+		return nil // cold start on combined snapshot+log failure
 	}
 	if len(data) == 0 {
 		return nil
