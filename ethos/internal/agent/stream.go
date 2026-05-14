@@ -225,6 +225,16 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					Content: filtered,
 				})
 
+				// Surface the final assistant turn as an event so the
+				// journal adapter can persist it AND run regex-based
+				// derived passes (e.g. failed-hypothesis extraction).
+				if filtered != "" {
+					a.emit("agent_reply", map[string]any{
+						"content":    filtered,
+						"session_id": a.sessionID,
+					})
+				}
+
 				runResult.Confidence = a.assessTurnConfidence(userInput)
 				out <- StreamEvent{Type: EventDone, Result: runResult}
 				return
@@ -237,6 +247,17 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 				Content:   filtered,
 				ToolCalls: toolCalls,
 			})
+
+			// Same agent_reply emission for the mixed reply+tool_call
+			// branch — the agent's prose still warrants persistence and
+			// derived extraction. The tool_call event handles the
+			// other half separately.
+			if filtered != "" {
+				a.emit("agent_reply", map[string]any{
+					"content":    filtered,
+					"session_id": a.sessionID,
+				})
+			}
 
 			var toolWg sync.WaitGroup
 			toolResults := make([]ToolResult, len(toolCalls))

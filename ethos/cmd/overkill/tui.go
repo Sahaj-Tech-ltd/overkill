@@ -1376,7 +1376,7 @@ func buildTUIApp() *tui.App {
 
 		// Forward agent lifecycle events into the journal. Best-effort: any
 		// write failure is silently dropped so a full disk doesn't kill chat.
-		journalAdapter := &journalEventAdapter{rec: recorder}
+		journalAdapter := &journalEventAdapter{rec: recorder, failHypo: fhStore}
 		a.SetEventFn(journalAdapter.Handle)
 		a.SetRecoveryWriter(journalAdapter)
 	}
@@ -1450,7 +1450,8 @@ func (x *acpAgentAdapter) StreamACP(ctx context.Context, in string) (<-chan acp.
 // and agent.JournalEntryWriter (via WriteEntry) so the same instance can serve
 // streaming events and recovery lessons.
 type journalEventAdapter struct {
-	rec *journal.FlightRecorder
+	rec      *journal.FlightRecorder
+	failHypo *journal.FailedHypothesisStore // optional; nil disables realtime extraction
 }
 
 func (j *journalEventAdapter) Handle(event string, payload map[string]any) {
@@ -1463,6 +1464,28 @@ func (j *journalEventAdapter) Handle(event string, payload map[string]any) {
 		tool, _ := payload["tool"].(string)
 		input, _ := payload["input"].(string)
 		_ = j.rec.RecordToolCall(tool, []byte(input))
+	case "agent_reply":
+		content, _ := payload["content"].(string)
+		if content == "" {
+			return
+		}
+		_ = j.rec.RecordReply(content)
+		// Realtime failed-hypothesis extraction: build a synthetic
+		// Entry mirroring what just got recorded and run the regex
+		// pass. Persistence is best-effort — extraction failure
+		// must not break the agent turn.
+		if j.failHypo != nil {
+			sid, _ := payload["session_id"].(string)
+			synthetic := journal.Entry{
+				Type:      journal.EntryAgentReply,
+				SessionID: sid,
+				Timestamp: time.Now().UTC(),
+				Content:   content,
+			}
+			for _, h := range journal.ExtractFailedHypotheses(synthetic) {
+				_ = j.failHypo.Append(h)
+			}
+		}
 	case "error":
 		msg, _ := payload["error"].(string)
 		_ = j.rec.RecordError(fmt.Errorf("%s", msg))

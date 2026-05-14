@@ -221,6 +221,12 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	defer sweeper.Stop()
 	fmt.Printf("%s✓ ledger sweeper started%s\n", colorGreen, colorReset)
 
+	// Behavior monitor + failhypo extraction ticker (paper #48).
+	// Runs Wall 4 detectors and the failed-hypothesis regex pass over
+	// today's journal entries every 5 minutes. Findings land in the
+	// alert store so the next TUI boot surfaces them.
+	behaviorTickerStart(ctx, &wg)
+
 	// RPC socket so the TUI / CLI / future webhook receivers can talk
 	// to the running daemon without sharing in-process state. Bind
 	// errors are non-fatal — the daemon still runs in standalone mode
