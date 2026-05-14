@@ -1276,10 +1276,10 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 - [ ] Segment-based memory for massive codebases (MemAgent — Yu 2025)
 - [ ] Agentic Context Engineering (ACE) — evolving playbooks — Zhang 2025
 
-### 8.3 Cross-Session Intelligence  ❌
-- [ ] Cross-session task graph: "You asked me to fix X 3 days ago, that shipped, here's the commit"
-- [ ] Session replay + observability
-- [ ] Drift detection: flag when agent behavior diverges from norms
+### 8.3 Cross-Session Intelligence  ⚠️ task graph done; replay + drift pending
+- [x] Cross-session task graph — `internal/tasks/tasks.go` stores per-task records (intent, status, linked commits, notes). Tools: `task_open / task_close / task_link_commit / task_note / task_list`. Stale-but-open tasks surface automatically at session boot via `FormatOpenerSummary` (filters by 2h+ age). Operator CLI: `overkill thread list | show | close`.
+- [ ] Session replay + observability — Phase 5 #5
+- [ ] Drift detection: flag when agent behavior diverges from norms — Wave 4
 
 ### 8.4 Advanced Security (Optional, Opt-In)  ❌
 - [ ] MCPSHIELD integration — Acharya 2026

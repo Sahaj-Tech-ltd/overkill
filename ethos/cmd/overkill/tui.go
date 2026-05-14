@@ -31,6 +31,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/plan"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tasks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/reflect"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/lsp"
 	"github.com/dgraph-io/badger/v4"
@@ -1229,6 +1230,25 @@ func buildTUIApp() *tui.App {
 		// failhypo_search — agent can query "have we already tried this?"
 		// before going down a known-dead path. Same disclosure pattern,
 		// different stream (paper #48 design input #5).
+		// §8.3 cross-session task graph. The agent opens tasks when
+		// the user makes a multi-session request, links commits as
+		// they land, surfaces stale-but-open threads at the next
+		// session boot via the opener summary injection below.
+		tasksDir := filepath.Join(home, ".overkill", "tasks")
+		_ = os.MkdirAll(tasksDir, 0o755)
+		taskStore := tasks.NewStore(tasksDir)
+		toolReg.Register(tools.NewTaskOpenTool(taskStore, a))
+		toolReg.Register(tools.NewTaskCloseTool(taskStore))
+		toolReg.Register(tools.NewTaskLinkCommitTool(taskStore))
+		toolReg.Register(tools.NewTaskNoteTool(taskStore))
+		toolReg.Register(tools.NewTaskListTool(taskStore))
+		if open, err := taskStore.OpenOlderThan(2 * time.Hour); err == nil && len(open) > 0 {
+			a.Inject(providers.Message{
+				Role:    "system",
+				Content: tasks.FormatOpenerSummary(open),
+			})
+		}
+
 		fhDir := filepath.Join(home, ".overkill", "failed_hypotheses")
 		_ = os.MkdirAll(fhDir, 0o755)
 		fhStore := journal.NewFailedHypothesisStore(fhDir)
@@ -1286,6 +1306,7 @@ func buildTUIApp() *tui.App {
 				"  - At end of task, call record_learning with topic+lesson if you learned anything non-obvious. This is append-only — past learnings cannot be edited.\n" +
 				"  - Before starting work on a problem area, call learnings_search and failhypo_search to check whether you've already tried something here.\n" +
 				"  - When the user gives you a durable rule (\"always X\", \"never Y\"), call standing_order_add. The optional `verify` + `report` fields let you encode an Execute-Verify-Report pattern. Remove with standing_order_remove. Past orders are NEVER silently overwritten.\n" +
+				"  - When the user makes a request that won't finish this session (\"fix the auth bug eventually\", \"add CSRF protection when you get a chance\"), call task_open(intent). Mid-flight, log progress via task_note. When the work ships, call task_link_commit then task_close. Stale open tasks surface automatically at next session boot, so don't drop threads — record them.\n" +
 				"You are FORBIDDEN from writing directly to ~/.overkill/* via Write/Edit — those paths are scanner-blocked. Use the typed tools.",
 		})
 

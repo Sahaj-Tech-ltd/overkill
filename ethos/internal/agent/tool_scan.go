@@ -114,6 +114,7 @@ var protectedSubdirs = []string{
 	"plans",               // per-session plan store (mutate via plan_* tools)
 	"learnings",           // append-only learnings stream (mutate via record_learning)
 	"automation",          // alarms, SOPs, routines, flow state (Badger DB)
+	"tasks",               // §8.3 cross-session task graph (mutate via task_* tools)
 }
 
 // protectedFiles are top-level ~/.overkill/ filenames that aren't
