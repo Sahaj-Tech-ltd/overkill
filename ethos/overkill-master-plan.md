@@ -1287,10 +1287,10 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 - [ ] ImpossibleBench-style cheating detection — Zhong 2025
 - [ ] Owner-Harm threat model — Zhang 2026
 
-### 8.5 Advanced Orchestration  ❌
-- [ ] Worktree management for parallel agents without conflicts
+### 8.5 Advanced Orchestration  ⚠️ worktrees done; speculative + LATS pending
+- [x] Worktree management for parallel agents without conflicts — `internal/worktree/manager.go` allocates one git worktree per subagent under `<repo>/.overkill-worktrees/<task-id>`, branch `overkill/parallel/<task-id>`. `cmd/overkill/parallel_runner.go` wires it into the subagent runtime: SpawnInWorktree acquires + spawns + waits + releases. CLI: `overkill worktree list | release | prune`. Reclaim path rediscovers trees after daemon restart.
 - [ ] Speculative tool execution: cache common reads, prefetch likely files
-- [ ] LATS-style tree search for multi-path code exploration — Zhou 2024
+- [ ] LATS-style tree search for multi-path code exploration — Zhou 2024 (out of Wave 1–2 scope)
 
 ### 8.6 RL-based Self-Improvement  ⚠️ Reflexion landed; credit-assignment still aspirational
 - [ ] Credit assignment across long coding trajectories — Zhang 2026
