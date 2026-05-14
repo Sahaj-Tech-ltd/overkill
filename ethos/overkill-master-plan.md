@@ -1267,10 +1267,19 @@ Sequenced to maximise compounding payoff:
 All Phase 5 items are research targets — paper-driven implementations
 to revisit once Phase 4 lands. Not blocked, just not started.
 
-### 8.1 Advanced Compaction  ❌
-- [ ] Cartridge-style KV compaction (50x ratio) — Eyuboglu 2025
-- [ ] Neural Garbage Collection — Li 2026
-- [ ] Fast KV Compaction via Attention Matching — Zweiger 2026
+### 8.1 Advanced Compaction  ⚠️ application-layer approximation only
+
+**Honest scope:** the original papers operate on the model's KV cache. We don't have model weights or kernel access — we can't literally implement them. What we DO ship is the same shape at the application layer in `internal/compaction/importance.go`:
+
+- **Importance scoring** (`Score`): ranks context segments by recency half-life × reuse (diminishing-returns access count) × inverse token cost. Pinned segments score infinity, never evict.
+- **Eviction** (`Compact`): lowest-score-first eviction until target token budget is met. `MinKeep` floor prevents over-compaction into amnesia. Caller-supplied segment order is preserved in the keep list.
+- **Hierarchical** (`HierarchicalCompact`): on each eviction, invoke an operator-supplied `summarize` function and persist via a `SummaryWriter` (typically wired to the observation store so the agent can `journal_search` for the original later). Writer errors are recorded but never block compaction.
+
+14 unit tests covering scoring axes, eviction order, MinKeep floor, pinned protection, caller-order preservation, hierarchical summary writes, writer error propagation, and the report formatter.
+
+- [ ] Cartridge-style KV compaction (50x ratio) — Eyuboglu 2025 — **out of scope** (model-internal). Approximated above at the application layer; will not hit 50× ratio without kernel-level access.
+- [ ] Neural Garbage Collection — Li 2026 — **out of scope** (model-internal). Same.
+- [ ] Fast KV Compaction via Attention Matching — Zweiger 2026 — **out of scope** (model-internal). Same.
 
 ### 8.2 Advanced Memory  ✅
 - [x] Segment-based memory for massive codebases (MemAgent — Yu 2025) — `internal/memory/segments.go` stores labeled glob-based slices with retrieval scoring (recency half-life × name/desc/tag match × inverse size). Agent tools: `segment_create / list / rank / load / delete`. Recursive `**` glob support; LoadFiles caches stats for future ranking.
