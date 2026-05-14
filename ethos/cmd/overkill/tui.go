@@ -1363,10 +1363,21 @@ func buildTUIApp() *tui.App {
 		fingerprinter := personality.NewFingerprintTracker()
 		fpPath := filepath.Join(memDir, "fingerprint.json")
 		if notice, err := fingerprinter.BootCheck(fpPath, modelName); err == nil && notice != "" {
+			// §4.16 recalibration probe. Pull the prior-model's
+			// failure record from failhypo (model-tagged) so the
+			// agent has a concrete checklist of "your predecessor
+			// failed here — verify whether you have the same gap"
+			// instead of just a generic "model changed" notice.
+			prev := fingerprinter.Previous()
+			probe := buildRecalibrationProbe(fhStore, prev, 6)
+			injectContent := notice + " — Historical failure patterns from the previous model may not apply. Be ready to recalibrate. " +
+				"`failhypo_search` defaults to filtering by the current model; pass `model_id: \"*\"` if you specifically want cross-model failure history."
+			if probe != "" {
+				injectContent += "\n\n" + probe
+			}
 			a.Inject(providers.Message{
-				Role: "system",
-				Content: notice + " — Historical failure patterns from the previous model may not apply. Be ready to recalibrate. " +
-					"`failhypo_search` defaults to filtering by the current model; pass `model_id: \"*\"` if you specifically want cross-model failure history.",
+				Role:    "system",
+				Content: injectContent,
 			})
 			// Also file as a pattern_detected alert so the next boot
 			// reader / journal query can see the swap event.
@@ -1412,10 +1423,21 @@ func buildTUIApp() *tui.App {
 				bs.Observe(v)
 			}
 			if coldStart {
-				if _, err := csm.ProcessFirstResponse(input); err != nil {
+				profile, err := csm.ProcessFirstResponse(input)
+				if err != nil {
 					// Best-effort: log + continue. The relationship
 					// file failing to persist doesn't break the chat.
 					log.Printf("cold start: %v", err)
+				}
+				// §4.16 user.md seeding from the cold-start profile.
+				// SeedUserMD refuses to overwrite an existing file —
+				// once the user edits user.md their version wins
+				// forever.
+				if profile != nil {
+					userMDPath := filepath.Join(memDir, "user.md")
+					if _, err := personality.SeedUserMD(userMDPath, profile); err != nil {
+						log.Printf("user.md seed: %v", err)
+					}
 				}
 			}
 		})

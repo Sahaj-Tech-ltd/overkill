@@ -699,7 +699,7 @@ When user starts a session on a repo:
 > Overkill bonds through competence. But competence has a ceiling per model. Swap the underlying model and the actual capability profile changes overnight — things Overkill could do yesterday it fumbles today, things it couldn't do suddenly work. The relationship arc's baked-in competence assumptions go stale on contact with new weights.
 
 - [x] **Model fingerprinting on boot:** `personality.FingerprintTracker` detects swaps and emits a one-line calibration notice on session open. Persisted to `~/.overkill/memories/fingerprint.json`.
-- [ ] **NOT a full cold start.** Not a re-onboarding. A targeted probe:
+- [x] **NOT a full cold start.** Not a re-onboarding. A targeted probe (cmd/overkill/recalibration.go: `buildRecalibrationProbe`):
   - Previously known weak spots (from journal `pattern_detected` + failure history tied to old model version) — re-tested against new model
   - New model info from provider (context window, known limitations, pricing) written to MODEL_CARD.md
   - Results compared against historical baseline from old model
@@ -820,7 +820,7 @@ governs WHO the agent is.
 - [ ] **By end of first message:** Overkill has an initial read. **By session three:** tuning. **By session ten:** cold start gap is closed.
 - [ ] **Tone:** An advisor who just met you, not a therapist who read your file. "I don't know you yet. Let's fix that." Not "Hey, you're finally awake" to someone whose name it doesn't know.
 - [ ] **Inspired by OpenClaw's BOOTSTRAP.md ritual** — natural conversation that infers user preferences, not a form that interrogates. Adapted for Overkill's deeper relationship arc architecture.
-- [ ] Cold start also seeds `user.md` (name, timezone, preferences) from the same conversation. User can edit anytime via visible memory dashboard.
+- [x] Cold start also seeds `user.md` (name, timezone, preferences) from the same conversation. `personality.SeedUserMD` writes once on first response and never overwrites a user-edited file.
 
 **The Constitution** (baked into system prompt):
 > "When something doesn't work, describe the failure in your voice, not a stack trace. You know what you can and can't do. You know your relationship with this user. Be honest about limitations. Be funny about failures. Be a colleague, not a servant."
