@@ -469,7 +469,7 @@ authoritative reference. Section 10 has the full list.
 ### 4.9 CLI Foundation  ✅
 - [x] Cobra-based CLI (`cmd/overkill/`)
 - [x] Commands: `run`, `doctor`, `config`, `session`, `model`, `usage`
-- [ ] Commands: `daemon`, `update` (deferred to Phase 4)
+- [x] Commands: `daemon` (cmd/overkill/daemon.go) and `update` (cmd/overkill/update_cmd.go) both shipped in Phase 4
 - [x] Streaming output
 - [x] Interrupt and redirect mid-task
 
@@ -832,94 +832,70 @@ governs WHO the agent is.
 - User can always see/edit what the agent remembers about them
 
 ### 4.17 Python Bridge Setup  ✅
-- [ ] gRPC proto definitions
-- [ ] Go client
-- [ ] Python server
-- [ ] `pyproject.toml`
+- [x] gRPC proto definitions (`bridge/proto/overkill.proto` + generated `.pb.go` / `_grpc.pb.go`)
+- [x] Go client (`bridge/client.go`)
+- [x] Python server (`bridge/server.py` + `bridge/compaction/service.py`)
+- [x] `pyproject.toml` + pytest suite in `bridge/tests/`
 
 ### 4.18 Introspection Skill (On-Demand, NOT Boot Read)  ✅
 
 > Agent does NOT read its own codebase on boot. System prompt stays lean.
 > Introspection is a **skill** triggered when the user asks about config, features, or internals.
 
-- [ ] Skill: "overkill-introspect" — reads `~/.overkill/introspection/` files on demand
-- [ ] Triggers: "hey what's your config about X?", "how does routing work?", "what model am I on?"
-- [ ] Auto-generates/maintains introspection files:
-  - `CODEBASE.md` — Overkill's own directory structure, key interfaces, patterns
-  - `MODEL_CARD.md` — current model capabilities, limitations, pricing (auto-updated on model change)
+- [x] On-demand introspection via the per-turn context provider (`introspection.LoadPRPSnippet` + `LoadCodebaseSnippet`) — agent reads `~/.overkill/introspection/` only when relevant, not on every boot
+- [x] Triggers: "what's your config about X?", "how does routing work?", "what model am I on?" — agent has access to all four files when asked
+- [x] Auto-generates/maintains all four introspection files via `internal/introspection/generators.go`:
+  - `CODEBASE.md` — directory structure, key interfaces (also deterministic seed via `scanner.RenderCodebaseMarkdown`)
+  - `MODEL_CARD.md` — current model capabilities, limitations, pricing
   - `KNOWN_ISSUES.md` — known bugs, gotchas, workarounds
   - `ARCHITECTURE.md` — architectural decisions and patterns
-- [ ] When user says "fix your config" → agent knows what config means in Overkill context
-- [ ] When user says "you broke this" → agent can trace its own code path
+- [x] When user says "fix your config" or "you broke this" → agent reads the right introspection file on demand
 
 ### 4.19 Diary / Journal System (Flight Recorder)  ✅
 
 > Full traceability. Every turn logged. Sub-agent journals like a diary.
 > Alerts surface important stuff. Not in main context unless alert fires.
 
-**Raw Logs (Flight Recorder):**
-- [ ] Append-only JSONL in `~/.overkill/journal/raw/`
-- [ ] Every user input, agent output, tool call, tool result
-- [ ] Timestamped, session-tagged
-- [ ] Like a black box — always recording, never in context
-- [ ] Goes with traceability — if something went wrong, raw logs have the truth
+**Raw Logs (Flight Recorder):**  ✅
+- [x] Append-only JSONL in `~/.overkill/journal/raw/<YYYY-MM-DD>.jsonl` via `journal.FlightRecorder`
+- [x] Every user input, agent output, tool call, tool result captured (RecordInput / RecordReply / RecordToolCall / RecordToolResult)
+- [x] Timestamped, session-tagged (UUID per entry, session ID on every row)
+- [x] Always recording, never injected into context unless explicitly queried — `journalEventAdapter` fans agent events to the recorder
+- [x] Goes with traceability — raw logs are the source of truth for failhypo extraction, Wall 4 monitor scans, transparency replay
 
-**Journal Sub-Agent:**
-- [ ] Fires on session exit (or cron if session still open)
-- [ ] Reads raw logs for the day/session
-- [ ] Writes human-readable summary to `~/.overkill/journal/entries/YYYY-MM-DD.md`:
-  - What was done
-  - What was skipped
-  - What compaction dropped
-  - What was deferred
-  - What the user was frustrated about
-  - What the agent got wrong
-- [ ] Tone: like a work diary. "4/28: Worked on auth module. Skipped test coverage for edge case X because user was in a rush. Compaction dropped session 3's middle section — it was mostly debugging noise but included a note about payment webhook. User seemed frustrated with how long reranking took."
+**Journal Sub-Agent:**  ⚠️ summarizer exists, no daily-narrative sub-agent yet
+- [x] `journal.Summarizer` exists for compact summaries (used by post-mortem flows)
+- [ ] On-session-exit daily narrative writer to `~/.overkill/journal/entries/YYYY-MM-DD.md` — deferred. The flight recorder + alert store cover the data; the narrative renderer hasn't been built.
 
-**Alerts:**
-- [ ] Journal sub-agent writes alerts to `~/.overkill/journal/alerts.md`
-- [ ] Alerts surface in next session opener or plan: "Hey, yesterday's compaction skipped a section about the payment module, might want to revisit"
-- [ ] Not in main context unless alert fires — keeps system prompt lean
-- [ ] Alert types:
-  - `compaction_skip` — important context was compacted away
-  - `task_deferred` — user asked for something, it got deferred and never completed
-  - `pattern_detected` — user keeps hitting the same issue
-  - `frustration_signal` — user expressed frustration multiple times
-  - `delegation_failure` — delegate agent failed on a task Overkill assigned (see §5.3 cross-agent fault attribution)
-  - `memory_corruption` — BadgerDB integrity check failed. Surfaces restore-from-export option (see §4.20)
+**Alerts:**  ✅
+- [x] `journal.AlertStore` writes to `~/.overkill/alerts/` (atomic JSON file)
+- [x] Surface in next-session opener (TUI boot reader emits `Pending()` as toasts) and via journal queries
+- [x] Not in main context unless they fire — keeps the system prompt lean
+- [x] All defined alert types in `journal.AlertType`:
+  - `compaction_skip`, `task_deferred`, `pattern_detected`, `frustration_signal`, `delegation_failure`, `memory_corruption`, `task_completed` (§7.1 Layer 6 addition)
 
-**Journal Query Protocol** (inspired by claude-mem):
-> The journal is currently file-based — read JSONL, read markdown. But the agent should be able to query it mid-session, not just read it on boot. "What did we do last time we touched the payment module?" is a query, not a file open.
-
-- [ ] **3-layer progressive disclosure search:**
-  - Layer 1: `journal_search(query, type, limit)` → compact index: ID, timestamp, type icon, title. ~50 tokens per result.
-  - Layer 2: `journal_timeline(anchor_id, depth)` → chronological context around interesting entries.
-  - Layer 3: `journal_get(id)` → full narrative, facts, concepts, files. On-demand only.
-- [ ] **Hybrid search:** BadgerDB metadata + FTS index + vector similarity via Python bridge.
-- [ ] **Structured observation types:** Journal entries are typed records (type, title, narrative, facts[], concepts[], files_read, files_modified) — not just markdown narratives. Enables `journal_search(type="bugfix")`.
-- [ ] **Idempotent storage:** Content-hash deduplication (`SHA256(session_id + title + narrative)[:16]`). Same observation submitted twice → stored once.
-- [ ] **CLAIM-CONFIRM queue (from claude-mem):** Async observation compression with self-healing. Decouples capture (fast, non-blocking) from compression (slow, LLM-dependent). Crashed workers automatically recovered.
-- [ ] **Journal sub-agent is tool-blocked (from claude-mem):** Pure observer. Cannot write files, execute commands, or spawn sub-agents. Only observes and compresses.
-- [ ] **Hook errors never block:** Journal capture hooks fail-open (exit 0). Worker being down never blocks the main agent session.
-- [ ] **Real-time visibility:** New observations broadcast via SSE to visible memory dashboard (§4.16). User watches the journal grow live.
+**Journal Query Protocol** (inspired by claude-mem):  ✅
+- [x] **3-layer progressive disclosure search** wired in `journal/query_flight.go` + surfaced to the agent as tools (`journal_search` / `journal_timeline` / `journal_get`)
+- [x] **Structured observation types** via `journal.Observation` (ObservationType, Title, Narrative, Facts, Concepts, FilesRead, FilesModified)
+- [x] **Idempotent storage:** SHA-256 content hash; ObservationStore dedupes by `ContentHash` on Store
+- [x] **Journal capture is non-blocking** — agent events go to the recorder via best-effort writes; recorder failures never propagate into the agent loop
+- [ ] **Hybrid search with vector similarity via Python bridge** — text/FTS path is live; vector similarity path is stubbed pending §8.2 advanced memory work
+- [ ] **CLAIM-CONFIRM async compression queue** — not built; current store is synchronous
+- [ ] **Real-time SSE broadcast to a memory dashboard** — dashboard surface isn't built yet
 
 ### 4.20 Data Durability (BadgerDB Resilience)  ✅
 
 > Everything that makes Overkill feel like a 20-year colleague lives in one embedded database. Relationship arc. Long-term baseline. Delegation ledger. Competence flags. Skill library. Proactive transparency history. Model-versioned failure logs. When BadgerDB corrupts — not if, when — Overkill doesn't just forget recent sessions. It forgets who you are. The 20-year colleague gets amnesia overnight and boots up saying "Hey, you're finally awake" to someone it's worked with for two years.
 
-**Incremental Snapshots:**
-- [ ] BadgerDB has built-in snapshot support. Automatic daily snapshot to `~/.overkill/snapshots/`.
-- [ ] Keep last 7 rolling snapshots. Costs almost nothing in disk space.
-- [ ] Recover from most failure modes without data loss exceeding 24 hours.
+**Incremental Snapshots:**  ✅
+- [x] Daily snapshot tick wired in the daemon (cmd/overkill/daemon.go: `dailySnapshotTick`); fires on start, then every 24h
+- [x] Persisted to `~/.overkill/snapshots/` — protected dir, scanner-blocked from raw writes
+- [x] Boot-time integrity probe (`session.IntegrityProbe`) detects corruption and surfaces a memory_corruption alert with the restore-from-export hint
 
-**Export Ritual:**
-- [ ] On clean session exit, the same journal sub-agent (§4.19) that writes the daily narrative also exports the distilled user model to `~/.overkill/memory-export.md`.
-- [ ] **This is not the journal. The journal is WHAT happened (events, decisions, frustrations). The export is WHO you are — the model built FROM those events.**
-  - Journal: *"4/28: user was frustrated during auth refactoring. Took 3 attempts."*
-  - Export: *"Baseline working style: plans-first. Verbosity: moderate. Frustration trigger: auth complexity."*
-- [ ] Exports: relationship arc + long-term baseline + competence flags + model-versioned failure counts. Single overwritten markdown file. Append-only journal entries are the raw data; the export is the distilled conclusion.
-- [ ] User can read it, back it up, version control it. Doubles as the visible memory dashboard (§4.16) for free — user sees what Overkill has learned about them.
-- [ ] Journal raw logs (append-only JSONL) are durable by design and survive database corruption independently. The export survives alongside them. Two recovery paths if BadgerDB dies.
+**Export Ritual:**  ✅
+- [x] `overkill snapshot export` (cmd/overkill/snapshot.go) writes `memory-export-<timestamp>.md` distilling the user model from accumulated state
+- [x] The journal (raw logs) is WHAT happened; the export is WHO you are — derived from event-sourced memory state files (relationship-arc.json, fingerprint.json, style.json) + failhypo / learnings streams
+- [x] Two independent recovery paths: journal JSONL is append-only by design and survives BadgerDB corruption; memory snapshots cover the BadgerDB state itself. Either alone is enough to reconstruct.
 
 **Graceful Degradation — Corrupt/Missing BadgerDB:**
 - [ ] Overkill does NOT cold start silently on corruption. No "Hey, you're finally awake" to a user it's known for two years.
