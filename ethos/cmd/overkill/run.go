@@ -83,7 +83,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		Tools:        toolReg,
 		Compressors:  tools.NewCompressorRegistry(),
 		Hooks:        hooks.NewRegistry(),
-		Scanners:     []security.Scanner{security.NewCommandScanner(security.WithProjectPath(cwd))},
+		Scanners: []security.Scanner{
+			security.NewCommandScanner(security.WithProjectPath(cwd)),
+			// InjectionScanner catches "ignore previous instructions" /
+			// role-override patterns in tool inputs. Was implemented but
+			// never wired into the pre-tool scanner list — every shell
+			// invocation skipped the prompt-injection check.
+			security.NewInjectionScanner(),
+		},
 		Tokenizer:    tokenizer.NewEstimator(),
 		Steering:     agent.NewSteeringQueue(agent.SteeringDrainAll),
 		Model:        modelName,

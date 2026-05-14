@@ -11,7 +11,35 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/browser"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/walls/promptinject"
 )
+
+// annotateInjection attaches a prompt-injection summary to a tool-result
+// payload when the rendered content trips the promptinject scanner. The
+// scanner was written but never invoked anywhere — every browser fetch
+// returned raw HTML/markdown to the model with no flag. We keep the
+// content (the agent may need to see "the page that tried to override
+// instructions") but add a structured warning so the agent + transcripts
+// can react.
+func annotateInjection(payload map[string]any, body string) map[string]any {
+	findings := promptinject.Scan(body)
+	if len(findings) == 0 {
+		return payload
+	}
+	summaries := make([]map[string]any, 0, len(findings))
+	for _, f := range findings {
+		summaries = append(summaries, map[string]any{
+			"severity": string(f.Severity),
+			"pattern":  f.Pattern,
+			"match":    f.Match,
+		})
+	}
+	payload["_prompt_injection_warning"] = map[string]any{
+		"max_severity": string(promptinject.MaxSeverity(findings)),
+		"findings":     summaries,
+	}
+	return payload
+}
 
 // BrowserHostPolicy decides whether a given URL is reachable. Allowed hosts
 // take precedence over blocked hosts only when the allow list is non-empty.
@@ -233,7 +261,7 @@ func (t *BrowserTextTool) Execute(ctx context.Context, in json.RawMessage) (json
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{"text": s})
+	return json.Marshal(annotateInjection(map[string]any{"text": s}, s))
 }
 
 // BrowserMarkdownTool — render the current page as markdown.
@@ -252,7 +280,7 @@ func (t *BrowserMarkdownTool) Execute(ctx context.Context, _ json.RawMessage) (j
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{"markdown": md})
+	return json.Marshal(annotateInjection(map[string]any{"markdown": md}, md))
 }
 
 // BrowserClickTool — click element.

@@ -878,7 +878,13 @@ func buildTUIApp() *tui.App {
 		Tools:        toolReg,
 		Compressors:  tools.NewCompressorRegistry(),
 		Hooks:        app.Hooks,
-		Scanners:     []security.Scanner{security.NewCommandScanner(security.WithProjectPath(cwd))},
+		Scanners: []security.Scanner{
+			security.NewCommandScanner(security.WithProjectPath(cwd)),
+			// Mirror run.go: prompt-injection scanner runs alongside the
+			// dangerous-command scanner. Both implement security.Scanner
+			// and are dispatched in order by the agent's pre-tool hook.
+			security.NewInjectionScanner(),
+		},
 		Tokenizer:    tokenizer.NewEstimator(),
 		Steering:     agent.NewSteeringQueue(agent.SteeringDrainAll),
 		Model:        modelName,

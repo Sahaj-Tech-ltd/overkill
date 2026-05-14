@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/walls/mcpshield"
 )
 
 // ToolWithServer pairs an MCP tool definition with the server name it lives on.
@@ -32,6 +33,21 @@ type Manager struct {
 	clients map[string]*Client
 	stop    chan struct{}
 	wg      sync.WaitGroup
+	// policy is the mcpshield capability gate. When non-nil every Call
+	// is checked against the declared capability for the target server.
+	// nil → legacy behaviour (no shield), preserved for callers that
+	// haven't migrated yet.
+	policy *mcpshield.Policy
+}
+
+// SetPolicy attaches an mcpshield policy. Pass nil to disable.
+func (m *Manager) SetPolicy(p *mcpshield.Policy) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.policy = p
 }
 
 // NewManager builds a Manager from configuration. Servers aren't started
@@ -233,12 +249,24 @@ func (m *Manager) Call(ctx context.Context, server, tool string, args json.RawMe
 	}
 	m.mu.RLock()
 	c, ok := m.clients[server]
+	policy := m.policy
 	m.mu.RUnlock()
 	if !ok {
 		return Result{}, fmt.Errorf("mcp: unknown server %q", server)
 	}
 	if !c.Connected() {
 		return Result{}, fmt.Errorf("mcp: server %q not connected", server)
+	}
+	// mcpshield gate: when a policy is attached, every call passes
+	// through capability + size checks before dispatch. The arg-size
+	// signal is computed from the encoded JSON; per-tool path extraction
+	// is left to a future revision (CheckCall accepts a nil paths slice
+	// and only checks server/tool/byte-cap until paths are wired).
+	if policy != nil {
+		decision := policy.CheckCall(server, tool, nil, len(args))
+		if !decision.Allow {
+			return Result{}, fmt.Errorf("mcp: %s", decision.Reason)
+		}
 	}
 	return c.CallTool(ctx, tool, args)
 }
