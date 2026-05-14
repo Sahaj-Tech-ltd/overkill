@@ -63,12 +63,13 @@ type Alarm struct {
 // writes through to the store so a daemon restart can resume pending
 // alarms.
 type AlarmClock struct {
-	mu     sync.RWMutex
-	alarms map[string]*Alarm
-	fire   func(alarm *Alarm) error
-	stop   chan struct{}
-	store  AlarmStore
-	now    func() time.Time // injected for tests
+	mu      sync.RWMutex
+	alarms  map[string]*Alarm
+	fire    func(alarm *Alarm) error
+	stop    chan struct{}
+	running bool // guarded by mu; prevents double-Start / double-Stop panics
+	store   AlarmStore
+	now     func() time.Time // injected for tests
 }
 
 // NewAlarmClock returns a non-persistent clock. Prefer NewAlarmClockWithStore
@@ -97,9 +98,25 @@ func NewAlarmClockWithStore(fire func(alarm *Alarm) error, store AlarmStore) *Al
 
 // Start kicks off the 1s tick loop. When a store is wired, Start first
 // reloads pending alarms so a daemon restart resumes seamlessly.
-// Idempotent — second Start is a no-op because we don't track running
-// state explicitly; callers should pair each Start with exactly one Stop.
+// Start kicks off the 1s tick loop. Idempotent — second Start is a
+// real no-op (the prior version's "callers should pair" comment was
+// aspirational; in practice the daemon's restart path could hit
+// double-Start and panic via the closed-channel guard below). Pair
+// with Stop; both are now safe to call multiple times.
 func (a *AlarmClock) Start() {
+	a.mu.Lock()
+	if a.running {
+		a.mu.Unlock()
+		return
+	}
+	a.running = true
+	// Re-arm the stop channel in case this is a Start-after-Stop
+	// (prior Stop closed it; we'd panic-on-close on next Stop
+	// without a fresh channel).
+	a.stop = make(chan struct{})
+	stopCh := a.stop
+	a.mu.Unlock()
+
 	// Reload before launching the tick — if Reload finds an alarm
 	// whose FireAt has already passed (daemon was down), the first
 	// tick fires it within a second.
@@ -114,7 +131,7 @@ func (a *AlarmClock) Start() {
 
 		for {
 			select {
-			case <-a.stop:
+			case <-stopCh:
 				return
 			case <-ticker.C:
 				a.checkAlarms()
@@ -193,7 +210,17 @@ func (a *AlarmClock) checkAlarms() {
 	}
 }
 
+// Stop signals the tick loop to exit. Idempotent: a second Stop is a
+// no-op. Old code naively `close(a.stop)`'d on every Stop which
+// panicked the second time around — daemon restart paths could hit
+// this.
 func (a *AlarmClock) Stop() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.running {
+		return
+	}
+	a.running = false
 	close(a.stop)
 }
 

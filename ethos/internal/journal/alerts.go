@@ -120,8 +120,19 @@ func (s *AlertStore) saveLocked() error {
 		return fmt.Errorf("journal: marshaling alerts: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("journal: writing alerts: %w", err)
+	// Atomic write: temp + rename. The prior direct os.WriteFile
+	// could leave a truncated/empty alerts.json on a crash mid-
+	// write; the next boot then loaded zero alerts and silently
+	// dropped every pending memory_corruption / task_completed /
+	// frustration_signal record. Every other state file in this
+	// repo uses temp+rename; this was the outlier.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("journal: writing alerts tmp: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("journal: rename alerts: %w", err)
 	}
 
 	return nil

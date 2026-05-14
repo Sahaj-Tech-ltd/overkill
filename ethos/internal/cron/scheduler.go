@@ -275,19 +275,33 @@ func (s *Scheduler) ResumeJob(id string) error {
 	return nil
 }
 
+// GetJob returns a defensive copy of the job so the caller cannot
+// observe torn writes from fireJob mutating NextRun / RunCount /
+// LastRun under the scheduler's lock. Returns (nil, false) when
+// the id is unknown.
 func (s *Scheduler) GetJob(id string) (*Job, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	j, ok := s.jobs[id]
-	return j, ok
+	if !ok {
+		return nil, false
+	}
+	dup := *j
+	return &dup, true
 }
 
+// ListJobs returns defensive copies of every job. See GetJob for
+// the race rationale — the live *Job pointers are mutated by
+// fireJob under the scheduler's lock; returning the pointers
+// directly lets external readers race against those writes on
+// multi-word fields like time.Time.
 func (s *Scheduler) ListJobs() []*Job {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*Job, 0, len(s.jobs))
 	for _, j := range s.jobs {
-		result = append(result, j)
+		dup := *j
+		result = append(result, &dup)
 	}
 	return result
 }
