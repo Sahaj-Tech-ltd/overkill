@@ -1276,9 +1276,9 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 - [x] Segment-based memory for massive codebases (MemAgent — Yu 2025) — `internal/memory/segments.go` stores labeled glob-based slices with retrieval scoring (recency half-life × name/desc/tag match × inverse size). Agent tools: `segment_create / list / rank / load / delete`. Recursive `**` glob support; LoadFiles caches stats for future ranking.
 - [ ] Agentic Context Engineering (ACE) — evolving playbooks — Zhang 2025 — Phase 5 #6
 
-### 8.3 Cross-Session Intelligence  ⚠️ task graph done; replay + drift pending
+### 8.3 Cross-Session Intelligence  ⚠️ task graph + replay done; drift pending
 - [x] Cross-session task graph — `internal/tasks/tasks.go` stores per-task records (intent, status, linked commits, notes). Tools: `task_open / task_close / task_link_commit / task_note / task_list`. Stale-but-open tasks surface automatically at session boot via `FormatOpenerSummary` (filters by 2h+ age). Operator CLI: `overkill thread list | show | close`.
-- [ ] Session replay + observability — Phase 5 #5
+- [x] Session replay + observability — `internal/journal/replay.go` walks a journaled session chronologically. `Replay()` returns a channel of `ReplayEvent` (entry + offset from start + index); supports type filter, time bounds, real-time pacing via Speed multiplier. `Replayer.Snapshot()` for synchronous full-session callers. `FormatReplayEvent` renders glyph + offset + truncated content. CLI: `overkill journal replay <session> [--speed --type --snapshot]`.
 - [ ] Drift detection: flag when agent behavior diverges from norms — Wave 4
 
 ### 8.4 Advanced Security (Optional, Opt-In)  ❌
