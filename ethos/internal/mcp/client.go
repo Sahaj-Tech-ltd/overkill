@@ -222,6 +222,17 @@ func (c *Client) Close() error {
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 	}
+	// Explicitly close the stdout + stderr pipes so the read goroutines
+	// (jsonrpc reader on stdout, stderr drain) exit deterministically.
+	// Killing the process eventually closes them via the kernel, but
+	// the drainer's exit was timing-dependent — each supervise restart
+	// cycle accumulated another live drainer goroutine.
+	if c.stdout != nil {
+		_ = c.stdout.Close()
+	}
+	if c.stderr != nil {
+		_ = c.stderr.Close()
+	}
 	if c.cmd != nil && c.cmd.Process != nil {
 		_ = c.cmd.Process.Kill()
 		_, _ = c.cmd.Process.Wait()

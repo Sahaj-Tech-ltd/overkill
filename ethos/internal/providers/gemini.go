@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -92,7 +93,10 @@ func NewGeminiProvider(apiKey string, models []Model) *GeminiProvider {
 }
 
 func (p *GeminiProvider) Complete(ctx context.Context, req Request) (Response, error) {
-	path := fmt.Sprintf("/models/%s:generateContent?key=%s", req.Model, p.apiKey)
+	// Escape both segments: a model name with `?`, `#`, or `&` would
+	// inject query params or truncate the path; an API key with any
+	// reserved URL character would silently corrupt auth.
+	path := "/models/" + url.PathEscape(req.Model) + ":generateContent?key=" + url.QueryEscape(p.apiKey)
 	body := p.buildRequestBody(req)
 
 	resp, err := p.doRequest(ctx, http.MethodPost, path, body)
@@ -114,7 +118,7 @@ func (p *GeminiProvider) Complete(ctx context.Context, req Request) (Response, e
 }
 
 func (p *GeminiProvider) Stream(ctx context.Context, req Request) (<-chan Chunk, error) {
-	path := fmt.Sprintf("/models/%s:streamGenerateContent?key=%s&alt=sse", req.Model, p.apiKey)
+	path := "/models/" + url.PathEscape(req.Model) + ":streamGenerateContent?key=" + url.QueryEscape(p.apiKey) + "&alt=sse"
 	body := p.buildRequestBody(req)
 
 	resp, err := p.doRequest(ctx, http.MethodPost, path, body)

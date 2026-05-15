@@ -78,6 +78,59 @@ type Bot struct {
 	Logger     *log.Logger
 
 	server *http.Server
+
+	// seenMu + seenIDs deduplicate Meta's webhook retries. Meta will
+	// retry the same delivery up to 3× if our handler is slow or the
+	// dispatcher chain takes too long, and without a guard the agent
+	// fires (and replies) once per retry. Entries are eviction-capped
+	// at seenIDsCap and lazily expired by timestamp.
+	seenMu  sync.Mutex
+	seenIDs map[string]time.Time
+}
+
+const (
+	// seenIDsCap bounds the dedup map so a long-running bot can't grow
+	// it forever. We evict random entries when over the cap.
+	seenIDsCap = 4096
+	// seenIDsTTL caps how long a message ID is remembered. Meta's
+	// observed retry window is small; 10 minutes is comfortably above.
+	seenIDsTTL = 10 * time.Minute
+)
+
+// alreadySeen returns true if id was processed within seenIDsTTL.
+// Records the id either way (so concurrent retries dedup).
+func (b *Bot) alreadySeen(id string) bool {
+	if id == "" {
+		return false
+	}
+	b.seenMu.Lock()
+	defer b.seenMu.Unlock()
+	if b.seenIDs == nil {
+		b.seenIDs = make(map[string]time.Time, 64)
+	}
+	now := time.Now()
+	if ts, ok := b.seenIDs[id]; ok && now.Sub(ts) < seenIDsTTL {
+		return true
+	}
+	// Opportunistic eviction: if the map is at cap, drop expired
+	// entries first; if still full, drop one arbitrary entry. The
+	// map size cap is a coarse bound — exact LRU isn't worth it for
+	// this volume of traffic.
+	if len(b.seenIDs) >= seenIDsCap {
+		for k, ts := range b.seenIDs {
+			if now.Sub(ts) > seenIDsTTL {
+				delete(b.seenIDs, k)
+			}
+		}
+		if len(b.seenIDs) >= seenIDsCap {
+			for k := range b.seenIDs {
+				delete(b.seenIDs, k)
+				break
+			}
+		}
+	}
+	b.seenIDs[id] = now
+	return false
 }
 
 // NewBot returns a Bot wired with the required Cloud API credentials.
@@ -237,6 +290,14 @@ func (b *Bot) processPayload(p webhookPayload) {
 	for _, entry := range p.Entry {
 		for _, change := range entry.Changes {
 			for _, msg := range change.Value.Messages {
+				// Dedup Meta webhook retries by message ID. Without
+				// this a 30s agent reply triggered up to 3 duplicate
+				// agent runs (and 3 user-visible replies) per inbound
+				// message because Meta retried the webhook delivery.
+				if b.alreadySeen(msg.ID) {
+					b.Logger.Printf("whatsapp-cloud: dedup retry of message %s", msg.ID)
+					continue
+				}
 				b.processMessage(msg, change.Value)
 			}
 		}

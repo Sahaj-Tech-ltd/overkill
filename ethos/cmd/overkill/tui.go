@@ -40,6 +40,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/bridge"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/browser/devbrowser"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/mcp"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/walls/mcpshield"
 	memorypkg "github.com/Sahaj-Tech-ltd/overkill/internal/memory"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/multimodal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/pipeline"
@@ -803,6 +804,30 @@ func buildTUIApp() *tui.App {
 	// available to the agent as they finish handshaking.
 	if cfg != nil && len(cfg.MCP.Servers) > 0 {
 		mcpMgr := mcp.NewManager(cfg.MCP)
+		// Wire mcpshield from the per-server config. Servers without
+		// any restriction become Trusted=true capabilities (YOLO
+		// default — calls pass). Servers with AllowedTools, byte cap,
+		// or path prefix set become enforced. SetPolicy(nil) would
+		// disable the gate; we always install a policy because that's
+		// what makes per-server restrictions reachable.
+		policy := mcpshield.NewPolicy()
+		for _, s := range cfg.MCP.Servers {
+			if s.Name == "" {
+				continue
+			}
+			trusted := true
+			if s.Trusted != nil {
+				trusted = *s.Trusted
+			}
+			_ = policy.Set(mcpshield.Capability{
+				ServerName:          s.Name,
+				AllowedTools:        s.AllowedTools,
+				AllowedPathPrefixes: s.AllowedPathPrefixes,
+				MaxBytesPerCall:     s.MaxBytesPerCall,
+				Trusted:             trusted,
+			})
+		}
+		mcpMgr.SetPolicy(policy)
 		_ = mcpMgr.Start(context.Background())
 		app.MCP = mcpMgr
 		// Best-effort: wait briefly for fast-starting servers, then register

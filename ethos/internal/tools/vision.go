@@ -22,12 +22,22 @@ type VisionDescribeTool struct {
 	Describer vision.Describer
 	Mgr       *browser.Manager   // optional; required for url/screenshot modes
 	Policy    BrowserHostPolicy  // re-uses the same SSRF policy as browser tools
+	// RootDir bounds the `file:` mode so `vision_describe` can't read
+	// arbitrary paths like /etc/shadow. Empty disables the check
+	// (legacy behaviour); production callers should always set it.
+	RootDir   string
 }
 
 // NewVisionDescribeTool wires the dependencies. Mgr may be nil when
 // only file-based describes are needed.
 func NewVisionDescribeTool(d vision.Describer, mgr *browser.Manager, policy BrowserHostPolicy) *VisionDescribeTool {
 	return &VisionDescribeTool{Describer: d, Mgr: mgr, Policy: policy}
+}
+
+// WithRootDir constrains the `file:` describe mode to a workspace root.
+func (t *VisionDescribeTool) WithRootDir(dir string) *VisionDescribeTool {
+	t.RootDir = dir
+	return t
 }
 
 func (t *VisionDescribeTool) Name() string { return "vision_describe" }
@@ -84,8 +94,25 @@ func (t *VisionDescribeTool) Execute(ctx context.Context, in json.RawMessage) (j
 	case args.File != "":
 		path := args.File
 		if !filepath.IsAbs(path) {
-			cwd, _ := os.Getwd()
-			path = filepath.Join(cwd, path)
+			base := t.RootDir
+			if base == "" {
+				base, _ = os.Getwd()
+			}
+			path = filepath.Join(base, path)
+		}
+		path = filepath.Clean(path)
+		// Containment check via filepath.Rel — without this the LLM
+		// could `file: "/etc/shadow"` and bypass FSTool's guards
+		// entirely. RootDir empty preserves legacy permissive mode for
+		// CLI usage without a workspace.
+		if t.RootDir != "" {
+			root, rerr := filepath.Abs(t.RootDir)
+			if rerr == nil {
+				rel, relErr := filepath.Rel(filepath.Clean(root), path)
+				if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					return errorJSON(fmt.Sprintf("vision_describe: path %q is outside workspace", args.File)), nil
+				}
+			}
 		}
 		png, err = os.ReadFile(path)
 		if err != nil {

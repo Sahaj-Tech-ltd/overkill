@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -81,6 +82,23 @@ func (t *PTYShellTool) Execute(ctx context.Context, input json.RawMessage) (json
 	cwd := in.Cwd
 	if cwd == "" {
 		cwd = t.cwd
+	}
+	// Mirror ShellTool's containment: when a workspace root (t.cwd) is
+	// configured and the caller is overriding with a different cwd,
+	// require the override to stay inside the workspace. The old code
+	// honoured any "cwd" the LLM picked, including "/etc", giving the
+	// pty_shell tool a free escape from the project root that the
+	// non-pty ShellTool didn't have.
+	if in.Cwd != "" && t.cwd != "" {
+		base, baseErr := filepath.Abs(t.cwd)
+		dir, dirErr := filepath.Abs(in.Cwd)
+		if baseErr != nil || dirErr != nil {
+			return nil, fmt.Errorf("pty_shell: resolve cwd: base=%v dir=%v", baseErr, dirErr)
+		}
+		rel, rerr := filepath.Rel(filepath.Clean(base), filepath.Clean(dir))
+		if rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("pty_shell: cwd %q is outside workspace %q", in.Cwd, t.cwd)
+		}
 	}
 
 	cmd := exec.Command("sh", "-c", in.Command)

@@ -72,7 +72,19 @@ func (c *jsonrpcConn) readLoop() error {
 				}
 			}
 		}
-		if contentLength <= 0 {
+		// Cap message size. A rogue or buggy language server sending
+		// `Content-Length: 2147483647` would otherwise trigger a 2 GB
+		// allocation and OOM the agent. 32 MB is comfortably above
+		// real LSP traffic (the largest legitimate payloads are
+		// completion/symbol responses around a few MB).
+		const maxLSPMessageBytes = 32 * 1024 * 1024
+		if contentLength <= 0 || contentLength > maxLSPMessageBytes {
+			if contentLength > maxLSPMessageBytes {
+				c.closed.Store(true)
+				err := fmt.Errorf("lsp: Content-Length %d exceeds %d byte cap", contentLength, maxLSPMessageBytes)
+				c.failAllPending(err)
+				return err
+			}
 			continue
 		}
 		body := make([]byte, contentLength)

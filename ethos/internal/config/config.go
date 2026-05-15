@@ -259,6 +259,13 @@ type MCPServer struct {
 	Args    []string          `toml:"args"`
 	Env     map[string]string `toml:"env"`
 	Enabled bool              `toml:"enabled"`
+	// mcpshield capability — empty/zero means "trusted, no caps"
+	// (YOLO default). Users locking down a server set one or more
+	// of these to opt into the policy gate.
+	AllowedTools        []string `toml:"allowed_tools,omitempty"`
+	AllowedPathPrefixes []string `toml:"allowed_path_prefixes,omitempty"`
+	MaxBytesPerCall     int      `toml:"max_bytes_per_call,omitempty"`
+	Trusted             *bool    `toml:"trusted,omitempty"` // nil = default trusted
 }
 
 type LSPConfig struct {

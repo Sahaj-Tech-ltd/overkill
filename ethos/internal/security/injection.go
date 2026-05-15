@@ -80,7 +80,10 @@ func NewInjectionScanner() *InjectionScanner {
 				level:       ThreatHigh,
 			},
 			{
-				regex:       regexp.MustCompile(`<(system|assistant|user)>`),
+				// Case-insensitive — every other pattern in this list
+				// has (?i); the omission here let `<SYSTEM>`, `<User>`
+				// etc. bypass while `<system>` was caught.
+				regex:       regexp.MustCompile(`(?i)<(system|assistant|user)>`),
 				description: "XML role injection",
 				confidence:  0.9,
 				level:       ThreatHigh,
