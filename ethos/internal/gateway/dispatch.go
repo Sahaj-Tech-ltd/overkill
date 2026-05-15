@@ -37,8 +37,14 @@ type Dispatcher struct {
 	// helpful error rather than a silent no-op.
 	Bookmark BookmarkFn
 
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex // session id → serializer
+	// lockStripes is a fixed-size striped mutex pool. The old
+	// `locks map[string]*sync.Mutex` grew O(distinct session ids)
+	// without bound — a bot serving thousands of WhatsApp/Telegram
+	// chats accumulated thousands of stale mutex entries. The pool
+	// gives the same serialise-per-session semantics with bounded
+	// memory at the cost of rare contention between unrelated
+	// sessions whose IDs collide on hash.
+	lockStripes [64]sync.Mutex
 }
 
 // NewDispatcher returns a Dispatcher with sensible defaults filled in.
@@ -48,7 +54,6 @@ func NewDispatcher(ag AgentSender, r *SessionRouter) *Dispatcher {
 		Router:      r,
 		Logger:      log.New(io.Discard, "", 0),
 		UpdateEvery: 750 * time.Millisecond,
-		locks:       map[string]*sync.Mutex{},
 	}
 }
 
@@ -144,17 +149,22 @@ func (d *Dispatcher) resolveSession(in Inbound) string {
 // serialize ensures one in-flight turn per session id at a time. The
 // agent's internal state (history, tool calls) isn't safe to scribble
 // into concurrently, and Slack already learned this the hard way.
+// Uses a striped lock pool — see Dispatcher.lockStripes for the
+// bounded-memory rationale.
 func (d *Dispatcher) serialize(sessionID string, fn func()) {
-	d.mu.Lock()
-	mu, ok := d.locks[sessionID]
-	if !ok {
-		mu = &sync.Mutex{}
-		d.locks[sessionID] = mu
-	}
-	d.mu.Unlock()
+	mu := d.stripeFor(sessionID)
 	mu.Lock()
 	defer mu.Unlock()
 	fn()
+}
+
+func (d *Dispatcher) stripeFor(sessionID string) *sync.Mutex {
+	h := uint32(2166136261) // FNV-1a basis
+	for i := 0; i < len(sessionID); i++ {
+		h ^= uint32(sessionID[i])
+		h *= 16777619
+	}
+	return &d.lockStripes[h%uint32(len(d.lockStripes))]
 }
 
 // runTurn is the meat: post a placeholder, swap session, stream the

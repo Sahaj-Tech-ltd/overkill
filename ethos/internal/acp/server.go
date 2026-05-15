@@ -62,6 +62,12 @@ type Server struct {
 	httpSrv        *http.Server
 	name           string
 	version        string
+	// ctx is the server's lifetime context. Per-message agent runs
+	// derive from this so Shutdown cancels in-flight work and the
+	// streams map gets drained instead of leaking stalled runs.
+	// Set by Run; nil before then.
+	ctx            context.Context
+	ctxCancel      context.CancelFunc
 }
 
 // InboundLog records that a peer sent us a message; the /acp dialog displays
@@ -166,6 +172,7 @@ func (s *Server) Start() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	s.httpSrv = srv
+	s.ctx, s.ctxCancel = context.WithCancel(context.Background())
 	go func() { _ = srv.ListenAndServe() }()
 	return nil
 }
@@ -173,6 +180,12 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.httpSrv == nil {
 		return nil
+	}
+	// Cancel in-flight agent runs first so the HTTP shutdown doesn't
+	// have to wait on background streams. Each stream's send loop
+	// observes the parent ctx cancel and drains.
+	if s.ctxCancel != nil {
+		s.ctxCancel()
 	}
 	return s.httpSrv.Shutdown(ctx)
 }
@@ -280,7 +293,18 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	msgID := uuid.New().String()
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use the server's lifetime context so a server Shutdown cancels
+	// the run, but DON'T inherit r.Context() — the HTTP handler
+	// returns 202 immediately, after which r.Context() is cancelled
+	// by the http stack. The agent run intentionally outlives that.
+	// HTTP client cancellation flows through the explicit
+	// /v1/messages/{id}/cancel endpoint instead, which calls
+	// stream.cancel().
+	parentCtx := s.ctx
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	stream := &messageStream{
 		id:     msgID,
@@ -303,7 +327,22 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	// Run the agent in a goroutine; pump AgentEvent into our channel.
 	go func() {
-		defer stream.close()
+		defer func() {
+			stream.close()
+			// Drop the streams-map entry so the buffered channel +
+			// stream struct can be GC'd. Without this the map grew
+			// O(messages ever seen) — a long-running bot bot accumulated
+			// thousands of completed streams. Drain after a brief
+			// grace window so an SSE subscriber that opened the
+			// /events endpoint after send completes still has a
+			// chance to drain the buffer.
+			go func() {
+				time.Sleep(60 * time.Second)
+				s.mu.Lock()
+				delete(s.streams, msgID)
+				s.mu.Unlock()
+			}()
+		}()
 		ch, err := s.agent.StreamACP(ctx, req.Content)
 		if err != nil {
 			stream.send(Event{Type: "error", Error: err.Error(), Timestamp: time.Now().UTC()})

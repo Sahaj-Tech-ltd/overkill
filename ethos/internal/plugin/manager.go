@@ -163,6 +163,11 @@ func (m *Manager) Stop() {
 	for _, c := range clients {
 		_ = c.Shutdown(ctx)
 	}
+	// Wait for supervisor goroutines to observe the stop signal +
+	// exit before returning. Old code returned with goroutines still
+	// alive (sleeping in backoff), which could write to m.clients
+	// after the caller freed the Manager.
+	m.wg.Wait()
 }
 
 // Tools returns every connected plugin's tools, flattened.

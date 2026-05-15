@@ -73,26 +73,45 @@ func (sq *SteeringQueue) Pending() int {
 }
 
 func (sq *SteeringQueue) Wait(ctx context.Context) error {
+	// Old implementation:
+	//   1. Mutated `sq.closed = true` on ctx cancel — permanently
+	//      closing the queue for every future Wait call. One
+	//      cancelled Wait killed the whole queue's usefulness.
+	//   2. Had a set-then-broadcast race: if Broadcast fired before
+	//      the waiter goroutine had reached cond.Wait, the signal
+	//      was lost and the goroutine leaked.
+	//
+	// New implementation uses a per-call cancel goroutine driven by
+	// ctx that calls Broadcast on cancel; the waiter goroutine
+	// checks ctx.Err() in its loop predicate, so a missed Broadcast
+	// is harmless — the next signal (Inject, Close, or the cancel
+	// goroutine's broadcast) wakes it and the ctx check kicks it out.
 	done := make(chan struct{})
+	cancelWatcher := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			// Broadcast under the cond's mutex so any in-flight
+			// Wait observes the ctx state before the next predicate
+			// re-check. Without the lock-then-broadcast pattern,
+			// cond.Wait can re-enter just before we'd have woken it.
+			sq.mu.Lock()
+			sq.cond.Broadcast()
+			sq.mu.Unlock()
+		case <-cancelWatcher:
+		}
+	}()
 	go func() {
 		sq.mu.Lock()
 		defer sq.mu.Unlock()
-		for len(sq.queue) == 0 && !sq.closed {
+		for len(sq.queue) == 0 && !sq.closed && ctx.Err() == nil {
 			sq.cond.Wait()
 		}
 		close(done)
 	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		sq.cond.Broadcast()
-		sq.mu.Lock()
-		sq.closed = true
-		sq.mu.Unlock()
-		sq.cond.Broadcast()
-		return ctx.Err()
-	}
+	<-done
+	close(cancelWatcher)
+	return ctx.Err()
 }
 
 func (sq *SteeringQueue) Close() {

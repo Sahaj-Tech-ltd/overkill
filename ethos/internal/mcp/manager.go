@@ -136,7 +136,12 @@ func (m *Manager) installClient(name string, c *Client) {
 	m.mu.Unlock()
 }
 
-// Stop tears down all running clients.
+// Stop tears down all running clients. Blocks until every supervisor
+// goroutine has observed the stop signal and exited, so callers can
+// safely free the Manager + its clients after Stop returns. The old
+// fire-and-forget close-stop-then-return left supervisor goroutines
+// alive (sleeping in backoff) that could still write to m.clients
+// after the caller had moved on.
 func (m *Manager) Stop() {
 	if m == nil {
 		return
@@ -151,6 +156,7 @@ func (m *Manager) Stop() {
 		_ = c.Close()
 	}
 	m.mu.Unlock()
+	m.wg.Wait()
 }
 
 // Tools returns a flat snapshot of every connected server's tools.
