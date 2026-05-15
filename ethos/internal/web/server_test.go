@@ -66,7 +66,9 @@ func TestAuthRejection(t *testing.T) {
 		{"no creds", "", "", "", http.StatusUnauthorized},
 		{"bad bearer", "Bearer wrong", "", "", http.StatusUnauthorized},
 		{"good bearer", "Bearer secret", "", "", http.StatusOK},
-		{"good query", "", "?t=secret", "", http.StatusOK},
+		// Query-param tokens are no longer accepted — they leak through
+		// access logs and browser history. Bearer header / cookie only.
+		{"query ignored", "", "?t=secret", "", http.StatusUnauthorized},
 		{"good cookie", "", "", "secret", http.StatusOK},
 	}
 	for _, tc := range tests {

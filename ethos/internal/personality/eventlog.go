@@ -86,6 +86,15 @@ func (e *EventLog) Append(state []byte) error {
 	if err != nil {
 		return fmt.Errorf("eventlog: marshal: %w", err)
 	}
+	// Rotate when the on-disk file passes the size cap so an
+	// always-on agent doesn't accumulate gigabytes of event-log data
+	// over the months. We keep the LAST half-cap-worth by truncating
+	// the file's head: copy the tail forward, then re-open and write
+	// the new entry. Best-effort; on rotation failure we still append
+	// (no worse than today's unbounded growth).
+	if info, statErr := os.Stat(e.path); statErr == nil && info.Size() > maxEventLogBytes {
+		_ = e.rotateLocked()
+	}
 	f, err := os.OpenFile(e.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("eventlog: open: %w", err)
@@ -95,6 +104,34 @@ func (e *EventLog) Append(state []byte) error {
 		return fmt.Errorf("eventlog: write: %w", err)
 	}
 	return nil
+}
+
+// maxEventLogBytes is the rotation threshold — at 5 MiB an event log
+// holds tens of thousands of personality state snapshots, far more
+// than any rollback/audit ever needs. Rotation drops the oldest half.
+const maxEventLogBytes = 5 * 1024 * 1024
+
+// rotateLocked keeps the last ~half of the event log and discards the
+// older half. Best-effort: on any error the existing file is left in
+// place and the next append continues. Caller must hold e.mu.
+func (e *EventLog) rotateLocked() error {
+	data, err := os.ReadFile(e.path)
+	if err != nil {
+		return err
+	}
+	if len(data) <= maxEventLogBytes/2 {
+		return nil
+	}
+	// Find the first newline AFTER the midpoint so we cut on an
+	// entry boundary, not mid-JSON.
+	mid := len(data) - maxEventLogBytes/2
+	for mid < len(data) && data[mid] != '\n' {
+		mid++
+	}
+	if mid >= len(data) {
+		return nil
+	}
+	return os.WriteFile(e.path, data[mid+1:], 0o644)
 }
 
 // Latest reads the most recent well-formed entry from the log, or

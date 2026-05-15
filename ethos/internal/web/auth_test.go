@@ -8,10 +8,12 @@ import (
 )
 
 func TestTokenFromRequest(t *testing.T) {
-	t.Run("query", func(t *testing.T) {
+	t.Run("query ignored", func(t *testing.T) {
+		// Query-param tokens are no longer accepted to prevent token
+		// leakage through access logs / browser history / referers.
 		r := httptest.NewRequest("GET", "/x?t=alpha", nil)
-		if got := tokenFromRequest(r); got != "alpha" {
-			t.Errorf("got %q", got)
+		if got := tokenFromRequest(r); got != "" {
+			t.Errorf("expected empty, got %q", got)
 		}
 	})
 	t.Run("bearer", func(t *testing.T) {
