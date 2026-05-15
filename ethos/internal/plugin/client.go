@@ -236,6 +236,32 @@ func (c *Client) installHostHandlers() {
 		return map[string]bool{"ok": true}, nil
 	})
 
+	// host.call_tool: even though the full host-to-tool bridge isn't
+	// wired yet, register an explicit handler that gates on
+	// manifest.permissions.tools_call. Without this handler, the JSON-RPC
+	// dispatch returned "method not found" for every plugin that tried
+	// to use the documented ToolsCall manifest field — the schema was
+	// silently unenforced. Now: undeclared tools get a clear
+	// permission_denied; declared tools get "not implemented" so the
+	// plugin author sees the contract is honoured and the feature is
+	// pending.
+	c.conn.Handle("host.call_tool", func(_ context.Context, params json.RawMessage) (any, error) {
+		var p struct {
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"args"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &RPCError{Code: ErrCodeInvalidParams, Message: err.Error()}
+		}
+		c.mu.RLock()
+		allowed := c.manifest.Permissions.AllowsTool(p.Name)
+		c.mu.RUnlock()
+		if !allowed {
+			return nil, permissionError("tool " + p.Name + " not declared in manifest.permissions.tools_call")
+		}
+		return nil, &RPCError{Code: ErrCodeInternal, Message: "host.call_tool not yet wired to host tool registry"}
+	})
+
 	c.conn.Handle("host.toast", func(_ context.Context, params json.RawMessage) (any, error) {
 		var p struct {
 			Kind string `json:"kind"`

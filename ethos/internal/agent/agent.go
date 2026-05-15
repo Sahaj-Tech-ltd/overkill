@@ -987,6 +987,13 @@ func (a *Agent) buildRequest() providers.Request {
 	// this turn instead of hanging the loop.
 	pctx, pcancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if extra := a.providedContext(pctx); extra != "" {
+		// Run plugin-supplied context through the same injection
+		// scanner used on tool inputs. A compromised or malicious
+		// plugin can otherwise inject "ignore previous instructions"
+		// payloads straight into the system prompt and steer the
+		// model. We redact-rather-than-drop so a noisy false positive
+		// doesn't silently lose useful context.
+		extra = scanInjection(a.scanners, extra)
 		prompt = prompt + "\n\n" + extra
 	}
 	pcancel()
@@ -1311,6 +1318,25 @@ func (a *Agent) emit(event string, payload map[string]any) {
 	if bus != nil {
 		bus.Emit(EventKind(event), payload)
 	}
+}
+
+// scanInjection runs the injection-class scanners over plugin-supplied
+// text and returns the Sanitized result. Non-injection scanners are
+// skipped (command scanners would block legitimate text). On any
+// error or absence of scanners, the original string is returned —
+// fail-open is the right call here because dropping useful project
+// context to a false positive is worse than the alternative.
+func scanInjection(scanners []security.Scanner, text string) string {
+	for _, sc := range scanners {
+		if sc.Name() != "injection" {
+			continue
+		}
+		res, err := sc.Scan(text)
+		if err == nil && res != nil && res.Sanitized != "" {
+			return res.Sanitized
+		}
+	}
+	return text
 }
 
 // providedContext returns extra system-prompt content from the context

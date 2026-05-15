@@ -86,28 +86,41 @@ func (s *Scheduler) run() {
 }
 
 func (s *Scheduler) tickJobs(now time.Time) {
+	// Snapshot the fields we need under RLock so the unlock-then-read
+	// race goes away. The old loop read j.NextRun / j.Timezone after
+	// releasing the lock — a concurrent SetJob/UpdateJob writer could
+	// be mutating those fields, and -race flagged it.
+	type jobSnap struct {
+		job      *Job
+		nextRun  time.Time
+		timezone string
+	}
 	s.mu.RLock()
-	jobs := make([]*Job, 0, len(s.jobs))
+	snaps := make([]jobSnap, 0, len(s.jobs))
 	for _, j := range s.jobs {
 		if j.Status == StatusActive {
-			jobs = append(jobs, j)
+			snaps = append(snaps, jobSnap{
+				job:      j,
+				nextRun:  j.NextRun,
+				timezone: j.Timezone,
+			})
 		}
 	}
 	s.mu.RUnlock()
 
-	for _, j := range jobs {
-		if j.NextRun.IsZero() {
+	for _, sn := range snaps {
+		if sn.nextRun.IsZero() {
 			continue
 		}
 
 		loc := s.location
-		if j.Timezone != "" {
-			jl, err := time.LoadLocation(j.Timezone)
+		if sn.timezone != "" {
+			jl, err := time.LoadLocation(sn.timezone)
 			if err == nil {
 				loc = jl
 			}
 		}
-		nextInLoc := j.NextRun.In(loc)
+		nextInLoc := sn.nextRun.In(loc)
 
 		// We're past the scheduled time. The previous design used a
 		// tight 2-tick window: if we missed the window (long GC pause,
@@ -116,7 +129,7 @@ func (s *Scheduler) tickJobs(now time.Time) {
 		// past due, then advance NextRun. Catch-up semantics, never
 		// re-fire skipped intermediate times.
 		if !now.Before(nextInLoc) {
-			s.fireJob(j)
+			s.fireJob(sn.job)
 		}
 	}
 }

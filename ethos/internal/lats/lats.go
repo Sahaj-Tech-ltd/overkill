@@ -294,9 +294,15 @@ func Race(
 		}()
 	}
 
-	// Goroutine to cancel losers on the win signal.
+	// Goroutine to cancel losers on the win signal. Tracked in wg so
+	// it can't outlive Race — the old code spawned it without an Add
+	// and leaked the goroutine until ctx expired when no branch ever
+	// signalled (all losers, all errored, etc.). Also close
+	// winnerSignal on Race exit so this goroutine always wakes.
 	if opts.CancelLosersOnWin {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			select {
 			case <-winnerSignal:
 				for _, c := range branchCancels {
@@ -306,6 +312,11 @@ func Race(
 			}
 		}()
 	}
+
+	// Belt + suspenders: close winnerSignal on Race exit so a
+	// CancelLosersOnWin watcher that's still selecting wakes up
+	// even if no branch wrote a positive score.
+	defer winnerOnce.Do(func() { close(winnerSignal) })
 
 	wg.Wait()
 

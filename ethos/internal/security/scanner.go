@@ -16,13 +16,14 @@ type denyPattern struct {
 }
 
 type CommandScanner struct {
-	patterns    []denyPattern
-	mu          sync.Mutex
-	window      time.Duration
-	maxCmds     int
-	timestamps  []time.Time
-	permissions *PermissionManager
-	projectPath string
+	patterns      []denyPattern
+	mu            sync.Mutex
+	window        time.Duration
+	maxCmds       int
+	timestamps    []time.Time
+	permissions   *PermissionManager
+	projectPath   string
+	maxCommandLen int // 0 = disabled
 }
 
 type CommandScannerOption func(*CommandScanner)
@@ -36,6 +37,59 @@ func WithPermissionManager(pm *PermissionManager) CommandScannerOption {
 func WithProjectPath(path string) CommandScannerOption {
 	return func(s *CommandScanner) {
 		s.projectPath = path
+	}
+}
+
+// WithExtraDenyPatterns appends user-supplied regexes to the scanner's
+// deny list. Each entry is compiled at construction; invalid regexes
+// are silently dropped (logging is left to the caller). All matches
+// produce ThreatHigh blocks under the id "user_deny_<n>".
+func WithExtraDenyPatterns(patterns []string) CommandScannerOption {
+	return func(s *CommandScanner) {
+		for i, p := range patterns {
+			re, err := regexp.Compile(p)
+			if err != nil {
+				continue
+			}
+			s.patterns = append(s.patterns, denyPattern{
+				id:          fmt.Sprintf("user_deny_%d", i),
+				regex:       re,
+				description: "user deny pattern: " + p,
+				level:       ThreatHigh,
+				confidence:  0.9,
+			})
+		}
+	}
+}
+
+// WithForbiddenPaths adds a regex that blocks any command containing
+// any of the supplied path substrings. Empty list is a no-op.
+func WithForbiddenPaths(paths []string) CommandScannerOption {
+	return func(s *CommandScanner) {
+		for i, p := range paths {
+			if p == "" {
+				continue
+			}
+			re, err := regexp.Compile(regexp.QuoteMeta(p))
+			if err != nil {
+				continue
+			}
+			s.patterns = append(s.patterns, denyPattern{
+				id:          fmt.Sprintf("forbidden_path_%d", i),
+				regex:       re,
+				description: "forbidden path: " + p,
+				level:       ThreatHigh,
+				confidence:  0.95,
+			})
+		}
+	}
+}
+
+// WithMaxCommandLen caps the length of an input passed to Scan. Inputs
+// over the cap are blocked with a ThreatHigh finding. 0 disables.
+func WithMaxCommandLen(n int) CommandScannerOption {
+	return func(s *CommandScanner) {
+		s.maxCommandLen = n
 	}
 }
 
@@ -140,6 +194,19 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 
 	var findings []Finding
 	maxLevel := ThreatNone
+
+	// Length cap (Security.MaxCommandLen). Wired from user config so
+	// a paranoid deployment can refuse pathologically long inputs
+	// before the regex sweep even runs. 0 = disabled.
+	if s.maxCommandLen > 0 && len(input) > s.maxCommandLen {
+		findings = append(findings, Finding{
+			Type:        "command_too_long",
+			Level:       ThreatHigh,
+			Description: fmt.Sprintf("command length %d exceeds cap %d", len(input), s.maxCommandLen),
+			Confidence:  1.0,
+		})
+		maxLevel = ThreatHigh
+	}
 
 	for _, p := range s.patterns {
 		locs := p.regex.FindAllStringIndex(input, -1)

@@ -172,8 +172,53 @@ func (r *telegramReply) Update(ctx context.Context, handle, text string) error {
 	return r.client.EditMessageText(ctx, r.chatID, id, text)
 }
 
+// telegramMaxLen is the Telegram Bot API hard limit per message
+// (https://core.telegram.org/method/messages.sendMessage). Sending a
+// longer message returns 400 — the agent's full reply was silently
+// lost. We chunk: the initial handle gets the first slice, follow-ups
+// are sent as fresh messages so the user sees the whole thing.
+const telegramMaxLen = 4096
+
 func (r *telegramReply) Final(ctx context.Context, handle, text string) error {
-	return r.Update(ctx, handle, text)
+	if len(text) <= telegramMaxLen {
+		return r.Update(ctx, handle, text)
+	}
+	// First chunk replaces the existing thinking-bubble message.
+	first, rest := chunkAtRune(text, telegramMaxLen)
+	if err := r.Update(ctx, handle, first); err != nil {
+		return err
+	}
+	// Send follow-ups as new messages in the same chat.
+	for len(rest) > 0 {
+		var part string
+		part, rest = chunkAtRune(rest, telegramMaxLen)
+		if _, err := r.client.SendMessage(ctx, r.chatID, part); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// chunkAtRune splits at a rune boundary near max, preferring the last
+// newline within the window so we don't cut mid-paragraph.
+func chunkAtRune(s string, max int) (head, tail string) {
+	if len(s) <= max {
+		return s, ""
+	}
+	// Walk back from max to find a safe break (preferring newline).
+	cut := max
+	for cut > 0 && cut > max-200 {
+		if s[cut] == '\n' {
+			return s[:cut], s[cut+1:]
+		}
+		cut--
+	}
+	// Fallback: respect rune boundary at max.
+	cut = max
+	for cut > 0 && (s[cut]&0xC0) == 0x80 {
+		cut--
+	}
+	return s[:cut], s[cut:]
 }
 
 func (r *telegramReply) Error(ctx context.Context, handle string, err error) error {

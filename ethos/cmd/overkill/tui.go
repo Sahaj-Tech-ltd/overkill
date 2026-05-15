@@ -904,7 +904,12 @@ func buildTUIApp() *tui.App {
 		Compressors:  tools.NewCompressorRegistry(),
 		Hooks:        app.Hooks,
 		Scanners: []security.Scanner{
-			security.NewCommandScanner(security.WithProjectPath(cwd)),
+			security.NewCommandScanner(
+				security.WithProjectPath(cwd),
+				security.WithExtraDenyPatterns(cfg.Security.DenyPatterns),
+				security.WithForbiddenPaths(cfg.Security.ForbiddenPaths),
+				security.WithMaxCommandLen(cfg.Security.MaxCommandLen),
+			),
 			// Mirror run.go: prompt-injection scanner runs alongside the
 			// dangerous-command scanner. Both implement security.Scanner
 			// and are dispatched in order by the agent's pre-tool hook.

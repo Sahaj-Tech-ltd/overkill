@@ -78,6 +78,11 @@ func (o *Observation) Index() ObservationIndex {
 type ObservationStore struct {
 	dir string
 	mu  sync.Mutex
+	// hashSet caches observed ContentHash values so Store's dedup
+	// check is O(1) instead of O(N) on the on-disk corpus. nil until
+	// first use; populated lazily from disk on the first Store call.
+	// Reset to nil by callers who externally truncate the store.
+	hashSet map[string]struct{}
 }
 
 func NewObservationStore(dir string) *ObservationStore {
@@ -93,14 +98,22 @@ func (s *ObservationStore) Store(obs *Observation) error {
 		return fmt.Errorf("journal: creating observations dir: %w", err)
 	}
 
-	existing, err := s.readAllLocked()
-	if err != nil {
-		return fmt.Errorf("journal: checking duplicates: %w", err)
-	}
-	for _, e := range existing {
-		if e.ContentHash == obs.ContentHash {
-			return nil
+	// Populate the hash cache on first Store. Subsequent calls hit
+	// the O(1) map instead of re-reading the full corpus on every
+	// Store — the old loop was O(N²) over a session and dominated
+	// the journal hot path on busy days.
+	if s.hashSet == nil {
+		existing, err := s.readAllLocked()
+		if err != nil {
+			return fmt.Errorf("journal: checking duplicates: %w", err)
 		}
+		s.hashSet = make(map[string]struct{}, len(existing))
+		for _, e := range existing {
+			s.hashSet[e.ContentHash] = struct{}{}
+		}
+	}
+	if _, dup := s.hashSet[obs.ContentHash]; dup {
+		return nil
 	}
 
 	filename := "observations-" + obs.Timestamp.Format("2006-01-02") + ".jsonl"
@@ -120,6 +133,7 @@ func (s *ObservationStore) Store(obs *Observation) error {
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("journal: writing observation: %w", err)
 	}
+	s.hashSet[obs.ContentHash] = struct{}{}
 
 	return nil
 }
