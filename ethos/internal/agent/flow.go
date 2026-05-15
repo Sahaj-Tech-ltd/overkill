@@ -201,24 +201,29 @@ func (s *MemoryFlowStore) saveRaw(id string, raw []byte) {
 	s.flows[id] = raw
 }
 
-// flowMutexes serializes Save+Resume on the same flow ID so two
-// concurrent resume attempts can't trample each other. Per-ID locks
-// keep the contention narrow — unrelated flows aren't blocked.
-var flowMutexes = struct {
-	sync.Mutex
-	locks map[string]*sync.Mutex
-}{locks: map[string]*sync.Mutex{}}
+// flowLockStripes is a fixed-size striped lock pool. The previous
+// per-ID map of *sync.Mutex grew without bound — every unique flowID
+// ever seen added an entry that was never deleted, leaking ~96 bytes
+// each over weeks of use.
+//
+// A striped pool gives the same correctness (concurrent Save+Resume
+// on the SAME flow are serialised) with bounded memory. The cost is
+// occasional contention between unrelated flowIDs that hash to the
+// same stripe — fine, since the locked section is short.
+const flowLockStripeCount = 64
 
-// flowLock returns the mutex for flowID, creating it on first use.
+var flowLockStripes [flowLockStripeCount]sync.Mutex
+
+// flowLock returns the stripe mutex for flowID. The stripe is chosen
+// by FNV-1a hash modulo flowLockStripeCount, which gives a stable
+// mapping for the same ID across calls.
 func flowLock(flowID string) *sync.Mutex {
-	flowMutexes.Lock()
-	defer flowMutexes.Unlock()
-	lk, ok := flowMutexes.locks[flowID]
-	if !ok {
-		lk = &sync.Mutex{}
-		flowMutexes.locks[flowID] = lk
+	h := uint32(2166136261)
+	for i := 0; i < len(flowID); i++ {
+		h ^= uint32(flowID[i])
+		h *= 16777619
 	}
-	return lk
+	return &flowLockStripes[h%flowLockStripeCount]
 }
 
 // CheckpointFlow saves the in-flight state when the agent loop hits

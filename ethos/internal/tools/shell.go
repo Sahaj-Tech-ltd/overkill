@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -206,6 +207,23 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
 
 	if in.WorkingDir != "" {
+		// Constrain WorkingDir to a child of the default workspace
+		// when one is configured. Without this guard an LLM could
+		// `WorkingDir: "/etc"` and run commands outside the project
+		// root. When no defaultWorkingDir is configured we trust the
+		// caller's cwd (matches legacy permissive behaviour for the
+		// no-workspace agent).
+		if s.defaultWorkingDir != "" {
+			base, baseErr := filepath.Abs(s.defaultWorkingDir)
+			dir, dirErr := filepath.Abs(in.WorkingDir)
+			if baseErr != nil || dirErr != nil {
+				return nil, fmt.Errorf("shell: resolve working_dir: base=%v dir=%v", baseErr, dirErr)
+			}
+			rel, rerr := filepath.Rel(filepath.Clean(base), filepath.Clean(dir))
+			if rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return nil, fmt.Errorf("shell: working_dir %q is outside workspace %q", in.WorkingDir, s.defaultWorkingDir)
+			}
+		}
 		cmd.Dir = in.WorkingDir
 	} else if s.defaultWorkingDir != "" {
 		cmd.Dir = s.defaultWorkingDir

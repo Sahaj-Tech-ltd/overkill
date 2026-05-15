@@ -13,6 +13,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -92,6 +93,18 @@ func (p *PatchTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	out, err := ApplyHunks(string(src), hunks)
 	if err != nil {
 		return nil, fmt.Errorf("patch: apply: %w", err)
+	}
+	// Re-read between apply and write to detect external modification
+	// in the window. The old read-apply-write sequence let a concurrent
+	// editor's changes get silently overwritten because our patch was
+	// computed against stale content. If the file has moved on, refuse
+	// and surface the diff so the caller can retry on fresh content.
+	current, err := os.ReadFile(full)
+	if err != nil {
+		return nil, fmt.Errorf("patch: re-read %s: %w", full, err)
+	}
+	if !bytes.Equal(current, src) {
+		return nil, fmt.Errorf("patch: %s was modified between read and write; aborting to avoid clobbering external changes", full)
 	}
 	if err := os.WriteFile(full, []byte(out), 0o644); err != nil {
 		return nil, fmt.Errorf("patch: write %s: %w", full, err)

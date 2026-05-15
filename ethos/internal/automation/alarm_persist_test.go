@@ -148,14 +148,28 @@ func TestAlarmClock_FireFailureRecordsResult(t *testing.T) {
 	clock.now = func() time.Time { return now0 }
 
 	_ = clock.Set(&Alarm{ID: "x", FireAt: now0.Add(-time.Second), Prompt: "p"})
-	clock.checkAlarms()
+
+	// Post-BUG-39 semantics: a failing callback no longer marks Fired
+	// immediately — it bumps Attempts, records the error, and reschedules
+	// with linear backoff. After maxAlarmAttempts (3) consecutive
+	// failures the alarm gives up and finally gets Fired=true with the
+	// last error in Result.
+	for i := 0; i < 3; i++ {
+		// Advance the clock past the backoff so the next checkAlarms
+		// re-picks the alarm.
+		clock.now = func() time.Time { return now0.Add(time.Duration(i+1) * 5 * time.Minute) }
+		clock.checkAlarms()
+	}
 
 	loaded, _ := store.Load()
 	if !loaded[0].Fired {
-		t.Error("Fired should still be set even on callback failure")
+		t.Error("Fired should be set after max retries exhausted")
 	}
 	if loaded[0].Result == "" || loaded[0].Result == "all good" {
 		t.Errorf("failure message not recorded: %q", loaded[0].Result)
+	}
+	if loaded[0].Attempts < 3 {
+		t.Errorf("Attempts = %d, want >= 3", loaded[0].Attempts)
 	}
 }
 

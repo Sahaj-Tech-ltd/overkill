@@ -55,6 +55,12 @@ type Alarm struct {
 	// in `alarm_list` so the user can see "what happened" without
 	// digging into journal entries.
 	Result    string    `json:"result,omitempty"`
+	// Attempts counts how many times we've tried to fire this alarm.
+	// Each failed fire bumps it and reschedules with linear backoff;
+	// after maxAlarmAttempts the alarm gives up and gets marked Fired
+	// with the last error in Result. Previously a failing callback
+	// left the alarm permanently stuck — no retry path at all.
+	Attempts  int       `json:"attempts,omitempty"`
 }
 
 // AlarmClock runs the timer loop + delegates to a fire callback. The
@@ -173,6 +179,14 @@ func (a *AlarmClock) checkAlarms() {
 	// Snapshot the candidates under the lock so the fire callback can
 	// take however long it needs (sub-agent runs are not 1s tasks)
 	// without blocking Set/Cancel calls from other goroutines.
+	//
+	// We DON'T mark Fired=true here anymore. Doing so before the
+	// callback ran left the alarm stuck-fired-with-error if the
+	// callback failed — no path to retry. Now Fired flips only on
+	// success. On failure we leave it unfired, bump FireAt by a
+	// linear backoff, and let the next tick re-pick it up. A separate
+	// Attempts counter caps retries so a permanently-broken callback
+	// doesn't retry-storm forever.
 	now := a.now()
 	var due []*Alarm
 	for _, alarm := range a.alarms {
@@ -180,8 +194,6 @@ func (a *AlarmClock) checkAlarms() {
 			continue
 		}
 		if !now.Before(alarm.FireAt) {
-			alarm.Fired = true
-			alarm.FiredAt = now
 			cp := *alarm
 			due = append(due, &cp)
 		}
@@ -189,21 +201,54 @@ func (a *AlarmClock) checkAlarms() {
 	a.mu.Unlock()
 
 	// Fire outside the lock so a slow fire callback doesn't stall the
-	// ticker loop. Persistence happens after fire returns so the
-	// stored Result captures whatever the callback put on the alarm.
+	// ticker loop. Re-check Cancelled JUST before fire so a Cancel
+	// that arrived after the snapshot still suppresses the callback —
+	// previously a concurrent Cancel was silently overruled by the
+	// in-flight fire.
 	for _, alarm := range due {
-		err := a.fire(alarm)
-		if err != nil {
-			alarm.Result = "fire failed: " + err.Error()
-		}
 		a.mu.Lock()
-		if live, ok := a.alarms[alarm.ID]; ok {
-			live.FiredAt = alarm.FiredAt
-			live.Result = alarm.Result
+		live, exists := a.alarms[alarm.ID]
+		if !exists || live.Cancelled || live.Fired {
+			a.mu.Unlock()
+			continue
 		}
 		a.mu.Unlock()
+
+		err := a.fire(alarm)
+
+		a.mu.Lock()
+		live, exists = a.alarms[alarm.ID]
+		if !exists || live.Cancelled {
+			// Cancelled during/after fire: don't promote to Fired.
+			// Callback may have had real side effects (unavoidable —
+			// we can't reach into the running callback), but the
+			// alarm record reflects the user's intent.
+			a.mu.Unlock()
+			continue
+		}
+		if err != nil {
+			live.Attempts++
+			live.Result = "fire failed: " + err.Error()
+			const maxAlarmAttempts = 3
+			if live.Attempts >= maxAlarmAttempts {
+				// Give up — record as fired-with-error so it's not
+				// retried forever and the user can see it failed.
+				live.Fired = true
+				live.FiredAt = now
+			} else {
+				// Linear backoff: retry in 60s * attempt count.
+				live.FireAt = a.now().Add(time.Duration(live.Attempts) * 60 * time.Second)
+			}
+		} else {
+			live.Fired = true
+			live.FiredAt = now
+			live.Result = alarm.Result
+		}
+		cp := *live
+		a.mu.Unlock()
+
 		if a.store != nil {
-			if err := a.store.Save(alarm); err != nil {
+			if err := a.store.Save(&cp); err != nil {
 				fmt.Fprintf(stderrSink(), "alarm clock: persist post-fire: %v\n", err)
 			}
 		}

@@ -51,8 +51,25 @@ func (s *Summarizer) SummarizeDay(ctx context.Context, date times.Time) (string,
 	return s.callLLM(ctx, entries)
 }
 
+// maxSummarizerEntries caps how many flight-recorder rows we feed the
+// summariser LLM in one call. A busy day of agent activity easily hits
+// tens of thousands of entries; concatenating them all blew past
+// every model's context window and produced an obscure provider error
+// rather than a usable summary. When over the cap, we keep the most
+// recent N — late-day events are typically what the user wants
+// remembered "what happened today" — and prepend a truncation note.
+const maxSummarizerEntries = 800
+
 func (s *Summarizer) callLLM(ctx context.Context, entries []Entry) (string, error) {
+	truncated := false
+	if len(entries) > maxSummarizerEntries {
+		entries = entries[len(entries)-maxSummarizerEntries:]
+		truncated = true
+	}
 	var sb strings.Builder
+	if truncated {
+		sb.WriteString(fmt.Sprintf("[truncated: showing last %d entries of a longer day]\n", maxSummarizerEntries))
+	}
 	for _, e := range entries {
 		sb.WriteString(fmt.Sprintf("[%s] %s: %s\n", e.Timestamp.Format("15:04:05"), e.Type, e.Content))
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -106,7 +107,17 @@ func (f *FSTool) read(_ context.Context, in *FSInput) (json.RawMessage, error) {
 		return nil, err
 	}
 
-	info, err := os.Stat(resolved)
+	// Open ONCE and reuse the file handle for both the size check and
+	// the actual read. The old Stat-then-ReadFile sequence was a TOCTOU
+	// window — a symlink swap between the two syscalls could route the
+	// read to a different file than the one whose size we approved.
+	// Using a single FD pinned the inode for the duration of the check.
+	fh, err := os.Open(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("fs read: %w", err)
+	}
+	defer fh.Close()
+	info, err := fh.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("fs read: %w", err)
 	}
@@ -119,7 +130,7 @@ func (f *FSTool) read(_ context.Context, in *FSInput) (json.RawMessage, error) {
 		return largeFileReference(resolved, info.Size())
 	}
 
-	data, err := os.ReadFile(resolved)
+	data, err := io.ReadAll(fh)
 	if err != nil {
 		return nil, fmt.Errorf("fs read: %w", err)
 	}

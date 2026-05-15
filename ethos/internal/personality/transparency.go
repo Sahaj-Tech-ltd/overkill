@@ -81,29 +81,33 @@ func (te *TransparencyEngine) SetAlertSink(s AlertSink, sessionID string) {
 
 func (te *TransparencyEngine) Check(taskType string) (string, bool) {
 	te.mu.Lock()
+	// Find the HIGHEST-count record for this taskType+Model and decide
+	// from it. The old loop returned false the moment it hit the first
+	// matching record with Count<2, even when a later record for the
+	// same key had Count>=2 — partial-match early-return that masked
+	// real frustration signals.
+	var bestCount int
 	for _, f := range te.failures {
-		if f.TaskType == taskType && f.Model == te.currentModel {
-			if f.Count >= 2 && te.warned < te.maxWarnings {
-				te.warned++
-				sink := te.sink
-				sid := te.sessionID
-				count := f.Count
-				te.mu.Unlock()
-				msg := fmt.Sprintf(
-					"Heads up — this type of task (%s) has failed %d times before with this model. Want me to try a different approach?",
-					taskType, count,
-				)
-				if sink != nil {
-					func() {
-						defer func() { _ = recover() }()
-						_ = sink.Create("frustration_signal", msg, sid)
-					}()
-				}
-				return msg, true
-			}
-			te.mu.Unlock()
-			return "", false
+		if f.TaskType == taskType && f.Model == te.currentModel && f.Count > bestCount {
+			bestCount = f.Count
 		}
+	}
+	if bestCount >= 2 && te.warned < te.maxWarnings {
+		te.warned++
+		sink := te.sink
+		sid := te.sessionID
+		te.mu.Unlock()
+		msg := fmt.Sprintf(
+			"Heads up — this type of task (%s) has failed %d times before with this model. Want me to try a different approach?",
+			taskType, bestCount,
+		)
+		if sink != nil {
+			func() {
+				defer func() { _ = recover() }()
+				_ = sink.Create("frustration_signal", msg, sid)
+			}()
+		}
+		return msg, true
 	}
 	te.mu.Unlock()
 	return "", false

@@ -61,6 +61,13 @@ func (r *FlightRecorder) Record(entryType EntryType, content string, metadata js
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("journal: writing entry: %w", err)
 	}
+	// Fsync the flight-recorder line so a crash doesn't lose the last
+	// N records sitting in the kernel buffer. The flight recorder is
+	// specifically the audit-trail-of-last-resort during a crash, so
+	// the durability tradeoff (~1-2ms per Record on consumer SSDs) is
+	// worth it. Best-effort: if Sync fails (e.g., on a filesystem that
+	// doesn't support it like 9p), the write itself still landed.
+	_ = f.Sync()
 
 	return nil
 }
@@ -86,18 +93,34 @@ func (r *FlightRecorder) RecordError(err error) error {
 }
 
 func (r *FlightRecorder) ReadSession(sessionID string) ([]Entry, error) {
-	return r.readFiltered(func(e Entry) bool {
+	// Lock for the duration of the read. Without this a concurrent
+	// Record (which appends + fsyncs under r.mu) could leave a
+	// readFiltered traversal mid-line, surfacing a truncated JSON
+	// entry as a parse error. Holding the mutex for the read serialises
+	// reader vs writer at file granularity — fine, journal isn't hot.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.readFilteredLocked(func(e Entry) bool {
 		return e.SessionID == sessionID
 	})
 }
 
 func (r *FlightRecorder) ReadDay(date time.Time) ([]Entry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	targetFile := date.Format("2006-01-02") + ".jsonl"
 	path := filepath.Join(r.dir, "raw", targetFile)
 	return readFile(path)
 }
 
 func (r *FlightRecorder) readFiltered(filter func(Entry) bool) ([]Entry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.readFilteredLocked(filter)
+}
+
+// readFilteredLocked assumes the caller already holds r.mu.
+func (r *FlightRecorder) readFilteredLocked(filter func(Entry) bool) ([]Entry, error) {
 	rawDir := filepath.Join(r.dir, "raw")
 	entries, err := os.ReadDir(rawDir)
 	if err != nil {

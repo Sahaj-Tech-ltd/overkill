@@ -4,6 +4,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 type ColdStartState int
@@ -25,6 +26,11 @@ type ColdStartProfile struct {
 }
 
 type ColdStartProtocol struct {
+	// mu guards state + profile. The TUI's boot-detection path and the
+	// async response-processing path both touch these; without the
+	// lock a -race build flagged the concurrent access. Mutex is fine
+	// — cold-start is a one-off operation, contention isn't a concern.
+	mu      sync.Mutex
 	state   ColdStartState
 	profile *ColdStartProfile
 }
@@ -51,10 +57,14 @@ func (csp *ColdStartProtocol) IsColdStart(relationshipFile string) bool {
 }
 
 func (csp *ColdStartProtocol) State() ColdStartState {
+	csp.mu.Lock()
+	defer csp.mu.Unlock()
 	return csp.state
 }
 
 func (csp *ColdStartProtocol) SetState(state ColdStartState) {
+	csp.mu.Lock()
+	defer csp.mu.Unlock()
 	csp.state = state
 }
 
@@ -147,8 +157,10 @@ func (csp *ColdStartProtocol) ProcessResponse(response string) *ColdStartProfile
 	profile.UserName = extractUserName(response)
 	profile.Timezone = extractTimezone(response)
 
+	csp.mu.Lock()
 	csp.state = ColdStartComplete
 	csp.profile = profile
+	csp.mu.Unlock()
 	return profile
 }
 
