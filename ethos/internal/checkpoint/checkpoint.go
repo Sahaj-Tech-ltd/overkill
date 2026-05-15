@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 // Manifest records the contents of one checkpoint.
@@ -119,7 +121,7 @@ func (m *Manager) Snapshot(sessionID, reason string, paths []string) (*Manifest,
 		sum := sha256.Sum256(raw)
 		hash := hex.EncodeToString(sum[:])
 		out := filepath.Join(dir, hash)
-		if err := os.WriteFile(out, raw, 0o644); err != nil {
+		if err := atomicfile.WriteFile(out, raw, 0o644); err != nil {
 			return nil, fmt.Errorf("checkpoint: write %s: %w", out, err)
 		}
 		entry.Existed = true
@@ -133,7 +135,7 @@ func (m *Manager) Snapshot(sessionID, reason string, paths []string) (*Manifest,
 	if err != nil {
 		return nil, fmt.Errorf("checkpoint: marshal: %w", err)
 	}
-	if err := os.WriteFile(manPath, mb, 0o644); err != nil {
+	if err := atomicfile.WriteFile(manPath, mb, 0o644); err != nil {
 		return nil, fmt.Errorf("checkpoint: write manifest: %w", err)
 	}
 
@@ -177,7 +179,7 @@ func (m *Manager) Restore(id string) (skipped []string, err error) {
 		if err := os.MkdirAll(filepath.Dir(e.Path), 0o755); err != nil {
 			return nil, fmt.Errorf("checkpoint: mkdir parent for %s: %w", e.Path, err)
 		}
-		if err := os.WriteFile(e.Path, buf, 0o644); err != nil {
+		if err := atomicfile.WriteFile(e.Path, buf, 0o644); err != nil {
 			return nil, fmt.Errorf("checkpoint: restore %s: %w", e.Path, err)
 		}
 	}

@@ -29,6 +29,36 @@ type Scheduler struct {
 	store    JobStore
 	onFire   func(job *Job) error
 	tick     time.Duration
+	// tzCache memoises time.LoadLocation results so tickJobs doesn't
+	// pay the parse + zoneinfo lookup on every fire decision. The
+	// tzdata file is parsed once per zone name encountered.
+	tzMu    sync.RWMutex
+	tzCache map[string]*time.Location
+}
+
+// loadLocation returns a cached *time.Location for name, parsing on
+// miss. Empty name returns s.location (the scheduler's default).
+func (s *Scheduler) loadLocation(name string) (*time.Location, error) {
+	if name == "" {
+		return s.location, nil
+	}
+	s.tzMu.RLock()
+	loc, ok := s.tzCache[name]
+	s.tzMu.RUnlock()
+	if ok {
+		return loc, nil
+	}
+	parsed, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, err
+	}
+	s.tzMu.Lock()
+	if s.tzCache == nil {
+		s.tzCache = make(map[string]*time.Location, 4)
+	}
+	s.tzCache[name] = parsed
+	s.tzMu.Unlock()
+	return parsed, nil
 }
 
 func NewScheduler(cfg Config) (*Scheduler, error) {
@@ -115,8 +145,7 @@ func (s *Scheduler) tickJobs(now time.Time) {
 
 		loc := s.location
 		if sn.timezone != "" {
-			jl, err := time.LoadLocation(sn.timezone)
-			if err == nil {
+			if jl, err := s.loadLocation(sn.timezone); err == nil {
 				loc = jl
 			}
 		}
@@ -327,7 +356,7 @@ func (s *Scheduler) NextRunTime(job *Job) (time.Time, error) {
 
 	loc := s.location
 	if job.Timezone != "" {
-		loc, err = time.LoadLocation(job.Timezone)
+		loc, err = s.loadLocation(job.Timezone)
 		if err != nil {
 			return time.Time{}, fmt.Errorf("cron: loading timezone: %w", err)
 		}

@@ -5,6 +5,7 @@ package web
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -84,12 +85,15 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/static/", staticHandler)
 	mux.HandleFunc("/", s.handleIndex(sub))
 
-	// API
+	// API. limitBody wraps each handler with MaxBytesReader so the
+	// JSON decoder can't be DoS'd via a multi-GB request body — the
+	// inner json.NewDecoder reads until EOF and would otherwise hold
+	// the full body in memory.
 	mux.HandleFunc("/api/info", s.auth(s.handleInfo))
-	mux.HandleFunc("/api/sessions", s.auth(s.handleSessions))
-	mux.HandleFunc("/api/sessions/", s.auth(s.handleSessionSub))
-	mux.HandleFunc("/api/send", s.auth(s.handleSend))
-	mux.HandleFunc("/api/cancel", s.auth(s.handleCancel))
+	mux.HandleFunc("/api/sessions", s.auth(limitBody(s.handleSessions)))
+	mux.HandleFunc("/api/sessions/", s.auth(limitBody(s.handleSessionSub)))
+	mux.HandleFunc("/api/send", s.auth(limitBody(s.handleSend)))
+	mux.HandleFunc("/api/cancel", s.auth(limitBody(s.handleCancel)))
 	mux.HandleFunc("/api/models", s.auth(s.handleModels))
 	mux.HandleFunc("/api/events", s.auth(s.handleEvents))
 	return mux
@@ -97,6 +101,15 @@ func (s *Server) Handler() http.Handler {
 
 // Start binds and serves. Non-blocking: returns once the listener is up.
 func (s *Server) Start() error {
+	// Refuse to start with auth effectively disabled on a non-loopback
+	// listen address. Empty Token + non-NoAuth + bind on 0.0.0.0 (or
+	// any non-127/::1) silently exposed every API route to the network
+	// — auth() short-circuited to "allow" because Token was empty.
+	// The explicit NoAuth=true escape hatch still works, but only
+	// because the operator opted in.
+	if !s.cfg.NoAuth && s.cfg.Token == "" && !isLoopbackAddr(s.cfg.Addr) {
+		return fmt.Errorf("web: refusing to start on non-loopback %s with empty Token (set Token or NoAuth=true)", s.cfg.Addr)
+	}
 	ln, err := net.Listen("tcp", s.cfg.Addr)
 	if err != nil {
 		return fmt.Errorf("web: listen %s: %w", s.cfg.Addr, err)
@@ -134,11 +147,16 @@ func (s *Server) Token() string { return s.cfg.Token }
 
 func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.cfg.NoAuth || s.cfg.Token == "" {
+		if s.cfg.NoAuth {
 			h(w, r)
 			return
 		}
-		if tokenFromRequest(r) == s.cfg.Token {
+		// Constant-time compare so a request can't probe the token
+		// byte-by-byte via timing. Empty-token-allows path is gone —
+		// Start refuses to bind a non-loopback addr with empty Token,
+		// and on loopback NoAuth=true is the explicit knob.
+		got := tokenFromRequest(r)
+		if subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.Token)) == 1 {
 			h(w, r)
 			return
 		}
@@ -147,9 +165,10 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func tokenFromRequest(r *http.Request) string {
-	if t := r.URL.Query().Get("t"); t != "" {
-		return t
-	}
+	// Bearer header only. Query-param tokens (`?t=...`) used to be
+	// accepted, but URLs are logged by every reverse proxy / browser
+	// history / access log on the path — a query-param bearer is a
+	// guaranteed credential leak. Header-only is the right default.
 	if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
 		return strings.TrimPrefix(a, "Bearer ")
 	}
@@ -157,6 +176,48 @@ func tokenFromRequest(r *http.Request) string {
 		return c.Value
 	}
 	return ""
+}
+
+// isLoopbackAddr parses a listen address ("host:port" or ":port") and
+// reports whether the host portion is a loopback address. Empty host
+// (i.e. ":8420") counts as loopback ONLY when the host has no
+// network interfaces — we treat it as "all interfaces" and refuse.
+// Robust against the "127.0.0.1.evil.com:port" prefix-match trap that
+// a naive `strings.HasPrefix(addr, "127.")` would fall for.
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// Bare ":port" or malformed — fall back to substring-but-strict
+		// behaviour: only `localhost` / `127.0.0.1` / `::1` followed
+		// by `:` count.
+		if strings.HasPrefix(addr, "127.0.0.1:") || strings.HasPrefix(addr, "[::1]:") || strings.HasPrefix(addr, "localhost:") {
+			return true
+		}
+		return false
+	}
+	if host == "" {
+		// "all interfaces" listen — not loopback.
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
+}
+
+// maxRequestBody caps any single API request at 1 MiB. Adjust upward
+// if/when a real "upload an image" endpoint lands.
+const maxRequestBody = 1 << 20
+
+func limitBody(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		h(w, r)
+	}
 }
 
 func cacheStatic(h http.Handler) http.Handler {

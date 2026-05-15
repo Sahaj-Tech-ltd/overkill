@@ -347,6 +347,11 @@ type CompactionConfig struct {
 	HardTriggerPercent int  `toml:"hard_trigger_percent"`
 	PreserveMessages   int  `toml:"preserve_messages"`
 	MaxSummaryTokens   int  `toml:"max_summary_tokens"`
+	// Model overrides the model used for the summarisation LLM call.
+	// Empty falls back to DefaultCompactOptions ("gpt-4o-mini") —
+	// historically the cheap model for compaction. Setting this is
+	// what reads the previously-dead SetCompactionModel API.
+	Model string `toml:"model,omitempty"`
 	// UseLCM routes Agent.Compact through the LCM 3-level escalation
 	// compactor (internal/compaction). When false, falls back to the legacy
 	// ad-hoc single-LLM-call compact path. Defaults to true.

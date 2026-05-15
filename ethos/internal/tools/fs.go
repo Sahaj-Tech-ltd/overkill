@@ -81,6 +81,18 @@ func (f *FSTool) resolve(path string) (string, error) {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("fs: path traversal rejected: %s", path)
 	}
+	// Resolve any symlinks in the path (when it exists) and re-check
+	// containment. A symlink INSIDE the workspace pointing OUTSIDE it
+	// would otherwise pass the Rel check (the link itself is in-tree)
+	// while a subsequent read/write follows the link to /etc/whatever.
+	// Best-effort: a missing target is fine for write paths that are
+	// creating a new file.
+	if resolved, lerr := filepath.EvalSymlinks(abs); lerr == nil {
+		relResolved, rerr := filepath.Rel(root, resolved)
+		if rerr != nil || relResolved == ".." || strings.HasPrefix(relResolved, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("fs: symlink target outside workspace: %s", path)
+		}
+	}
 	return abs, nil
 }
 

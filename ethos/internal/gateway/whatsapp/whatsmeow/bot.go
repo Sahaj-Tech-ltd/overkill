@@ -53,8 +53,22 @@ type Bot struct {
 	Dispatcher  *gateway.Dispatcher
 	Logger      *log.Logger
 
+	// AlertSink, when set, surfaces gateway-level events (LoggedOut,
+	// pairing required, etc.) into the central alert stream so they
+	// reach the user instead of vanishing into a log file. Optional.
+	AlertSink AlertSink
+	// SessionID is stamped on alerts so the receiving UI can scope
+	// notifications to the right session.
+	SessionID string
+
 	mu     sync.Mutex
 	client *whatsmeow.Client
+}
+
+// AlertSink is the minimal interface the bot needs to surface
+// gateway-level alerts. Implemented by journal.AlertStore.
+type AlertSink interface {
+	Create(alertType, message, sessionID string) error
 }
 
 // NewBot returns a Bot bound to a SQLite store path. The store must
@@ -171,7 +185,25 @@ func (b *Bot) handleEvent(ev any) {
 	case *events.Disconnected:
 		b.Logger.Printf("whatsmeow: disconnected; whatsmeow will auto-reconnect")
 	case *events.LoggedOut:
+		// Log AND surface a structured alert so a daemon-mode user
+		// actually finds out the bot stopped working. Whatsmeow's
+		// auto-reconnect doesn't help after LoggedOut — the device
+		// store is wiped and we need a fresh QR-pair to recover.
+		// Future work: trigger b.startPairing() automatically and
+		// post the new QR via the alert sink instead of expecting
+		// the user to notice the log line.
 		b.Logger.Printf("whatsmeow: logged out by phone — pair again to recover")
+		_ = e // reason field is in e.Reason for future telemetry
+		if b.AlertSink != nil {
+			func() {
+				defer func() { _ = recover() }()
+				_ = b.AlertSink.Create(
+					"gateway_logged_out",
+					"WhatsApp gateway logged out by phone. Run `overkill gateway whatsmeow pair` to re-link.",
+					b.SessionID,
+				)
+			}()
+		}
 	}
 }
 

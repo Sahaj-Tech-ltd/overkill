@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 type SoulFile struct {
@@ -40,7 +42,7 @@ func CreateDefaultSoul(path string, agentName string) error {
 	}
 
 	tmpl := defaultSoulTemplate(agentName)
-	if err := os.WriteFile(path, []byte(tmpl), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(tmpl), 0o644); err != nil {
 		return fmt.Errorf("personality: write soul: %w", err)
 	}
 
@@ -61,7 +63,7 @@ func (s *SoulFile) Update(content string) error {
 		return fmt.Errorf("personality: update soul dir: %w", err)
 	}
 
-	if err := os.WriteFile(s.Path, []byte(content), 0o644); err != nil {
+	if err := atomicfile.WriteFile(s.Path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("personality: update soul: %w", err)
 	}
 

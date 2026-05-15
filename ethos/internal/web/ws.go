@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -134,6 +135,15 @@ func (c *wsConn) ReadLoop() error {
 				return err
 			}
 			length = int(binary.BigEndian.Uint64(ext[:]))
+		}
+		// Reject pathological frame lengths BEFORE the allocation.
+		// A 64-bit length passed straight into make([]byte, length)
+		// is a single-frame OOM. 16 MiB is comfortably above any
+		// legitimate JSON event we emit; longer frames are either a
+		// bug or hostile.
+		const maxWSFrameBytes = 16 * 1024 * 1024
+		if length < 0 || length > maxWSFrameBytes {
+			return fmt.Errorf("ws: frame length %d exceeds cap %d", length, maxWSFrameBytes)
 		}
 		var maskKey [4]byte
 		if masked {

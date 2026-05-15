@@ -130,7 +130,11 @@ func (g *GitTool) log(ctx context.Context, in *GitInput) (json.RawMessage, error
 }
 
 func (g *GitTool) add(ctx context.Context, in *GitInput) (json.RawMessage, error) {
-	args := []string{"add"}
+	// `--` separator so caller-supplied paths can't be interpreted as
+	// flags. Without it, an LLM that passed Paths: ["--git-dir=/etc"]
+	// would mutate the wrong repo, and Paths: ["-p"] would flip git
+	// add into interactive mode and hang.
+	args := []string{"add", "--"}
 	args = append(args, in.Paths...)
 	return g.runGit(ctx, args...)
 }
@@ -144,6 +148,14 @@ func (g *GitTool) commit(ctx context.Context, in *GitInput) (json.RawMessage, er
 }
 
 func (g *GitTool) reset(ctx context.Context, in *GitInput) (json.RawMessage, error) {
+	// Reject Ref values that start with `-` so caller-supplied input
+	// can't toggle reset modes (e.g. Ref="--mixed" would silently
+	// change semantics, or Ref="--git-dir=/etc" would point at the
+	// wrong repo). Pinning the mode ourselves AND validating Ref
+	// covers both shapes.
+	if strings.HasPrefix(in.Ref, "-") {
+		return nil, fmt.Errorf("git reset: ref must not start with -: %q", in.Ref)
+	}
 	args := []string{"reset", "--hard"}
 	if in.Ref != "" {
 		args = append(args, in.Ref)

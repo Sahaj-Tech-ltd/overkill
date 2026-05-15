@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
@@ -52,7 +53,7 @@ func generateFile(ctx context.Context, provider providers.Provider, model string
 	}
 
 	path := filepath.Join(dir, string(fileType))
-	if err := os.WriteFile(path, []byte(resp.Content), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(resp.Content), 0o644); err != nil {
 		return nil, fmt.Errorf("introspection: write %s: %w", fileType, err)
 	}
 

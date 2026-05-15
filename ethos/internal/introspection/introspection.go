@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
@@ -132,7 +133,7 @@ func WriteCodebaseFromScan(sourceDir, outDir string) (*IntrospectionFile, error)
 		return nil, fmt.Errorf("introspection: mkdir: %w", err)
 	}
 	path := filepath.Join(outDir, string(FileCodebase))
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(body), 0o644); err != nil {
 		return nil, fmt.Errorf("introspection: write: %w", err)
 	}
 	return &IntrospectionFile{

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 // DeviceFlow is the state returned by StartDeviceFlow. The TUI shows
@@ -297,7 +299,7 @@ func SaveToken(tok *Token) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return atomicfile.WriteFile(path, data, 0o600)
 }
 
 // LoadToken reads a token for the given provider, or returns (nil, nil) if

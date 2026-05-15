@@ -969,6 +969,9 @@ func buildTUIApp() *tui.App {
 			preserve = cfg.Compaction.PreserveMessages
 		}
 		ac := compaction.NewAgentCompactor(provider, tokenizer.NewEstimator(), preserve)
+		if cfg != nil && cfg.Compaction.Model != "" {
+			ac.SetCompactionModel(cfg.Compaction.Model)
+		}
 		a.SetCompactor(ac, true)
 	}
 
@@ -1601,6 +1604,9 @@ func buildTUIApp() *tui.App {
 			}
 			ac := compaction.NewAgentCompactor(provider, tokenizer.NewEstimator(), preserve)
 			ac.SetAlertSink(alertSink, sid)
+			if cfg != nil && cfg.Compaction.Model != "" {
+				ac.SetCompactionModel(cfg.Compaction.Model)
+			}
 			a.SetCompactor(ac, true)
 		}
 

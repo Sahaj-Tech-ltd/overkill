@@ -248,6 +248,13 @@ func (c *SocketClient) readFrame() (opcode byte, payload []byte, err error) {
 		}
 		length = int(binary.BigEndian.Uint64(ext[:]))
 	}
+	// Reject pathological frame lengths before allocation — Slack RTM
+	// events legitimately stay well under a megabyte; a hostile
+	// upstream sending Content-Length: 2^63 would otherwise OOM us.
+	const maxSlackFrameBytes = 4 * 1024 * 1024
+	if length < 0 || length > maxSlackFrameBytes {
+		return 0, nil, fmt.Errorf("slack ws: frame length %d exceeds cap %d", length, maxSlackFrameBytes)
+	}
 	var maskKey [4]byte
 	if masked {
 		if _, err := io.ReadFull(c.rw, maskKey[:]); err != nil {

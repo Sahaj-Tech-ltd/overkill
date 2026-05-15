@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 // ExtractRequest is the input to a skill-extraction call.
@@ -57,7 +59,7 @@ func Extract(req ExtractRequest) (*ExtractResult, error) {
 		return &ExtractResult{Path: out, Name: name, Created: false}, nil
 	}
 	body := renderSkillMarkdown(name, req)
-	if err := os.WriteFile(out, []byte(body), 0o644); err != nil {
+	if err := atomicfile.WriteFile(out, []byte(body), 0o644); err != nil {
 		return nil, err
 	}
 	return &ExtractResult{Path: out, Name: name, Created: true}, nil

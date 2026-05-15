@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 // PRPInputs is what the caller knows at generation time.
@@ -46,7 +48,7 @@ func WritePRP(in PRPInputs) (*PRPResult, error) {
 		return &PRPResult{Path: out, Created: false}, nil
 	}
 	body := renderPRP(in)
-	if err := os.WriteFile(out, []byte(body), 0o644); err != nil {
+	if err := atomicfile.WriteFile(out, []byte(body), 0o644); err != nil {
 		return nil, err
 	}
 	return &PRPResult{Path: out, Created: true}, nil
