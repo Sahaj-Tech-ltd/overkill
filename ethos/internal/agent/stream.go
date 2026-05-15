@@ -377,7 +377,11 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					if a.hooks != nil {
 						hookOutput := output
 						if toolErr != nil {
-							hookOutput = json.RawMessage(fmt.Sprintf(`{"error":"%s"}`, toolErr.Error()))
+							// See react.go: Sprintf produces invalid JSON
+							// for errors containing `"`. json.Marshal
+							// handles escaping correctly.
+							errJSON, _ := json.Marshal(map[string]string{"error": toolErr.Error()})
+							hookOutput = json.RawMessage(errJSON)
 						}
 						a.hooks.Fire(ctx, hooks.AfterToolCall, hooks.Event{
 							ToolName:   call.Name,

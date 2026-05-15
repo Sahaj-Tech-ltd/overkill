@@ -126,7 +126,7 @@ func (s *InjectionScanner) Scan(input string) (*ScanResult, error) {
 				maxLevel = level
 			}
 
-			sanitized = strings.Replace(sanitized, match, "[REDACTED: potential prompt injection]", 1)
+			sanitized = strings.ReplaceAll(sanitized, match, "[REDACTED: potential prompt injection]")
 		}
 	}
 

@@ -156,12 +156,15 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req Request) (<-chan Chunk,
 		return nil, p.handleHTTPError(resp)
 	}
 
-	ch := make(chan Chunk)
+	// Buffered + ctx-aware send. Unbuffered channels here leaked a
+	// goroutine + HTTP body whenever the consumer cancelled
+	// mid-stream: readSSEStream blocked forever on `ch <- chunk`.
+	ch := make(chan Chunk, 16)
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
 
-		p.readSSEStream(resp.Body, ch)
+		p.readSSEStream(ctx, resp.Body, ch)
 	}()
 
 	return ch, nil
@@ -221,7 +224,19 @@ func (p *OpenAIProvider) parseResponse(result *openaiResponse) Response {
 	return resp
 }
 
-func (p *OpenAIProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
+// send delivers a chunk while respecting ctx cancellation so a stalled
+// consumer can't pin this goroutine forever. Returns false when ctx is
+// done — callers must exit the loop.
+func sendChunk(ctx context.Context, ch chan<- Chunk, c Chunk) bool {
+	select {
+	case ch <- c:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (p *OpenAIProvider) readSSEStream(ctx context.Context, body io.Reader, ch chan<- Chunk) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -298,7 +313,9 @@ func (p *OpenAIProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 
 		choice := chunk.Choices[0]
 		if choice.Delta.Content != "" {
-			ch <- Chunk{Content: choice.Delta.Content}
+			if !sendChunk(ctx, ch, Chunk{Content: choice.Delta.Content}) {
+				return
+			}
 		}
 
 		for _, tc := range choice.Delta.ToolCalls {
@@ -329,24 +346,28 @@ func (p *OpenAIProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 		// one Chunk so the consumer sees fully-formed JSON arguments.
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
 			if tools := flushTools(); len(tools) > 0 {
-				ch <- Chunk{ToolCalls: tools}
+				if !sendChunk(ctx, ch, Chunk{ToolCalls: tools}) {
+					return
+				}
 			}
 		}
 	}
 	// Belt + suspenders: some proxies drop finish_reason. Flush anything
 	// still accumulated before signalling Done.
 	if tools := flushTools(); len(tools) > 0 {
-		ch <- Chunk{ToolCalls: tools}
+		if !sendChunk(ctx, ch, Chunk{ToolCalls: tools}) {
+			return
+		}
 	}
 
 	// Transport-level error (TCP reset, proxy timeout, body close) leaves the
 	// scanner in a non-nil err state. Surface it as a stream error instead of
 	// faking a clean Done — the consumer must NOT commit partial content.
 	if err := scanner.Err(); err != nil {
-		ch <- Chunk{Err: fmt.Errorf("openai stream: %w", err)}
+		_ = sendChunk(ctx, ch, Chunk{Err: fmt.Errorf("openai stream: %w", err)})
 		return
 	}
-	ch <- Chunk{Done: true, Usage: usage}
+	_ = sendChunk(ctx, ch, Chunk{Done: true, Usage: usage})
 }
 
 func openAIMessages(msgs []Message) []openaiMessage {

@@ -39,9 +39,11 @@ import (
 )
 
 // base64Run matches contiguous base64-alphabet runs of plausible
-// command length. RFC 4648 alphabet [A-Za-z0-9+/=] — we lean strict
-// (require length >=12) to skip noise.
-var base64Run = regexp.MustCompile(`[A-Za-z0-9+/]{12,}={0,2}`)
+// command length. Covers BOTH the standard RFC 4648 alphabet
+// [A-Za-z0-9+/=] and the URL-safe variant [A-Za-z0-9_-=] (RFC 4648
+// §5). Old pattern omitted `_` and `-`, so an attacker could encode
+// `rm -rf /` with `-`/`_` substitutions to skip every base64 check.
+var base64Run = regexp.MustCompile(`[A-Za-z0-9+/_\-]{12,}={0,2}`)
 
 // hexRun matches hex runs of plausible command length. Even length
 // (hex is always even); min 24 chars (12 bytes) so we skip noise

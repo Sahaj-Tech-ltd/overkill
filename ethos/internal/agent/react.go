@@ -171,7 +171,11 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		if a.hooks != nil {
 			hookOutput := toolResult
 			if toolErr != nil {
-				hookOutput = json.RawMessage(fmt.Sprintf(`{"error":"%s"}`, toolErr.Error()))
+				// json.Marshal escapes embedded quotes; Sprintf'd
+				// {"error":"%s"} produced invalid JSON when the error
+				// text contained a `"` (e.g. `file "x" not found`).
+				errJSON, _ := json.Marshal(map[string]string{"error": toolErr.Error()})
+				hookOutput = json.RawMessage(errJSON)
 			}
 			a.hooks.Fire(ctx, hooks.AfterToolCall, hooks.Event{
 				ToolName:   tc.Name,
@@ -302,8 +306,8 @@ func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMess
 	// Privilege gate (master plan §4.3): in reader mode, write-like calls
 	// are denied with a structured error the model can see and react to
 	// (e.g. ask the user to flip mode).
-	if a.privilege != nil {
-		if ok, why := a.privilege.Allow(name, input); !ok {
+	if g := a.privilege.Load(); g != nil {
+		if ok, why := g.Allow(name, input); !ok {
 			return nil, fmt.Errorf("%w: %s", security.ErrWriteDenied, why)
 		}
 	}

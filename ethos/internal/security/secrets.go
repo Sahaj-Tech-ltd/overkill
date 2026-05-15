@@ -119,7 +119,7 @@ func (s *SecretScanner) Scan(input string) (*ScanResult, error) {
 			}
 
 			redacted := fmt.Sprintf("[REDACTED: %s]", p.redactLabel)
-			sanitized = strings.Replace(sanitized, match, redacted, 1)
+			sanitized = strings.ReplaceAll(sanitized, match, redacted)
 		}
 	}
 

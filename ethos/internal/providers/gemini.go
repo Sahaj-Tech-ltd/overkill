@@ -127,11 +127,11 @@ func (p *GeminiProvider) Stream(ctx context.Context, req Request) (<-chan Chunk,
 		return nil, p.handleHTTPError(resp)
 	}
 
-	ch := make(chan Chunk)
+	ch := make(chan Chunk, 16)
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
-		p.readSSEStream(resp.Body, ch)
+		p.readSSEStream(ctx, resp.Body, ch)
 	}()
 
 	return ch, nil
@@ -207,7 +207,7 @@ func (p *GeminiProvider) parseResponse(result *geminiResponse) Response {
 	return resp
 }
 
-func (p *GeminiProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
+func (p *GeminiProvider) readSSEStream(ctx context.Context, body io.Reader, ch chan<- Chunk) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -243,17 +243,21 @@ func (p *GeminiProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 			// args object, so we can emit immediately without a buffer.
 			for _, part := range chunk.Candidates[0].Content.Parts {
 				if part.Text != "" {
-					ch <- Chunk{Content: part.Text}
+					if !sendChunk(ctx, ch, Chunk{Content: part.Text}) {
+						return
+					}
 				}
 				if part.FunctionCall != nil {
 					args := part.FunctionCall.Args
 					if len(args) == 0 {
 						args = json.RawMessage("{}")
 					}
-					ch <- Chunk{ToolCalls: []ToolCall{{
+					if !sendChunk(ctx, ch, Chunk{ToolCalls: []ToolCall{{
 						Name:      part.FunctionCall.Name,
 						Arguments: string(args),
-					}}}
+					}}}) {
+						return
+					}
 				}
 			}
 		}
@@ -262,10 +266,10 @@ func (p *GeminiProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 	// Surface mid-stream transport failures rather than swallowing them as a
 	// clean Done. See the matching note in the Anthropic and OpenAI providers.
 	if err := scanner.Err(); err != nil {
-		ch <- Chunk{Err: fmt.Errorf("gemini stream: %w", err)}
+		_ = sendChunk(ctx, ch, Chunk{Err: fmt.Errorf("gemini stream: %w", err)})
 		return
 	}
-	ch <- Chunk{Done: true, Usage: usage}
+	_ = sendChunk(ctx, ch, Chunk{Done: true, Usage: usage})
 }
 
 func geminiMessages(msgs []Message) []geminiContent {

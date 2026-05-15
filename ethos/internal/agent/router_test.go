@@ -19,7 +19,7 @@ func (f *fakeRouter) PickModel(snap RouteSnapshot) (string, string, bool) {
 func TestSetModelRouter_NilSafe(t *testing.T) {
 	a := &Agent{}
 	a.SetModelRouter(nil)
-	if a.modelRouter != nil {
+	if a.modelRouter.Load() != nil {
 		t.Fatal("nil should clear")
 	}
 }

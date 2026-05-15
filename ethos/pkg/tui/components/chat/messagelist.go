@@ -12,6 +12,13 @@ import (
 // fit but whose separator would push it off-screen.
 const messageGap = 2
 
+// maxRetainedMessages caps the in-memory transcript so a long-lived
+// TUI doesn't leak hundreds of MB of message strings. Anything older
+// than this drops off the front of the slice on Append. The viewport
+// only ever shows the tail, so culling the head is invisible. The
+// session journal preserves the full history on disk for /export.
+const maxRetainedMessages = 500
+
 type MessageListModel struct {
 	messages []Message
 	offset   int
@@ -38,6 +45,19 @@ func (m *MessageListModel) SetSize(w, h int) {
 
 func (m *MessageListModel) Append(msg Message) {
 	m.messages = append(m.messages, msg)
+	// Cap retained messages — without this, an all-day session held
+	// every token of every reply in RAM as Go strings. We drop the
+	// oldest in chunks (rather than one-at-a-time) to amortise the
+	// slice copy. Journal store still has the full history; this is
+	// purely the TUI working set.
+	if len(m.messages) > maxRetainedMessages {
+		drop := len(m.messages) - maxRetainedMessages
+		// Copy down into a fresh slice so the underlying array can be
+		// GC'd. Re-slicing would keep the old array alive.
+		trimmed := make([]Message, maxRetainedMessages)
+		copy(trimmed, m.messages[drop:])
+		m.messages = trimmed
+	}
 	// Auto-scroll to the bottom on append. The exact offset is computed
 	// lazily in View() based on rendered line counts — we just signal
 	// "stick to bottom" with a sentinel large enough that View clamps it

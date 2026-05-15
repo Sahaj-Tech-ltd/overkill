@@ -129,9 +129,12 @@ func TestClassifier_Attachments(t *testing.T) {
 	c := NewClassifier(DefaultThresholds())
 
 	score := c.Classify(RouteRequest{UserInput: "look at this image", HasAttachments: true})
-	assert.Equal(t, ComplexityCritical, score.Level)
-	assert.InDelta(t, 1.0, score.Score, 0.001)
-	assert.InDelta(t, 1.0, score.Factors["attachments"], 0.001)
+	// Attachments are an additive signal (+0.25), not an absolute
+	// override. "describe this image" should not auto-route to the
+	// most expensive model — that's a vision-capability requirement
+	// handled by the candidate filter, not a complexity tier.
+	assert.InDelta(t, 0.25, score.Factors["attachments"], 0.001)
+	assert.InDelta(t, 0.25, score.Score, 0.001)
 }
 
 func TestClassifier_ConversationDepth(t *testing.T) {
@@ -228,9 +231,17 @@ func TestSmartRouter_RouteComplex(t *testing.T) {
 
 func TestSmartRouter_RouteCritical(t *testing.T) {
 	r := newTestRouter()
+	// Compose a request that actually meets the Critical threshold:
+	// large token count + complex keyword + code block + attachment.
+	// Attachments are no longer an absolute override (post-BUG-21
+	// fix) — they're additive (+0.25) so they don't single-handedly
+	// promote a "describe this image" request to Critical.
 	result, err := r.Route(context.Background(), RouteRequest{
-		UserInput:      "describe this screenshot",
-		HasAttachments: true,
+		UserInput:       "refactor the entire authentication system across all services",
+		EstimatedTokens: 1500,
+		CodeBlockCount:  3,
+		ToolCallCount:   5,
+		HasAttachments:  true,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, ComplexityCritical, result.Complexity.Level)

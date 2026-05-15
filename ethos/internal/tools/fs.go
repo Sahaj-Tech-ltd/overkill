@@ -272,7 +272,12 @@ func (f *FSTool) glob(_ context.Context, in *FSInput) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs glob: %w", err)
 	}
-	if !strings.HasPrefix(joined, root) {
+	root = filepath.Clean(root)
+	// HasPrefix lies when one root is a prefix of another sibling
+	// (e.g. root=/home/user/wo joined=/home/user/work/etc → "wo" prefix
+	// of "work" returns true even though work/etc is outside wo).
+	// filepath.Rel is the only safe containment check.
+	if rel, rerr := filepath.Rel(root, joined); rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf("fs glob: path traversal rejected: %s", in.Pattern)
 	}
 	matches, err := filepath.Glob(joined)
@@ -282,20 +287,26 @@ func (f *FSTool) glob(_ context.Context, in *FSInput) (json.RawMessage, error) {
 
 	// Filter matches whose resolved absolute path escaped root (e.g. via
 	// a symlink inside the tree pointing outside it). Surface only the
-	// in-root subset.
+	// in-root subset. Use EvalSymlinks so a symlink that targets outside
+	// root is rejected even when the link itself lives inside.
 	relPaths := make([]string, 0, len(matches))
 	for _, m := range matches {
 		absM, err := filepath.Abs(m)
 		if err != nil {
 			continue
 		}
-		if !strings.HasPrefix(absM, root) {
+		// Resolve symlinks for the containment check. Failure → drop;
+		// the file may have been deleted between Glob and here.
+		resolved, rerr := filepath.EvalSymlinks(absM)
+		if rerr != nil {
 			continue
 		}
-		rel, err := filepath.Rel(root, absM)
-		if err != nil {
+		rel, err := filepath.Rel(root, resolved)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
+		// Report the cleaned, root-relative form computed from the
+		// resolved path so the output is consistent with the check.
 		relPaths = append(relPaths, rel)
 	}
 

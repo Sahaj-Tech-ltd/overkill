@@ -56,8 +56,14 @@ func (c *Classifier) Classify(req RouteRequest) ComplexityScore {
 	}
 
 	if req.HasAttachments {
-		factors["attachments"] = 1.0
-		score = 1.0
+		// Attachments need a vision-capable model but are NOT inherently
+		// critical-tier work. The old `score = 1.0` forced every
+		// "describe this screenshot" request onto the most expensive
+		// model. Treat attachments as a moderate signal (+0.25) and let
+		// the capability filter (collectCandidates) handle the
+		// vision-required side of the requirement.
+		factors["attachments"] = 0.25
+		score += 0.25
 	}
 
 	lower := strings.ToLower(req.UserInput)

@@ -40,7 +40,10 @@ type Agent struct {
 	allowedTools    map[string]bool
 	questionFn      QuestionFunc
 	permLedger      *security.Ledger
-	privilege       *security.PrivilegeGate
+	// privilege is the optional write-gate. Stored as atomic.Pointer so
+	// the hot read in react.go's tool dispatch path doesn't need a.mu
+	// (SetPrivilegeGate writes via Store).
+	privilege       atomic.Pointer[security.PrivilegeGate]
 	// contextProviderFn, if set, is invoked once per turn before the model
 	// call. The returned snippet is appended to the system prompt. Used by
 	// plugins (and anything else) to inject per-turn context like git status,
@@ -127,7 +130,7 @@ type Agent struct {
 	// classification of the user input + history. The returned model ID
 	// replaces a.model for that turn only. Failures fall back to the static
 	// model. See SetModelRouter.
-	modelRouter ModelRouter
+	modelRouter atomic.Pointer[modelRouterBox]
 
 	// usageObserver, if set, is fired after each step with the per-call
 	// token usage. Wired by cmd/overkill to feed cost.Tracker.Record().
@@ -263,10 +266,16 @@ type RouteSnapshot struct {
 
 // SetModelRouter wires a per-turn model picker. Pass nil to disable.
 func (a *Agent) SetModelRouter(r ModelRouter) {
-	a.mu.Lock()
-	a.modelRouter = r
-	a.mu.Unlock()
+	if r == nil {
+		a.modelRouter.Store(nil)
+		return
+	}
+	a.modelRouter.Store(&modelRouterBox{ModelRouter: r})
 }
+
+// modelRouterBox wraps the interface so it can be stored in
+// atomic.Pointer (which only takes concrete pointer types).
+type modelRouterBox struct{ ModelRouter }
 
 // SetUserInputObserver wires a callback fired once per Run with the user's
 // raw text. Pass nil to clear.
@@ -532,7 +541,21 @@ func (a *Agent) Bus() *EventBus {
 func (a *Agent) SetRecoveryWriter(w JournalEntryWriter) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	// Preserve any previously-installed AlertSink + sessionID. Old code
+	// replaced the whole ErrorRecovery, silently dropping a sink wired
+	// by an earlier SetRecoveryAlertSink call. Wiring order in tui.go
+	// (SetRecoveryAlertSink → SetRecoveryWriter) meant FireDeferralAlert
+	// never fired in practice.
+	var prevSink AlertSink
+	var prevSessionID string
+	if a.recovery != nil {
+		prevSink = a.recovery.sink
+		prevSessionID = a.recovery.sessionID
+	}
 	a.recovery = NewErrorRecovery(w)
+	if prevSink != nil {
+		a.recovery.SetAlertSink(prevSink, prevSessionID)
+	}
 }
 
 // SetRecoveryAlertSink wires an AlertSink onto the active ErrorRecovery so
@@ -588,7 +611,7 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 
 	// Smart model routing (master plan §5.2): per-turn model selection
 	// based on input complexity. Falls back silently to the static model.
-	if r := a.modelRouter; r != nil {
+	if box := a.modelRouter.Load(); box != nil {
 		a.mu.RLock()
 		hist := len(a.history)
 		a.mu.RUnlock()
@@ -600,7 +623,7 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		}
 		func() {
 			defer func() { _ = recover() }()
-			if id, reason, ok := r.PickModel(snap); ok && id != "" {
+			if id, reason, ok := box.PickModel(snap); ok && id != "" {
 				prev := a.Model()
 				a.SetModel(id)
 				if prev != id {
@@ -1331,27 +1354,21 @@ func (a *Agent) SetPermissionLedger(l *security.Ledger) {
 // Pass nil to disable (default). When wired in ReaderMode, write-like calls
 // return security.ErrWriteDenied without ever reaching the tool.
 func (a *Agent) SetPrivilegeGate(g *security.PrivilegeGate) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.privilege = g
+	a.privilege.Store(g)
 }
 
 // PrivilegeMode returns the gate's current mode, or empty when no gate is wired.
 func (a *Agent) PrivilegeMode() security.PrivilegeMode {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	if a.privilege == nil {
+	g := a.privilege.Load()
+	if g == nil {
 		return ""
 	}
-	return a.privilege.Mode()
+	return g.Mode()
 }
 
 // SetPrivilegeMode flips the gate's mode if a gate is wired. No-op otherwise.
 func (a *Agent) SetPrivilegeMode(m security.PrivilegeMode) {
-	a.mu.RLock()
-	g := a.privilege
-	a.mu.RUnlock()
-	if g != nil {
+	if g := a.privilege.Load(); g != nil {
 		g.SetMode(m)
 	}
 }

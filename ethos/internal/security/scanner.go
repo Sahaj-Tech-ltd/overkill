@@ -204,6 +204,14 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 				matched[p.id] = true
 			}
 		}
+		// Rate-limit-only blocks have no matching pattern, so the loop
+		// above produces an empty `matched` set and the user has no
+		// path to override. Inject a synthetic pseudo-id so AllowOnce /
+		// AllowProject on "rate_limit" lets a power user re-enable a
+		// command that's been hammering the limiter.
+		if rateLimited {
+			matched["rate_limit"] = true
+		}
 		for id := range matched {
 			status := s.permissions.Check(id, input, s.projectPath)
 			if status.Action == ActionAllowOnce || status.Action == ActionAllowProject {

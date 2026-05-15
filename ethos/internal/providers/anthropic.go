@@ -141,11 +141,11 @@ func (p *AnthropicProvider) Stream(ctx context.Context, req Request) (<-chan Chu
 		return nil, p.handleHTTPError(resp)
 	}
 
-	ch := make(chan Chunk)
+	ch := make(chan Chunk, 16)
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
-		p.readSSEStream(resp.Body, ch)
+		p.readSSEStream(ctx, resp.Body, ch)
 	}()
 
 	return ch, nil
@@ -211,7 +211,7 @@ func (p *AnthropicProvider) parseResponse(result *anthropicResponse) Response {
 	return resp
 }
 
-func (p *AnthropicProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
+func (p *AnthropicProvider) readSSEStream(ctx context.Context, body io.Reader, ch chan<- Chunk) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -270,7 +270,9 @@ func (p *AnthropicProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 			switch msg.Delta.Type {
 			case "text_delta":
 				if msg.Delta.Text != "" {
-					ch <- Chunk{Content: msg.Delta.Text}
+					if !sendChunk(ctx, ch, Chunk{Content: msg.Delta.Text}) {
+						return
+					}
 				}
 			case "input_json_delta":
 				if a, ok := toolBlocks[msg.Index]; ok {
@@ -281,7 +283,9 @@ func (p *AnthropicProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 				// the fallback so we don't silently drop content on a model
 				// that doesn't tag deltas.
 				if msg.Delta.Text != "" {
-					ch <- Chunk{Content: msg.Delta.Text}
+					if !sendChunk(ctx, ch, Chunk{Content: msg.Delta.Text}) {
+						return
+					}
 				}
 			}
 		case "content_block_stop":
@@ -292,15 +296,17 @@ func (p *AnthropicProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 					// downstream JSON-unmarshal of arguments doesn't error.
 					args = "{}"
 				}
-				ch <- Chunk{ToolCalls: []ToolCall{{
+				if !sendChunk(ctx, ch, Chunk{ToolCalls: []ToolCall{{
 					ID:        a.id,
 					Name:      a.name,
 					Arguments: args,
-				}}}
+				}}}) {
+					return
+				}
 				delete(toolBlocks, msg.Index)
 			}
 		case "message_stop":
-			ch <- Chunk{Done: true, Usage: usage}
+			_ = sendChunk(ctx, ch, Chunk{Done: true, Usage: usage})
 			return
 		}
 	}
@@ -311,10 +317,10 @@ func (p *AnthropicProvider) readSSEStream(body io.Reader, ch chan<- Chunk) {
 	// this check a dropped connection masquerades as a clean Done and the
 	// caller commits a partial assistant message as if it were complete.
 	if err := scanner.Err(); err != nil {
-		ch <- Chunk{Err: fmt.Errorf("anthropic stream: %w", err)}
+		_ = sendChunk(ctx, ch, Chunk{Err: fmt.Errorf("anthropic stream: %w", err)})
 		return
 	}
-	ch <- Chunk{Done: true, Usage: usage}
+	_ = sendChunk(ctx, ch, Chunk{Done: true, Usage: usage})
 }
 
 func anthropicMessages(msgs []Message) []anthropicMessage {

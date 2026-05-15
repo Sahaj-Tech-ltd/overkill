@@ -93,7 +93,13 @@ var writeLikeTools = map[string]bool{
 }
 
 // shellWriteRe catches a leading shell verb that suggests a write.
-var shellWriteRe = regexp.MustCompile(`^\s*(rm|mv|cp|mkdir|touch|tee|chmod|chown|sed\s+-i|>{1,2}\s*\S+|cat\s*>{1,2}|git\s+(push|commit|merge|reset|rebase|checkout))`)
+// Extended to cover destructive verbs the original missed (ln/dd/mkfs/
+// mount/umount/iptables/nft/systemctl/service/kill/pkill/killall/
+// truncate/unlink, plus shutdown family). Anything that mutates the
+// filesystem, devices, network state, or process/system state belongs
+// here so the privilege gate can decide whether a confirmation is
+// needed.
+var shellWriteRe = regexp.MustCompile(`^\s*(rm|mv|cp|ln|dd|mkdir|touch|tee|chmod|chown|chgrp|truncate|unlink|sed\s+-i|>{1,2}\s*\S+|cat\s*>{1,2}|mkfs(\.\S+)?|mount|umount|iptables|nft|systemctl|service|kill|pkill|killall|shutdown|reboot|poweroff|halt|git\s+(push|commit|merge|reset|rebase|checkout|clean))`)
 
 // IsWriteLikeTool classifies a single call. Exported so other layers can
 // share the same heuristic (subagent enforcer, ledger annotations, etc.).

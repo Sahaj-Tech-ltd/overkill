@@ -47,7 +47,13 @@ func (r *SmartRouter) Route(ctx context.Context, req RouteRequest) (*RouteResult
 		return r.defaultResult(score), nil
 	}
 
-	chosenID, chosenProvider, err := r.ModelForComplexity(score.Level)
+	// Pass the real capability requirements through. The old call to
+	// ModelForComplexity ignored needsTools entirely and only set
+	// needsVision when the request was Critical-tier — so a Simple
+	// request that needed tools picked from the cheapest model list,
+	// missed it on the tools filter, then silently fell back to
+	// defaultModel even when capability-matched candidates existed.
+	chosenID, chosenProvider, err := r.modelForComplexityWithCaps(score.Level, needsVision, needsTools)
 	if err != nil {
 		if r.defaultModel != "" {
 			return r.defaultResult(score), nil
@@ -76,9 +82,31 @@ func (r *SmartRouter) Route(ctx context.Context, req RouteRequest) (*RouteResult
 	}, nil
 }
 
+// ModelForComplexity preserves the legacy signature for callers that
+// don't know their capability requirements. Internally delegates to
+// modelForComplexityWithCaps with no-caps; new code should call the
+// capability-aware form directly.
 func (r *SmartRouter) ModelForComplexity(level ComplexityLevel) (string, string, error) {
-	allModels := r.allSortedModels(false)
-	needsVision := level == ComplexityCritical
+	return r.modelForComplexityWithCaps(level, level == ComplexityCritical, false)
+}
+
+func (r *SmartRouter) modelForComplexityWithCaps(level ComplexityLevel, needsVision, needsTools bool) (string, string, error) {
+	allModels := r.collectCandidates(needsVision, needsTools)
+	// Capability fallback: if the caller wanted vision but no candidate
+	// has it, return the best non-vision model. Preserves the legacy
+	// behaviour where TestModelForComplexity_NoVisionModels expected
+	// critical complexity to gracefully degrade rather than error out.
+	if len(allModels) == 0 && needsVision {
+		allModels = r.collectCandidates(false, needsTools)
+	}
+	// Sort by total cost ascending so position 0 = cheapest, len-1 =
+	// most expensive. Mirrors the legacy allSortedModels ordering that
+	// the complexity tiers index into.
+	sort.Slice(allModels, func(i, j int) bool {
+		ci := allModels[i].model.CostIn + allModels[i].model.CostOut
+		cj := allModels[j].model.CostIn + allModels[j].model.CostOut
+		return ci < cj
+	})
 
 	switch level {
 	case ComplexitySimple, ComplexityModerate, ComplexityComplex:
@@ -98,16 +126,14 @@ func (r *SmartRouter) ModelForComplexity(level ComplexityLevel) (string, string,
 			return m.model.ID, m.provider, nil
 		}
 	case ComplexityCritical:
-		if needsVision {
-			allWithVision := r.allSortedModels(true)
-			if len(allWithVision) > 0 {
-				return allWithVision[len(allWithVision)-1].model.ID, allWithVision[len(allWithVision)-1].provider, nil
-			}
-		}
+		// allModels is already capability-filtered by needsVision +
+		// needsTools (it's collectCandidates output). Just pick the
+		// most capable: convention here is end-of-slice = most expensive
+		// = most capable.
 		if len(allModels) > 0 {
 			return allModels[len(allModels)-1].model.ID, allModels[len(allModels)-1].provider, nil
 		}
-		return "", "", fmt.Errorf("no vision-capable model available for critical complexity")
+		return "", "", fmt.Errorf("no capable model available for critical complexity")
 	}
 
 	return "", "", fmt.Errorf("unknown complexity level %d", level)

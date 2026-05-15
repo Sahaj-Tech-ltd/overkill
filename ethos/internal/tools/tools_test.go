@@ -31,7 +31,7 @@ func TestRegistry(t *testing.T) {
 	t.Run("list", func(t *testing.T) {
 		r := NewRegistry()
 		require.NoError(t, r.Register(NewShellTool()))
-		require.NoError(t, r.Register(NewWebTool()))
+		require.NoError(t, r.Register(NewWebTool().AllowLocalForTests()))
 
 		list := r.List()
 		assert.Contains(t, list, "shell")
@@ -556,7 +556,7 @@ func TestWebTool(t *testing.T) {
 		}))
 		defer server.Close()
 
-		web := NewWebTool()
+		web := NewWebTool().AllowLocalForTests()
 		input := WebInput{URL: server.URL}
 		raw, _ := json.Marshal(input)
 
@@ -578,7 +578,7 @@ func TestWebTool(t *testing.T) {
 		}))
 		defer server.Close()
 
-		web := NewWebTool()
+		web := NewWebTool().AllowLocalForTests()
 		input := WebInput{URL: server.URL, MaxSize: 100}
 		raw, _ := json.Marshal(input)
 
@@ -592,7 +592,7 @@ func TestWebTool(t *testing.T) {
 	})
 
 	t.Run("invalid scheme", func(t *testing.T) {
-		web := NewWebTool()
+		web := NewWebTool().AllowLocalForTests()
 		input := WebInput{URL: "ftp://example.com"}
 		raw, _ := json.Marshal(input)
 
@@ -602,7 +602,7 @@ func TestWebTool(t *testing.T) {
 	})
 
 	t.Run("empty url", func(t *testing.T) {
-		web := NewWebTool()
+		web := NewWebTool().AllowLocalForTests()
 		input := WebInput{URL: ""}
 		raw, _ := json.Marshal(input)
 
@@ -617,7 +617,7 @@ func TestWebTool(t *testing.T) {
 		}))
 		defer server.Close()
 
-		web := NewWebTool()
+		web := NewWebTool().AllowLocalForTests()
 		input := WebInput{URL: server.URL}
 		raw, _ := json.Marshal(input)
 

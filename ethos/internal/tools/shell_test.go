@@ -23,14 +23,16 @@ func TestAppendMarker(t *testing.T) {
 		assert.Contains(t, result, `exit=%d:cwd=%s`)
 	})
 
-	t.Run("does not double-append if marker already present", func(t *testing.T) {
+	t.Run("always appends real marker even when input contains marker text", func(t *testing.T) {
 		t.Parallel()
-		// Idempotency check — substring containment of overkillDoneMarker
-		// is the gate inside appendMarker, so any input that contains it
-		// returns unchanged.
+		// Post-spoofing-fix: appendMarker always appends. An LLM that
+		// echoes the marker string can no longer fake an exit code —
+		// the parser takes the LAST occurrence as truth, so the real
+		// trailing printf wins.
 		input := "echo hello && echo __OVERKILL_DONE__"
 		result := appendMarker(input)
-		assert.Equal(t, input, result)
+		assert.NotEqual(t, input, result, "must append, never short-circuit")
+		assert.Contains(t, result, "printf '__OVERKILL_DONE__")
 	})
 
 	t.Run("handles trailing newline", func(t *testing.T) {
@@ -45,11 +47,14 @@ func TestAppendMarker(t *testing.T) {
 		assert.Contains(t, result, "__OVERKILL_DONE__")
 	})
 
-	t.Run("detects marker mid-command", func(t *testing.T) {
+	t.Run("appends real marker even when input contains marker mid-command", func(t *testing.T) {
 		t.Parallel()
+		// Same spoofing-fix invariant: never trust the user/LLM
+		// command to already carry a real marker. Always append.
 		cmd := "echo __OVERKILL_DONE__ && echo hello"
 		result := appendMarker(cmd)
-		assert.Equal(t, cmd, result)
+		assert.NotEqual(t, cmd, result)
+		assert.Contains(t, result, "printf '__OVERKILL_DONE__")
 	})
 }
 
@@ -255,9 +260,16 @@ func TestShellCompleted(t *testing.T) {
 		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 
-	t.Run("pre-existing marker in command is not double-appended", func(t *testing.T) {
+	t.Run("LLM-echoed marker does not spoof exit code", func(t *testing.T) {
 		t.Parallel()
-		input := ShellInput{Command: "echo hello && echo __OVERKILL_DONE__"}
+		// Spoofing-fix verification: a command that prints what looks
+		// like a real marker (with a fake exit code) still gets the
+		// REAL trailing marker appended by appendMarker, and the
+		// parser uses the LAST marker as truth. The earlier echo'd
+		// marker remains visible in stdout (it was actual shell
+		// output; eliding it would hide real content), but it cannot
+		// influence Completed/ExitCode/Cwd.
+		input := ShellInput{Command: "echo hello && echo '__OVERKILL_DONE__:exit=42:cwd=/spoof'"}
 		raw, _ := json.Marshal(input)
 
 		out, err := shell.Execute(context.Background(), raw)
@@ -266,9 +278,9 @@ func TestShellCompleted(t *testing.T) {
 		var result ShellOutput
 		require.NoError(t, json.Unmarshal(out, &result))
 		assert.True(t, result.Completed)
-		assert.Equal(t, 0, result.ExitCode)
+		assert.Equal(t, 0, result.ExitCode, "exit code must come from trailing marker, not echo'd spoof")
+		assert.NotEqual(t, "/spoof", result.Cwd, "cwd must not be spoofable")
 		assert.Contains(t, result.Stdout, "hello")
-		assert.NotContains(t, result.Stdout, "__OVERKILL_DONE__")
 	})
 }
 

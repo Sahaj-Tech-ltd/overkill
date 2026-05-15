@@ -85,9 +85,12 @@ func (s *ShellTool) Name() string {
 
 func appendMarker(cmd string) string {
 	trimmed := strings.TrimSpace(cmd)
-	if strings.Contains(trimmed, overkillDoneMarker) {
-		return trimmed
-	}
+	// ALWAYS append. The previous "skip if marker already present"
+	// branch let an LLM `echo '__OVERKILL_DONE__:exit=0:cwd=/' && rm -rf /`
+	// fake an exit code while the destructive command still ran. The
+	// parser now takes the LAST marker occurrence as truth; any
+	// embedded fake earlier in the command's output is just noise.
+	//
 	// `;` not `&&` so the marker fires even when the user's command
 	// fails. The shell captures $? before we evaluate $PWD so a failing
 	// cd doesn't poison the cwd report. printf is used instead of echo
@@ -109,10 +112,15 @@ type markerInfo struct {
 // absent the cleaned output is the original input verbatim and Found is
 // false — callers must NOT trust Exit/Cwd in that case.
 func stripMarker(output string) (string, markerInfo) {
-	m := markerFullRe.FindStringSubmatch(output)
-	if m == nil {
+	// Take the LAST marker occurrence: appendMarker pins one to the end
+	// of the command, so any earlier marker in the output is by
+	// definition fake (an LLM-printed string that happens to match the
+	// pattern). Using the last match closes the spoofing window.
+	all := markerFullRe.FindAllStringSubmatch(output, -1)
+	if len(all) == 0 {
 		return output, markerInfo{}
 	}
+	m := all[len(all)-1]
 	info := markerInfo{Found: true}
 	if len(m) > 1 && m[1] != "" {
 		// strconv-free parse: tiny positive/negative ints only.
@@ -138,7 +146,19 @@ func stripMarker(output string) (string, markerInfo) {
 	if len(m) > 2 {
 		info.Cwd = m[2]
 	}
-	cleaned := markerFullRe.ReplaceAllString(output, "")
+	// Strip only the LAST marker occurrence. Earlier matches stay in
+	// the output as ordinary text — they were not produced by our
+	// trailing printf, so they're part of what the command actually
+	// printed (or what an LLM tried to spoof) and the user/agent
+	// should see them rather than have them silently elided.
+	lastIdx := markerFullRe.FindAllStringIndex(output, -1)
+	var cleaned string
+	if len(lastIdx) > 0 {
+		last := lastIdx[len(lastIdx)-1]
+		cleaned = output[:last[0]] + output[last[1]:]
+	} else {
+		cleaned = output
+	}
 	cleaned = trailingBlankRe.ReplaceAllString(cleaned, "")
 	if cleaned != "" {
 		cleaned += "\n"

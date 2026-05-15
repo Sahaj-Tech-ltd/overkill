@@ -53,10 +53,15 @@ func NewPermissionManager() *PermissionManager {
 }
 
 func (pm *PermissionManager) Check(pattern, command, projectPath string) PermissionDecision {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-
+	// "Allow Once" must consume the grant atomically — read+delete under
+	// a write lock. The old RLock-only path returned ActionAllowOnce on
+	// every subsequent Check until ClearSession(), turning a single
+	// approval into permanent permission. Switching to Lock + delete
+	// makes the name match the behavior.
+	pm.mu.Lock()
 	if pm.onceAllowed[pattern] {
+		delete(pm.onceAllowed, pattern)
+		pm.mu.Unlock()
 		return PermissionDecision{
 			Action:      ActionAllowOnce,
 			Pattern:     pattern,
@@ -64,6 +69,9 @@ func (pm *PermissionManager) Check(pattern, command, projectPath string) Permiss
 			ProjectPath: projectPath,
 		}
 	}
+	pm.mu.Unlock()
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
 
 	if projects, ok := pm.projectAllowed[projectPath]; ok && projects[pattern] {
 		return PermissionDecision{
@@ -108,9 +116,22 @@ func (pm *PermissionManager) Allow(decision PermissionDecision) {
 	}
 }
 
+// IsAllowed is a non-consuming predicate. It must NOT consume an
+// AllowOnce grant — that's what Check does. Otherwise a caller asking
+// "are we allowed?" would silently burn the user's one-shot permission.
 func (pm *PermissionManager) IsAllowed(pattern, command, projectPath string) bool {
-	decision := pm.Check(pattern, command, projectPath)
-	return decision.Action != ActionDeny
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	if pm.onceAllowed[pattern] {
+		return true
+	}
+	if projects, ok := pm.projectAllowed[projectPath]; ok && projects[pattern] {
+		return true
+	}
+	if pm.globalAllowed[pattern] {
+		return true
+	}
+	return false
 }
 
 func (pm *PermissionManager) ClearProject(projectPath string) {
