@@ -17,12 +17,6 @@
     reverse_proxy authelia:9091
   }
 
-  @chat host chat.databunker.uk
-  handle @chat {
-    import protected
-    reverse_proxy open-webui:8080
-  }
-
   @status host status.databunker.uk
   handle @status {
     reverse_proxy host.docker.internal:3001
