@@ -74,6 +74,7 @@ const (
 	dialogOverrideConfirm
 	dialogPlugins
 	dialogBrowser
+	dialogSettings
 )
 
 type appModel struct {
@@ -114,6 +115,7 @@ type appModel struct {
 	overrideDialog   dialog.OverrideConfirmDialog
 	pluginsDialog    dialog.PluginsDialog
 	browserDialog    dialog.BrowserDialog
+	settingsDialog   *dialog.SettingsDialog // v2.0 Basic-tab editor; nil until first open
 	splitView        *viewer.FileView
 	splitOpen        bool
 	splitFocused     bool
@@ -689,6 +691,7 @@ func (m *appModel) registerCommands() {
 		{ID: "clear", Title: "/clear", Description: "clear chat history"},
 		{ID: "quit", Title: "/quit", Description: "exit overkill"},
 		{ID: "model", Title: "/model", Description: "open model picker"},
+		{ID: "settings", Title: "/settings", Description: "open v2.0 Settings (Basic tab)"},
 		{ID: "sessions", Title: "/sessions", Description: "switch session"},
 		{ID: "theme", Title: "/theme", Description: "open theme picker"},
 		{ID: "config", Title: "/config", Description: "reconfigure provider"},
@@ -1707,6 +1710,31 @@ func (m *appModel) openModelDialog() tea.Cmd {
 	return fetchModelCatalogCmd()
 }
 
+// openSettingsDialog lazily constructs the v2.0 Settings dialog
+// against the user's current overrides on disk. We reconstruct on
+// each open so changes saved by a different process (or the next
+// version of this CLI) get picked up.
+func (m *appModel) openSettingsDialog() tea.Cmd {
+	path, err := config.UserOverridesPath()
+	if err != nil {
+		return status.ShowToast("settings: cannot resolve path: " + err.Error())
+	}
+	current, err := config.LoadUserOverrides(path)
+	if err != nil {
+		return status.ShowToast("settings: load failed: " + err.Error())
+	}
+	d := dialog.NewSettingsDialog(path, current)
+	d.SetSize(m.width, m.height)
+	// Populate enums so ←/→ on Theme cycles through available themes.
+	if names := theme.Names(); len(names) > 0 {
+		d.SetThemes(names)
+	}
+	d.ShowDialog()
+	m.settingsDialog = d
+	m.openDialog = dialogSettings
+	return nil
+}
+
 // fetchModelCatalogCmd performs the network call off the UI goroutine and
 // emits ModelCatalogLoadedMsg with the source label so the dialog can show
 // a "(cached, offline)" hint when the live fetch failed.
@@ -2144,6 +2172,20 @@ func (m *appModel) routeDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.browserDialog = d
 			m.openDialog = dialogNone
 			return m, cmd
+		case dialogSettings:
+			// SettingsDialog handles its own dirty-confirm on esc, so
+			// we delegate without forcing the close. The dialog flips
+			// d.Show=false itself once the user confirms.
+			if m.settingsDialog != nil {
+				d, cmd := m.settingsDialog.Update(msg)
+				m.settingsDialog = d
+				if !m.settingsDialog.IsShown() {
+					m.openDialog = dialogNone
+				}
+				return m, cmd
+			}
+			m.openDialog = dialogNone
+			return m, nil
 		case dialogWorktree:
 			d, cmd := m.worktreeDialog.Update(msg)
 			m.worktreeDialog = d
@@ -2265,6 +2307,16 @@ func (m *appModel) routeDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d, cmd := m.browserDialog.Update(msg)
 		m.browserDialog = d
 		return m, cmd
+	case dialogSettings:
+		if m.settingsDialog != nil {
+			d, cmd := m.settingsDialog.Update(msg)
+			m.settingsDialog = d
+			if !m.settingsDialog.IsShown() {
+				m.openDialog = dialogNone
+			}
+			return m, cmd
+		}
+		return m, nil
 	case dialogWorktree:
 		d, cmd := m.worktreeDialog.Update(msg)
 		m.worktreeDialog = d
@@ -2484,6 +2536,8 @@ func (m *appModel) dispatchCommand(id string) tea.Cmd {
 		return tea.Quit
 	case "model":
 		return m.openModelDialog()
+	case "settings":
+		return m.openSettingsDialog()
 	case "sessions":
 		m.refreshSessionList()
 		m.openDialog = dialogSessions
@@ -3229,6 +3283,12 @@ func (m *appModel) dialogView() string {
 		return m.mcpDialog.View(m.width, m.height)
 	case dialogBrowser:
 		return m.browserDialog.View(m.width, m.height)
+	case dialogSettings:
+		if m.settingsDialog == nil {
+			return ""
+		}
+		m.settingsDialog.SetSize(m.width, m.height)
+		return m.settingsDialog.View()
 	case dialogWorktree:
 		return m.worktreeDialog.View(m.width, m.height)
 	case dialogPermissionsLedger:
