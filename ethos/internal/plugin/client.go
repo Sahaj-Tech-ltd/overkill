@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -39,6 +40,11 @@ type Client struct {
 	hasContext bool
 	lastErr    error
 	disabled   bool
+	// shuttingDown signals a deliberate teardown so the supervise
+	// loop's post-Wait restart logic can skip bumping the restart
+	// counter. Without it, an intentional Shutdown SIGTERM'd exit
+	// looked identical to a crash and counted toward MaxRestarts.
+	shuttingDown atomic.Bool
 
 	// staticManifest, when set (from plugin.toml), is compared against the
 	// manifest the plugin returns from initialize; mismatches mark the
@@ -377,21 +383,35 @@ func (c *Client) Provide(ctx context.Context, prompt, sessionID string) ([]Conte
 // Shutdown sends plugin.shutdown then SIGTERMs the process with a grace
 // period before SIGKILL.
 func (c *Client) Shutdown(ctx context.Context) error {
+	// Mark deliberate shutdown BEFORE signalling the process so the
+	// supervise loop's post-Wait restart check sees the flag and
+	// doesn't bump the restart counter on this clean exit.
+	c.shuttingDown.Store(true)
 	if c.conn != nil {
 		shutdownCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		_, _ = c.conn.Call(shutdownCtx, "plugin.shutdown", map[string]any{})
 		cancel()
 		c.conn.Close()
 	}
+	// SIGTERM the process and rely on the supervise goroutine's
+	// already-pending client.Wait() to reap it. Calling cmd.Wait in
+	// a second goroutine here used to race the supervise loop —
+	// cmd.Wait may only be called once. We just signal and time-box
+	// with a kill escalation; the actual Wait happens elsewhere.
 	if c.cmd != nil && c.cmd.Process != nil {
 		_ = c.cmd.Process.Signal(syscall.SIGTERM)
-		done := make(chan error, 1)
-		go func() { done <- c.cmd.Wait() }()
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
+		// Give the process up to 3 seconds to exit. If supervise's
+		// Wait hasn't returned by then, escalate to SIGKILL. We don't
+		// wait on Wait here — the supervise goroutine owns it.
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if c.cmd.ProcessState != nil && c.cmd.ProcessState.Exited() {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if c.cmd.ProcessState == nil || !c.cmd.ProcessState.Exited() {
 			_ = c.cmd.Process.Kill()
-			<-done
 		}
 	}
 	if c.stdin != nil {
@@ -401,6 +421,12 @@ func (c *Client) Shutdown(ctx context.Context) error {
 	c.connected = false
 	c.mu.Unlock()
 	return nil
+}
+
+// IsShuttingDown reports whether Shutdown has been called. Supervise
+// uses this to decide whether a process exit was deliberate.
+func (c *Client) IsShuttingDown() bool {
+	return c.shuttingDown.Load()
 }
 
 // Connected reports whether the plugin completed initialize and hasn't died.

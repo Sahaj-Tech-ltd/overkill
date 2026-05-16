@@ -192,10 +192,16 @@ func (s *Scheduler) fireJob(j *Job) {
 		}
 	}
 
+	// Snapshot the store ref under the lock, then release BEFORE
+	// the I/O. Old code held RLock across SaveJob — a slow store
+	// (network mount, fsync stall) blocked every concurrent
+	// SetJob/Cancel/Status caller, and could deadlock if the store
+	// implementation took any lock that re-entered the scheduler.
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.store != nil {
-		_ = s.store.SaveJob(j)
+	store := s.store
+	s.mu.RUnlock()
+	if store != nil {
+		_ = store.SaveJob(j)
 	}
 }
 

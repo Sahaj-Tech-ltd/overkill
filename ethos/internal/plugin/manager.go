@@ -103,8 +103,14 @@ func (m *Manager) supervise(ctx context.Context, d Discovered) {
 			continue
 		}
 		// Success — wait for the process to exit, then decide whether to
-		// restart.
+		// restart. A deliberate Shutdown (Manager.Stop, reconfigure,
+		// crash-replace) sets shuttingDown on the Client; skip the
+		// restart-counter bump in that case so an intentional teardown
+		// doesn't blow the MaxRestarts budget.
 		_ = client.Wait()
+		if client.IsShuttingDown() {
+			return
+		}
 		client.setError(fmt.Errorf("plugin process exited"))
 		m.bumpRestart(d.Name)
 		select {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -260,6 +261,12 @@ func stateLabel(s tuitypes.StatusState) string {
 // compactCwd is called every render. Cache the last result so we don't
 // re-stat HOME / re-clean the path on every keystroke. cwd changes are
 // rare; the cache is single-entry which is plenty.
+//
+// Concurrency: the bubbletea Update loop is single-threaded, but
+// nothing in the type system enforces that — tests and future
+// background view-renderers could touch this from another goroutine.
+// Guard with a mutex so -race stays clean.
+var compactCwdMu sync.Mutex
 var (
 	compactCwdLastIn  string
 	compactCwdLastOut string
@@ -269,9 +276,13 @@ func compactCwd(cwd string) string {
 	if cwd == "" {
 		return ""
 	}
+	compactCwdMu.Lock()
 	if cwd == compactCwdLastIn {
-		return compactCwdLastOut
+		out := compactCwdLastOut
+		compactCwdMu.Unlock()
+		return out
 	}
+	compactCwdMu.Unlock()
 	home := os.Getenv("HOME")
 	var out string
 	if home != "" && strings.HasPrefix(cwd, home) {
@@ -279,8 +290,10 @@ func compactCwd(cwd string) string {
 	} else {
 		out = filepath.Clean(cwd)
 	}
+	compactCwdMu.Lock()
 	compactCwdLastIn = cwd
 	compactCwdLastOut = out
+	compactCwdMu.Unlock()
 	return out
 }
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
@@ -38,15 +39,27 @@ func (f *FileBackend) metaPath(id string) string {
 }
 
 func (f *FileBackend) Push(ctx context.Context, id string, data []byte, meta SessionMeta) error {
-	if err := os.WriteFile(f.blobPath(id), data, 0o644); err != nil {
-		return fmt.Errorf("sync/file: write blob: %w", err)
-	}
+	// Write meta FIRST (atomically), then blob (atomically). Pull
+	// keys off blob existence, so a crash between the two writes
+	// leaves orphan meta but no blob — discoverable via List + GC.
+	// The old order (blob then meta) left blobs with no meta, which
+	// Pull silently treated as success with an empty SessionMeta —
+	// hiding the partial-write entirely.
+	//
+	// Both writes use atomicfile.WriteFile (temp+rename+fsync) so a
+	// crash mid-write never exposes a truncated half-file.
 	mb, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("sync/file: marshal meta: %w", err)
 	}
-	if err := os.WriteFile(f.metaPath(id), mb, 0o644); err != nil {
+	if err := atomicfile.WriteFile(f.metaPath(id), mb, 0o644); err != nil {
 		return fmt.Errorf("sync/file: write meta: %w", err)
+	}
+	if err := atomicfile.WriteFile(f.blobPath(id), data, 0o644); err != nil {
+		// Clean up orphan meta so the next Push retries from a clean
+		// state rather than appearing to "already exist".
+		_ = os.Remove(f.metaPath(id))
+		return fmt.Errorf("sync/file: write blob: %w", err)
 	}
 	return nil
 }

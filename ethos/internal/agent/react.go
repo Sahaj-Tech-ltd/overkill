@@ -168,6 +168,14 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		})
 		toolResult, toolErr := a.executeTool(ctx, tc.Name, input)
 
+		// Append to the cryptographic receipt chain so the non-streaming
+		// react path produces the same audit trail as the streaming path.
+		// Old code only appended in stream.go — every TUI / Run()-based
+		// tool call (the entire non-streaming code path) had no record.
+		if a.receipts != nil {
+			a.receipts.Append(a.sessionID, tc.Name, input, toolResult, toolErr)
+		}
+
 		if a.hooks != nil {
 			hookOutput := toolResult
 			if toolErr != nil {
