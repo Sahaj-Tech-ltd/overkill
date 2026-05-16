@@ -282,51 +282,51 @@ func (p *OpenAIProvider) readSSEStream(ctx context.Context, body io.Reader, ch c
 		return out
 	}
 
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if !strings.HasPrefix(line, "data: ") {
-			continue
+	// SSE per WHATWG/RFC: an event is terminated by a blank line, and
+	// a single event can span multiple `data:` lines that join with
+	// '\n'. Old parser dispatched on every `data:` line — a proxy
+	// that wraps a large chunk across two `data:` lines would have
+	// produced two JSON-parse failures and silent content loss.
+	var dataBuf strings.Builder
+	// Returns false when caller should stop reading (e.g. [DONE]).
+	dispatch := func(payload string) bool {
+		if payload == "" {
+			return true
 		}
-
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			break
+		if payload == "[DONE]" {
+			return false
 		}
-
 		var chunk openaiStreamChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			log.Warn().Err(err).Str("data", data).Msg("providers: failed to parse openai stream chunk")
-			continue
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			log.Warn().Err(err).Str("data", payload).Msg("providers: failed to parse openai stream chunk")
+			return true
 		}
-
 		if chunk.Usage != nil {
 			usage = &Usage{
 				InputTokens:  chunk.Usage.PromptTokens,
 				OutputTokens: chunk.Usage.CompletionTokens,
 			}
 		}
-
 		if len(chunk.Choices) == 0 {
-			continue
+			return true
 		}
-
 		choice := chunk.Choices[0]
 		if choice.Delta.Content != "" {
 			if !sendChunk(ctx, ch, Chunk{Content: choice.Delta.Content}) {
-				return
+				return false
 			}
 		}
-
 		for _, tc := range choice.Delta.ToolCalls {
-			// Default index to 0 when the API omits it — the
-			// non-parallel case streams a single tool with no index.
 			idx := 0
 			if tc.Index != nil {
 				idx = *tc.Index
 			}
 			a, ok := toolAccum[idx]
 			if !ok {
+				const maxParallelToolCalls = 256
+				if len(toolAccum) >= maxParallelToolCalls {
+					continue
+				}
 				a = &accum{order: orderCounter}
 				orderCounter++
 				toolAccum[idx] = a
@@ -341,17 +341,49 @@ func (p *OpenAIProvider) readSSEStream(ctx context.Context, body io.Reader, ch c
 				a.args.WriteString(tc.Function.Arguments)
 			}
 		}
-
-		// On finish_reason transition, flush accumulated tool calls in
-		// one Chunk so the consumer sees fully-formed JSON arguments.
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
 			if tools := flushTools(); len(tools) > 0 {
 				if !sendChunk(ctx, ch, Chunk{ToolCalls: tools}) {
-					return
+					return false
 				}
 			}
 		}
+		return true
 	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Blank line = event boundary. Dispatch what we accumulated.
+		if line == "" {
+			payload := dataBuf.String()
+			dataBuf.Reset()
+			if !dispatch(payload) {
+				break
+			}
+			continue
+		}
+
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		// Per spec: a single leading space after `data:` is stripped;
+		// other whitespace is preserved.
+		seg := strings.TrimPrefix(line, "data:")
+		if strings.HasPrefix(seg, " ") {
+			seg = seg[1:]
+		}
+		if dataBuf.Len() > 0 {
+			dataBuf.WriteByte('\n')
+		}
+		dataBuf.WriteString(seg)
+	}
+	// Last event (no trailing blank line on close).
+	if pending := dataBuf.String(); pending != "" {
+		_ = dispatch(pending)
+	}
+
 	// Belt + suspenders: some proxies drop finish_reason. Flush anything
 	// still accumulated before signalling Done.
 	if tools := flushTools(); len(tools) > 0 {

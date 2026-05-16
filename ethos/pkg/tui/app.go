@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"context"
+	"time"
+
 	"github.com/Sahaj-Tech-ltd/overkill/internal/acp"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
@@ -122,10 +125,18 @@ type App struct {
 // Reconfigure swaps in a new config and rebuilds the agent. Returns the new
 // agent (which is also assigned to App.Agent) so the caller can refresh any
 // page that holds an *agent.Agent reference.
+//
+// Stops every long-lived background resource (MCP servers, plugin
+// subprocesses, LSP sidecars, ACP HTTP listener) before invoking Build.
+// Without this teardown each Reconfigure leaked the entire previous
+// stack — managers stayed alive, sub-processes stayed running, the
+// HTTP listener stayed bound to the port. Build is then free to wire
+// up fresh ones into the same App pointer.
 func (a *App) Reconfigure(cfg *config.Config) (*agent.Agent, error) {
 	if a == nil {
 		return nil, nil
 	}
+	a.shutdownResources()
 	a.Config = cfg
 	if a.Build == nil {
 		return a.Agent, nil
@@ -136,4 +147,32 @@ func (a *App) Reconfigure(cfg *config.Config) (*agent.Agent, error) {
 	}
 	a.Agent = ag
 	return ag, nil
+}
+
+// shutdownResources stops every long-lived background subsystem the
+// App holds a reference to. Best-effort, idempotent: each subsystem's
+// Stop/Shutdown is nil-safe so calling this on a partially-built App
+// (or after a previous Reconfigure cleared a field) won't panic.
+func (a *App) shutdownResources() {
+	if a == nil {
+		return
+	}
+	if a.MCP != nil {
+		a.MCP.Stop()
+		a.MCP = nil
+	}
+	if a.Plugins != nil {
+		a.Plugins.Stop()
+		a.Plugins = nil
+	}
+	if a.LSP != nil {
+		a.LSP.Stop()
+		a.LSP = nil
+	}
+	if a.ACPServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = a.ACPServer.Shutdown(ctx)
+		cancel()
+		a.ACPServer = nil
+	}
 }

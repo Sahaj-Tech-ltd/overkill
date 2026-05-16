@@ -8,6 +8,8 @@ import (
 	"github.com/rs/zerolog/log"
 
 	toml "github.com/pelletier/go-toml/v2"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 func Default() *Config {
@@ -100,7 +102,7 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("config: marshaling toml: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("config: writing config file %s: %w", path, err)
 	}
 

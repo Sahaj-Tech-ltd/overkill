@@ -185,6 +185,23 @@ func (m *Manager) SpawnContract(ctx context.Context, contract *Contract, driver 
 		sink := m.failureSink
 		m.mu.Unlock()
 		close(entry.done)
+		// Evict the entry after a 1h grace window so callers still
+		// have time to fetch AutonomousReport, but the map doesn't
+		// grow forever. Without this, every long-running deployment
+		// accumulated O(total-contracts-ever) entries, eventually
+		// crossing m.cfg.MaxChildren and refusing new dispatches.
+		go func() {
+			t := time.NewTimer(1 * time.Hour)
+			defer t.Stop()
+			select {
+			case <-t.C:
+			}
+			m.mu.Lock()
+			if current, ok := m.autonomous[contract.ID]; ok && current == entry {
+				delete(m.autonomous, contract.ID)
+			}
+			m.mu.Unlock()
+		}()
 		// Cross-agent fault attribution (master plan §5.3): any non-completed
 		// terminal state means the *delegation decision* deserves a journal
 		// entry. The sink converts this into AlertDelegationFailed.

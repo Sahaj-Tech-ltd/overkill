@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
@@ -64,15 +65,19 @@ func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta Sess
 		_, _ = runGit(g.dir, "fetch", "origin", g.branch)
 		_, _ = runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch)
 	}
-	if err := os.WriteFile(filepath.Join(g.dir, id+".json.gz"), data, 0o644); err != nil {
-		return fmt.Errorf("sync/git: write blob: %w", err)
-	}
+	// Write meta first, then blob, both atomically — same pattern as
+	// FileBackend.Push so a crash between the two leaves discoverable
+	// orphan meta but never a truncated half-file.
 	mb, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("sync/git: marshal meta: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(g.dir, id+".meta.json"), mb, 0o644); err != nil {
+	if err := atomicfile.WriteFile(filepath.Join(g.dir, id+".meta.json"), mb, 0o644); err != nil {
 		return fmt.Errorf("sync/git: write meta: %w", err)
+	}
+	if err := atomicfile.WriteFile(filepath.Join(g.dir, id+".json.gz"), data, 0o644); err != nil {
+		_ = os.Remove(filepath.Join(g.dir, id+".meta.json"))
+		return fmt.Errorf("sync/git: write blob: %w", err)
 	}
 	if out, err := runGit(g.dir, "add", id+".json.gz", id+".meta.json"); err != nil {
 		return fmt.Errorf("sync/git: add: %s: %w", out, err)

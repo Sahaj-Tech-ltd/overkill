@@ -258,6 +258,12 @@ func (p *AnthropicProvider) readSSEStream(ctx context.Context, body io.Reader, c
 			}
 		case "content_block_start":
 			if msg.ContentBlock != nil && msg.ContentBlock.Type == "tool_use" {
+				// Cap at maxParallelToolBlocks to defang an adversarial
+				// stream that bursts 10^6 unique block indices.
+				const maxParallelToolBlocks = 256
+				if len(toolBlocks) >= maxParallelToolBlocks {
+					continue
+				}
 				toolBlocks[msg.Index] = &toolAccum{
 					id:   msg.ContentBlock.ID,
 					name: msg.ContentBlock.Name,
