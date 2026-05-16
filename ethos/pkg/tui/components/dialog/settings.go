@@ -37,6 +37,15 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui/theme"
 )
 
+// tabKind picks which top-level tab the dialog is on. Tab cycles
+// between them.
+type tabKind int
+
+const (
+	tabBasic tabKind = iota
+	tabAdvanced
+)
+
 // SettingsDialog renders the Settings page. Construct via
 // NewSettingsDialog; mutate via Update; render via View.
 type SettingsDialog struct {
@@ -51,10 +60,20 @@ type SettingsDialog struct {
 	// path is the user.yaml location (typically ~/.config/overkill/user.yaml).
 	path string
 
-	// fields drives the visible rows. Built once at New time; the
+	// tab is the active top-level tab.
+	tab tabKind
+
+	// fields drives the Basic tab. Built once at New time; the
 	// cursor moves over it.
 	fields []settingsField
 	cursor int
+
+	// sections / sectionCursor / sectionFieldCursor drive Advanced.
+	// One section is "active" at a time; ←/→ pages between sections,
+	// ↑/↓ navigates fields within the active section.
+	sections           []advancedSection
+	sectionCursor      int // which section is visible
+	sectionFieldCursor int // which row within the visible section
 
 	// availableThemes / availableModels are populated at open time
 	// from the live catalog / theme registry. Cached on the dialog
@@ -68,6 +87,17 @@ type SettingsDialog struct {
 	// dirtyConfirm: when the user presses esc with unsaved edits we
 	// flip this to true and the next esc actually closes.
 	dirtyConfirm bool
+}
+
+// advancedSection is one card in the Advanced tab — a named group of
+// settingsField rows sharing a theme (Scanners, Persona, Telemetry,
+// etc.). Each card defines its own field table; the dialog reuses
+// the existing settingsField shape so the editor code is shared.
+type advancedSection struct {
+	id     string
+	title  string
+	help   string
+	fields []settingsField
 }
 
 // settingsField is one row in the Basic tab. Kind determines how the
@@ -219,7 +249,293 @@ func NewSettingsDialog(path string, current *config.UserOverrides) *SettingsDial
 			edit:  makeBoolEdit(func(u *config.UserOverrides) *bool { return &u.Basic.ConfirmWrites }),
 		},
 	}
+	d.sections = buildAdvancedSections()
 	return d
+}
+
+// buildAdvancedSections wires the Advanced-tab cards. Initial cut
+// surfaces Scanners, Compaction, Persona, and Telemetry — the
+// settings most users want after the Basic tab. The other 7
+// sub-sections from settings-design.md land in follow-up PRs.
+func buildAdvancedSections() []advancedSection {
+	return []advancedSection{
+		{
+			id:    "scanners",
+			title: "Scanners",
+			help:  "defense-in-depth checks on every tool call",
+			fields: []settingsField{
+				{
+					label: "Command scanner",
+					help:  "blocks dangerous shell verbs (rm -rf /, mkfs, etc.)",
+					kind:  kindBool,
+					get:   func(u *config.UserOverrides) string { return boolLabel(u.Advanced.Scanners.Command.Enabled) },
+					edit:  makeBoolEdit(func(u *config.UserOverrides) *bool { return &u.Advanced.Scanners.Command.Enabled }),
+				},
+				{
+					label: "Injection scanner",
+					help:  "catches 'ignore previous instructions' patterns in tool inputs",
+					kind:  kindBool,
+					get:   func(u *config.UserOverrides) string { return boolLabel(u.Advanced.Scanners.Injection.Enabled) },
+					edit:  makeBoolEdit(func(u *config.UserOverrides) *bool { return &u.Advanced.Scanners.Injection.Enabled }),
+				},
+				{
+					label: "Prompt-injection browser",
+					help:  "annotates web fetches that try to override system prompt",
+					kind:  kindBool,
+					get:   func(u *config.UserOverrides) string { return boolLabel(u.Advanced.Scanners.PromptInjectBrowser.Enabled) },
+					edit:  makeBoolEdit(func(u *config.UserOverrides) *bool { return &u.Advanced.Scanners.PromptInjectBrowser.Enabled }),
+				},
+			},
+		},
+		{
+			id:    "compaction",
+			title: "Compaction",
+			help:  "automatic context summarisation when the budget is tight",
+			fields: []settingsField{
+				{
+					label: "Compaction model",
+					help:  "model used for the summary LLM call (empty = gpt-4o-mini)",
+					kind:  kindModel,
+					get: func(u *config.UserOverrides) string {
+						if u.Advanced.Compaction.Model == "" {
+							return "(default)"
+						}
+						return u.Advanced.Compaction.Model
+					},
+					edit: editCompactionModel,
+				},
+				{
+					label: "Soft threshold",
+					help:  "trigger compaction at this fraction of the context window",
+					kind:  kindSlider,
+					get: func(u *config.UserOverrides) string {
+						v := u.Advanced.Compaction.SoftThreshold
+						if v == 0 {
+							v = 0.5
+						}
+						return renderSlider(v, 0, 1)
+					},
+					edit: makeFloatEdit(0, 1, 0.05, func(u *config.UserOverrides) *float64 { return &u.Advanced.Compaction.SoftThreshold }),
+				},
+				{
+					label: "Hard threshold",
+					help:  "force compaction at this fraction; 0 = use baked default",
+					kind:  kindSlider,
+					get: func(u *config.UserOverrides) string {
+						v := u.Advanced.Compaction.HardThreshold
+						if v == 0 {
+							v = 0.95
+						}
+						return renderSlider(v, 0, 1)
+					},
+					edit: makeFloatEdit(0, 1, 0.05, func(u *config.UserOverrides) *float64 { return &u.Advanced.Compaction.HardThreshold }),
+				},
+				{
+					label: "Preserve last N turns",
+					help:  "messages near the tail kept verbatim regardless of compaction",
+					kind:  kindFloat,
+					get: func(u *config.UserOverrides) string {
+						return fmt.Sprintf("%d", u.Advanced.Compaction.PreserveLast)
+					},
+					edit: makeIntEdit(0, 100, 1, func(u *config.UserOverrides) *int { return &u.Advanced.Compaction.PreserveLast }),
+				},
+			},
+		},
+		{
+			id:    "persona",
+			title: "Persona",
+			help:  "long-lived tone + style appended to every system prompt",
+			fields: []settingsField{
+				{
+					label: "Tone",
+					help:  "terse / normal / verbose (← / → cycles)",
+					kind:  kindEnumTheme,
+					get: func(u *config.UserOverrides) string {
+						if u.Advanced.Persona.Tone == "" {
+							return "(default)"
+						}
+						return u.Advanced.Persona.Tone
+					},
+					edit: makeEnumEdit(
+						[]string{"", "terse", "normal", "verbose"},
+						func(u *config.UserOverrides) *string { return &u.Advanced.Persona.Tone },
+					),
+				},
+				{
+					label: "Style",
+					help:  "senior / pair / tutor / brutal",
+					kind:  kindEnumTheme,
+					get: func(u *config.UserOverrides) string {
+						if u.Advanced.Persona.Style == "" {
+							return "(default)"
+						}
+						return u.Advanced.Persona.Style
+					},
+					edit: makeEnumEdit(
+						[]string{"", "senior", "pair", "tutor", "brutal"},
+						func(u *config.UserOverrides) *string { return &u.Advanced.Persona.Style },
+					),
+				},
+			},
+		},
+		{
+			id:    "telemetry",
+			title: "Telemetry",
+			help:  "what the agent records about its own work",
+			fields: []settingsField{
+				{
+					label: "Event log",
+					help:  "every tool call + agent message",
+					kind:  kindBool,
+					get:   func(u *config.UserOverrides) string { return ptrBoolLabel(u.Advanced.Telemetry.EventLog) },
+					edit:  makeBoolPtrEdit(func(u *config.UserOverrides) **bool { return &u.Advanced.Telemetry.EventLog }),
+				},
+				{
+					label: "Flight recorder",
+					help:  "audit-trail of last resort; crash-safe",
+					kind:  kindBool,
+					get:   func(u *config.UserOverrides) string { return ptrBoolLabel(u.Advanced.Telemetry.FlightRecorder) },
+					edit:  makeBoolPtrEdit(func(u *config.UserOverrides) **bool { return &u.Advanced.Telemetry.FlightRecorder }),
+				},
+				{
+					label: "Verify receipt chain on boot",
+					help:  "checks the cryptographic audit chain hasn't been tampered with",
+					kind:  kindBool,
+					get:   func(u *config.UserOverrides) string { return ptrBoolLabel(u.Advanced.Telemetry.VerifyOnBoot) },
+					edit:  makeBoolPtrEdit(func(u *config.UserOverrides) **bool { return &u.Advanced.Telemetry.VerifyOnBoot }),
+				},
+				{
+					label: "Retention (days)",
+					help:  "0 = keep forever; otherwise prune older entries",
+					kind:  kindFloat,
+					get: func(u *config.UserOverrides) string {
+						if u.Advanced.Telemetry.RetentionDays == 0 {
+							return "forever"
+						}
+						return fmt.Sprintf("%d days", u.Advanced.Telemetry.RetentionDays)
+					},
+					edit: makeIntEdit(0, 3650, 30, func(u *config.UserOverrides) *int { return &u.Advanced.Telemetry.RetentionDays }),
+				},
+			},
+		},
+	}
+}
+
+// editCompactionModel is identical to editModel but targets the
+// compaction sub-config instead of basic.Model. Inlined for clarity
+// because the cycling target differs.
+func editCompactionModel(d *SettingsDialog, key tea.KeyMsg) bool {
+	if len(d.availableModels) == 0 {
+		d.status = "model picker not populated"
+		return false
+	}
+	current := d.overrides.Advanced.Compaction.Model
+	idx := 0
+	for i, m := range d.availableModels {
+		if m == current {
+			idx = i
+			break
+		}
+	}
+	switch keyName(key) {
+	case "left":
+		idx = (idx - 1 + len(d.availableModels)) % len(d.availableModels)
+	case "right", "enter", "space":
+		idx = (idx + 1) % len(d.availableModels)
+	default:
+		return false
+	}
+	d.overrides.Advanced.Compaction.Model = d.availableModels[idx]
+	return true
+}
+
+// makeIntEdit mirrors makeFloatEdit for int-typed sliders.
+func makeIntEdit(min, max, step int, target func(*config.UserOverrides) *int) func(*SettingsDialog, tea.KeyMsg) bool {
+	return func(d *SettingsDialog, key tea.KeyMsg) bool {
+		p := target(d.overrides)
+		switch keyName(key) {
+		case "left":
+			n := *p - step
+			if n < min {
+				n = min
+			}
+			*p = n
+		case "right":
+			n := *p + step
+			if n > max {
+				n = max
+			}
+			*p = n
+		case "enter", "space":
+			if *p == 0 {
+				*p = (max + min) / 2
+			} else {
+				*p = 0
+			}
+		default:
+			return false
+		}
+		return true
+	}
+}
+
+// makeEnumEdit returns a handler that cycles a string field through
+// a fixed list of options. Empty string at index 0 represents
+// "(default)" — the user can return to the no-override state.
+func makeEnumEdit(options []string, target func(*config.UserOverrides) *string) func(*SettingsDialog, tea.KeyMsg) bool {
+	return func(d *SettingsDialog, key tea.KeyMsg) bool {
+		p := target(d.overrides)
+		idx := 0
+		for i, o := range options {
+			if o == *p {
+				idx = i
+				break
+			}
+		}
+		switch keyName(key) {
+		case "left":
+			idx = (idx - 1 + len(options)) % len(options)
+		case "right", "enter", "space":
+			idx = (idx + 1) % len(options)
+		default:
+			return false
+		}
+		*p = options[idx]
+		return true
+	}
+}
+
+// makeBoolPtrEdit handles *bool fields (Telemetry, etc.) where nil
+// means "use parent layer's value" and the user cycles
+// "(default) → on → off → (default)" so they can reset to inherited.
+func makeBoolPtrEdit(target func(*config.UserOverrides) **bool) func(*SettingsDialog, tea.KeyMsg) bool {
+	return func(d *SettingsDialog, key tea.KeyMsg) bool {
+		if keyName(key) != "space" && keyName(key) != "enter" && keyName(key) != "left" && keyName(key) != "right" {
+			return false
+		}
+		pp := target(d.overrides)
+		switch {
+		case *pp == nil:
+			t := true
+			*pp = &t
+		case **pp:
+			f := false
+			*pp = &f
+		default:
+			*pp = nil
+		}
+		return true
+	}
+}
+
+func ptrBoolLabel(p *bool) string {
+	if p == nil {
+		return "(default)"
+	}
+	if *p {
+		return "on"
+	}
+	return "off"
 }
 
 // SetThemes / SetModels populate the cycling enums. Call before Show
@@ -285,6 +601,30 @@ func (d *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 			d.status = "save failed: " + err.Error()
 		}
 		return d, func() tea.Msg { return SaveResultMsg{Err: err, Saved: err == nil} }
+	case "tab":
+		// Cycle Basic → Advanced → Basic.
+		if d.tab == tabBasic {
+			d.tab = tabAdvanced
+			d.Title = "Settings — Advanced"
+		} else {
+			d.tab = tabBasic
+			d.Title = "Settings — Basic"
+		}
+		return d, nil
+	}
+	// Per-tab dispatch.
+	switch d.tab {
+	case tabBasic:
+		return d.updateBasic(key)
+	case tabAdvanced:
+		return d.updateAdvanced(key)
+	}
+	return d, nil
+}
+
+// updateBasic handles key navigation + editing on the Basic tab.
+func (d *SettingsDialog) updateBasic(key tea.KeyMsg) (*SettingsDialog, tea.Cmd) {
+	switch keyName(key) {
 	case "up", "k":
 		if d.cursor > 0 {
 			d.cursor--
@@ -302,6 +642,45 @@ func (d *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 	return d, nil
 }
 
+// updateAdvanced handles key navigation + editing on the Advanced
+// tab. ←/→ pages between sub-sections; ↑/↓ moves within the active
+// section's field list; any other key is passed to the section's
+// field editor.
+func (d *SettingsDialog) updateAdvanced(key tea.KeyMsg) (*SettingsDialog, tea.Cmd) {
+	if len(d.sections) == 0 {
+		return d, nil
+	}
+	section := &d.sections[d.sectionCursor]
+	switch keyName(key) {
+	case "up", "k":
+		if d.sectionFieldCursor > 0 {
+			d.sectionFieldCursor--
+		}
+		return d, nil
+	case "down", "j":
+		if d.sectionFieldCursor < len(section.fields)-1 {
+			d.sectionFieldCursor++
+		}
+		return d, nil
+	case "pgup", "[":
+		if d.sectionCursor > 0 {
+			d.sectionCursor--
+			d.sectionFieldCursor = 0
+		}
+		return d, nil
+	case "pgdown", "]":
+		if d.sectionCursor < len(d.sections)-1 {
+			d.sectionCursor++
+			d.sectionFieldCursor = 0
+		}
+		return d, nil
+	}
+	if d.sectionFieldCursor >= 0 && d.sectionFieldCursor < len(section.fields) {
+		section.fields[d.sectionFieldCursor].edit(d, key)
+	}
+	return d, nil
+}
+
 // View renders the dialog body. Caller composites into the dialog
 // frame via BaseView.
 func (d *SettingsDialog) View() string {
@@ -309,8 +688,98 @@ func (d *SettingsDialog) View() string {
 		return ""
 	}
 	t := theme.CurrentTheme()
+	helpStyle := lipgloss.NewStyle().Foreground(t.TextMuted()).Italic(true)
+	statusStyle := lipgloss.NewStyle().Foreground(t.DialogAccent())
+
+	var b strings.Builder
+	// Tab strip: highlight active.
+	b.WriteString(d.renderTabStrip())
+	b.WriteString("\n\n")
+
+	switch d.tab {
+	case tabBasic:
+		b.WriteString(d.renderBasic())
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render("↑↓ navigate · ←→ adjust · space/enter toggle · tab → Advanced · ctrl+s save · esc close"))
+	case tabAdvanced:
+		b.WriteString(d.renderAdvanced())
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render("↑↓ field · [ ] section · ←→ adjust · space/enter toggle · tab → Basic · ctrl+s save · esc close"))
+	}
+
+	if d.status != "" {
+		b.WriteString("\n")
+		b.WriteString(statusStyle.Render(d.status))
+	}
+	return d.BaseView(b.String(), d.Width, d.Height)
+}
+
+// renderTabStrip draws the [Basic] [Advanced] header.
+func (d *SettingsDialog) renderTabStrip() string {
+	t := theme.CurrentTheme()
+	activeStyle := lipgloss.NewStyle().Foreground(t.DialogAccent()).Bold(true).
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(t.DialogAccent())
+	inactiveStyle := lipgloss.NewStyle().Foreground(t.TextMuted())
+
+	label := func(name string, active bool) string {
+		if active {
+			return activeStyle.Render(" " + name + " ")
+		}
+		return inactiveStyle.Render(" " + name + " ")
+	}
+	return label("Basic", d.tab == tabBasic) + "  " + label("Advanced", d.tab == tabAdvanced)
+}
+
+// renderBasic draws the Basic-tab field list (the v2.0-7 surface).
+func (d *SettingsDialog) renderBasic() string {
+	return d.renderFieldList(d.fields, d.cursor)
+}
+
+// renderAdvanced draws the section breadcrumb + the active section's
+// field list. Uses the same row renderer as Basic so the visual
+// language stays consistent.
+func (d *SettingsDialog) renderAdvanced() string {
+	t := theme.CurrentTheme()
+	helpStyle := lipgloss.NewStyle().Foreground(t.TextMuted()).Italic(true)
+	titleStyle := lipgloss.NewStyle().Foreground(t.DialogAccent()).Bold(true)
+	if len(d.sections) == 0 {
+		return helpStyle.Render("(no advanced sections wired yet)")
+	}
+	section := d.sections[d.sectionCursor]
+	var b strings.Builder
+	// Breadcrumb: « Scanners (1/4) »
+	crumbStyle := lipgloss.NewStyle().Foreground(t.TextMuted())
+	prev := "[ prev"
+	next := "next ]"
+	if d.sectionCursor == 0 {
+		prev = lipgloss.NewStyle().Foreground(t.TextMuted()).Render("[ prev")
+	}
+	if d.sectionCursor == len(d.sections)-1 {
+		next = lipgloss.NewStyle().Foreground(t.TextMuted()).Render("next ]")
+	}
+	b.WriteString(crumbStyle.Render(prev))
+	b.WriteString("   ")
+	b.WriteString(titleStyle.Render(fmt.Sprintf("%s  (%d/%d)", section.title, d.sectionCursor+1, len(d.sections))))
+	b.WriteString("   ")
+	b.WriteString(crumbStyle.Render(next))
+	b.WriteString("\n")
+	if section.help != "" {
+		b.WriteString(helpStyle.Render(section.help))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(d.renderFieldList(section.fields, d.sectionFieldCursor))
+	return b.String()
+}
+
+// renderFieldList is the shared row renderer used by both tabs. Pulls
+// the longest label for column alignment and highlights the cursor
+// row with a ▸ marker + inline help.
+func (d *SettingsDialog) renderFieldList(fields []settingsField, cursor int) string {
+	t := theme.CurrentTheme()
 	labelW := 0
-	for _, f := range d.fields {
+	for _, f := range fields {
 		if len(f.label) > labelW {
 			labelW = len(f.label)
 		}
@@ -321,9 +790,9 @@ func (d *SettingsDialog) View() string {
 	cursorStyle := lipgloss.NewStyle().Foreground(t.DialogAccent()).Bold(true)
 
 	var b strings.Builder
-	for i, f := range d.fields {
+	for i, f := range fields {
 		marker := "  "
-		if i == d.cursor {
+		if i == cursor {
 			marker = cursorStyle.Render("▸ ")
 		}
 		label := labelStyle.Render(padRight(f.label, labelW))
@@ -333,20 +802,13 @@ func (d *SettingsDialog) View() string {
 		b.WriteString("  ")
 		b.WriteString(val)
 		b.WriteString("\n")
-		if i == d.cursor && f.help != "" {
+		if i == cursor && f.help != "" {
 			b.WriteString("    ")
 			b.WriteString(helpStyle.Render(f.help))
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("↑↓ navigate · ←→ adjust · space/enter toggle · ctrl+s save · esc close"))
-	if d.status != "" {
-		b.WriteString("\n")
-		statusStyle := lipgloss.NewStyle().Foreground(t.DialogAccent())
-		b.WriteString(statusStyle.Render(d.status))
-	}
-	return d.BaseView(b.String(), d.Width, d.Height)
+	return b.String()
 }
 
 // ---- field editors ------------------------------------------------

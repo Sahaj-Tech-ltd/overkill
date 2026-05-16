@@ -211,3 +211,119 @@ func TestSettings_HiddenIgnoresKeys(t *testing.T) {
 		t.Error("hidden dialog should not consume keys")
 	}
 }
+
+func TestSettings_TabSwitchesBasicAdvanced(t *testing.T) {
+	d, _ := newOpenDialog(t)
+	if d.tab != tabBasic {
+		t.Fatalf("default tab = %v, want tabBasic", d.tab)
+	}
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if d.tab != tabAdvanced {
+		t.Errorf("after Tab: tab = %v, want tabAdvanced", d.tab)
+	}
+	if !strings.Contains(d.Title, "Advanced") {
+		t.Errorf("title should reflect tab: %q", d.Title)
+	}
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if d.tab != tabBasic {
+		t.Errorf("after second Tab: tab = %v, want tabBasic", d.tab)
+	}
+}
+
+func TestSettings_AdvancedSectionNavigation(t *testing.T) {
+	d, _ := newOpenDialog(t)
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab}) // → Advanced
+	if d.sectionCursor != 0 {
+		t.Fatalf("section cursor starts at %d, want 0", d.sectionCursor)
+	}
+	startSection := d.sections[d.sectionCursor].id
+	d, _ = d.Update(keyMsg("]"))
+	if d.sectionCursor != 1 {
+		t.Errorf("] should advance section; got cursor=%d", d.sectionCursor)
+	}
+	if d.sections[d.sectionCursor].id == startSection {
+		t.Errorf("section id didn't change after ]")
+	}
+	d, _ = d.Update(keyMsg("["))
+	if d.sectionCursor != 0 {
+		t.Errorf("[ should retreat section; got cursor=%d", d.sectionCursor)
+	}
+}
+
+func TestSettings_AdvancedScannerToggle(t *testing.T) {
+	d, _ := newOpenDialog(t)
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab}) // → Advanced
+	if d.sections[d.sectionCursor].id != "scanners" {
+		t.Fatalf("expected scanners section first; got %q", d.sections[d.sectionCursor].id)
+	}
+	if d.overrides.Advanced.Scanners.Command.Enabled {
+		t.Fatal("yolo default: command scanner should start disabled")
+	}
+	d, _ = d.Update(keyMsg("space"))
+	if !d.overrides.Advanced.Scanners.Command.Enabled {
+		t.Error("space should toggle command scanner on")
+	}
+}
+
+func TestSettings_AdvancedFieldCursorResetsOnSectionChange(t *testing.T) {
+	d, _ := newOpenDialog(t)
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab})
+	d, _ = d.Update(keyMsg("down"))
+	if d.sectionFieldCursor != 1 {
+		t.Errorf("expected field cursor=1; got %d", d.sectionFieldCursor)
+	}
+	d, _ = d.Update(keyMsg("]"))
+	if d.sectionFieldCursor != 0 {
+		t.Errorf("field cursor should reset on section change; got %d", d.sectionFieldCursor)
+	}
+}
+
+func TestSettings_AdvancedRenderIncludesTabStrip(t *testing.T) {
+	d, _ := newOpenDialog(t)
+	out := d.View()
+	if !strings.Contains(out, "Basic") || !strings.Contains(out, "Advanced") {
+		t.Errorf("tab strip missing: %q", out)
+	}
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab})
+	out = d.View()
+	if !strings.Contains(out, "Scanners") {
+		t.Errorf("advanced view should show section name; got: %s", out)
+	}
+}
+
+func TestSettings_PersonaEnumCycle(t *testing.T) {
+	d, _ := newOpenDialog(t)
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab})
+	for d.sections[d.sectionCursor].id != "persona" && d.sectionCursor < len(d.sections)-1 {
+		d, _ = d.Update(keyMsg("]"))
+	}
+	if d.sections[d.sectionCursor].id != "persona" {
+		t.Fatal("persona section not found")
+	}
+	if d.overrides.Advanced.Persona.Tone != "" {
+		t.Fatal("Tone should start unset")
+	}
+	d, _ = d.Update(keyMsg("right"))
+	if d.overrides.Advanced.Persona.Tone == "" {
+		t.Error("right should advance the Tone enum")
+	}
+}
+
+func TestSettings_TelemetryBoolPtrCycle(t *testing.T) {
+	d, _ := newOpenDialog(t)
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab})
+	for d.sections[d.sectionCursor].id != "telemetry" && d.sectionCursor < len(d.sections)-1 {
+		d, _ = d.Update(keyMsg("]"))
+	}
+	if d.sections[d.sectionCursor].id != "telemetry" {
+		t.Fatal("telemetry section not found")
+	}
+	// EventLog starts at yolo default (false explicitly). Cycle:
+	// (default) → on → off → (default). Tests that the editor flips
+	// through all three states.
+	startPtr := d.overrides.Advanced.Telemetry.EventLog
+	d, _ = d.Update(keyMsg("space"))
+	if d.overrides.Advanced.Telemetry.EventLog == startPtr {
+		t.Error("first space should change EventLog state")
+	}
+}
