@@ -285,7 +285,7 @@ metrics:
 AutomaticallyGenerated:
   key: 87ae4979-d112-4565-811b-2233877fd60f
   UUID: b59390b5-df9a-42e4-b057-b93f7cbd594d
-  appVersion: 2.10.1
+  appVersion: 2.11.0
 
 processExecutor:
   autoUnoServer: true # true: use local pool based on libreOfficeSessionLimit; false: use unoServerEndpoints
