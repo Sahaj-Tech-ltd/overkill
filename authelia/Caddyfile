@@ -73,9 +73,9 @@
     reverse_proxy host.docker.internal:3004
   }
 
-  @attentive host attentive.databunker.uk
+  @attentive host attentive.databunker.uk attentive.fyi
   handle @attentive {
-    reverse_proxy host.docker.internal:3003
+    reverse_proxy attentive:3003
   }
 
   # Catch-all: return 404 for unmatched hosts instead of silent 200
