@@ -23,3 +23,20 @@ SIXTH: bug regression tests. every bug that gets documented in bugs.md gets a te
 
 the ethos: tests are a second reader of your code. they should ask the uncomfortable questions — what happens when this is null, what happens when two users do this at the same time, what happens when the db is wrong. happy path tests are marketing. negative tests are engineering.
 
+6 user is source of truth — model should not correct the user's premise, it should act on it.
+
+if the user asks about something the model doesn't know (iphone 17, a library released after training cutoff, a person, a price, anything that could have changed) the model must not assume the user is wrong and redirect them to what it does know. that's the most annoying thing a model can do. the user said 17. they meant 17.
+
+the right behavior: treat the user's claim as fact, then go get the answer. run a web search. fetch the docs. look it up. if the search comes back empty or contradicts them, surface that — but surface it as new information, not as "actually you meant X." the user's words are the spec. the model's training data is a prior, not an authority.
+
+the wrong behavior: "i think you might mean the iphone 16, as i don't have information about an iphone 17." that's the model prioritizing its own knowledge boundary over the user's intent. it's condescending and it wastes the user's time.
+
+rule: when the user states something as fact that the model can't verify from training — search first, correct never. if after searching it's genuinely wrong, say "i searched and found X — does that match what you're looking for?" not "you must have meant X."
+
+7 session teleport — hand off a live local session to a remote runner with state intact.
+
+today we have session sync (S3 / git / file) and gateways that can drive a session from a phone. what we don't have is the primitive: take a live TUI session — history, pending tool calls, approvals, working dir context — snapshot it, ship it to a daemon-mode overkill on a VPS, and have the chat bridge subscribe to the new runner so the agent keeps working after the laptop closes. sync moves bytes; teleport moves execution.
+
+shape: `/teleport <target>` snapshots BadgerDB state + the in-flight tool call queue, rsyncs to target, daemon resumes from the snapshot. on the local side, the TUI detaches but can `/attach <session-id>` later from anywhere — laptop, mobile app, gateway. the daemon is the source of truth between detach and re-attach.
+
+this is the missing primitive behind the mobile story. without it, "remote control via app" is just chat-over-ssh; with it, the agent is genuinely portable across surfaces and survives the user going offline.

@@ -18,6 +18,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,13 +31,13 @@ import (
 
 // InboundPayload is the JSON shape sidecars POST to /v1/in.
 type InboundPayload struct {
-	Channel  string           `json:"channel"`  // "whatsapp", "discord", etc.
-	ChatKey  string           `json:"chat"`     // sidecar-stable chat identifier
-	Thread   string           `json:"thread"`   // optional
-	From     string           `json:"from"`     // display name for logging
-	Text     string           `json:"text"`     // user text
-	Images   []InboundImageB64 `json:"images"`  // optional attached images
-	IsDirect bool             `json:"is_direct"`
+	Channel  string            `json:"channel"`   // "whatsapp", "discord", etc.
+	ChatKey  string            `json:"chat"`      // sidecar-stable chat identifier
+	Thread   string            `json:"thread"`    // optional
+	From     string            `json:"from"`      // display name for logging
+	Text     string            `json:"text"`      // user text
+	Images   []InboundImageB64 `json:"images"`    // optional attached images
+	IsDirect bool              `json:"is_direct"`
 }
 
 // InboundImageB64 is one image payload; data is standard base64.
@@ -61,6 +62,12 @@ type OutboundFrame struct {
 	Text    string `json:"text"`
 }
 
+// Suspender is satisfied by agent.SuspendedApprover and resolves a parked
+// approval goroutine via the gateway when the user replies over chat.
+type Suspender interface {
+	ResumeApproval(callID string, allow bool, approverID string) error
+}
+
 // Bridge implements gateway.Channel and serves the HTTP endpoints.
 type Bridge struct {
 	Dispatcher *gateway.Dispatcher
@@ -68,11 +75,12 @@ type Bridge struct {
 	Listen     string // "127.0.0.1:7799" — binds loopback by default for safety
 	Logger     *log.Logger
 
-	mu       sync.Mutex
-	subs     map[string]map[int64]chan OutboundFrame // channel -> subscriber id -> frames
-	subSeq   atomic.Int64
-	handleSq atomic.Int64
-	server   *http.Server
+	mu        sync.Mutex
+	subs      map[string]map[int64]chan OutboundFrame // channel -> subscriber id -> frames
+	subSeq    atomic.Int64
+	handleSq  atomic.Int64
+	server    *http.Server
+	suspender Suspender
 }
 
 // New returns a Bridge ready to register on a Hub.
@@ -84,6 +92,15 @@ func New(d *gateway.Dispatcher, token, listen string) *Bridge {
 		Logger:     log.New(io.Discard, "", 0),
 		subs:       map[string]map[int64]chan OutboundFrame{},
 	}
+}
+
+// SetSuspender injects an approval resolver so inbound "approve/deny <callID>"
+// messages are routed to the parked agent goroutine instead of forwarded to
+// the dispatcher.
+func (b *Bridge) SetSuspender(s Suspender) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.suspender = s
 }
 
 // Name implements gateway.Channel.
@@ -186,6 +203,11 @@ func (b *Bridge) handleIn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "channel, chat, and text or images required", http.StatusBadRequest)
 		return
 	}
+
+	if b.handleApprovalCommand(w, p) {
+		return
+	}
+
 	in := gateway.Inbound{
 		Channel:  "bridge:" + p.Channel,
 		ChatKey:  p.ChatKey,
@@ -344,4 +366,54 @@ func (r *bridgeReply) Final(_ context.Context, handle, text string) error {
 func (r *bridgeReply) Error(_ context.Context, handle string, err error) error {
 	r.emit(handle, "error", err.Error())
 	return nil
+}
+
+var approvalCmdRe = regexp.MustCompile(`^(approve|deny) ([a-f0-9-]+)$`)
+
+// handleApprovalCommand checks whether the inbound text is an approval command
+// ("approve <callID>" or "deny <callID>"). When a Suspender is wired and the
+// text matches, it resolves the pending approval and writes an SSE reply
+// instead of forwarding to the agent dispatcher. Returns true when consumed.
+func (b *Bridge) handleApprovalCommand(w http.ResponseWriter, p InboundPayload) bool {
+	b.mu.Lock()
+	s := b.suspender
+	b.mu.Unlock()
+
+	if s == nil {
+		return false
+	}
+
+	m := approvalCmdRe.FindStringSubmatch(strings.TrimSpace(p.Text))
+	if m == nil {
+		return false
+	}
+
+	action, callID := m[1], m[2]
+	allow := action == "approve"
+
+	from := p.From
+	if from == "" {
+		from = p.ChatKey
+	}
+
+	var replyText string
+	if err := s.ResumeApproval(callID, allow, from); err != nil {
+		replyText = fmt.Sprintf("error: %s", err.Error())
+	} else if allow {
+		replyText = fmt.Sprintf("approved %s", callID)
+	} else {
+		replyText = fmt.Sprintf("denied %s", callID)
+	}
+
+	b.emit(OutboundFrame{
+		Channel: "bridge:" + p.Channel,
+		ChatKey: p.ChatKey,
+		Thread:  p.Thread,
+		Handle:  strconv.FormatInt(b.handleSq.Add(1), 10),
+		Kind:    "final",
+		Text:    replyText,
+	})
+
+	w.WriteHeader(http.StatusAccepted)
+	return true
 }

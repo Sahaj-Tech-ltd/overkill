@@ -1,5 +1,7 @@
 package agent
 
+import "github.com/Sahaj-Tech-ltd/overkill/internal/walls/truthsource"
+
 // ResponseFilter is the tiny interface the agent uses to transform
 // the assistant's content before it's committed to history (master
 // plan §4.10 sycophancy reducer wire-up).
@@ -46,5 +48,32 @@ func (a *Agent) applyResponseFilter(content string) (out string) {
 	if filtered == "" && content != "" {
 		return content
 	}
+	// Observe-only: scan for "user is not source of truth" redirect patterns.
+	// High-severity findings are logged to the behavioral journal via emit so
+	// they accumulate in the regression bank. The response text is never
+	// modified — this is a detection wall, not a blocking wall.
+	a.observeTruthsource(filtered)
 	return filtered
+}
+
+// observeTruthsource runs the truthsource wall against the response text
+// and emits a behavioral_flag event for any high-severity finding. It is
+// a best-effort, fire-and-forget observer — it never modifies the response.
+func (a *Agent) observeTruthsource(content string) {
+	result := truthsource.Check(content)
+	if !result.HasIssue || !truthsource.HasHighSeverity(result) {
+		return
+	}
+	excerpts := make([]string, 0, len(result.Findings))
+	for _, f := range result.Findings {
+		if f.Severity == "high" {
+			excerpts = append(excerpts, f.Excerpt)
+		}
+	}
+	a.emit("behavioral_flag", map[string]any{
+		"wall":     "truthsource",
+		"severity": "high",
+		"excerpts": excerpts,
+		"rule":     "8.7.6",
+	})
 }

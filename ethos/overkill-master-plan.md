@@ -1307,6 +1307,76 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 
 ---
 
+## 8.7 V2 Alpha — Async, Remote, and the Testing Layer  ❌ not started
+
+The v0.11 roadmap entry covers the *surface* of mobile/remote (an app, push, QR pairing). This section is the *substrate* underneath it: the state machine that makes "drive the agent from a phone while you sleep" actually work, plus two cross-cutting ethos items lifted from `wishes.md` that need to land before V2 ships.
+
+Distilled from the Mistral Vibe + Medium 3.5 announcement (2026-05) — what's worth stealing, and what's load-bearing for our own bridges. Companion wish: `wishes.md` #7 (session teleport) is the missing primitive that ties this section together.
+
+### 8.7.1 Suspend / Notify / Resume — approval-while-away
+
+The agent already risk-classifies tool calls and gates them behind a TUI dialog. That dialog assumes a human is attached. For remote/async sessions there is no human attached, and "ask the bridge and wait" must be a first-class lifecycle state, not a hack on top of the existing dialog.
+
+- [ ] `internal/agent/suspend.go` — explicit Suspended state in the agent loop. When a gated tool fires with no attached approver, the loop persists `{tool_call, args, risk, prompt}` to BadgerDB, emits a `needs_approval` event, and parks the goroutine on a channel keyed by the call id.
+- [ ] Gateway adapters publish the approval request to the originating channel (Telegram / Discord / WhatsApp / mobile app push) with a structured `approve <id>` / `deny <id>` reply contract.
+- [ ] Reply handler in the gateway daemon resolves the channel, the loop wakes up, the tool either runs or returns a synthetic permission-denied to the model.
+- [ ] Timeout policy per risk tier (e.g. HIGH expires after 24h → auto-deny + summarise) so suspended sessions don't accumulate forever.
+- [ ] Audit row in the existing `~/.overkill/permissions.log` records remote approver identity + channel.
+
+### 8.7.2 Completion Events as a First-Class Sink
+
+Bridges today notify per-message. What's missing is a typed *session-completion event* the agent emits once at end-of-run, with structured payload (artefacts created, files touched, PR opened, exit reason). Sinks subscribe and translate it into the right shape per system — PR comment, Linear status change, Telegram summary card.
+
+- [ ] `internal/events/completion.go` — schema: `{session_id, intent, outcome, artefacts[], duration, cost, errors[]}`.
+- [ ] Emitted at end of every non-interactive run (cron, gateway-initiated, sub-agent).
+- [ ] Built-in sinks: GitHub PR (extend existing `git_preview`), Linear, Slack/Discord/Telegram bridges. Sink config in `~/.overkill/config.toml` under `[completion.sinks.*]`.
+- [ ] Sinks are plugins (reuse the §4.5 plugin runtime) so users can wire Jira / Sentry / homegrown systems without touching core.
+- [ ] Failure semantics: sink errors logged + retried with backoff, never block session close.
+
+### 8.7.3 Daemon Mode with Job Queue
+
+`overkill serve --workers N` — long-running daemon that accepts session-start requests from bridges/app and dispatches them to a worker pool. Today every session is roughly one foreground process; that doesn't scale to "fire off three tasks from my phone on the train."
+
+- [ ] Job submission API on top of the existing ACP server (HTTP + SSE). Bearer-token auth already exists; reuse it.
+- [ ] Job state machine: `queued → running → suspended → completed | failed | cancelled`. BadgerDB persistence so the daemon survives restarts mid-job.
+- [ ] Worker pool with a configurable cap; queue depth + per-worker telemetry surfaced via `overkill status`.
+- [ ] Per-job log stream addressable by id (`overkill logs <job-id>`, or SSE for the app).
+- [ ] `overkill cancel <job-id>` clean-cancels in-flight tool calls (cooperative — the agent loop checks ctx between steps).
+
+### 8.7.4 Remote Permission Profile
+
+A `remote` permission profile, auto-selected when the session originates from a bridge or the daemon job API. Stricter than `local`:
+
+- [ ] Narrower default allow-list for `shell`, mandatory approval on every `patch` and `git push`, `pty_shell` denied outright, `web` restricted to the configured allow-list.
+- [ ] Configurable in `~/.overkill/config.toml` under `[permissions.profiles.remote]`. Operators can relax or tighten per-channel.
+- [ ] Profile name surfaced in the completion event and the `permissions.log` row so audits are unambiguous.
+
+### 8.7.5 Testing Layer — A Layer, Not a List  _(from wishes.md #5)_
+
+Tests should hunt for failure, not confirm success. The old way — write code, write tests that prove the code works, ship — gives confidence on good days. We want confidence on bad days. Every project gets a testing *layer* built like this, not a curated list of cases someone has to remember to extend.
+
+- [ ] **Machine-checked auth guard.** Don't curate a list of "protected routes" by hand. Pull every registered route from the router and assert every single one returns 401 with no token. If a new route ships without auth, the test fails automatically. No human has to remember.
+- [ ] **Tests written to fail on current code and pass when the bug is fixed.** Found a bug → write the test first. Red → fix → green. The test now lives forever as a regression guard. Not a comment in a doc, not a note in Slack — a failing test.
+- [ ] **Negative cases for every endpoint.** For every "POST /water with 250ml succeeds" there must be a "POST /water with -1ml returns 400". For every valid `meal_type` an invalid one. Boundaries in both directions. If validation is missing, the test documents it explicitly with a `console.warn` / `t.Errorf` citing the bug id.
+- [ ] **Concurrency tests.** Fire N goroutines at the same endpoint simultaneously. Catch duplicate-row creation under race, dropped writes, panics under load. These are the bugs that only appear in prod and never in dev.
+- [ ] **Error shape consistency.** Every error response across the API must be JSON with an `error` field. One test sends bad input to every error path and asserts the shape. HTML errors, empty bodies, plain text — all fail. Enforces a contract across the whole surface.
+- [ ] **Bug regression tests.** Every bug documented in `bugs.md` gets a test filed alongside it in the same commit. Test name contains the bug id (AH1, NH2, …). Fixers know exactly which test to run. Reintroduction in six months → CI catches it.
+
+The ethos: tests are a second reader of your code. They ask the uncomfortable questions — what happens when this is null, when two users do this at the same time, when the DB is wrong. Happy-path tests are marketing. Negative tests are engineering.
+
+### 8.7.6 User Is Source of Truth  _(from wishes.md #6)_
+
+When the user states something as fact the model can't verify from training — **search first, correct never**.
+
+If the user asks about something the model doesn't know (iPhone 17, a library released after cutoff, a person, a price, anything time-sensitive) the model must not assume the user is wrong and redirect them to what it does know. That's the most annoying thing a model can do. The user said 17. They meant 17.
+
+- [ ] System-prompt rule: claims the model can't verify trigger a `web` / `docs` lookup before any correction is offered.
+- [ ] Response framing: if the search comes back empty or contradicts the user, surface that as *new information* — "I searched and found X — does that match what you're looking for?" — never "you must have meant X."
+- [ ] Wall hook: a behavioral check that flags responses redirecting the user to a near-spelling / older version without an intervening search call. Pair with a regression entry in the behavioral bank.
+- [ ] Personality engine update: this becomes a load-bearing principle in `soul.md`, not just a tool-use rule. The user's words are the spec. The model's training data is a prior, not an authority.
+
+---
+
 ## 9. Inspiration Sources — What We Take From Each
 
 ### OpenClaw (TypeScript, 365k stars) — DEPTH
