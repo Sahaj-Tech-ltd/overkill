@@ -70,7 +70,12 @@
 
   @shadow host shadow.databunker.uk
   handle @shadow {
-    reverse_proxy shadow:3000
+    reverse_proxy host.docker.internal:3004
+  }
+
+  @attentive host attentive.databunker.uk
+  handle @attentive {
+    reverse_proxy host.docker.internal:3003
   }
 
   # Catch-all: return 404 for unmatched hosts instead of silent 200
