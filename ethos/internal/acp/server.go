@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/daemon"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
@@ -66,8 +67,11 @@ type Server struct {
 	// derive from this so Shutdown cancels in-flight work and the
 	// streams map gets drained instead of leaking stalled runs.
 	// Set by Run; nil before then.
-	ctx            context.Context
-	ctxCancel      context.CancelFunc
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+	// jobStore and jobWorker are optional; nil disables /v1/jobs endpoints.
+	jobStore  *daemon.JobStore
+	jobWorker *daemon.Worker
 }
 
 // InboundLog records that a peer sent us a message; the /acp dialog displays
@@ -96,6 +100,10 @@ type Config struct {
 	Store          session.Store
 	Name           string
 	Version        string
+	// JobStore and JobWorker are optional. When both are non-nil the server
+	// registers the /v1/jobs endpoints and wires job submission through the worker.
+	JobStore  *daemon.JobStore
+	JobWorker *daemon.Worker
 }
 
 // GenerateToken returns a fresh 32-byte hex token.
@@ -132,6 +140,8 @@ func NewServer(cfg Config) *Server {
 		inboundMax:     32,
 		name:           name,
 		version:        version,
+		jobStore:       cfg.JobStore,
+		jobWorker:      cfg.JobWorker,
 	}
 }
 
@@ -160,6 +170,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/messages/", s.withAuth(s.handleMessageSub))
 	mux.HandleFunc("/v1/sessions", s.withAuth(s.handleSessions))
 	mux.HandleFunc("/v1/sessions/", s.withAuth(s.handleSessionSub))
+	if s.jobStore != nil {
+		mux.HandleFunc("/v1/jobs", s.withAuth(s.handleJobs))
+		mux.HandleFunc("/v1/jobs/", s.withAuth(s.handleJobSub))
+	}
 	return s.cors(mux)
 }
 
@@ -489,6 +503,102 @@ func (s *Server) handleSessionSub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sess)
+}
+
+// ----- job handlers -------------------------------------------------------
+
+// handleJobs serves POST /v1/jobs and GET /v1/jobs.
+func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		s.handleJobCreate(w, r)
+	case http.MethodGet:
+		s.handleJobList(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Intent  string `json:"intent"`
+		Channel string `json:"channel"`
+		ChatKey string `json:"chat_key"`
+		Profile string `json:"profile"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if body.Intent == "" {
+		http.Error(w, "intent required", http.StatusBadRequest)
+		return
+	}
+	profile := body.Profile
+	if body.Channel != "" && profile == "" {
+		profile = "remote"
+	}
+	job := daemon.NewJob(body.Intent, body.Channel, body.ChatKey, profile)
+	ctx := r.Context()
+	if err := s.jobStore.Create(ctx, job); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if s.jobWorker != nil {
+		_ = s.jobWorker.Submit(job)
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"job_id": job.ID})
+}
+
+func (s *Server) handleJobList(w http.ResponseWriter, r *http.Request) {
+	jobs, err := s.jobStore.List(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if jobs == nil {
+		jobs = []daemon.Job{}
+	}
+	writeJSON(w, http.StatusOK, jobs)
+}
+
+// handleJobSub serves GET /v1/jobs/{id} and POST /v1/jobs/{id}/cancel.
+func (s *Server) handleJobSub(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/v1/jobs/")
+	rest = strings.Trim(rest, "/")
+	parts := strings.SplitN(rest, "/", 2)
+	id := parts[0]
+	if id == "" {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	if len(parts) == 1 {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		job, err := s.jobStore.Get(ctx, id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, job)
+		return
+	}
+	if parts[1] == "cancel" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := s.jobStore.Cancel(ctx, id); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+		return
+	}
+	http.NotFound(w, r)
 }
 
 // ----- helpers -----------------------------------------------------------

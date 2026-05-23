@@ -1,6 +1,6 @@
 // Package config — profile presets for v2.0 Control.
 //
-// Four named one-click profiles flip a coordinated set of fields:
+// Five named one-click profiles flip a coordinated set of fields:
 //
 //   yolo       — vibe coder defaults. Scanners off, auto-approve all,
 //                no confirmations. The bed-coder profile.
@@ -10,6 +10,10 @@
 //                default-deny via mcpshield, cost cap enabled.
 //   enterprise — paranoid + receipt-chain verify on boot, flight
 //                recorder always-on, telemetry forwarded to operator.
+//   remote     — bridge / API-originated jobs. CommandScanner on,
+//                no auto-approve, pty_shell denied, shell/patch/git-push
+//                require explicit approval, web fetches restricted to
+//                operator-configured allowlist (empty by default).
 //
 // Switching profiles rewrites the affected fields in-memory. Users in
 // the Settings → Advanced view can still flip individual switches
@@ -38,8 +42,10 @@ func ApplyProfile(u *UserOverrides, profile string) error {
 		applyParanoid(u)
 	case "enterprise":
 		applyEnterprise(u)
+	case "remote":
+		applyRemote(u)
 	default:
-		return fmt.Errorf("config: unknown profile %q (must be yolo|default|paranoid|enterprise)", profile)
+		return fmt.Errorf("config: unknown profile %q (must be yolo|default|paranoid|enterprise|remote)", profile)
 	}
 	u.Profile = strings.ToLower(strings.TrimSpace(profile))
 	if u.Profile == "" {
@@ -50,7 +56,7 @@ func ApplyProfile(u *UserOverrides, profile string) error {
 
 // AvailableProfiles is the canonical ordered list — order matches the
 // Settings UI presentation (least-restrictive first).
-var AvailableProfiles = []string{"yolo", "default", "paranoid", "enterprise"}
+var AvailableProfiles = []string{"yolo", "default", "paranoid", "enterprise", "remote"}
 
 // boolPtr is the YAML-friendly way to express "explicitly set to X"
 // vs "unset, use parent". Used by profiles so a partial override file
@@ -146,5 +152,47 @@ func applyEnterprise(u *UserOverrides) {
 	}
 	if u.Advanced.Compaction.HardThreshold == 0 {
 		u.Advanced.Compaction.HardThreshold = 0.85
+	}
+}
+
+// applyRemote configures the posture appropriate for bridge- or
+// API-originated jobs that run without an interactive operator.
+//
+//   - CommandScanner on (same as default) to catch risky commands.
+//   - AutoApprove off — remote jobs must not silently self-approve.
+//   - pty_shell denied outright (no interactive terminal available).
+//   - shell, patch, and git-push variants require explicit approval.
+//   - Web fetches restricted to the operator-configured allowlist;
+//     the list is intentionally empty by default so operators must
+//     consciously open access.
+func applyRemote(u *UserOverrides) {
+	u.Basic.ConfirmWrites = true
+	u.Basic.AutoCompactPercent = 0.5
+	u.Basic.CostCapMonthly = 0
+
+	u.Advanced.Scanners = ScannerToggles{
+		Command:             ScannerOnOff{Enabled: true},
+		Injection:           ScannerOnOff{Enabled: false},
+		PromptInjectBrowser: ScannerOnOff{Enabled: false},
+	}
+	u.Advanced.Permissions = PermissionsUserConfig{
+		AutoApproveAll:         boolPtr(false),
+		SkipDestructiveConfirm: boolPtr(false),
+		DeniedTools: []string{
+			"pty_shell",
+		},
+		RequireApprovalTools: []string{
+			"shell",
+			"patch",
+			"git_push",
+			"git-push",
+		},
+		// Empty by default; operators add domains they trust.
+		AllowedWebDomains: []string{},
+	}
+	u.Advanced.Telemetry = TelemetryUserConfig{
+		EventLog:       boolPtr(true),
+		FlightRecorder: boolPtr(true),
+		VerifyOnBoot:   boolPtr(false),
 	}
 }

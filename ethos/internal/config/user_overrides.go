@@ -173,8 +173,18 @@ type TelemetryUserConfig struct {
 }
 
 type PermissionsUserConfig struct {
-	AutoApproveAll        *bool `yaml:"auto_approve_all,omitempty"`
-	SkipDestructiveConfirm *bool `yaml:"skip_destructive_confirm,omitempty"`
+	AutoApproveAll         *bool    `yaml:"auto_approve_all,omitempty"`
+	SkipDestructiveConfirm *bool    `yaml:"skip_destructive_confirm,omitempty"`
+	// RequireApprovalTools lists tool names that must always prompt for
+	// operator approval even when AutoApproveAll is false. Used by the
+	// "remote" profile to gate shell, patch, and git-push variants.
+	RequireApprovalTools []string `yaml:"require_approval_tools,omitempty"`
+	// DeniedTools lists tool names that are unconditionally blocked.
+	DeniedTools []string `yaml:"denied_tools,omitempty"`
+	// AllowedWebDomains restricts web-fetch calls to this domain list.
+	// An empty slice means no restriction (fetch anything). The "remote"
+	// profile leaves this empty by default; operators fill it in.
+	AllowedWebDomains []string `yaml:"allowed_web_domains,omitempty"`
 }
 
 type BoardUserConfig struct {
