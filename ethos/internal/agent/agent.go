@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
@@ -208,6 +210,13 @@ type Agent struct {
 	// before it's committed to history (§4.10 sycophancy reducer).
 	// Nil-safe; runs once per turn, post-stream.
 	responseFilter ResponseFilter
+
+	// completionEmitter, if set, receives a CompletionEvent when every
+	// Run() exits (§8.7.2). Nil-safe — absent emitter is a no-op.
+	completionEmitter *events.Emitter
+	// costTracker, if set, is queried at session end to populate
+	// CompletionEvent.CostUSD. When nil, cost is reported as 0.
+	costTracker cost.Tracker
 }
 
 // PromptCompressor is the small interface the agent calls before assembling
@@ -569,6 +578,17 @@ func (a *Agent) SetRecoveryAlertSink(s AlertSink, sessionID string) {
 	a.recovery.SetAlertSink(s, sessionID)
 }
 
+// SetCompletionEmitter wires the completion-event emitter (§8.7.2). When set,
+// the emitter is called once at the end of every Run() with a populated
+// CompletionEvent. Pass nil to disable. costTracker is optional; pass nil if
+// per-session cost data is not available.
+func (a *Agent) SetCompletionEmitter(e *events.Emitter, tracker cost.Tracker) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.completionEmitter = e
+	a.costTracker = tracker
+}
+
 type RunResult struct {
 	Response    string                `json:"response"`
 	ToolCalls   int                   `json:"tool_calls"`
@@ -581,6 +601,8 @@ type RunResult struct {
 }
 
 func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
+	runStart := time.Now()
+
 	if obs := a.userInputObserver.Load(); obs != nil {
 		func() {
 			defer func() { _ = recover() }()
@@ -697,7 +719,9 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 				})
 			}
 			a.emitRecovery(err)
-			return nil, fmt.Errorf("agent: step %d: %w", step+1, err)
+			stepErr := fmt.Errorf("agent: step %d: %w", step+1, err)
+			a.emitCompletion(ctx, userInput, "failure", runStart, []string{stepErr.Error()})
+			return nil, stepErr
 		}
 
 		result.Steps++
@@ -719,11 +743,14 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 			// completed cleanly, count it as a recovery. Self-learning's
 			// "you've solved this 3 times" trigger fires from these.
 			a.recordRecoverySuccess()
+			a.emitCompletion(ctx, userInput, "success", runStart, nil)
 			return result, nil
 		}
 	}
 
-	return nil, fmt.Errorf("agent: exceeded max steps (%d)", a.maxSteps)
+	maxStepsErr := fmt.Errorf("agent: exceeded max steps (%d)", a.maxSteps)
+	a.emitCompletion(ctx, userInput, "failure", runStart, []string{maxStepsErr.Error()})
+	return nil, maxStepsErr
 }
 
 // emitImpact runs the forethought assessment for a pending tool call and
@@ -1485,4 +1512,125 @@ func (a *Agent) appendToolResultMessage(toolCallID, toolName string, output json
 		Content:    content,
 		ToolCallID: toolCallID,
 	})
+}
+
+// emitCompletion fires the completion event if an emitter is wired. It is
+// best-effort: errors are emitted on the event bus but never returned.
+func (a *Agent) emitCompletion(ctx context.Context, intent, outcome string, startedAt time.Time, errs []string) {
+	a.mu.RLock()
+	emitter := a.completionEmitter
+	tracker := a.costTracker
+	sessionID := a.sessionID
+	a.mu.RUnlock()
+
+	if emitter == nil {
+		return
+	}
+
+	var costUSD float64
+	if tracker != nil {
+		if summary, err := tracker.SessionCost(ctx, sessionID); err == nil {
+			costUSD = summary.TotalUSD
+		}
+	}
+
+	artefacts := a.collectArtefacts()
+
+	evt := events.CompletionEvent{
+		SessionID:  sessionID,
+		Intent:     intent,
+		Outcome:    outcome,
+		Artefacts:  artefacts,
+		DurationMs: time.Since(startedAt).Milliseconds(),
+		CostUSD:    costUSD,
+		Errors:     errs,
+		EmittedAt:  time.Now(),
+	}
+
+	go func() {
+		defer func() { _ = recover() }()
+		emitCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := emitter.Emit(emitCtx, evt); err != nil {
+			a.emit("completion_emit_failed", map[string]any{
+				"error":      err.Error(),
+				"session_id": sessionID,
+			})
+		}
+	}()
+}
+
+// collectArtefacts inspects the current conversation history and extracts
+// write-class tool calls as file artefacts. Lightweight — no LLM calls.
+func (a *Agent) collectArtefacts() []events.Artefact {
+	a.mu.RLock()
+	hist := make([]providers.Message, len(a.history))
+	copy(hist, a.history)
+	a.mu.RUnlock()
+
+	var artefacts []events.Artefact
+	seen := make(map[string]struct{})
+
+	for _, msg := range hist {
+		for _, tc := range msg.ToolCalls {
+			ref := extractArtefactRef(tc.Name, tc.Arguments)
+			if ref == "" {
+				continue
+			}
+			if _, dup := seen[ref]; dup {
+				continue
+			}
+			seen[ref] = struct{}{}
+			artefacts = append(artefacts, events.Artefact{
+				Kind: artefactKind(tc.Name),
+				Ref:  ref,
+			})
+		}
+	}
+	return artefacts
+}
+
+// extractArtefactRef pulls a meaningful reference (path, URL, SHA) out of
+// tool call arguments for write-class tools. Returns "" for unknown tools.
+func extractArtefactRef(toolName, args string) string {
+	switch toolName {
+	case "fs_write", "write_file", "edit_file", "patch":
+		var a struct {
+			Path string `json:"path"`
+			File string `json:"file"`
+		}
+		_ = json.Unmarshal([]byte(args), &a)
+		if a.Path != "" {
+			return a.Path
+		}
+		return a.File
+	case "fs_delete":
+		var a struct {
+			Path string `json:"path"`
+		}
+		_ = json.Unmarshal([]byte(args), &a)
+		return a.Path
+	case "git":
+		var a struct {
+			Args []string `json:"args"`
+		}
+		if err := json.Unmarshal([]byte(args), &a); err == nil {
+			for i, arg := range a.Args {
+				if arg == "commit" && i+1 < len(a.Args) {
+					return "git:commit"
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func artefactKind(toolName string) string {
+	switch toolName {
+	case "fs_write", "write_file", "edit_file", "patch", "fs_delete":
+		return "file"
+	case "git":
+		return "commit"
+	}
+	return "file"
 }
