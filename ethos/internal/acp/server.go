@@ -72,6 +72,16 @@ type Server struct {
 	// jobStore and jobWorker are optional; nil disables /v1/jobs endpoints.
 	jobStore  *daemon.JobStore
 	jobWorker *daemon.Worker
+	// routes records every registered route pattern. Populated by Handler()
+	// and exposed via Routes() so the auth guard test can auto-discover all
+	// routes without a human-maintained list. §8.7.5 machine-checked auth guard.
+	routes []RoutePattern
+}
+
+// RoutePattern is one registered route with its HTTP method expectation.
+type RoutePattern struct {
+	Path    string // e.g. "/v1/info", "/v1/messages/{id}/events"
+	Methods []string // expected methods; empty = test all standard methods
 }
 
 // InboundLog records that a peer sent us a message; the /acp dialog displays
@@ -163,18 +173,39 @@ func (s *Server) RecentInbound() []InboundLog {
 
 // Handler returns the http.Handler so callers can mount it under their own mux
 // (and so tests can drive it without a TCP listener).
+// Also populates s.routes so the auth guard test can auto-discover all routes.
+// Safe for concurrent use.
 func (s *Server) Handler() http.Handler {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/info", s.withAuth(s.handleInfo))
-	mux.HandleFunc("/v1/messages", s.withAuth(s.handleMessages))
-	mux.HandleFunc("/v1/messages/", s.withAuth(s.handleMessageSub))
-	mux.HandleFunc("/v1/sessions", s.withAuth(s.handleSessions))
-	mux.HandleFunc("/v1/sessions/", s.withAuth(s.handleSessionSub))
+	s.routes = nil // reset on each call
+
+	register := func(pattern string, handler http.HandlerFunc, methods ...string) {
+		mux.HandleFunc(pattern, handler)
+		s.routes = append(s.routes, RoutePattern{Path: pattern, Methods: methods})
+	}
+
+	register("/v1/info", s.withAuth(s.handleInfo), http.MethodGet)
+	register("/v1/messages", s.withAuth(s.handleMessages), http.MethodPost)
+	register("/v1/messages/", s.withAuth(s.handleMessageSub), http.MethodGet, http.MethodPost)
+	register("/v1/sessions", s.withAuth(s.handleSessions), http.MethodGet, http.MethodPost)
+	register("/v1/sessions/", s.withAuth(s.handleSessionSub), http.MethodGet)
 	if s.jobStore != nil {
-		mux.HandleFunc("/v1/jobs", s.withAuth(s.handleJobs))
-		mux.HandleFunc("/v1/jobs/", s.withAuth(s.handleJobSub))
+		register("/v1/jobs", s.withAuth(s.handleJobs), http.MethodGet, http.MethodPost)
+		register("/v1/jobs/", s.withAuth(s.handleJobSub), http.MethodGet)
 	}
 	return s.cors(mux)
+}
+
+// Routes returns every registered route pattern. The auth guard test (§8.7.5)
+// uses this to auto-discover all routes and assert 401 on each, so a new route
+// added without auth fails the test automatically.
+func (s *Server) Routes() []RoutePattern {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.routes
 }
 
 // Start binds the server and runs http.Serve in a goroutine. Use Shutdown to
