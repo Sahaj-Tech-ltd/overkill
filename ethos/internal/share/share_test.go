@@ -40,7 +40,67 @@ func TestRenderProducesValidHTML(t *testing.T) {
 	if !strings.Contains(out, "hi &lt;world&gt;") {
 		t.Fatalf("content not escaped: %s", out)
 	}
-	// Verify it actually parses as HTML.
+	if _, err := xhtml.Parse(strings.NewReader(out)); err != nil {
+		t.Fatalf("html parse: %v", err)
+	}
+}
+
+func TestRenderNilSession(t *testing.T) {
+	t.Parallel()
+	_, err := Render(nil)
+	if err == nil {
+		t.Fatal("expected error for nil session")
+	}
+}
+
+func TestRenderWithToolCalls(t *testing.T) {
+	t.Parallel()
+	s := newSession()
+	s.Messages = []providers.Message{
+		{Role: "assistant", Content: "let me check",
+			ToolCalls: []providers.ToolCall{
+				{Name: "shell", Arguments: "ls -la"},
+			},
+		},
+		{Role: "tool", Content: "file1 file2"},
+	}
+	out, err := Render(s)
+	if err != nil {
+		t.Fatalf("render with tool calls: %v", err)
+	}
+	if !strings.Contains(out, "shell") {
+		t.Error("tool call name not rendered")
+	}
+	if !strings.Contains(out, "ls -la") {
+		t.Error("tool call args not rendered")
+	}
+	if !strings.Contains(out, "msg-tool") {
+		t.Error("tool role CSS class missing")
+	}
+}
+
+func TestRenderEmptyTitle(t *testing.T) {
+	t.Parallel()
+	s := newSession()
+	s.Title = ""
+	out, err := Render(s)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(out, "Overkill Session") {
+		t.Error("fallback title missing")
+	}
+}
+
+func TestRenderEmptyModelAndProvider(t *testing.T) {
+	t.Parallel()
+	s := newSession()
+	s.Model = ""
+	s.Provider = ""
+	out, err := Render(s)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
 	if _, err := xhtml.Parse(strings.NewReader(out)); err != nil {
 		t.Fatalf("html parse: %v", err)
 	}
@@ -78,6 +138,91 @@ func TestGistUploaderPayload(t *testing.T) {
 	}
 }
 
+func TestGistUploaderErrorResponse(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"message":"bad token"}`))
+	}))
+	defer srv.Close()
+
+	g := &gistUploader{token: "bad", endpoint: srv.URL, client: srv.Client()}
+	_, err := g.Upload(context.Background(), "<p>hi</p>")
+	if err == nil {
+		t.Fatal("expected error on 403")
+	}
+}
+
+func TestGistUploaderEmptyHTMLURL(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		// No html_url in response
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": "ok"})
+	}))
+	defer srv.Close()
+
+	g := &gistUploader{token: "tk", endpoint: srv.URL, client: srv.Client()}
+	_, err := g.Upload(context.Background(), "<p>hi</p>")
+	if err == nil || !strings.Contains(err.Error(), "empty html_url") {
+		t.Errorf("expected empty html_url error, got %v", err)
+	}
+}
+
+func TestGistUploaderBadJSONResponse(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`not json`))
+	}))
+	defer srv.Close()
+
+	g := &gistUploader{token: "tk", endpoint: srv.URL, client: srv.Client()}
+	_, err := g.Upload(context.Background(), "<p>hi</p>")
+	if err == nil {
+		t.Fatal("expected error on bad JSON response")
+	}
+}
+
+func TestTransferShUploaderSuccess(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("expected PUT, got %s", r.Method)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != "<p>test</p>" {
+			t.Errorf("body = %q", body)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("https://transfer.example/abc123\n"))
+	}))
+	defer srv.Close()
+
+	tu := &transferShUploader{endpoint: srv.URL, client: srv.Client()}
+	url, err := tu.Upload(context.Background(), "<p>test</p>")
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if url != "https://transfer.example/abc123" {
+		t.Errorf("url = %q", url)
+	}
+}
+
+func TestTransferShUploaderErrorResponse(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	tu := &transferShUploader{endpoint: srv.URL, client: srv.Client()}
+	_, err := tu.Upload(context.Background(), "<p>hi</p>")
+	if err == nil {
+		t.Fatal("expected error on 429")
+	}
+}
+
 func TestNewUploaderDefaults(t *testing.T) {
 	t.Parallel()
 	u, err := NewUploader(config.ShareConfig{})
@@ -93,5 +238,40 @@ func TestNewUploaderDefaults(t *testing.T) {
 	}
 	if u.Name() != "gist" {
 		t.Fatalf("expected gist got %s", u.Name())
+	}
+}
+
+func TestNewUploaderExplicitBackends(t *testing.T) {
+	t.Parallel()
+	u, err := NewUploader(config.ShareConfig{Backend: "transfer-sh"})
+	if err != nil {
+		t.Fatalf("explicit transfer-sh: %v", err)
+	}
+	if u.Name() != "transfer-sh" {
+		t.Errorf("name = %q", u.Name())
+	}
+
+	u, err = NewUploader(config.ShareConfig{Backend: "gist", GitHubToken: "tk"})
+	if err != nil {
+		t.Fatalf("explicit gist: %v", err)
+	}
+	if u.Name() != "gist" {
+		t.Errorf("name = %q", u.Name())
+	}
+}
+
+func TestNewUploaderGistNoToken(t *testing.T) {
+	t.Parallel()
+	_, err := NewUploader(config.ShareConfig{Backend: "gist"})
+	if err == nil {
+		t.Fatal("expected error for gist without token")
+	}
+}
+
+func TestNewUploaderUnknownBackend(t *testing.T) {
+	t.Parallel()
+	_, err := NewUploader(config.ShareConfig{Backend: "s3"})
+	if err == nil {
+		t.Fatal("expected error for unknown backend")
 	}
 }

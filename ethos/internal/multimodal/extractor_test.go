@@ -10,12 +10,12 @@ import (
 
 // fakeExt is a test stand-in for an Extractor.
 type fakeExt struct {
-	name     string
-	mimes    []string
-	exts     []string
-	result   Result
-	err      error
-	called   bool
+	name   string
+	mimes  []string
+	exts   []string
+	result Result
+	err    error
+	called bool
 }
 
 func (f *fakeExt) Name() string { return f.name }
@@ -129,9 +129,6 @@ func TestDetect_KnownExtensions(t *testing.T) {
 }
 
 func TestDetect_OOXMLCorrectionForDocx(t *testing.T) {
-	// A bare .docx whose bytes start with PK (ZIP signature). The
-	// sniffer says "application/zip"; Detect should correct to the
-	// docx MIME because of the extension.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "report.docx")
 	_ = os.WriteFile(path, []byte("PK\x03\x04rest of zip..."), 0o644)
@@ -141,6 +138,39 @@ func TestDetect_OOXMLCorrectionForDocx(t *testing.T) {
 	}
 }
 
+func TestDetect_OOXMLXLSX(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sheet.xlsx")
+	_ = os.WriteFile(path, []byte("PK\x03\x04zip data..."), 0o644)
+	mime, _, _ := Detect(path)
+	if !strings.Contains(mime, "spreadsheetml") {
+		t.Errorf("xlsx OOXML correction failed, got mime=%q", mime)
+	}
+}
+
+func TestDetect_OOXMLPPTX(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "deck.pptx")
+	_ = os.WriteFile(path, []byte("PK\x03\x04zip data..."), 0o644)
+	mime, _, _ := Detect(path)
+	if !strings.Contains(mime, "presentationml") {
+		t.Errorf("pptx OOXML correction failed, got mime=%q", mime)
+	}
+}
+
+func TestDetect_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.txt")
+	_ = os.WriteFile(path, []byte{}, 0o644)
+	// Empty file: Read returns (0, EOF). Detect treats 0-byte reads as error.
+	_, ext, err := Detect(path)
+	if err == nil {
+		t.Fatal("expected error on empty file read")
+	}
+	if ext != ".txt" {
+		t.Errorf("ext = %q, want .txt (should be set before read fails)", ext)
+	}
+}
 func TestDetect_FileNotFound(t *testing.T) {
 	_, _, err := Detect("/totally/does/not/exist.xyz")
 	if err == nil {
@@ -149,20 +179,32 @@ func TestDetect_FileNotFound(t *testing.T) {
 }
 
 func TestIsTextLike(t *testing.T) {
-	if !IsTextLike("text/plain") {
-		t.Error("text/plain")
+	tests := []struct {
+		mime string
+		want bool
+	}{
+		{"text/plain", true},
+		{"text/html", true},
+		{"text/css", true},
+		{"text/csv", true},
+		{"TEXT/PLAIN", true},
+		{"application/json", true},
+		{"application/xml", true},
+		{"application/yaml", true},
+		{"application/x-yaml", true},
+		{"application/javascript", true},
+		{"application/x-sh", true},
+		{"application/pdf", false},
+		{"image/png", false},
+		{"application/octet-stream", false},
+		{"video/mp4", false},
 	}
-	if !IsTextLike("application/json") {
-		t.Error("json")
-	}
-	if !IsTextLike("application/x-yaml") {
-		t.Error("yaml")
-	}
-	if IsTextLike("application/pdf") {
-		t.Error("pdf should NOT be text-like")
-	}
-	if IsTextLike("image/png") {
-		t.Error("image")
+	for _, tc := range tests {
+		t.Run(tc.mime, func(t *testing.T) {
+			if got := IsTextLike(tc.mime); got != tc.want {
+				t.Errorf("IsTextLike(%q) = %v, want %v", tc.mime, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -244,11 +286,9 @@ func TestDefaultRegistry_HandlesAllCategories(t *testing.T) {
 		{".wav", "whisper"},
 		{".png", "image"},
 		{".go", "text"},
-		{".xyz-not-real", "binary-fallback"}, // catches anything else
+		{".xyz-not-real", "binary-fallback"},
 	}
 	for _, c := range cases {
-		// Use ".something" so Supports gets the right extension
-		// regardless of MIME.
 		got := r.Lookup("application/octet-stream", c.ext)
 		if got == nil {
 			t.Errorf("%s: no extractor matched", c.ext)
@@ -277,5 +317,37 @@ func TestErrMissingDependency_NoInstallHint(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "install:") {
 		t.Error("should not say 'install:' when no hint provided")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// New edge-case tests
+// ---------------------------------------------------------------------------
+
+func TestRegistry_EmptyLookupReturnsNil(t *testing.T) {
+	r := NewRegistry()
+	if got := r.Lookup("text/plain", ".txt"); got != nil {
+		t.Errorf("empty registry should return nil, got %v", got)
+	}
+}
+
+func TestRegistry_EmptyExtractReturnsErrNoExtractor(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.txt")
+	_ = os.WriteFile(path, []byte("hi"), 0o644)
+
+	r := NewRegistry()
+	_, err := r.Extract(context.Background(), path)
+	if err != ErrNoExtractor {
+		t.Errorf("expected ErrNoExtractor, got %v", err)
+	}
+}
+
+func TestRegistry_LookupNormalizesMimeAndExt(t *testing.T) {
+	r := NewRegistry()
+	r.Register(&fakeExt{name: "t", mimes: []string{"text/plain"}, exts: []string{".md"}})
+
+	if got := r.Lookup(" TEXT/PLAIN ", " .MD "); got == nil {
+		t.Error("lookup with whitespace+case should still match")
 	}
 }
