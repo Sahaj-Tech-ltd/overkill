@@ -214,14 +214,14 @@ func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
 		}
 		got := r.Header.Get("Authorization")
 		if !strings.HasPrefix(got, "Bearer ") {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			writeErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		// Constant-time compare so an attacker can't recover the
 		// token byte-by-byte via response-time differences.
 		presented := strings.TrimPrefix(got, "Bearer ")
 		if subtle.ConstantTimeCompare([]byte(presented), []byte(s.token)) != 1 {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			writeErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		h(w, r)
@@ -269,7 +269,7 @@ func (s *Server) originAllowed(origin string) bool {
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeErrorJSON(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	model := ""
@@ -289,20 +289,20 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeErrorJSON(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req SendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeErrorJSON(w, http.StatusBadRequest, "bad request")
 		return
 	}
 	if req.Content == "" {
-		http.Error(w, "content required", http.StatusBadRequest)
+		writeErrorJSON(w, http.StatusBadRequest, "content required")
 		return
 	}
 	if s.agent == nil {
-		http.Error(w, "no agent attached", http.StatusServiceUnavailable)
+		writeErrorJSON(w, http.StatusServiceUnavailable, "no agent attached")
 		return
 	}
 
@@ -425,7 +425,7 @@ func (s *Server) handleMessageSub(w http.ResponseWriter, r *http.Request) {
 func (s *Server) serveSSE(w http.ResponseWriter, r *http.Request, stream *messageStream) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		writeErrorJSON(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -464,7 +464,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		sessions, err := s.store.List(r.Context(), session.ListOptions{Limit: 100})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeErrorJSON(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, sessions)
@@ -477,12 +477,12 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		ns := session.NewSession(body.Folder)
 		ns.Title = body.Title
 		if err := s.store.Create(r.Context(), ns); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeErrorJSON(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusCreated, ns)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeErrorJSON(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -499,7 +499,7 @@ func (s *Server) handleSessionSub(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, err := s.store.Load(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		writeErrorJSON(w, http.StatusNotFound, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, sess)
@@ -515,7 +515,7 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.handleJobList(w, r)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeErrorJSON(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -527,11 +527,11 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		Profile string `json:"profile"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeErrorJSON(w, http.StatusBadRequest, "bad request")
 		return
 	}
 	if body.Intent == "" {
-		http.Error(w, "intent required", http.StatusBadRequest)
+		writeErrorJSON(w, http.StatusBadRequest, "intent required")
 		return
 	}
 	profile := body.Profile
@@ -541,7 +541,7 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	job := daemon.NewJob(body.Intent, body.Channel, body.ChatKey, profile)
 	ctx := r.Context()
 	if err := s.jobStore.Create(ctx, job); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeErrorJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if s.jobWorker != nil {
@@ -553,7 +553,7 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleJobList(w http.ResponseWriter, r *http.Request) {
 	jobs, err := s.jobStore.List(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeErrorJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if jobs == nil {
@@ -575,12 +575,12 @@ func (s *Server) handleJobSub(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if len(parts) == 1 {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeErrorJSON(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		job, err := s.jobStore.Get(ctx, id)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			writeErrorJSON(w, http.StatusNotFound, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, job)
@@ -588,11 +588,11 @@ func (s *Server) handleJobSub(w http.ResponseWriter, r *http.Request) {
 	}
 	if parts[1] == "cancel" {
 		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeErrorJSON(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		if err := s.jobStore.Cancel(ctx, id); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
+			writeErrorJSON(w, http.StatusConflict, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
@@ -629,4 +629,11 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// writeErrorJSON sends a JSON-shaped error response: {"error":"message"}.
+// Replaces http.Error so every error response is machine-parseable and
+// consistent across the entire API surface.
+func writeErrorJSON(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
 }

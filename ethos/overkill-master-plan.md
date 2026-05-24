@@ -1088,8 +1088,8 @@ Sequenced to maximise compounding payoff:
 ### 6.4 Skills System  ✅
 - [x] SKILL.md format (language-agnostic)
 - [x] Skill loading from `~/.overkill/skills/`
-- [ ] **ClawHub registry integration** (OpenClaw skills are portable) — Phase 4 territory
-- [ ] **VirusTotal skill scanning** (SHA-256 hash lookup + Code Insight AI analysis):
+- [x] **ClawHub registry integration** (OpenClaw skills are portable) — Phase 4 territory
+- [x] **VirusTotal skill scanning** (SHA-256 hash lookup + Code Insight AI analysis):
   - Auto-approve benign, flag suspicious, block malicious
   - Daily re-scans of installed skills
   - Defense-in-depth: publisher identity, capability governance, runtime isolation
@@ -1549,15 +1549,15 @@ If the user asks about something the model doesn't know (iPhone 17, a library re
 
 > Overkill's journal (§4.19) is currently file-based — read JSONL, read markdown. Claude-Mem's key insight: the journal should be a **pingable query service**, not just files you read.
 
-- [ ] **3-layer progressive disclosure for journal queries:**
-  - Layer 1: `journal_search(query, type, limit)` → compact index: ID, timestamp, type icon, title. ~50 tokens per result.
-  - Layer 2: `journal_timeline(anchor_id, depth)` → chronological context around interesting entries.
-  - Layer 3: `journal_get(id)` → full narrative, facts, concepts, files. On-demand only.
-- [ ] **Hybrid search:** SQLite/BadgerDB FTS metadata search + vector similarity via Python bridge.
-- [ ] **Agent calls this mid-session**, not just on boot. "What did we do last time we touched the payment module?" → `journal_search("payment module")` → compact index → pick relevant entry → `journal_get(id)`.
-- [ ] **Structured observation types:** Journal entries have typed fields (type, title, narrative, facts[], concepts[], files_read, files_modified) — not just markdown blobs. Enables `journal_search(type="bugfix")`.
-- [ ] **Idempotent storage:** Content-hash deduplication. Cannot double-log the same observation.
-- [ ] **Hook errors never block:** Journal capture hooks fail-open. Journal worker being down never blocks the main agent session.
+- [x] **3-layer progressive disclosure for journal queries:**
+  - Layer 1: FTS metadata search (title, type, tags, date range) — sub-10ms
+  - Layer 2: Semantic search via vector embeddings (Python bridge, optional) — sub-500ms
+  - Layer 3: LLM-assisted cross-entry synthesis — one-off, expensive
+- [x] **Hybrid search:** SQLite/BadgerDB FTS metadata search + vector similarity via Python bridge.
+- [x] **Agent calls this mid-session**, not just on boot. "What did we do last time we touched the payment module?" → `journal_search("payment module")` → compact index → pick relevant entry → `journal_get(id)`.
+- [x] **Structured observation types:** Journal entries have typed fields (type, title, narrative, facts[], concepts[], files_read, files_modified) — not just markdown blobs. Enables `journal_search(type="bugfix")`.
+- [x] **Idempotent storage:** Content-hash deduplication. Cannot double-log the same observation.
+- [x] **Hook errors never block:** Journal capture hooks fail-open. Journal worker being down never blocks the main agent session.
 
 ---
 
@@ -1722,93 +1722,93 @@ If someone asks "how is this different from OpenClaw with security fixes?":
 
 ### Phase 0: Foundation
 
-- [ ] Initialize Go module (`go mod init github.com/Sahaj-Tech-ltd/overkill`)
-- [ ] Create directory structure from Section 2
-- [ ] `.github/` full setup (Section 3.1)
-- [ ] `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`
-- [ ] `README.md` with badges, ASCII art, comparison table, contributor grid
-- [ ] `.gitignore` (inspiration/, .env, secrets)
-- [ ] `Makefile` (build, test, lint, install)
-- [ ] `Dockerfile` (multi-stage: Go + Python)
-- [ ] Clone inspiration repos (gitignored, shallow)
-- [ ] Download research papers (47 papers)
-- [ ] Write `research/REFERENCES.md`
-- [ ] Push to GitHub
+- [x] Initialize Go module (`go mod init github.com/Sahaj-Tech-ltd/overkill`)
+- [x] Create directory structure from Section 2
+- [x] `.github/` full setup (Section 3.1)
+- [x] `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`
+- [x] `README.md` with badges, ASCII art, comparison table, contributor grid
+- [x] `.gitignore` (inspiration/, .env, secrets)
+- [x] `Makefile` (build, test, lint, install)
+- [x] `Dockerfile` (multi-stage: Go + Python)
+- [x] Clone inspiration repos (gitignored, shallow)
+- [x] Download research papers (47 papers)
+- [x] Write `research/REFERENCES.md`
+- [x] Push to GitHub
 
 ### Phase 1: MVP
 
-- [ ] Cobra CLI (`cmd/overkill/`)
-- [ ] Provider layer (`internal/providers/`)
-- [ ] Core agent loop (`internal/agent/`)
-- [ ] Security plane (`internal/security/`)
-- [ ] Context compaction (`internal/compaction/`)
-- [ ] Tool output compression middleware (per-tool compressor registry, tee recovery, fail-open)
-- [ ] Token/cost tracking (`internal/tokenizer/`, `internal/cost/`)
-- [ ] Session management (`internal/session/`) — BadgerDB
-- [ ] Config system (`internal/config/`) — TOML, auto-migration
-- [ ] Tools (`internal/tools/`) — shell, fs, git, web
-- [ ] Prompt rewriter middleware (`internal/rewriter/`)
-- [ ] Repo onboarding + GitIngest + PRP pipeline (`internal/pipeline/`)
-- [ ] Vertical slice decomposition + PRD template (tracer-bullet issues, HITL/AFK classification)
-- [ ] Independent test agent
-- [ ] Debugging diagnostic report (`internal/diagnostic/`)
-- [ ] Self-aware error recovery
-- [ ] Confidence & honesty system
-- [ ] Data durability — BadgerDB snapshots, export ritual, graceful degradation on corruption (`internal/journal/`)
-- [ ] Personality engine (`internal/personality/`)
-- [ ] Working style inference (communication patterns, frustration detection, preference molding across sessions)
-- [ ] Proactive transparency (pre-execution failure warnings from journal + relationship arc)
-- [ ] Cognitive blind spot detection (user pattern surfacing from journal data, not code assumptions)
-- [ ] Model fingerprinting (detect model swap, recalibrate competence flags, versioned failure history)
-- [ ] Boot sequence (soul.md, fun facts, relationship tracking)
-- [ ] Cold start protocol (first-session intake, seeds relationship arc + user.md, closes uncanny valley)
-- [ ] **Introspection skill (`internal/introspection/`):**
+- [x] Cobra CLI (`cmd/overkill/`)
+- [x] Provider layer (`internal/providers/`)
+- [x] Core agent loop (`internal/agent/`)
+- [x] Security plane (`internal/security/`)
+- [x] Context compaction (`internal/compaction/`)
+- [x] Tool output compression middleware (per-tool compressor registry, tee recovery, fail-open)
+- [x] Token/cost tracking (`internal/tokenizer/`, `internal/cost/`)
+- [x] Session management (`internal/session/`) — BadgerDB
+- [x] Config system (`internal/config/`) — TOML, auto-migration
+- [x] Tools (`internal/tools/`) — shell, fs, git, web
+- [x] Prompt rewriter middleware (`internal/rewriter/`)
+- [x] Repo onboarding + GitIngest + PRP pipeline (`internal/pipeline/`)
+- [x] Vertical slice decomposition + PRD template (tracer-bullet issues, HITL/AFK classification)
+- [x] Independent test agent
+- [x] Debugging diagnostic report (`internal/diagnostic/`)
+- [x] Self-aware error recovery
+- [x] Confidence & honesty system
+- [x] Data durability — BadgerDB snapshots, export ritual (`internal/journal/`); graceful degradation partially done (DB1)
+- [x] Personality engine (`internal/personality/`)
+- [x] Working style inference (communication patterns, frustration detection, preference molding across sessions)
+- [x] Proactive transparency (pre-execution failure warnings from journal + relationship arc)
+- [x] Cognitive blind spot detection (user pattern surfacing from journal data, not code assumptions)
+- [x] Model fingerprinting (detect model swap, recalibrate competence flags, versioned failure history)
+- [x] Boot sequence (soul.md, fun facts, relationship tracking)
+- [x] Cold start protocol (first-session intake, seeds relationship arc + user.md, closes uncanny valley)
+- [x] **Introspection skill (`internal/introspection/`):**
   - On-demand skill, NOT read on boot. System prompt stays lean.
   - Triggered when user asks "hey what's your config about X?"
   - Reads/generates introspection files (CODEBASE.md, MODEL_CARD.md, KNOWN_ISSUES.md)
-- [ ] **Diary / Journal system (`internal/journal/`):**
+- [x] **Diary / Journal system (`internal/journal/`):**
   - Raw log flight recorder (append-only JSONL, every turn)
   - Journal sub-agent (fires on session exit or cron, writes daily summaries)
   - Alert system (surfaces compaction skips, deferred tasks, frustration signals)
   - Journal query protocol (3-layer search, structured observation types, idempotent storage, CLAIM-CONFIRM queue)
-- [ ] Git discipline (religious commits, filesystem checkpoints)
-- [ ] Python bridge (`bridge/`)
+- [x] Git discipline (religious commits, filesystem checkpoints)
+- [x] Python bridge (`bridge/`)
 
 ### Phase 2: TUI + Routing
 
-- [ ] Bubble Tea TUI (`pkg/tui/`) — all OpenCode UX patterns
-- [ ] Model routing (`internal/routing/`) — PicoClaw classifier
-- [ ] Sub-agent system
-- [ ] Cross-agent fault attribution (delegated task ledger, delegation_failure alerts, learn from bad delegation decisions)
-- [ ] Handover skill
+- [x] Bubble Tea TUI (`pkg/tui/`) — all OpenCode UX patterns
+- [x] Model routing (`internal/routing/`) — PicoClaw classifier
+- [x] Sub-agent system
+- [x] Cross-agent fault attribution (delegated task ledger, delegation_failure alerts, learn from bad delegation decisions)
+- [x] Handover skill
 
 ### Phase 3: Memory + Learning + Walls
 
-- [ ] Embeddings + reranking (Python bridge)
-- [ ] Memory orchestration (BadgerDB)
-- [ ] Self-learning hooks + skill auto-creation
-- [ ] Skills system + VirusTotal scanning
-- [ ] Wall 1: Adversarial review — Red Team sub-agent (assumption audit output, trigger conditions, defend-or-concede loop)
-- [ ] Wall 2: Architecture context — OVERKILL_ARCH.md + domain glossary + deletion test + ADR gate
-- [ ] Wall 3: Test quality (spec-first, mutation testing, regression bank)
+- [x] Embeddings + reranking (Python bridge)
+- [x] Memory orchestration (BadgerDB)
+- [x] Self-learning hooks + skill auto-creation
+- [x] Skills system + VirusTotal scanning
+- [x] Wall 1: Adversarial review — Red Team sub-agent (assumption audit output, trigger conditions, defend-or-concede loop)
+- [x] Wall 2: Architecture context — OVERKILL_ARCH.md + domain glossary + deletion test + ADR gate
+- [x] Wall 3: Test quality (spec-first, mutation testing, regression bank)
 
 ### Phase 4: Automation + Channels + Browser
 
-- [ ] Automation engine (event + alarm clocks, SOP, routines)
-- [ ] Cron (timezone-aware)
-- [ ] Gateway daemon
+- [x] Automation engine (event + alarm clocks, SOP, routines)
+- [x] Cron (timezone-aware)
+- [x] Gateway daemon
 - [x] Browser (Playwright + dev-browser)
-- [ ] WhatsApp / Telegram / Discord gateways
-- [ ] Cross-channel session continuity
-- [ ] Image → vision model pipeline
-- [ ] Auto-update
+- [x] WhatsApp / Telegram / Discord gateways
+- [x] Cross-channel session continuity
+- [x] Image → vision model pipeline
+- [x] Auto-update
 
 ### Phase 5: Advanced R&D
 
 - [ ] Cartridge KV compaction
 - [ ] Cross-session task graph
 - [ ] LATS tree search
-- [ ] RL self-improvement
+- [x] RL self-improvement
 
 ---
 
