@@ -425,12 +425,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, SendResponse{MessageID: msgID, SessionID: sid})
 }
 
+// AC3/AC4 — handleMessageSub returns JSON errors for unknown streams + bad paths.
 func (s *Server) handleMessageSub(w http.ResponseWriter, r *http.Request) {
 	// /v1/messages/{id}/events  or  /v1/messages/{id}/cancel
 	rest := strings.TrimPrefix(r.URL.Path, "/v1/messages/")
 	parts := strings.Split(rest, "/")
 	if len(parts) < 2 {
-		http.NotFound(w, r)
+		writeErrorJSON(w, http.StatusNotFound, "not found")
 		return
 	}
 	id, sub := parts[0], parts[1]
@@ -438,7 +439,7 @@ func (s *Server) handleMessageSub(w http.ResponseWriter, r *http.Request) {
 	stream, ok := s.streams[id]
 	s.mu.Unlock()
 	if !ok {
-		http.NotFound(w, r)
+		writeErrorJSON(w, http.StatusNotFound, "not found")
 		return
 	}
 	switch sub {
@@ -449,7 +450,7 @@ func (s *Server) handleMessageSub(w http.ResponseWriter, r *http.Request) {
 		stream.close()
 		writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 	default:
-		http.NotFound(w, r)
+		writeErrorJSON(w, http.StatusNotFound, "not found")
 	}
 }
 
@@ -504,7 +505,10 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			Folder string `json:"folder"`
 			Title  string `json:"title"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeErrorJSON(w, http.StatusBadRequest, "bad request: "+err.Error())
+			return
+		}
 		ns := session.NewSession(body.Folder)
 		ns.Title = body.Title
 		if err := s.store.Create(r.Context(), ns); err != nil {
@@ -519,13 +523,13 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSessionSub(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		http.NotFound(w, r)
+		writeErrorJSON(w, http.StatusNotFound, "not found")
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/v1/sessions/")
 	id = strings.Trim(id, "/")
 	if id == "" {
-		http.NotFound(w, r)
+		writeErrorJSON(w, http.StatusNotFound, "not found")
 		return
 	}
 	sess, err := s.store.Load(r.Context(), id)
@@ -600,7 +604,7 @@ func (s *Server) handleJobSub(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(rest, "/", 2)
 	id := parts[0]
 	if id == "" {
-		http.NotFound(w, r)
+		writeErrorJSON(w, http.StatusNotFound, "not found")
 		return
 	}
 	ctx := r.Context()
@@ -629,7 +633,7 @@ func (s *Server) handleJobSub(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 		return
 	}
-	http.NotFound(w, r)
+	writeErrorJSON(w, http.StatusNotFound, "not found")
 }
 
 // ----- helpers -----------------------------------------------------------

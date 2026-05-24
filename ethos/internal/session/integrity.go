@@ -122,3 +122,22 @@ func (r ProbeResult) CorruptionNotice() string {
 			"Here's what I wish I still knew — type /restore <path> if you have a backup.",
 		r.Cause)
 }
+
+// CheckOnBoot runs Probe at startup and, when corruption is detected,
+// creates a memory_corruption alert via the onCorrupt callback. Returns
+// the probe result so the caller can surface the notice to the user.
+//
+// dir is the BadgerDB directory (~/.overkill/sessions). exportPath is
+// the memory-export.md path (~/.overkill/memory-export.md).
+// onCorrupt receives ("memory_corruption", corruptionNotice, "").
+func CheckOnBoot(dir, exportPath string, onCorrupt func(alertType, message, sessionID string) error) ProbeResult {
+	res := Probe(dir, exportPath)
+	if !res.Corrupt {
+		return res
+	}
+	// Best-effort alert creation — don't fail the boot if the alert
+	// store is also broken. The probe result is still available for
+	// the TUI to surface directly.
+	_ = onCorrupt("memory_corruption", res.CorruptionNotice(), "")
+	return res
+}

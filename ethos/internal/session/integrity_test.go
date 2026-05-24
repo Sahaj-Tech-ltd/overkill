@@ -119,3 +119,99 @@ func TestCorruptionNotice_HealthyIsEmpty(t *testing.T) {
 		t.Errorf("healthy probe should produce empty notice, got %q", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CheckOnBoot
+// ---------------------------------------------------------------------------
+
+func TestCheckOnBoot_HealthyDoesNotAlert(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewBadgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	called := false
+	res := CheckOnBoot(dir, "", func(alertType, message, sessionID string) error {
+		called = true
+		return nil
+	})
+	if res.Corrupt {
+		t.Error("healthy store should not report corrupt")
+	}
+	if called {
+		t.Error("healthy store should NOT trigger alert callback")
+	}
+}
+
+func TestCheckOnBoot_CorruptCallsAlert(t *testing.T) {
+	dir := t.TempDir()
+	// Create a store, close it, then corrupt MANIFEST (Badger always checks it)
+	store, err := NewBadgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	// Corrupt the MANIFEST file — Badger refuses to open a broken manifest
+	manifest := filepath.Join(dir, "MANIFEST")
+	_ = os.WriteFile(manifest, []byte("CORRUPTED-MANIFEST-NOT-VALID"), 0o644)
+
+	var gotType, gotMsg, gotSID string
+	res := CheckOnBoot(dir, "", func(alertType, message, sessionID string) error {
+		gotType, gotMsg, gotSID = alertType, message, sessionID
+		return nil
+	})
+
+	if !res.Corrupt {
+		t.Fatalf("corrupt manifest should be detected; cause=%q", res.Cause)
+	}
+	if gotType != "memory_corruption" {
+		t.Errorf("alert type = %q, want memory_corruption", gotType)
+	}
+	if gotMsg == "" {
+		t.Error("alert message should not be empty")
+	}
+	if gotSID != "" {
+		t.Errorf("session ID should be empty for system alert, got %q", gotSID)
+	}
+}
+
+func TestCheckOnBoot_CorruptWithExport(t *testing.T) {
+	dir := t.TempDir()
+	exportPath := filepath.Join(t.TempDir(), "memory-export.md")
+	_ = os.WriteFile(exportPath, []byte("# Export\n"), 0o644)
+
+	store, err := NewBadgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	_ = os.WriteFile(filepath.Join(dir, "MANIFEST"), []byte("CORRUPTED"), 0o644)
+
+	var gotMsg string
+	CheckOnBoot(dir, exportPath, func(_, message, _ string) error {
+		gotMsg = message
+		return nil
+	})
+
+	if !strings.Contains(gotMsg, "restore") {
+		t.Errorf("corrupt+export message should mention restore: %q", gotMsg)
+	}
+}
+
+func TestCheckOnBoot_MissingDirIsHealthy(t *testing.T) {
+	called := false
+	res := CheckOnBoot("/nonexistent/path/12345", "", func(_, _, _ string) error {
+		called = true
+		return nil
+	})
+	if res.Corrupt {
+		t.Error("missing dir is fresh install, not corruption")
+	}
+	if called {
+		t.Error("should not alert on missing dir")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -540,5 +541,33 @@ func TestPlugins_None(t *testing.T) {
 	r := runOne(t, RegisterPlugins, d, "plugins.none")
 	if r.Status != doctor.SevInfo {
 		t.Fatalf("expected info, got %s: %s", r.Status, r.Detail)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DB integrity (doctor --check-db)
+// ---------------------------------------------------------------------------
+
+func TestDB_OK(t *testing.T) {
+	d := newTestDeps(t, config.Default())
+	r := runOne(t, RegisterDB, d, "db.integrity")
+	// ConfigDir is a temp dir with no sessions DB yet — Probe treats
+	// missing dir as healthy (fresh install).
+	if r.Status != doctor.SevOK {
+		t.Fatalf("expected ok for fresh install, got %s: %s", r.Status, r.Detail)
+	}
+}
+
+func TestDB_CorruptionDetected(t *testing.T) {
+	// Create a sessions dir with garbage files to trigger corruption
+	d := newTestDeps(t, config.Default())
+	sessionsDir := filepath.Join(d.ConfigDir, "sessions")
+	_ = os.MkdirAll(sessionsDir, 0o755)
+	// Write a fake MANIFEST to trick Badger into trying to open it
+	_ = os.WriteFile(filepath.Join(sessionsDir, "MANIFEST"), []byte("garbage"), 0o644)
+
+	r := runOne(t, RegisterDB, d, "db.integrity")
+	if r.Status != doctor.SevFail {
+		t.Fatalf("expected fail for corrupt db, got %s: %s", r.Status, r.Detail)
 	}
 }

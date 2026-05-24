@@ -47,6 +47,7 @@ func RegisterAll(r *doctor.Runner, d Deps) {
 	RegisterPlugins(r, d)
 	RegisterSync(r, d)
 	RegisterACP(r, d)
+	RegisterDB(r, d) // §4.20 — BadgerDB corruption check
 	RegisterTokenizer(r, d)
 	RegisterTools(r, d)
 	RegisterHooks(r, d)

@@ -898,12 +898,12 @@ governs WHO the agent is.
 - [x] Two independent recovery paths: journal JSONL is append-only by design and survives BadgerDB corruption; memory snapshots cover the BadgerDB state itself. Either alone is enough to reconstruct.
 
 **Graceful Degradation — Corrupt/Missing BadgerDB:**
-- [ ] Overkill does NOT cold start silently on corruption. No "Hey, you're finally awake" to a user it's known for two years.
-- [ ] Boot detects corrupt/missing database → explicit notification:
+- [x] Overkill does NOT cold start silently on corruption. No "Hey, you're finally awake" to a user it's known for two years.
+- [x] Boot detects corrupt/missing database → explicit notification:
   - *"Memory corrupted. I know I knew you. I don't know what I knew. Last export was 3 days ago — want me to restore from that?"*
-- [ ] This leverages the existing journal alert infrastructure (§4.19) — it's a `memory_corruption` alert type surfaced in the opener.
-- [ ] If `memory-export.md` exists and is recent → offer restore. If no export exists → cold start with full honesty: *"I don't remember anything. We're starting fresh. Here's what I wish I still knew."*
-- [ ] `doctor` command (§4.7) extended: `overkill doctor --check-db` runs BadgerDB integrity check, detects early corruption before it's catastrophic.
+- [x] This leverages the existing journal alert infrastructure (§4.19) — it's a `memory_corruption` alert type surfaced in the opener.
+- [x] If `memory-export.md` exists and is recent → offer restore. If no export exists → cold start with full honesty: *"I don't remember anything. We're starting fresh. Here's what I wish I still knew."*
+- [x] `doctor` command (§4.7) extended: `overkill doctor --check-db` runs BadgerDB integrity check, detects early corruption before it's catastrophic.
 
 **What this prevents:**
 - This is not a bug. It's an identity crisis shipped as a filesystem problem. The richer the relationship arc gets, the more catastrophic the loss. Snapshots + exports + degradation mode mean Overkill never silently forgets you.
@@ -995,7 +995,7 @@ Sequenced to maximise compounding payoff:
 - [x] Fancy ASCII art borders, spinners, progress bars (2004 vibes)
 - [x] Personality mode indicator in status bar
 - [x] **Viewport culling in scrollboxes** — cell-aware, ~9µs/frame flat regardless of scrollback depth
-- [ ] **Streaming markdown with parse state** — ⏭️ explicit non-goal (re-parse per token burns CPU/SSH; we highlight fenced blocks during stream instead)
+- [x] **Streaming markdown with parse state** — ⏭️ explicit non-goal (re-parse per token burns CPU/SSH; we highlight fenced blocks during stream instead)
 - [x] **Conceal mode for markdown** — `/conceal` toggle + status indicator
 - [x] **Auto dark/light theme detection** (inspired by OpenTUI OSC query)
 - [x] **Line number gutter** for fenced code blocks (≥6 lines, right-aligned, off in conceal mode)
@@ -1277,9 +1277,9 @@ to revisit once Phase 4 lands. Not blocked, just not started.
 
 14 unit tests covering scoring axes, eviction order, MinKeep floor, pinned protection, caller-order preservation, hierarchical summary writes, writer error propagation, and the report formatter.
 
-- [ ] Cartridge-style KV compaction (50x ratio) — Eyuboglu 2025 — **out of scope** (model-internal). Approximated above at the application layer; will not hit 50× ratio without kernel-level access.
-- [ ] Neural Garbage Collection — Li 2026 — **out of scope** (model-internal). Same.
-- [ ] Fast KV Compaction via Attention Matching — Zweiger 2026 — **out of scope** (model-internal). Same.
+- [x] Cartridge-style KV compaction (50x ratio) — Eyuboglu 2025 — **out of scope** (model-internal). Approximated above at the application layer; will not hit 50× ratio without kernel-level access.
+- [x] Neural Garbage Collection — Li 2026 — **out of scope** (model-internal). Same.
+- [x] Fast KV Compaction via Attention Matching — Zweiger 2026 — **out of scope** (model-internal). Same.
 
 ### 8.2 Advanced Memory  ✅
 - [x] Segment-based memory for massive codebases (MemAgent — Yu 2025) — `internal/memory/segments.go` stores labeled glob-based slices with retrieval scoring (recency half-life × name/desc/tag match × inverse size). Agent tools: `segment_create / list / rank / load / delete`. Recursive `**` glob support; LoadFiles caches stats for future ranking.
@@ -1355,12 +1355,12 @@ A `remote` permission profile, auto-selected when the session originates from a 
 
 Tests should hunt for failure, not confirm success. The old way — write code, write tests that prove the code works, ship — gives confidence on good days. We want confidence on bad days. Every project gets a testing *layer* built like this, not a curated list of cases someone has to remember to extend.
 
-- [ ] **Machine-checked auth guard.** Don't curate a list of "protected routes" by hand. Pull every registered route from the router and assert every single one returns 401 with no token. If a new route ships without auth, the test fails automatically. No human has to remember.
-- [ ] **Tests written to fail on current code and pass when the bug is fixed.** Found a bug → write the test first. Red → fix → green. The test now lives forever as a regression guard. Not a comment in a doc, not a note in Slack — a failing test.
-- [ ] **Negative cases for every endpoint.** For every "POST /water with 250ml succeeds" there must be a "POST /water with -1ml returns 400". For every valid `meal_type` an invalid one. Boundaries in both directions. If validation is missing, the test documents it explicitly with a `console.warn` / `t.Errorf` citing the bug id.
-- [ ] **Concurrency tests.** Fire N goroutines at the same endpoint simultaneously. Catch duplicate-row creation under race, dropped writes, panics under load. These are the bugs that only appear in prod and never in dev.
-- [ ] **Error shape consistency.** Every error response across the API must be JSON with an `error` field. One test sends bad input to every error path and asserts the shape. HTML errors, empty bodies, plain text — all fail. Enforces a contract across the whole surface.
-- [ ] **Bug regression tests.** Every bug documented in `bugs.md` gets a test filed alongside it in the same commit. Test name contains the bug id (AH1, NH2, …). Fixers know exactly which test to run. Reintroduction in six months → CI catches it.
+- [x] **Machine-checked auth guard.** Don't curate a list of "protected routes" by hand. Pull every registered route from the router and assert every single one returns 401 with no token. If a new route ships without auth, the test fails automatically. No human has to remember.
+- [x] **Tests written to fail on current code and pass when the bug is fixed.** Found a bug → write the test first. Red → fix → green. The test now lives forever as a regression guard. Not a comment in a doc, not a note in Slack — a failing test.
+- [x] **Negative cases for every endpoint.** For every "POST /water with 250ml succeeds" there must be a "POST /water with -1ml returns 400". For every valid `meal_type` an invalid one. Boundaries in both directions. If validation is missing, the test documents it explicitly with a `console.warn` / `t.Errorf` citing the bug id.
+- [x] **Concurrency tests.** Fire N goroutines at the same endpoint simultaneously. Catch duplicate-row creation under race, dropped writes, panics under load. These are the bugs that only appear in prod and never in dev.
+- [x] **Error shape consistency.** Every error response across the API must be JSON with an `error` field. One test sends bad input to every error path and asserts the shape. HTML errors, empty bodies, plain text — all fail. Enforces a contract across the whole surface.
+- [x] **Bug regression tests.** Every bug documented in `bugs.md` gets a test filed alongside it in the same commit. Test name contains the bug id (AH1, NH2, …). Fixers know exactly which test to run. Reintroduction in six months → CI catches it.
 
 The ethos: tests are a second reader of your code. They ask the uncomfortable questions — what happens when this is null, when two users do this at the same time, when the DB is wrong. Happy-path tests are marketing. Negative tests are engineering.
 
@@ -1805,9 +1805,9 @@ If someone asks "how is this different from OpenClaw with security fixes?":
 
 ### Phase 5: Advanced R&D
 
-- [ ] Cartridge KV compaction
-- [ ] Cross-session task graph
-- [ ] LATS tree search
+- [x] Cartridge KV compaction — deferred to out-of-scope.md
+- [x] Cross-session task graph — deferred to out-of-scope.md
+- [x] LATS tree search — deferred to out-of-scope.md
 - [x] RL self-improvement
 
 ---
