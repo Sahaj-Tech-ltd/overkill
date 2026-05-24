@@ -76,3 +76,6 @@ Wants and a to do list.html
 # Overkill runtime
 .overkill/
 mattpocock-skills
+
+# Internal docs — keep off GitHub
+*.md
