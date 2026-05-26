@@ -252,13 +252,10 @@ func TestWarnings_NoProviders(t *testing.T) {
 func TestWarnings_NoDailyLimit(t *testing.T) {
 	cfg := Default()
 	warns := cfg.Warnings()
-	found := false
+	// Cost limiting is opt-in — no warning when unset
 	for _, w := range warns {
-		if w.String() == "cost.daily_limit_usd is not set; usage costs will not be bounded" {
-			found = true
-		}
+		assert.NotContains(t, w.String(), "daily_limit_usd")
 	}
-	assert.True(t, found)
 }
 
 func TestWarnings_OnlyOllama(t *testing.T) {
@@ -267,13 +264,10 @@ func TestWarnings_OnlyOllama(t *testing.T) {
 		{Name: "local", Type: "ollama"},
 	}
 	warns := cfg.Warnings()
-	found := false
+	// Ollama-only setup is valid — no warning
 	for _, w := range warns {
-		if w.String() == "only ollama provider configured; some capabilities may be limited without a cloud provider" {
-			found = true
-		}
+		assert.NotContains(t, w.String(), "ollama provider")
 	}
-	assert.True(t, found)
 }
 
 func TestWarnings_FullAutonomyNoSandbox(t *testing.T) {
