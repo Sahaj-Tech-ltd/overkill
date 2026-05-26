@@ -1,3 +1,0 @@
-# gosec rule IDs to suppress, one per line.
-# See https://github.com/securego/gosec for the list of rules.
-# Example: G104  # Errors unhandled (handled via errcheck)

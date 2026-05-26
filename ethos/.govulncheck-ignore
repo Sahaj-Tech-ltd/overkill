@@ -1,2 +1,0 @@
-# OSV / Go vuln IDs to ignore, one per line.
-# Example: GO-2024-1234  # not exploitable in our usage
