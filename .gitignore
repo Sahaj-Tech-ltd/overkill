@@ -1,0 +1,35 @@
+# Build output
+bin/
+
+# Internal planning docs (stay local, never on GitHub)
+bugs.md
+plan.md
+out-of-scope.md
+wishes.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env (secrets)
+.env
+.env.*
+
+# Go
+*.test
+*.out
+
+# Python
+__pycache__/
+*.pyc
+bridge/.venv/
+
+# Inspiration repos (embedded git repos — don't track)
+inspiration/
+research/

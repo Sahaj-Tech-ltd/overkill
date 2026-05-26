@@ -1,0 +1,28 @@
+# Drop in ~/.overkill/themes/ and pick it via /theme.
+#
+# `extends` resolves missing keys against a built-in (catppuccin or
+# tokyo-night). Any color you don't list inherits from the base, so
+# this file only declares the slots you care about.
+#
+# Keys are snake_case versions of the Theme interface methods —
+# accent, primary, message_user_background, sidebar_active_tab, etc.
+# The full slot list is documented in pkg/tui/theme/theme.go.
+
+extends = "tokyo-night"
+
+[colors]
+background        = "#282a36"
+foreground        = "#f8f8f2"
+text              = "#f8f8f2"
+text_muted        = "#6272a4"
+primary           = "#bd93f9"
+secondary         = "#ff79c6"
+accent            = "#ff79c6"
+success           = "#50fa7b"
+warning           = "#f1fa8c"
+error             = "#ff5555"
+border            = "#44475a"
+border_focused    = "#bd93f9"
+panel_background  = "#21222c"
+editor_background = "#282a36"
+editor_cursor     = "#f8f8f2"
