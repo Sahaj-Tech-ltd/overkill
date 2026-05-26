@@ -37,7 +37,7 @@ jobs:
           fi
           
           rm -f contributors_table.md contributors_header.md contributors_full.md
-      - uses: peter-evans/create-pull-request@v6
+      - uses: peter-evans/create-pull-request@v8
         with:
           title: "Update contributors list"
           body: "Automated update of the contributors section in README.md"
