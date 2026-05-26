@@ -99,23 +99,9 @@ func (c *Config) Warnings() []Warning {
 		warns = append(warns, Warning("no providers configured; agent will not be able to make LLM calls"))
 	}
 
-	if c.Cost.DailyLimitUSD == 0 {
-		warns = append(warns, Warning("cost.daily_limit_usd is not set; usage costs will not be bounded"))
-	}
+	// Cost limiting is opt-in — no warning when unset (user may not want budget tracking)
 
-	hasOllama := false
-	hasOther := false
-	for _, p := range c.Providers {
-		if p.Type == "ollama" {
-			hasOllama = true
-		} else {
-			hasOther = true
-		}
-	}
-	if hasOllama && !hasOther {
-		warns = append(warns, Warning("only ollama provider configured; some capabilities may be limited without a cloud provider"))
-	}
-
+	// Sandbox warnings for high-autonomy modes (these are safety-relevant, keep them)
 	if c.Security.AutonomyLevel == "auto" && !c.Security.SandboxEnabled {
 		warns = append(warns, Warning("auto autonomy without sandbox enabled; auto-mode will execute without human confirmation — sandbox strongly recommended"))
 	}
