@@ -69,6 +69,17 @@ var rootCmd = &cobra.Command{
 			log.Warn().Err(err).Msg("failed to resolve secrets")
 		}
 
+		// Bootstrap ~/.overkill/ with essential files (soul.md, CLAUDE.md, etc.)
+		// on first run. Safe to call repeatedly — existing user-edited files
+		// are never overwritten.
+		if homeDir, err := config.ConfigDir(); err == nil {
+			if err := BootstrapOverkillHome(homeDir); err != nil {
+				log.Warn().Err(err).Msg("bootstrap failed, continuing anyway")
+			}
+		} else {
+			log.Warn().Err(err).Msg("cannot resolve home dir, skipping bootstrap")
+		}
+
 		for _, e := range cfg.Validate() {
 			log.Warn().Err(e).Msg("config validation")
 		}
