@@ -309,4 +309,25 @@ func (r *discordReply) Error(ctx context.Context, handle string, err error) erro
 	return r.Update(ctx, handle, "⚠️ "+err.Error())
 }
 
-func (r *discordReply) StartTyping() (stop func()) { return func() {} }
+func (r *discordReply) StartTyping() (stop func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = r.session.ChannelTyping(r.channelID)
+		ticker := time.NewTicker(8 * time.Second) // discord typing expires after 10s
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = r.session.ChannelTyping(r.channelID)
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
