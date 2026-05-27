@@ -17,6 +17,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
+	messaging "github.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging"
 	ttspkg "github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
 	"github.com/spf13/cobra"
 )
@@ -76,6 +77,7 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 
 	reg := tools.NewRegistry()
 	reg.Register(ttspkg.New(loadedCfg.TTS))
+	reg.Register(messaging.New(loadedCfg.Gateways))
 
 	apiServer := api.NewServer(api.ServerConfig{
 		Config:       loadedCfg,
