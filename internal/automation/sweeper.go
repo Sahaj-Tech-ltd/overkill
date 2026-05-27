@@ -59,11 +59,11 @@ func defaultPIDAlive(pid int) bool {
 
 // Sweeper runs the periodic reconciliation loop over a Ledger.
 type Sweeper struct {
-	ledger *Ledger
-	cfg    SweeperConfig
-	stop   chan struct{}
-	wg     sync.WaitGroup
-	mu     sync.Mutex
+	ledger  *Ledger
+	cfg     SweeperConfig
+	stop    chan struct{}
+	wg      sync.WaitGroup
+	mu      sync.Mutex
 	running bool
 }
 

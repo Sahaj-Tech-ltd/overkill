@@ -119,8 +119,8 @@ func (s *Scanner) Scan(content, evidence string) Result {
 	// Walk matches forward; track which to annotate. Insert markers
 	// from the END to keep earlier indices valid as we mutate.
 	type hit struct {
-		end  int    // position to insert [?] after
-		id   string // matched identifier (lowercased)
+		end int    // position to insert [?] after
+		id  string // matched identifier (lowercased)
 	}
 	var hits []hit
 	flagged := map[string]int{} // ident -> first-occurrence index in hits

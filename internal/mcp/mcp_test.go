@@ -79,8 +79,8 @@ func TestManagerNilSetPolicy(t *testing.T) {
 func TestManagerStartSkipsEmptyNameOrCommand(t *testing.T) {
 	cfg := config.MCPConfig{
 		Servers: []config.MCPServer{
-			{Name: "", Command: "echo"},           // empty name → skip
-			{Name: "hasName", Command: ""},        // empty command → skip
+			{Name: "", Command: "echo"},            // empty name → skip
+			{Name: "hasName", Command: ""},         // empty command → skip
 			{Name: "good", Command: "nonexistent"}, // will fail but should attempt
 		},
 	}

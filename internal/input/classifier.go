@@ -9,7 +9,7 @@
 //   - KindShell:    a literal shell command. Routes to direct exec ($hell).
 //   - KindNL:       natural language for the agent. Default.
 //   - KindAmbiguous: looks like it could be either. UI can show a hint
-//                   ("press $ to run as shell, Enter to ask agent").
+//     ("press $ to run as shell, Enter to ask agent").
 //
 // We DON'T attempt to be exhaustive. The high-confidence shell signal is
 // strong (leading $, common commands, metacharacters). Everything else

@@ -50,14 +50,14 @@ var pathKeys = map[string]bool{
 // tools take a "path" argument (fs_read) and we'd otherwise verify
 // reads too.
 var WriteToolNames = map[string]bool{
-	"fs_write":   true,
-	"fs_edit":    true,
-	"edit":       true,
-	"write":      true,
-	"patch":      true,
-	"apply":      true,
-	"create":     true,
-	"slice":      true, // overkill's range-write tool
+	"fs_write": true,
+	"fs_edit":  true,
+	"edit":     true,
+	"write":    true,
+	"patch":    true,
+	"apply":    true,
+	"create":   true,
+	"slice":    true, // overkill's range-write tool
 }
 
 // IsWriteTool reports whether toolName is recognised as a write

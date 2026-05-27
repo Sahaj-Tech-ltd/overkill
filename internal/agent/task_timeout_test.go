@@ -8,10 +8,10 @@ import (
 
 func TestTaskTimeoutFor_Bands(t *testing.T) {
 	cases := []struct {
-		name      string
-		input     string
-		history   int
-		wantBand  time.Duration
+		name     string
+		input    string
+		history  int
+		wantBand time.Duration
 	}{
 		// Simple band (≤ 60s).
 		{"trivial what-question", "what time is it?", 0, 60 * time.Second},

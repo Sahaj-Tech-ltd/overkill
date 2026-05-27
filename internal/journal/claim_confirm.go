@@ -12,15 +12,15 @@
 //
 // CLAIM-CONFIRM splits the lifecycle:
 //
-//   1. CAPTURE: durable write to disk (raw observation JSONL).
-//      Never blocks; agent moves on.
-//   2. CLAIM: a worker pulls a pending observation and marks it
-//      `claimed` with its PID + a deadline. Other workers skip
-//      it while the deadline is in the future.
-//   3. CONFIRM: the worker finishes compression and marks it
-//      `confirmed`. The job is done.
-//   4. RECOVERY: if a worker dies mid-CLAIM, its deadline expires
-//      and another worker re-claims. No "stuck forever" state.
+//  1. CAPTURE: durable write to disk (raw observation JSONL).
+//     Never blocks; agent moves on.
+//  2. CLAIM: a worker pulls a pending observation and marks it
+//     `claimed` with its PID + a deadline. Other workers skip
+//     it while the deadline is in the future.
+//  3. CONFIRM: the worker finishes compression and marks it
+//     `confirmed`. The job is done.
+//  4. RECOVERY: if a worker dies mid-CLAIM, its deadline expires
+//     and another worker re-claims. No "stuck forever" state.
 //
 // Storage shape: one tiny JSON file per observation under
 // <dir>/queue/ with the state machine. Atomic-rename writes for

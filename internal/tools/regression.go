@@ -111,10 +111,10 @@ func (t *RegressionVerifyTool) Execute(ctx context.Context, in json.RawMessage) 
 		}
 	}
 	out, _ := json.Marshal(map[string]any{
-		"results":      results,
-		"total":        len(results),
-		"failed":       failed,
-		"all_passing":  failed == 0,
+		"results":     results,
+		"total":       len(results),
+		"failed":      failed,
+		"all_passing": failed == 0,
 	})
 	return out, nil
 }

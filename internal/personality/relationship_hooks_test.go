@@ -65,8 +65,8 @@ func TestOnFirstBeat_FiresOnlyOnce(t *testing.T) {
 
 func TestOnBeat_NilSafe(t *testing.T) {
 	r := NewRelationshipTracker()
-	r.OnBeat(nil)         // should not panic
-	r.OnFirstBeat(nil)    // ditto
+	r.OnBeat(nil)      // should not panic
+	r.OnFirstBeat(nil) // ditto
 	r.RecordBeat(BeatFirstHighFive, "", "")
 }
 

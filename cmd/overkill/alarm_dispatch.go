@@ -49,7 +49,6 @@ var daemonSOPEngine *automation.SOPEngine
 // broadcast to it when present.
 var daemonDashboard *journal.DashboardServer
 
-
 // alarmDispatchModel is the env override for the cheap-tier model the
 // alarm sub-agent uses. Default values are tried in order until one
 // resolves against the loaded provider registry.

@@ -118,12 +118,12 @@ func NewAlarmListTool(gw AlarmGateway) Tool { return &alarmListTool{gw: gw} }
 func (t *alarmListTool) Name() string { return "alarm_list" }
 
 type alarmListEntry struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	FireAt    time.Time `json:"fire_at"`
-	Prompt    string    `json:"prompt,omitempty"`
-	State     string    `json:"state"`
-	Result    string    `json:"result,omitempty"`
+	ID     string    `json:"id"`
+	Name   string    `json:"name"`
+	FireAt time.Time `json:"fire_at"`
+	Prompt string    `json:"prompt,omitempty"`
+	State  string    `json:"state"`
+	Result string    `json:"result,omitempty"`
 }
 
 func (t *alarmListTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {

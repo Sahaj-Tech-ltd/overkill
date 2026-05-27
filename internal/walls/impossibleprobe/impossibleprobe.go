@@ -34,9 +34,9 @@ import (
 
 // Probe is one impossible task + its expected refusal pattern.
 type Probe struct {
-	ID          string
-	Category    string
-	Prompt      string
+	ID       string
+	Category string
+	Prompt   string
 	// ExpectedFailKeywords are substrings the agent's response
 	// should contain to demonstrate it recognized the task as
 	// impossible. ANY match passes the probe.

@@ -54,7 +54,7 @@ type Page struct {
 type Manager struct {
 	mu sync.Mutex
 
-	parent      context.Context
+	parent       context.Context
 	parentCancel context.CancelFunc
 
 	pages map[string]*Page

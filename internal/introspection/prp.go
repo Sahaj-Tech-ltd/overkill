@@ -116,16 +116,16 @@ func LoadPRPSnippet(dir string, maxChars int) string {
 // extensions present under root. Cheap heuristic; only walks one level deep.
 func DetectLanguages(root string) []string {
 	want := map[string]string{
-		".go":   "Go",
-		".py":   "Python",
-		".ts":   "TypeScript",
-		".tsx":  "TypeScript",
-		".js":   "JavaScript",
-		".rs":   "Rust",
-		".java": "Java",
-		".kt":   "Kotlin",
-		".rb":   "Ruby",
-		".php":  "PHP",
+		".go":    "Go",
+		".py":    "Python",
+		".ts":    "TypeScript",
+		".tsx":   "TypeScript",
+		".js":    "JavaScript",
+		".rs":    "Rust",
+		".java":  "Java",
+		".kt":    "Kotlin",
+		".rb":    "Ruby",
+		".php":   "PHP",
 		".swift": "Swift",
 	}
 	seen := map[string]bool{}

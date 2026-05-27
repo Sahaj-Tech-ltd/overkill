@@ -11,11 +11,11 @@
 // crash mid-save never strands the file.
 //
 // Precedence (lowest → highest, last wins on conflict):
-//   1. baked defaults (DefaultUserOverrides)
-//   2. system overrides    /etc/overkill/user.yaml
-//   3. user overrides      ~/.config/overkill/user.yaml
-//   4. workspace overrides $PWD/.overkill/user.yaml
-//   5. admin-enforced      /etc/overkill/enforced.yaml (LOCKED — can't be overridden by user/workspace)
+//  1. baked defaults (DefaultUserOverrides)
+//  2. system overrides    /etc/overkill/user.yaml
+//  3. user overrides      ~/.config/overkill/user.yaml
+//  4. workspace overrides $PWD/.overkill/user.yaml
+//  5. admin-enforced      /etc/overkill/enforced.yaml (LOCKED — can't be overridden by user/workspace)
 //
 // Admin-enforced sits on top so an org deployment can lock down a
 // subset (e.g. scanners always-on) while users still control the
@@ -61,19 +61,19 @@ type BasicSettings struct {
 
 // AdvancedSettings — everything else. Nil sub-sections mean "use default."
 type AdvancedSettings struct {
-	SystemPrompt PromptOverride                 `yaml:"system_prompt,omitempty"`
-	Tools        map[string]ToolUserConfig      `yaml:"tools,omitempty"`
-	Scanners     ScannerToggles                 `yaml:"scanners,omitempty"`
-	Compaction   CompactionUserConfig           `yaml:"compaction,omitempty"`
-	MCPServers   []MCPServerUserConfig          `yaml:"mcp_servers,omitempty"`
-	Skills       SkillsUserConfig               `yaml:"skills,omitempty"`
-	Hooks        HooksUserConfig                `yaml:"hooks,omitempty"`
-	Memory       MemoryUserConfig               `yaml:"memory,omitempty"`
-	Providers    map[string]ProviderUserConfig  `yaml:"providers,omitempty"`
-	Persona      PersonaUserConfig              `yaml:"persona,omitempty"`
-	Telemetry    TelemetryUserConfig            `yaml:"telemetry,omitempty"`
-	Permissions  PermissionsUserConfig          `yaml:"permissions,omitempty"`
-	Board        BoardUserConfig                `yaml:"board,omitempty"`
+	SystemPrompt PromptOverride                `yaml:"system_prompt,omitempty"`
+	Tools        map[string]ToolUserConfig     `yaml:"tools,omitempty"`
+	Scanners     ScannerToggles                `yaml:"scanners,omitempty"`
+	Compaction   CompactionUserConfig          `yaml:"compaction,omitempty"`
+	MCPServers   []MCPServerUserConfig         `yaml:"mcp_servers,omitempty"`
+	Skills       SkillsUserConfig              `yaml:"skills,omitempty"`
+	Hooks        HooksUserConfig               `yaml:"hooks,omitempty"`
+	Memory       MemoryUserConfig              `yaml:"memory,omitempty"`
+	Providers    map[string]ProviderUserConfig `yaml:"providers,omitempty"`
+	Persona      PersonaUserConfig             `yaml:"persona,omitempty"`
+	Telemetry    TelemetryUserConfig           `yaml:"telemetry,omitempty"`
+	Permissions  PermissionsUserConfig         `yaml:"permissions,omitempty"`
+	Board        BoardUserConfig               `yaml:"board,omitempty"`
 }
 
 // PromptOverride lets the user patch or replace the baked system
@@ -97,9 +97,9 @@ type ToolUserConfig struct {
 // ScannerToggles controls each scanner family. Defaults are dictated
 // by the active profile (see ApplyProfile).
 type ScannerToggles struct {
-	Command                ScannerOnOff `yaml:"command,omitempty"`
-	Injection              ScannerOnOff `yaml:"injection,omitempty"`
-	PromptInjectBrowser    ScannerOnOff `yaml:"prompt_inject_browser,omitempty"`
+	Command             ScannerOnOff `yaml:"command,omitempty"`
+	Injection           ScannerOnOff `yaml:"injection,omitempty"`
+	PromptInjectBrowser ScannerOnOff `yaml:"prompt_inject_browser,omitempty"`
 }
 
 type ScannerOnOff struct {
@@ -107,12 +107,12 @@ type ScannerOnOff struct {
 }
 
 type CompactionUserConfig struct {
-	Enabled         *bool   `yaml:"enabled,omitempty"`
-	Model           string  `yaml:"model,omitempty"`
-	SoftThreshold   float64 `yaml:"soft_threshold,omitempty"`
-	HardThreshold   float64 `yaml:"hard_threshold,omitempty"`
-	PreserveLast    int     `yaml:"preserve_last,omitempty"`
-	Strategy        string  `yaml:"strategy,omitempty"` // lcm | summarize-and-truncate | aggressive
+	Enabled       *bool   `yaml:"enabled,omitempty"`
+	Model         string  `yaml:"model,omitempty"`
+	SoftThreshold float64 `yaml:"soft_threshold,omitempty"`
+	HardThreshold float64 `yaml:"hard_threshold,omitempty"`
+	PreserveLast  int     `yaml:"preserve_last,omitempty"`
+	Strategy      string  `yaml:"strategy,omitempty"` // lcm | summarize-and-truncate | aggressive
 }
 
 type MCPServerUserConfig struct {
@@ -125,9 +125,9 @@ type MCPServerUserConfig struct {
 }
 
 type SkillsUserConfig struct {
-	CustomPath   string          `yaml:"custom_path,omitempty"`
-	AutoLoad     *bool           `yaml:"auto_load,omitempty"`
-	Active       map[string]bool `yaml:"active,omitempty"`
+	CustomPath string          `yaml:"custom_path,omitempty"`
+	AutoLoad   *bool           `yaml:"auto_load,omitempty"`
+	Active     map[string]bool `yaml:"active,omitempty"`
 }
 
 type HooksUserConfig struct {
@@ -166,15 +166,15 @@ type PersonaUserConfig struct {
 }
 
 type TelemetryUserConfig struct {
-	EventLog        *bool `yaml:"event_log,omitempty"`
-	FlightRecorder  *bool `yaml:"flight_recorder,omitempty"`
-	RetentionDays   int   `yaml:"retention_days,omitempty"`
-	VerifyOnBoot    *bool `yaml:"verify_on_boot,omitempty"`
+	EventLog       *bool `yaml:"event_log,omitempty"`
+	FlightRecorder *bool `yaml:"flight_recorder,omitempty"`
+	RetentionDays  int   `yaml:"retention_days,omitempty"`
+	VerifyOnBoot   *bool `yaml:"verify_on_boot,omitempty"`
 }
 
 type PermissionsUserConfig struct {
-	AutoApproveAll         *bool    `yaml:"auto_approve_all,omitempty"`
-	SkipDestructiveConfirm *bool    `yaml:"skip_destructive_confirm,omitempty"`
+	AutoApproveAll         *bool `yaml:"auto_approve_all,omitempty"`
+	SkipDestructiveConfirm *bool `yaml:"skip_destructive_confirm,omitempty"`
 	// RequireApprovalTools lists tool names that must always prompt for
 	// operator approval even when AutoApproveAll is false. Used by the
 	// "remote" profile to gate shell, patch, and git-push variants.
@@ -188,13 +188,13 @@ type PermissionsUserConfig struct {
 }
 
 type BoardUserConfig struct {
-	Enabled         *bool                 `yaml:"enabled,omitempty"`
-	AutoDispatch    *bool                 `yaml:"auto_dispatch,omitempty"`
-	MaxConcurrent   int                   `yaml:"max_concurrent,omitempty"`
-	DefaultEffort   string                `yaml:"default_effort,omitempty"`
-	DefaultPriority string                `yaml:"default_priority,omitempty"`
-	ReviewPipeline  []BoardPipelineStep   `yaml:"review_pipeline,omitempty"`
-	OvenActions     []BoardOvenAction     `yaml:"oven_actions,omitempty"`
+	Enabled         *bool               `yaml:"enabled,omitempty"`
+	AutoDispatch    *bool               `yaml:"auto_dispatch,omitempty"`
+	MaxConcurrent   int                 `yaml:"max_concurrent,omitempty"`
+	DefaultEffort   string              `yaml:"default_effort,omitempty"`
+	DefaultPriority string              `yaml:"default_priority,omitempty"`
+	ReviewPipeline  []BoardPipelineStep `yaml:"review_pipeline,omitempty"`
+	OvenActions     []BoardOvenAction   `yaml:"oven_actions,omitempty"`
 }
 
 type BoardPipelineStep struct {

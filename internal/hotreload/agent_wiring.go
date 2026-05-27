@@ -4,14 +4,14 @@
 // the subset of fields that can flip safely at runtime:
 //
 //   - basic.model              → agent.SetModel after the current Run
-//                                 completes (mid-stream swaps are
-//                                 undefined; queue on a turn boundary)
+//     completes (mid-stream swaps are
+//     undefined; queue on a turn boundary)
 //   - advanced.scanners.*      → agent's scanner slice is rebuilt to
-//                                 match the toggle state
+//     match the toggle state
 //   - advanced.persona.*       → no action; persona is read per-turn
-//                                 (already hot)
+//     (already hot)
 //   - advanced.system_prompt.* → no action; system prompt is rebuilt
-//                                 per turn (already hot)
+//     per turn (already hot)
 //
 // Anything else surfaces as a "settings_reloaded_partial" event with
 // the field list so the user knows their edit DID load but didn't

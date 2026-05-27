@@ -19,9 +19,9 @@ import (
 
 // Stage names that the agent / wave runners can fire commits at.
 const (
-	StageTestPass    = "test-pass"
-	StageBuildGreen  = "build-green"
-	StageLintClean   = "lint-clean"
+	StageTestPass     = "test-pass"
+	StageBuildGreen   = "build-green"
+	StageLintClean    = "lint-clean"
 	StagePatchApplied = "patch-applied"
 )
 
@@ -53,10 +53,10 @@ func DefaultCommitRunner(ctx context.Context, dir, msg string) (bool, error) {
 
 // AutoCommitter is the per-session committer.
 type AutoCommitter struct {
-	mu       sync.Mutex
-	repoDir  string
-	runner   CommitRunner
-	enabled  map[string]bool
+	mu      sync.Mutex
+	repoDir string
+	runner  CommitRunner
+	enabled map[string]bool
 }
 
 // NewAutoCommitter wires a runner and a per-stage enable map. Pass nil

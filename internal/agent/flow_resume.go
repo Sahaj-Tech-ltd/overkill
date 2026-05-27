@@ -2,13 +2,13 @@
 // dispatcher when an alarm whose prompt encodes a flow ID fires. The
 // resume path:
 //
-//   1. Loads the persisted FlowState
-//   2. Bumps Resumes (gated by MaxResumes — three strikes and stop)
-//   3. Restores the agent's history from the checkpoint
-//   4. Re-enters Stream with the original user input
-//   5. On clean completion, Delete the flow record so it doesn't
-//      keep showing up in `alarm_list`. On another timeout, the
-//      next CheckpointFlow overwrites the same record.
+//  1. Loads the persisted FlowState
+//  2. Bumps Resumes (gated by MaxResumes — three strikes and stop)
+//  3. Restores the agent's history from the checkpoint
+//  4. Re-enters Stream with the original user input
+//  5. On clean completion, Delete the flow record so it doesn't
+//     keep showing up in `alarm_list`. On another timeout, the
+//     next CheckpointFlow overwrites the same record.
 //
 // The resume contract is "complete this task from where it stopped"
 // — no human in the loop. Errors are non-recoverable: a corrupt

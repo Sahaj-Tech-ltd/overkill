@@ -1,0 +1,26 @@
+{
+  "name": "overkill-tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/entry.tsx",
+    "start": "tsx src/entry.tsx",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nanostores/react": "^1.1.0",
+    "ink": "^6.8.0",
+    "ink-text-input": "^6.0.0",
+    "nanostores": "^1.2.0",
+    "react": "^19.2.0",
+    "unicode-animations": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

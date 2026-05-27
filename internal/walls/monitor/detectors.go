@@ -269,21 +269,21 @@ func detectRewardHacking(entries []journal.Entry) []Finding {
 var (
 	exfilCommandPattern = regexp.MustCompile(`(?i)\b(curl|wget|nc|ncat)\b[^\n]*\bhttps?://([A-Za-z0-9.\-]+)`)
 	allowedHosts        = map[string]bool{
-		"github.com":            true,
-		"raw.githubusercontent.com": true,
-		"api.github.com":        true,
+		"github.com":                    true,
+		"raw.githubusercontent.com":     true,
+		"api.github.com":                true,
 		"objects.githubusercontent.com": true,
-		"registry.npmjs.org":    true,
-		"pypi.org":              true,
-		"files.pythonhosted.org": true,
-		"crates.io":             true,
-		"static.crates.io":      true,
-		"proxy.golang.org":      true,
-		"sum.golang.org":        true,
-		"api.anthropic.com":     true,
-		"api.openai.com":        true,
-		"localhost":             true,
-		"127.0.0.1":             true,
+		"registry.npmjs.org":            true,
+		"pypi.org":                      true,
+		"files.pythonhosted.org":        true,
+		"crates.io":                     true,
+		"static.crates.io":              true,
+		"proxy.golang.org":              true,
+		"sum.golang.org":                true,
+		"api.anthropic.com":             true,
+		"api.openai.com":                true,
+		"localhost":                     true,
+		"127.0.0.1":                     true,
 	}
 )
 

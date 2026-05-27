@@ -18,7 +18,7 @@ import (
 type fakeAgent struct{ sid string }
 
 func (f *fakeAgent) SessionID() string      { return f.sid }
-func (f *fakeAgent) SetSessionID(id string)  { f.sid = id }
+func (f *fakeAgent) SetSessionID(id string) { f.sid = id }
 func (f *fakeAgent) Stream(_ context.Context, _ string) (<-chan agent.StreamEvent, error) {
 	ch := make(chan agent.StreamEvent, 2)
 	ch <- agent.StreamEvent{Type: agent.EventToken, Content: "pong"}
@@ -115,7 +115,7 @@ func TestBindsLoopback(t *testing.T) {
 		{"192.168.1.1:7799", false},
 		{"10.0.0.1:7799", false},
 		{"", false},
-		{":7799", false},              // empty host → binds all
+		{":7799", false}, // empty host → binds all
 		{"host.docker.internal:7799", false},
 	}
 	for _, tc := range tests {

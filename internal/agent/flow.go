@@ -58,8 +58,8 @@ type FlowState struct {
 	Reason string `json:"reason"`
 	// CreatedAt + ResumedAt give an audit trail: when did the task
 	// first time out, when did it resume.
-	CreatedAt  time.Time   `json:"created_at"`
-	ResumedAt  []time.Time `json:"resumed_at,omitempty"`
+	CreatedAt time.Time   `json:"created_at"`
+	ResumedAt []time.Time `json:"resumed_at,omitempty"`
 	// Resumes counts how many times this flow was resumed. Used to
 	// stop runaway resume loops — three resume attempts and we mark
 	// the flow `failed` instead of saving another checkpoint.

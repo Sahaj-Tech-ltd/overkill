@@ -105,18 +105,18 @@ func extractScanPayload(toolName, args string) string {
 // memories/relationship-arc.json` to introspect itself; only writes
 // are gated.
 var protectedSubdirs = []string{
-	"memories",            // relationship arc, fingerprint, style, coldstart
-	"failed_hypotheses",   // append-only failhypo JSONL
-	"journal",             // flight recorder + alerts
-	"alerts",              // boot alert store
-	"snapshots",           // §4.20 BadgerDB snapshots
-	"receipts",            // §6.5 tool-receipt chain
-	"plans",               // per-session plan store (mutate via plan_* tools)
-	"learnings",           // append-only learnings stream (mutate via record_learning)
-	"automation",          // alarms, SOPs, routines, flow state (Badger DB)
-	"tasks",               // §8.3 cross-session task graph (mutate via task_* tools)
-	"segments",            // §8.2 MemAgent segments (mutate via segment_* tools)
-	"playbooks",           // §8.2 ACE playbooks (mutate via playbook_* tools)
+	"memories",          // relationship arc, fingerprint, style, coldstart
+	"failed_hypotheses", // append-only failhypo JSONL
+	"journal",           // flight recorder + alerts
+	"alerts",            // boot alert store
+	"snapshots",         // §4.20 BadgerDB snapshots
+	"receipts",          // §6.5 tool-receipt chain
+	"plans",             // per-session plan store (mutate via plan_* tools)
+	"learnings",         // append-only learnings stream (mutate via record_learning)
+	"automation",        // alarms, SOPs, routines, flow state (Badger DB)
+	"tasks",             // §8.3 cross-session task graph (mutate via task_* tools)
+	"segments",          // §8.2 MemAgent segments (mutate via segment_* tools)
+	"playbooks",         // §8.2 ACE playbooks (mutate via playbook_* tools)
 }
 
 // protectedFiles are top-level ~/.overkill/ filenames that aren't

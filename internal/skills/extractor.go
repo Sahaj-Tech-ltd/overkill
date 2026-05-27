@@ -23,13 +23,13 @@ import (
 
 // ExtractRequest is the input to a skill-extraction call.
 type ExtractRequest struct {
-	Name         string   // skill folder name; sanitized
-	Description  string   // one-line summary
-	Tags         []string // topic tags
-	Triggers     []string // phrases that should activate the skill
-	Transcript   string   // session text or relevant excerpt
-	OutputDir    string   // typically ~/.overkill/skills
-	Author       string   // optional
+	Name        string   // skill folder name; sanitized
+	Description string   // one-line summary
+	Tags        []string // topic tags
+	Triggers    []string // phrases that should activate the skill
+	Transcript  string   // session text or relevant excerpt
+	OutputDir   string   // typically ~/.overkill/skills
+	Author      string   // optional
 }
 
 // ExtractResult is what was written.

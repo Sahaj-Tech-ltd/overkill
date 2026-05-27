@@ -15,9 +15,9 @@ import (
 // CompletionEvent is the structured record emitted when a session ends.
 type CompletionEvent struct {
 	SessionID  string            `json:"session_id"`
-	Intent     string            `json:"intent"`      // first user message of the session
-	Outcome    string            `json:"outcome"`     // "success" | "failure" | "cancelled"
-	Artefacts  []Artefact        `json:"artefacts"`   // files written, PRs opened, etc.
+	Intent     string            `json:"intent"`    // first user message of the session
+	Outcome    string            `json:"outcome"`   // "success" | "failure" | "cancelled"
+	Artefacts  []Artefact        `json:"artefacts"` // files written, PRs opened, etc.
 	DurationMs int64             `json:"duration_ms"`
 	CostUSD    float64           `json:"cost_usd"`
 	Errors     []string          `json:"errors,omitempty"`

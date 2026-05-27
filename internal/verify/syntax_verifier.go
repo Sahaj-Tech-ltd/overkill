@@ -25,8 +25,8 @@ import (
 // TOMLVerifier checks .toml syntax via the standard parser.
 type TOMLVerifier struct{}
 
-func NewTOMLVerifier() *TOMLVerifier         { return &TOMLVerifier{} }
-func (t *TOMLVerifier) Name() string         { return "toml parse" }
+func NewTOMLVerifier() *TOMLVerifier           { return &TOMLVerifier{} }
+func (t *TOMLVerifier) Name() string           { return "toml parse" }
 func (t *TOMLVerifier) Timeout() time.Duration { return 2 * time.Second }
 
 func (t *TOMLVerifier) Verify(ctx context.Context, absPath string, content []byte) (bool, string, bool) {
@@ -45,8 +45,8 @@ func (t *TOMLVerifier) Verify(ctx context.Context, absPath string, content []byt
 // parser accepts both objects and arrays at the root.
 type JSONVerifier struct{}
 
-func NewJSONVerifier() *JSONVerifier         { return &JSONVerifier{} }
-func (j *JSONVerifier) Name() string         { return "json parse" }
+func NewJSONVerifier() *JSONVerifier           { return &JSONVerifier{} }
+func (j *JSONVerifier) Name() string           { return "json parse" }
 func (j *JSONVerifier) Timeout() time.Duration { return 2 * time.Second }
 
 func (j *JSONVerifier) Verify(ctx context.Context, absPath string, content []byte) (bool, string, bool) {
@@ -64,8 +64,8 @@ func (j *JSONVerifier) Verify(ctx context.Context, absPath string, content []byt
 // YAMLVerifier checks .yaml/.yml syntax via yaml.v3.
 type YAMLVerifier struct{}
 
-func NewYAMLVerifier() *YAMLVerifier         { return &YAMLVerifier{} }
-func (y *YAMLVerifier) Name() string         { return "yaml parse" }
+func NewYAMLVerifier() *YAMLVerifier           { return &YAMLVerifier{} }
+func (y *YAMLVerifier) Name() string           { return "yaml parse" }
 func (y *YAMLVerifier) Timeout() time.Duration { return 2 * time.Second }
 
 func (y *YAMLVerifier) Verify(ctx context.Context, absPath string, content []byte) (bool, string, bool) {

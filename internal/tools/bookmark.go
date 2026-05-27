@@ -104,9 +104,9 @@ func (t *BookmarkListTool) Execute(_ context.Context, _ json.RawMessage) (json.R
 			continue
 		}
 		out = append(out, map[string]string{
-			"label":     strings.TrimPrefix(tg.Tag, bookmarkTagPrefix),
-			"entry_id":  tg.Path,
-			"note":      tg.Note,
+			"label":    strings.TrimPrefix(tg.Tag, bookmarkTagPrefix),
+			"entry_id": tg.Path,
+			"note":     tg.Note,
 		})
 	}
 	body, _ := json.Marshal(map[string]any{
@@ -163,9 +163,9 @@ func (t *BookmarkRecallTool) Execute(_ context.Context, in json.RawMessage) (jso
 		return errorJSON(fmt.Sprintf("bookmark %q points at journal entry %s but it's missing", req.Label, pick.Path)), nil
 	}
 	body, _ := json.Marshal(map[string]any{
-		"label":     req.Label,
-		"entry":     entry,
-		"note":      pick.Note,
+		"label": req.Label,
+		"entry": entry,
+		"note":  pick.Note,
 	})
 	return body, nil
 }

@@ -41,11 +41,11 @@ const (
 
 // Finding is one matched pattern.
 type Finding struct {
-	Category   string   // "instruction_override", "role_confusion", etc.
+	Category   string // "instruction_override", "role_confusion", etc.
 	Severity   Severity
-	Match      string   // the excerpt that triggered
-	LineNumber int      // 1-based when known, 0 when caller didn't provide line info
-	Pattern    string   // the regex name (operator-readable)
+	Match      string // the excerpt that triggered
+	LineNumber int    // 1-based when known, 0 when caller didn't provide line info
+	Pattern    string // the regex name (operator-readable)
 }
 
 // pattern bundles a category + severity + compiled regex.

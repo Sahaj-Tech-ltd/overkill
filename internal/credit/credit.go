@@ -58,16 +58,16 @@ const (
 // dimension we correlate on — typically the tool name, an error
 // class, or a decision keyword.
 type Action struct {
-	Tag       string `json:"tag"`
-	Category  string `json:"category,omitempty"` // optional: "tool", "error", "decision"
+	Tag      string `json:"tag"`
+	Category string `json:"category,omitempty"` // optional: "tool", "error", "decision"
 }
 
 // SessionRecord is one completed session with its labeled outcome
 // and the list of actions taken.
 type SessionRecord struct {
-	SessionID string    `json:"session_id"`
-	Outcome   Outcome   `json:"outcome"`
-	Actions   []Action  `json:"actions"`
+	SessionID string   `json:"session_id"`
+	Outcome   Outcome  `json:"outcome"`
+	Actions   []Action `json:"actions"`
 	// Tags is operator-supplied free-form labels (model ID, task
 	// type) for downstream filtering.
 	Tags []string `json:"tags,omitempty"`
@@ -75,11 +75,11 @@ type SessionRecord struct {
 
 // ActionStats holds aggregate frequencies for one action tag.
 type ActionStats struct {
-	Tag           string  `json:"tag"`
-	Category      string  `json:"category,omitempty"`
-	SuccessCount  int64   `json:"success_count"`
-	FailureCount  int64   `json:"failure_count"`
-	TotalSessions int64   `json:"total_sessions"` // sessions where this action appeared
+	Tag           string `json:"tag"`
+	Category      string `json:"category,omitempty"`
+	SuccessCount  int64  `json:"success_count"`
+	FailureCount  int64  `json:"failure_count"`
+	TotalSessions int64  `json:"total_sessions"` // sessions where this action appeared
 	// Lift = P(success | action) / P(success | no action). Higher
 	// than 1.0 means the action correlates with success. NaN when
 	// we can't compute (no baseline data).
@@ -93,9 +93,9 @@ type ActionStats struct {
 // Analyzer aggregates SessionRecord folds and produces per-action
 // statistics. Concurrency-safe.
 type Analyzer struct {
-	mu       sync.Mutex
-	stats    map[string]*ActionStats // keyed by Tag
-	sessions int64                    // total folded
+	mu        sync.Mutex
+	stats     map[string]*ActionStats // keyed by Tag
+	sessions  int64                   // total folded
 	successes int64                   // total successful sessions
 	failures  int64                   // total failed sessions
 }

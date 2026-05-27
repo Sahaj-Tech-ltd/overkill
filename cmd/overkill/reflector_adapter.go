@@ -14,8 +14,8 @@ import (
 // failed-hypothesis store. The agent itself doesn't know about that
 // store — the wiring layer connects them.
 type reflectorAdapter struct {
-	inner       reflect.Reflector
-	failHypoFn  func(toolName string, r reflect.Reflection)
+	inner      reflect.Reflector
+	failHypoFn func(toolName string, r reflect.Reflection)
 }
 
 func newReflectorAdapter(fh func(toolName string, r reflect.Reflection)) *reflectorAdapter {

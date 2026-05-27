@@ -34,33 +34,33 @@ func SetAlarmStderrSink(w io.Writer) {
 // there's real work or whether to return-to-sleep without burning a
 // turn on the main model.
 type Alarm struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	FireAt    time.Time `json:"fire_at"`
+	ID     string    `json:"id"`
+	Name   string    `json:"name"`
+	FireAt time.Time `json:"fire_at"`
 	// Action is the legacy shell-command field, retained so existing
 	// daemon paths that shell out continue to work. New callers should
 	// set Prompt instead.
-	Action    string    `json:"action,omitempty"`
+	Action string `json:"action,omitempty"`
 	// Prompt is the natural-language instruction the sub-agent runs
 	// when the alarm fires. Example: "check if the build at /tmp/build.log
 	// finished successfully; if it failed, summarise the last error."
-	Prompt    string    `json:"prompt,omitempty"`
-	SessionID string    `json:"session_id"`
-	Fired     bool      `json:"fired"`
-	Cancelled bool      `json:"cancelled"`
+	Prompt    string `json:"prompt,omitempty"`
+	SessionID string `json:"session_id"`
+	Fired     bool   `json:"fired"`
+	Cancelled bool   `json:"cancelled"`
 	// FiredAt records when the alarm fired so the user can audit
 	// "how late was this?" if the daemon was down at FireAt.
-	FiredAt   time.Time `json:"fired_at,omitempty"`
+	FiredAt time.Time `json:"fired_at,omitempty"`
 	// Result is the sub-agent's one-line summary post-fire, surfaced
 	// in `alarm_list` so the user can see "what happened" without
 	// digging into journal entries.
-	Result    string    `json:"result,omitempty"`
+	Result string `json:"result,omitempty"`
 	// Attempts counts how many times we've tried to fire this alarm.
 	// Each failed fire bumps it and reschedules with linear backoff;
 	// after maxAlarmAttempts the alarm gives up and gets marked Fired
 	// with the last error in Result. Previously a failing callback
 	// left the alarm permanently stuck — no retry path at all.
-	Attempts  int       `json:"attempts,omitempty"`
+	Attempts int `json:"attempts,omitempty"`
 }
 
 // AlarmClock runs the timer loop + delegates to a fire callback. The
@@ -93,6 +93,7 @@ func NewAlarmClock(fire func(alarm *Alarm) error) *AlarmClock {
 //   - Reload() on Start (called automatically)
 //   - Save on Set/Cancel
 //   - Save (overwrite) when an alarm fires
+//
 // Store errors are logged to stderr but never block the clock loop —
 // "alarm fired but couldn't persist Fired=true" is a degraded mode,
 // not a fatal one.

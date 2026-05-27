@@ -25,9 +25,9 @@ import (
 // The Channel keeps owning its Reply transport; Dispatcher just calls
 // PostInitial / Update / Final / Error against it.
 type Dispatcher struct {
-	Agent       AgentSender
-	Router      *SessionRouter
-	Vision      vision.Describer // optional; when set, attached images are
+	Agent  AgentSender
+	Router *SessionRouter
+	Vision vision.Describer // optional; when set, attached images are
 	// captioned and inlined into the agent prompt
 	Logger      *log.Logger
 	UpdateEvery time.Duration // batch reply edits; default 750ms

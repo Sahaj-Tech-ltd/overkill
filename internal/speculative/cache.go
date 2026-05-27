@@ -33,9 +33,9 @@ import (
 
 // Entry is one cached read.
 type Entry struct {
-	Path    string
-	Bytes   []byte
-	MTime   time.Time
+	Path     string
+	Bytes    []byte
+	MTime    time.Time
 	StoredAt time.Time
 }
 

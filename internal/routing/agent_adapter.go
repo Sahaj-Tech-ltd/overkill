@@ -32,11 +32,11 @@ func (a *AgentAdapter) PickModel(snap agent.RouteSnapshot) (string, string, bool
 		return "", "", false
 	}
 	req := RouteRequest{
-		UserInput:      snap.UserInput,
-		HistoryLength:  snap.HistoryLen,
-		ToolCallCount:  snap.ToolCallCount,
-		HasAttachments: snap.HasAttachments,
-		CodeBlockCount: countCodeBlocks(snap.UserInput),
+		UserInput:       snap.UserInput,
+		HistoryLength:   snap.HistoryLen,
+		ToolCallCount:   snap.ToolCallCount,
+		HasAttachments:  snap.HasAttachments,
+		CodeBlockCount:  countCodeBlocks(snap.UserInput),
 		EstimatedTokens: estimateTokens(snap.UserInput),
 	}
 	res, err := a.router.Route(context.Background(), req)

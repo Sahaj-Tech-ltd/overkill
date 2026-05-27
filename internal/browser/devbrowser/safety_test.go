@@ -139,7 +139,7 @@ func TestIsPrivateOrSpecialIP(t *testing.T) {
 		{"10.0.0.1", true},
 		{"172.16.0.1", true},
 		{"192.168.1.1", true},
-		{"169.254.0.1", true}, // link-local
+		{"169.254.0.1", true},     // link-local
 		{"169.254.169.254", true}, // cloud metadata
 		{"0.0.0.0", true},
 		{"::1", true},

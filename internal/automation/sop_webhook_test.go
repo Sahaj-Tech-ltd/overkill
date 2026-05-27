@@ -18,7 +18,7 @@ type memorySOPStore struct {
 func newMemorySOPStore() *memorySOPStore {
 	return &memorySOPStore{sops: map[string]SOP{}}
 }
-func (s *memorySOPStore) SaveSOP(sop *SOP) error  { s.sops[sop.ID] = *sop; return nil }
+func (s *memorySOPStore) SaveSOP(sop *SOP) error { s.sops[sop.ID] = *sop; return nil }
 func (s *memorySOPStore) LoadSOPs() ([]SOP, error) {
 	out := make([]SOP, 0, len(s.sops))
 	for _, v := range s.sops {

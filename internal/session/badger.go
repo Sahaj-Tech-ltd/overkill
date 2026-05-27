@@ -24,7 +24,7 @@ func NewBadgerStore(dir string) (*BadgerStore, error) {
 		WithNumGoroutines(8).
 		WithLoggingLevel(badger.ERROR)
 
-	db, err := badger.Open(opts)
+	db, err := openWithTimeout(opts, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("session: opening badger db: %w", err)
 	}

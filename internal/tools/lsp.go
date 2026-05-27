@@ -33,11 +33,11 @@ type HoverResult struct {
 
 // LocationResult is a file/line/column triple returned for definition/references.
 type LocationResult struct {
-	File        string `json:"file"`
-	Line        int    `json:"line"`
-	Column      int    `json:"column"`
-	EndLine     int    `json:"end_line,omitempty"`
-	EndColumn   int    `json:"end_column,omitempty"`
+	File      string `json:"file"`
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	EndLine   int    `json:"end_line,omitempty"`
+	EndColumn int    `json:"end_column,omitempty"`
 }
 
 // ---------- shared input + validation ----------

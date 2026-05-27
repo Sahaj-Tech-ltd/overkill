@@ -10,9 +10,9 @@ import (
 )
 
 type fakeArchiver struct {
-	mu      sync.Mutex
-	calls   []archiveCall
-	err     error
+	mu    sync.Mutex
+	calls []archiveCall
+	err   error
 }
 
 type archiveCall struct {

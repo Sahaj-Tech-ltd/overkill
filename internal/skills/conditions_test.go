@@ -68,9 +68,9 @@ func TestConditions_FilePresent(t *testing.T) {
 		{[]string{"*.tsx"}, true},
 		{[]string{"missing.toml"}, false},
 		{[]string{"missing.toml", "go.mod"}, true}, // any-of
-		{[]string{}, true},                          // empty = wildcard
-		{[]string{"/etc/passwd"}, false},            // absolute rejected
-		{[]string{"../escape"}, false},              // traversal rejected
+		{[]string{}, true},                         // empty = wildcard
+		{[]string{"/etc/passwd"}, false},           // absolute rejected
+		{[]string{"../escape"}, false},             // traversal rejected
 	}
 	for _, tc := range cases {
 		c := Conditions{FilePresent: tc.files}

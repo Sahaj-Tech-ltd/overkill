@@ -2,18 +2,18 @@
 // store (§8.2 Phase 5 #6) to the agent.
 //
 // Typical flow:
-//   1. agent calls playbook_rank(task_type="migration") and reads
-//      top-K candidates.
-//   2. agent calls playbook_use(id=X) to record selection. Bumps
-//      LastUsedAt + UseCount.
-//   3. agent reads the playbook's Content into its own context and
-//      executes the procedure.
-//   4. After completion, agent calls playbook_record_outcome(id=X,
-//      success=true|false). Counter updates.
-//   5. If the playbook would have worked with a tweak, agent calls
-//      playbook_refine(parent_id=X, content=...) to create a child
-//      version. The parent's history stays intact; the child starts
-//      with a neutral prior.
+//  1. agent calls playbook_rank(task_type="migration") and reads
+//     top-K candidates.
+//  2. agent calls playbook_use(id=X) to record selection. Bumps
+//     LastUsedAt + UseCount.
+//  3. agent reads the playbook's Content into its own context and
+//     executes the procedure.
+//  4. After completion, agent calls playbook_record_outcome(id=X,
+//     success=true|false). Counter updates.
+//  5. If the playbook would have worked with a tweak, agent calls
+//     playbook_refine(parent_id=X, content=...) to create a child
+//     version. The parent's history stays intact; the child starts
+//     with a neutral prior.
 package tools
 
 import (

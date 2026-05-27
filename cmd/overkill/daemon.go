@@ -138,7 +138,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	_ = os.MkdirAll(autoDir, 0o755)
 
 	var (
-		wg         sync.WaitGroup
+		wg          sync.WaitGroup
 		startedCron bool
 		startedAuto bool
 	)
@@ -176,7 +176,6 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		daemonAlarm.Start()
 		defer daemonAlarm.Stop()
 		fmt.Printf("%s✓ automation engine started (%d alarms)%s\n", colorGreen, len(daemonAlarm.List()), colorReset)
-
 
 		// Routine engine (§7.1 Layer 4). Persists across restarts
 		// so registered event→action rules survive reboots with

@@ -8,8 +8,8 @@
 //
 // File resolution:
 //
-//   1. Power-user override at ~/.overkill/identity.toml (if exists)
-//   2. Embedded default (always available, ships with the binary)
+//  1. Power-user override at ~/.overkill/identity.toml (if exists)
+//  2. Embedded default (always available, ships with the binary)
 //
 // Power-user override is NOT advertised. The default is the identity.
 // We expose the override path so people who want to fork the voice
@@ -53,9 +53,9 @@ type identityFile struct {
 
 // LoadIdentity returns the active identity. Resolution order:
 //
-//   1. ~/.overkill/identity.toml (power-user override) if it exists
-//      and parses cleanly
-//   2. Embedded default
+//  1. ~/.overkill/identity.toml (power-user override) if it exists
+//     and parses cleanly
+//  2. Embedded default
 //
 // A malformed override file is treated as if absent — we don't want
 // a typo in the user's toml to leave the agent voiceless. The error

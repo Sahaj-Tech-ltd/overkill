@@ -40,9 +40,9 @@ import (
 
 // Playbook is one stored pattern.
 type Playbook struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 	// TaskTypes is the list of task-type tags this playbook
 	// matches. "migration", "refactor", "onboard", etc. Match by
 	// substring during Rank.

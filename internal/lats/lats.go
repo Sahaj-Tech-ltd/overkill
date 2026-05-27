@@ -55,8 +55,8 @@ type Branch struct {
 // BranchResult captures what one branch produced.
 type BranchResult struct {
 	Branch    Branch
-	Outcome   string        // "completed", "failed", "timeout", "cancelled"
-	Response  string        // the final agent response (for the scorer + audit)
+	Outcome   string // "completed", "failed", "timeout", "cancelled"
+	Response  string // the final agent response (for the scorer + audit)
 	StartedAt time.Time
 	EndedAt   time.Time
 	Duration  time.Duration

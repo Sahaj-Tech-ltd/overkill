@@ -615,16 +615,16 @@ func TestIsLoopbackAddr(t *testing.T) {
 	}{
 		{"127.0.0.1:8420", true},
 		{"127.0.0.2:8420", true},
-		{"::1:8420", false},             // must be bracketed; SplitHostPort can't parse bare IPv6:port
+		{"::1:8420", false}, // must be bracketed; SplitHostPort can't parse bare IPv6:port
 		{"[::1]:8420", true},
 		{"localhost:8420", true},
 		{"LOCALHOST:8420", true}, // case-insensitive
 		{"192.168.1.1:8420", false},
 		{"0.0.0.0:8420", false},
 		{"10.0.0.1:8420", false},
-		{":8420", false},                  // all interfaces
+		{":8420", false},                   // all interfaces
 		{"127.0.0.1.evil.com:8420", false}, // prefix-match trap
-		{"!27.0.0.1:8420", false},         // not an IP
+		{"!27.0.0.1:8420", false},          // not an IP
 	}
 	for _, tc := range tests {
 		t.Run(tc.addr, func(t *testing.T) {

@@ -30,7 +30,7 @@ type JobStatus string
 const (
 	JobQueued    JobStatus = "queued"
 	JobRunning   JobStatus = "running"
-	JobSuspended JobStatus = "suspended"  // waiting for remote approval
+	JobSuspended JobStatus = "suspended" // waiting for remote approval
 	JobCompleted JobStatus = "completed"
 	JobFailed    JobStatus = "failed"
 	JobCancelled JobStatus = "cancelled"
@@ -45,11 +45,11 @@ func isTerminal(s JobStatus) bool {
 type Job struct {
 	ID        string    `json:"id"`
 	SessionID string    `json:"session_id"`
-	Intent    string    `json:"intent"`      // the user prompt
+	Intent    string    `json:"intent"` // the user prompt
 	Status    JobStatus `json:"status"`
-	Channel   string    `json:"channel"`     // originating bridge channel
+	Channel   string    `json:"channel"` // originating bridge channel
 	ChatKey   string    `json:"chat_key"`
-	Profile   string    `json:"profile"`     // "remote" for bridge-originated
+	Profile   string    `json:"profile"` // "remote" for bridge-originated
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Error     string    `json:"error,omitempty"`
@@ -189,12 +189,12 @@ type RunFunc func(ctx context.Context, job Job) error
 // Worker is a bounded pool that picks up queued jobs, runs them, and
 // updates their status in JobStore.
 type Worker struct {
-	store   *JobStore
-	run     RunFunc
-	sem     chan struct{}
-	mu      sync.Mutex
-	queue   chan Job
-	cancel  context.CancelFunc
+	store  *JobStore
+	run    RunFunc
+	sem    chan struct{}
+	mu     sync.Mutex
+	queue  chan Job
+	cancel context.CancelFunc
 }
 
 // NewWorker creates a Worker with concurrency limited to n parallel jobs.

@@ -33,7 +33,7 @@ type BadgerTracker struct {
 func NewBadgerTracker(dir string, cfg config.CostConfig) (*BadgerTracker, error) {
 	opts := badger.DefaultOptions(dir)
 	opts.Logger = nil
-	db, err := badger.Open(opts)
+	db, err := openWithTimeout(opts, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("cost: %w", err)
 	}
@@ -42,6 +42,26 @@ func NewBadgerTracker(dir string, cfg config.CostConfig) (*BadgerTracker, error)
 		cfg:    cfg,
 		models: make(map[string]providers.Model),
 	}, nil
+}
+
+// openWithTimeout wraps badger.Open with a deadline so a stale LOCK file
+// or corrupt value log never hangs the caller indefinitely.
+func openWithTimeout(opts badger.Options, timeout time.Duration) (*badger.DB, error) {
+	type result struct {
+		db  *badger.DB
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		db, err := badger.Open(opts)
+		ch <- result{db, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.db, r.err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("badger.Open(%s) timed out after %v — possible stale LOCK file", opts.Dir, timeout)
+	}
 }
 
 func (bt *BadgerTracker) RegisterModel(m providers.Model) {

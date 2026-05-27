@@ -6,8 +6,8 @@
 //
 // Probe does the cheap detection work — opens the DB read-only briefly
 // to confirm the file structure is parseable. Two layers of failure:
-//   1. Open fails outright (typical: corrupt VLog header).
-//   2. Open succeeds but the head sequence is unreadable.
+//  1. Open fails outright (typical: corrupt VLog header).
+//  2. Open succeeds but the head sequence is unreadable.
 //
 // Either layer trips Probe → caller writes a memory_corruption alert
 // and switches the TUI into restore-prompt mode.
@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/dgraph-io/badger/v4"
 )
@@ -25,6 +26,26 @@ import (
 // ErrCorrupt is returned by Probe when the database cannot be opened
 // or the integrity smoke fails. Callers compare with errors.Is.
 var ErrCorrupt = errors.New("session: BadgerDB corruption detected")
+
+// openWithTimeout wraps badger.Open with a deadline so a stale LOCK file
+// or corrupt value log never hangs the caller indefinitely.
+func openWithTimeout(opts badger.Options, timeout time.Duration) (*badger.DB, error) {
+	type result struct {
+		db  *badger.DB
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		db, err := badger.Open(opts)
+		ch <- result{db, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.db, r.err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("badger.Open(%s) timed out after %v — possible stale LOCK file", opts.Dir, timeout)
+	}
+}
 
 // ProbeResult summarises an integrity check.
 type ProbeResult struct {
@@ -65,7 +86,7 @@ func Probe(dir, memoryExportPath string) ProbeResult {
 	opts := badger.DefaultOptions(dir).
 		WithLoggingLevel(badger.ERROR).
 		WithReadOnly(true)
-	db, err := badger.Open(opts)
+	db, err := openWithTimeout(opts, 10*time.Second)
 	if err != nil {
 		// "manifest has unsupported version" or "decoded value is
 		// not nil" — usually means file truncation or version skew.

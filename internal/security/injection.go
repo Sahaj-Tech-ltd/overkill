@@ -158,4 +158,3 @@ func classifyThreat(confidence float64, baseLevel ThreatLevel) ThreatLevel {
 	}
 	return ThreatLow
 }
-

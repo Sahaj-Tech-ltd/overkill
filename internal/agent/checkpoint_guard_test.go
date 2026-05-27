@@ -75,8 +75,8 @@ func TestPreToolCheckpoint_ShellDestructive(t *testing.T) {
 	a.SetCheckpointSnapshotter(s)
 
 	cases := []struct {
-		cmd       string
-		wantSnap  bool
+		cmd      string
+		wantSnap bool
 	}{
 		{`{"command":"rm -rf build/"}`, true},
 		{`{"command":"git reset --hard HEAD~1"}`, true},

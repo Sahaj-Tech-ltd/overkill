@@ -141,13 +141,13 @@ func TestAutonomyLevel_NeedsApproval(t *testing.T) {
 		dangerous bool
 		want      bool
 	}{
-		{AutonomySafe, false, true},  // safe: EVERYTHING needs approval
+		{AutonomySafe, false, true}, // safe: EVERYTHING needs approval
 		{AutonomySafe, true, true},
-		{AutonomyYolo, false, false},    // yolo: only dangerous
+		{AutonomyYolo, false, false}, // yolo: only dangerous
 		{AutonomyYolo, true, true},
-		{AutonomyAuto, false, false},     // auto: never
+		{AutonomyAuto, false, false}, // auto: never
 		{AutonomyAuto, true, false},
-		{AutonomyReadonly, false, true},  // can't execute anyway
+		{AutonomyReadonly, false, true}, // can't execute anyway
 		{AutonomyReadonly, true, true},
 		{AutonomySupervised, false, false}, // legacy: only dangerous
 		{AutonomySupervised, true, true},

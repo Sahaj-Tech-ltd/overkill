@@ -1,8 +1,8 @@
 package main
 
 import (
+	"github.com/Sahaj-Tech-ltd/overkill/deprecated/bubbletea-tui"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
-	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui"
 )
 
 // journalReaderProxy lets us register the bookmark_recall tool BEFORE

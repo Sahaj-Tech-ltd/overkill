@@ -43,13 +43,13 @@ import (
 // callers branch on this:
 //
 //   - VerdictClean      : file's hash is known and benign, or
-//                          scanner is the no-op default.
+//     scanner is the no-op default.
 //   - VerdictUnknown    : scanner has no record of this file —
-//                          either too new or never seen. Loader
-//                          may choose to allow with a warning.
+//     either too new or never seen. Loader
+//     may choose to allow with a warning.
 //   - VerdictSuspicious : at least one engine flagged the file but
-//                          not enough to count as malicious. Loader
-//                          should surface to the user but may allow.
+//     not enough to count as malicious. Loader
+//     should surface to the user but may allow.
 //   - VerdictMalicious  : confirmed bad. Loader MUST block.
 type Verdict string
 

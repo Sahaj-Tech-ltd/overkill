@@ -18,16 +18,16 @@ import (
 // of these are rejected. Public IPs always pass.
 var privateCIDRs = func() []*net.IPNet {
 	raw := []string{
-		"127.0.0.0/8",     // loopback v4
-		"10.0.0.0/8",      // RFC 1918
-		"172.16.0.0/12",   // RFC 1918
-		"192.168.0.0/16",  // RFC 1918
-		"169.254.0.0/16",  // link-local (cloud metadata services)
-		"100.64.0.0/10",   // CGNAT
-		"0.0.0.0/8",       // self
-		"::1/128",         // loopback v6
-		"fc00::/7",        // ULA v6
-		"fe80::/10",       // link-local v6
+		"127.0.0.0/8",    // loopback v4
+		"10.0.0.0/8",     // RFC 1918
+		"172.16.0.0/12",  // RFC 1918
+		"192.168.0.0/16", // RFC 1918
+		"169.254.0.0/16", // link-local (cloud metadata services)
+		"100.64.0.0/10",  // CGNAT
+		"0.0.0.0/8",      // self
+		"::1/128",        // loopback v6
+		"fc00::/7",       // ULA v6
+		"fe80::/10",      // link-local v6
 	}
 	out := make([]*net.IPNet, 0, len(raw))
 	for _, c := range raw {

@@ -18,10 +18,10 @@ package extensions
 // runtime Enable/Disable returns ErrUnsupported.
 type PluginsStubBackend struct{}
 
-func (PluginsStubBackend) Kind() Kind                       { return KindPlugin }
-func (PluginsStubBackend) List() ([]Extension, error)       { return nil, nil }
-func (PluginsStubBackend) Enable(id string) error           { _ = id; return ErrUnsupported }
-func (PluginsStubBackend) Disable(id string) error          { _ = id; return ErrUnsupported }
+func (PluginsStubBackend) Kind() Kind                 { return KindPlugin }
+func (PluginsStubBackend) List() ([]Extension, error) { return nil, nil }
+func (PluginsStubBackend) Enable(id string) error     { _ = id; return ErrUnsupported }
+func (PluginsStubBackend) Disable(id string) error    { _ = id; return ErrUnsupported }
 
 // HooksStubBackend reserves the hooks slot. Hooks today are loaded from
 // ~/.overkill/hooks/<point>/*.sh — runtime toggling means removing the
@@ -29,10 +29,10 @@ func (PluginsStubBackend) Disable(id string) error          { _ = id; return Err
 // the right answer until a hooks Enable/Disable verb exists.
 type HooksStubBackend struct{}
 
-func (HooksStubBackend) Kind() Kind                       { return KindHook }
-func (HooksStubBackend) List() ([]Extension, error)       { return nil, nil }
-func (HooksStubBackend) Enable(id string) error           { _ = id; return ErrUnsupported }
-func (HooksStubBackend) Disable(id string) error          { _ = id; return ErrUnsupported }
+func (HooksStubBackend) Kind() Kind                 { return KindHook }
+func (HooksStubBackend) List() ([]Extension, error) { return nil, nil }
+func (HooksStubBackend) Enable(id string) error     { _ = id; return ErrUnsupported }
+func (HooksStubBackend) Disable(id string) error    { _ = id; return ErrUnsupported }
 
 // MCPStubBackend reserves the MCP slot. MCP servers come and go on
 // their own lifecycle (started by config, managed by internal/mcp).
@@ -40,7 +40,7 @@ func (HooksStubBackend) Disable(id string) error          { _ = id; return ErrUn
 // commands for direct control.
 type MCPStubBackend struct{}
 
-func (MCPStubBackend) Kind() Kind                       { return KindMCP }
-func (MCPStubBackend) List() ([]Extension, error)       { return nil, nil }
-func (MCPStubBackend) Enable(id string) error           { _ = id; return ErrUnsupported }
-func (MCPStubBackend) Disable(id string) error          { _ = id; return ErrUnsupported }
+func (MCPStubBackend) Kind() Kind                 { return KindMCP }
+func (MCPStubBackend) List() ([]Extension, error) { return nil, nil }
+func (MCPStubBackend) Enable(id string) error     { _ = id; return ErrUnsupported }
+func (MCPStubBackend) Disable(id string) error    { _ = id; return ErrUnsupported }

@@ -19,9 +19,9 @@ type ExportContext struct {
 // ContextExport is the JSON envelope for cross-agent delegation.
 // It carries session metadata plus the filtered context payload.
 type ContextExport struct {
-	SessionID    string        `json:"session_id"`
-	Goal         string        `json:"goal"`
-	Context      ExportContext `json:"context"`
+	SessionID       string        `json:"session_id"`
+	Goal            string        `json:"goal"`
+	Context         ExportContext `json:"context"`
 	OverkillVersion string        `json:"overkill_version"`
 }
 

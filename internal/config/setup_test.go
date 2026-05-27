@@ -24,8 +24,8 @@ func TestAvailableProviders_ReturnsAll(t *testing.T) {
 	cfg := &Config{}
 	sw := NewSetupWizard(cfg)
 	providers := sw.AvailableProviders()
-	if len(providers) != 15 {
-		t.Fatalf("expected 15 providers, got %d", len(providers))
+	if len(providers) != 18 {
+		t.Fatalf("expected 18 providers, got %d", len(providers))
 	}
 	names := make([]string, len(providers))
 	for i, p := range providers {

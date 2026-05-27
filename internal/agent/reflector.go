@@ -24,7 +24,7 @@ type Failure struct {
 // Reflection mirrors internal/reflect.Reflection at the agent
 // boundary. Only the fields the agent needs to inject the note.
 type Reflection struct {
-	Mode       string  // string-typed at this boundary; internal/reflect owns the enum
+	Mode       string // string-typed at this boundary; internal/reflect owns the enum
 	RootCause  string
 	Hypothesis string
 	Confidence float64
