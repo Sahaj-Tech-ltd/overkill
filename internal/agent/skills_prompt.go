@@ -159,3 +159,24 @@ func sanitizeSkillBody(s string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// renderExtensionsSection returns a prompt block listing enabled extensions.
+// Nil-safe — returns empty string when no extensions manager is set.
+func (a *Agent) renderExtensionsSection() string {
+	a.mu.RLock()
+	em := a.extensionsManager
+	a.mu.RUnlock()
+	if em == nil {
+		return ""
+	}
+	exts := em.ListEnabled()
+	if len(exts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Enabled Extensions\n")
+	for _, ext := range exts {
+		fmt.Fprintf(&b, "- **%s** (%s): %s\n", ext.Name, ext.Kind, ext.Description)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}

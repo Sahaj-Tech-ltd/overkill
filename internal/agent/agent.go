@@ -10,15 +10,41 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/features"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
+
+// InputKind classifies user input routing (shell vs NL).
+type InputKind int
+
+const (
+	InputKindNL        InputKind = iota
+	InputKindShell
+	InputKindAmbiguous
+)
+
+// ExtensionsManager is satisfied by extensions.Manager. Tiny interface so
+// agent doesn't depend on the extensions package for listing.
+type ExtensionsManager interface {
+	ListEnabled() []ExtensionMeta
+}
+
+// ExtensionMeta is the minimal metadata for one extension, used in prompt
+// rendering. Kept simple to avoid importing the extensions package.
+type ExtensionMeta struct {
+	ID          string
+	Name        string
+	Kind        string
+	Description string
+}
 
 type Agent struct {
 	mu              sync.RWMutex
@@ -242,6 +268,46 @@ type Agent struct {
 	// ~/.overkill/journal/raw/ as JSONL. Nil-safe — absent recorder is a
 	// no-op during Run(). Set via SetFlightRecorder.
 	flightRecorder *journal.FlightRecorder
+
+	// featureManager gates prompt sections behind feature flags (P1).
+	// Nil-safe — when unset, all features are treated as enabled.
+	featureManager *features.Manager
+
+	// readCache caches file reads for speculative tool execution (P2).
+	// Nil-safe — when unset, file reads go directly to disk.
+	readCache *speculative.ReadCache
+
+	// extensionsManager tracks loaded extensions for prompt rendering (P2).
+	// Nil-safe — when unset, no extensions section is rendered.
+	extensionsManager ExtensionsManager
+
+	// inputClassifier, if set, is called to classify raw user input before
+	// the agent loop. Nil-safe — unset means all input is treated as NL.
+	inputClassifier func(string) InputKind
+
+	// sessionMetrics accumulates per-Run stats for drift detection (P3).
+	sessionMetrics sessionMetrics
+}
+
+// sessionMetrics tracks per-session stats for drift detection (P3).
+// Reset on each new session; aggregated by cmd/overkill on session end.
+type sessionMetrics struct {
+	mu               sync.Mutex
+	toolCalls        int
+	errors           int
+	recoveries       int
+	turns            int
+	totalTurnDuration time.Duration
+}
+
+// SessionMetrics returns a snapshot of the current session's metrics.
+func (a *Agent) SessionMetrics() (toolCalls int, errors int, recoveries int, turns int, totalTurnDuration time.Duration) {
+	if a == nil {
+		return
+	}
+	a.sessionMetrics.mu.Lock()
+	defer a.sessionMetrics.mu.Unlock()
+	return a.sessionMetrics.toolCalls, a.sessionMetrics.errors, a.sessionMetrics.recoveries, a.sessionMetrics.turns, a.sessionMetrics.totalTurnDuration
 }
 
 // PromptCompressor is the small interface the agent calls before assembling
@@ -327,6 +393,26 @@ func (a *Agent) SetModelRouter(r ModelRouter) {
 		return
 	}
 	a.modelRouter.Store(&modelRouterBox{ModelRouter: r})
+}
+
+// SetInputClassifier wires a function that classifies raw user input into
+// shell vs NL vs ambiguous. Pass nil to clear (all input treated as NL).
+func (a *Agent) SetInputClassifier(fn func(string) InputKind) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.inputClassifier = fn
+}
+
+// ClassifyInput runs the installed classifier against raw input. When no
+// classifier is set, returns InputKindNL (everything is natural language).
+func (a *Agent) ClassifyInput(raw string) InputKind {
+	a.mu.RLock()
+	fn := a.inputClassifier
+	a.mu.RUnlock()
+	if fn == nil {
+		return InputKindNL
+	}
+	return fn(raw)
 }
 
 // modelRouterBox wraps the interface so it can be stored in
@@ -659,6 +745,37 @@ func (a *Agent) SetFlightRecorder(fr *journal.FlightRecorder) {
 	a.flightRecorder = fr
 }
 
+// SetFeatureManager wires the feature-flag manager (P1). When set, the
+// agent gates prompt sections behind feature flags. Pass nil to disable.
+func (a *Agent) SetFeatureManager(fm *features.Manager) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.featureManager = fm
+}
+
+// SetReadCache wires the speculative read cache (P2). When set, file-read
+// tool paths check the cache before hitting disk. Pass nil to disable.
+func (a *Agent) SetReadCache(c *speculative.ReadCache) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.readCache = c
+}
+
+// ReadCache returns the speculative read cache, or nil when unset.
+func (a *Agent) ReadCache() *speculative.ReadCache {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.readCache
+}
+
+// SetExtensionsManager wires the extensions manager (P2). When set, the
+// agent renders enabled extensions into the system prompt. Pass nil to disable.
+func (a *Agent) SetExtensionsManager(em ExtensionsManager) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.extensionsManager = em
+}
+
 // SetCompletionEmitter wires the completion-event emitter (§8.7.2). When set,
 // the emitter is called once at the end of every Run() with a populated
 // CompletionEvent. Pass nil to disable. costTracker is optional; pass nil if
@@ -816,6 +933,11 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		result.Steps++
 		result.ToolCalls += len(stepResult.ToolCalls)
 		result.TotalTokens += stepResult.Tokens.InputTokens + stepResult.Tokens.OutputTokens
+		// Track per-session metrics for drift detection (P3).
+		a.sessionMetrics.mu.Lock()
+		a.sessionMetrics.toolCalls += len(stepResult.ToolCalls)
+		a.sessionMetrics.turns++
+		a.sessionMetrics.mu.Unlock()
 
 		if obs := a.usageObserver.Load(); obs != nil && (stepResult.Tokens.InputTokens > 0 || stepResult.Tokens.OutputTokens > 0) {
 			modelID := a.Model()
@@ -832,6 +954,10 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 			// completed cleanly, count it as a recovery. Self-learning's
 			// "you've solved this 3 times" trigger fires from these.
 			a.recordRecoverySuccess()
+			// Track recoveries for drift detection (P3).
+			a.sessionMetrics.mu.Lock()
+			a.sessionMetrics.recoveries++
+			a.sessionMetrics.mu.Unlock()
 			// §6.5 learning: record a correction if the user's message
 			// looks like one, so future turns benefit from the feedback.
 			a.recordCorrectionIfNeeded(userInput, result.Response)
@@ -979,6 +1105,10 @@ func (a *Agent) emitRecovery(stepErr error) {
 		"error":      stepErr.Error(),
 		"session_id": a.sessionID,
 	})
+	// Track errors for drift detection (P3).
+	a.sessionMetrics.mu.Lock()
+	a.sessionMetrics.errors++
+	a.sessionMetrics.mu.Unlock()
 
 	// §6.3 beat — first failure ever in this relationship. Recorder
 	// dedups via the milestone map; this fires every call but only
@@ -1085,6 +1215,11 @@ func (a *Agent) buildRequest() providers.Request {
 	}
 	if skillBlock := a.renderSkillSection(latestUser); skillBlock != "" {
 		prompt = prompt + "\n\n" + skillBlock
+	}
+	// Extensions (P2): render enabled extensions into the system prompt
+	// so the model knows what plugins/skills/hooks are active.
+	if extBlock := a.renderExtensionsSection(); extBlock != "" {
+		prompt = prompt + "\n\n" + extBlock
 	}
 	// Memory recall (master plan §6.1): top-K retrieval against latest user
 	// input. Slots between skills and personality so memory is framed as

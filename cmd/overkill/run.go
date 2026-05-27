@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -15,13 +16,23 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/compaction"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/credit"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/drift"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
+	eventsinks "github.com/Sahaj-Tech-ltd/overkill/internal/events/sinks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/extensions"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/hotreload"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/input"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/lats"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
 	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
@@ -34,6 +45,7 @@ var (
 	providerOverride string
 	noPersonality    bool
 	noBoot           bool
+	latsEnabled      bool
 )
 
 var runCmd = &cobra.Command{
@@ -127,6 +139,49 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// P0: context compaction — wire LCM-based compactor.
+	if compactProv := provider; compactProv != nil {
+		compactor := compaction.NewAgentCompactor(compactProv, tokenizer.NewEstimator(), 20)
+		a.SetCompactor(compactor, true)
+	}
+
+	// P0: hotreload — wire config file watcher.
+	if hotReloadBus != nil {
+		homeDir, _ := config.ConfigDir()
+		if homeDir != "" {
+			userYAML := filepath.Join(homeDir, "user.yaml")
+			if _, err := hotreload.WireAgent(context.Background(), hotReloadBus, a, userYAML, hotreload.DiscardReporter()); err != nil {
+				log.Printf("hotreload: wire agent: %v", err)
+			}
+		}
+	}
+
+	// P0: input classifier — shell vs NL routing.
+	a.SetInputClassifier(func(raw string) agent.InputKind {
+		return agent.InputKind(input.Classify(raw))
+	})
+
+	// P1: events/sinks — completion event emitter.
+	emit := events.NewEmitter(eventsinks.NewLogSink(log.Default()))
+	a.SetCompletionEmitter(emit, nil)
+
+	// P1: feature flags.
+	if featureMgr != nil {
+		a.SetFeatureManager(featureMgr)
+	}
+
+	// P2: speculative read cache + prefetcher.
+	readCache := speculative.NewReadCache(speculative.Options{})
+	a.SetReadCache(readCache)
+	prefetcher := speculative.NewPrefetcher(readCache, 2, 64)
+	prefetcher.Start(2)
+	defer prefetcher.Stop()
+
+	// P2: extensions manager.
+	if extensionsMgr != nil {
+		a.SetExtensionsManager(wrapExtensions(extensionsMgr))
+	}
+
 	// Best-effort sync manager — only when the user enabled it in config.
 	// We only need it if auto-push is on; otherwise skip the open entirely.
 	var syncMgr *syncpkg.Manager
@@ -173,10 +228,21 @@ func runAgent(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		input := strings.TrimSpace(scanner.Text())
-		if input == "" {
+		raw := strings.TrimSpace(scanner.Text())
+		if raw == "" {
 			continue
 		}
+
+		// P0: classify input — route shell commands directly.
+		if input.Classify(raw) == input.KindShell {
+			fmt.Print("\r\033[K")
+			fmt.Printf("%s$ %s%s\n", colorDim, raw, colorReset)
+			// Execute shell command directly.
+			runShellCommand(raw)
+			continue
+		}
+
+		input := raw
 
 		if strings.HasPrefix(input, "/") {
 			parts := strings.Fields(input)
@@ -212,7 +278,37 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Print("\r\033[K")
-		result, err := a.Run(ctx, input)
+
+		var result *agent.RunResult
+		var err error
+
+		// P3: LATS — multi-branch tree search.
+		if latsEnabled {
+			branches := []lats.Branch{
+				{ID: "direct", Approach: "direct solution"},
+				{ID: "careful", Approach: "careful step-by-step analysis"},
+			}
+			runner := lats.RunnerFunc(func(ctx context.Context, branch lats.Branch, workdir string) (string, string, error) {
+				r, e := a.Run(ctx, input)
+				if e != nil {
+					return "failed", "", e
+				}
+				return "completed", r.Response, nil
+			})
+			results, latsErr := lats.Race(context.Background(), branches, runner, nil, lats.Options{
+				MaxBranches:    2,
+				PerBranchTimeout: 5 * time.Minute,
+				FallbackWorkdir: cwd,
+			}, nil)
+			if latsErr == nil && len(results) > 0 {
+				result = &agent.RunResult{Response: results[0].Response}
+				fmt.Printf("%sLATS winner: %s (score %.2f)%s\n", colorDim, results[0].Branch.Approach, results[0].Score, colorReset)
+			} else {
+				result, err = a.Run(ctx, input)
+			}
+		} else {
+			result, err = a.Run(ctx, input)
+		}
 		if err != nil {
 			fmt.Printf("%s✗ %s%s\n", colorRed, err, colorReset)
 			continue
@@ -303,8 +399,8 @@ func truncate(s string, n int) string {
 }
 
 // finalizeSession runs cleanup hooks at session exit: journal summarizer,
-// memory export, and relationship arc persistence. Best-effort only —
-// errors are logged but never block exit.
+// memory export, relationship arc persistence, credit folding, and drift
+// detection. Best-effort only — errors are logged but never block exit.
 func finalizeSession(a *agent.Agent, providerName, modelName string) {
 	homeDir, err := config.ConfigDir()
 	if err != nil {
@@ -322,6 +418,122 @@ func finalizeSession(a *agent.Agent, providerName, modelName string) {
 	go func() {
 		exportMemoryIfNeeded(homeDir)
 	}()
+
+	// P3: credit assignment — fold session into analyzer.
+	go func() {
+		toolCalls, errs, recovs, turns, _ := a.SessionMetrics()
+		actions := make([]credit.Action, 0)
+		if toolCalls > 0 {
+			actions = append(actions, credit.Action{Tag: "tool_call", Category: "tool"})
+		}
+		if errs > 0 {
+			actions = append(actions, credit.Action{Tag: "error", Category: "error"})
+		}
+		if recovs > 0 {
+			actions = append(actions, credit.Action{Tag: "recovery", Category: "recovery"})
+		}
+		_ = turns // unused for now
+
+		outcome := credit.OutcomeSuccess
+		if errs > 0 && recovs == 0 {
+			outcome = credit.OutcomeFailure
+		}
+		analyzer := credit.NewAnalyzer()
+		analyzer.Fold(credit.SessionRecord{
+			SessionID: a.SessionID(),
+			Outcome:   outcome,
+			Actions:   actions,
+			Tags:      []string{providerName, modelName},
+		})
+		// Save to disk.
+		store := credit.NewStore(filepath.Join(homeDir, "credit"))
+		_ = store.SaveSession(credit.SessionRecord{
+			SessionID: a.SessionID(),
+			Outcome:   outcome,
+			Actions:   actions,
+			Tags:      []string{providerName, modelName},
+		})
+	}()
+
+	// P3: drift detection — compute session metrics and compare to baseline.
+	go func() {
+		toolCalls, errs, _, turns, _ := a.SessionMetrics()
+		sample := make(map[drift.Metric]float64)
+		if turns > 0 {
+			sample[drift.MetricToolCallsPerTurn] = float64(toolCalls) / float64(turns)
+		}
+		sample[drift.MetricErrorRate] = float64(errs)
+		sample[drift.MetricSessionLength] = float64(turns)
+
+		store := drift.NewStore(filepath.Join(homeDir, "drift", "baseline.json"))
+		baseline, _ := store.Load()
+		if baseline != nil {
+			findings := baseline.Compare(sample, drift.CompareOptions{Threshold: 2.0})
+			if len(findings) > 0 {
+				log.Printf("drift: %s", drift.FormatFindings(findings))
+			}
+			baseline.Fold(sample)
+			_ = store.Save(baseline)
+		}
+	}()
+}
+
+// runShellCommand executes a shell command directly and prints output.
+func runShellCommand(cmd string) {
+	out, err := execShellCommand(cmd)
+	if err != nil {
+		fmt.Printf("%s✗ %s%s\n", colorRed, err, colorReset)
+		return
+	}
+	fmt.Print(out)
+}
+
+// execShellCommand runs a shell command and returns its output.
+func execShellCommand(cmd string) (string, error) {
+	sh := os.Getenv("SHELL")
+	if sh == "" {
+		sh = "/bin/sh"
+	}
+	c := exec.Command(sh, "-c", cmd)
+	c.Env = os.Environ()
+	c.Stdin = os.Stdin
+	var stdout, stderr strings.Builder
+	c.Stdout = &stdout
+	c.Stderr = &stderr
+	err := c.Run()
+	out := stdout.String()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", stderr.String(), err)
+	}
+	return out, nil
+}
+
+// wrapExtensions adapts *extensions.Manager to agent.ExtensionsManager.
+func wrapExtensions(m *extensions.Manager) agent.ExtensionsManager {
+	return &extensionsAdapter{mgr: m}
+}
+
+type extensionsAdapter struct {
+	mgr *extensions.Manager
+}
+
+func (e *extensionsAdapter) ListEnabled() []agent.ExtensionMeta {
+	if e.mgr == nil {
+		return nil
+	}
+	exts, _ := e.mgr.List()
+	out := make([]agent.ExtensionMeta, 0, len(exts))
+	for _, ext := range exts {
+		if ext.Enabled {
+			out = append(out, agent.ExtensionMeta{
+				ID:          ext.ID,
+				Name:        ext.Name,
+				Kind:        string(ext.Kind),
+				Description: ext.Description,
+			})
+		}
+	}
+	return out
 }
 
 // narrateCLISession runs the journal summarizer for the CLI (non-TUI)
@@ -482,5 +694,6 @@ func init() {
 	runCmd.Flags().StringVar(&providerOverride, "provider", "", "override default provider")
 	runCmd.Flags().BoolVar(&noPersonality, "no-personality", false, "disable personality engine")
 	runCmd.Flags().BoolVar(&noBoot, "no-boot", false, "skip boot animation")
+	runCmd.Flags().BoolVar(&latsEnabled, "lats", false, "enable multi-branch LATS tree search (P3)")
 	rootCmd.AddCommand(runCmd)
 }

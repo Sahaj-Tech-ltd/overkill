@@ -2,12 +2,16 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/extensions"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/features"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/hotreload"
 )
 
 // Version is the build-time version string. Override with:
@@ -31,6 +35,13 @@ var (
 	quiet           bool
 	cfg             *config.Config
 	resolvedCfgPath string
+	// hotReloadBus is the live-reload event bus, started in PersistentPreRunE
+	// and consumed by run.go / tui.go for agent wiring.
+	hotReloadBus *hotreload.Bus
+	// featureManager holds the runtime feature flags loaded from ~/.overkill/features.toml.
+	featureMgr *features.Manager
+	// extensionsManager holds the unified extensions registry.
+	extensionsMgr *extensions.Manager
 )
 
 var rootCmd = &cobra.Command{
@@ -107,6 +118,27 @@ var rootCmd = &cobra.Command{
 				log.Info().Str("change", c).Msg("config migrated")
 			}
 		}
+
+		// P1: hotreload bus — watches user.yaml and notifies subscribers.
+		homeDir, _ := config.ConfigDir()
+		if homeDir != "" {
+			userYAML := filepath.Join(homeDir, "user.yaml")
+			hotReloadBus = hotreload.New(hotreload.Paths{
+				SkillsDir:       filepath.Join(homeDir, "skills"),
+				AgentsDir:       filepath.Join(homeDir, "agents"),
+				PluginsDir:      filepath.Join(homeDir, "plugins"),
+				UserConfigFile:  userYAML,
+			})
+		}
+
+		// P1: feature flags — load from ~/.overkill/features.toml if present.
+		featureMgr = features.NewManager()
+		if homeDir != "" {
+			_ = featureMgr.LoadFromTOML(filepath.Join(homeDir, "features.toml"))
+		}
+
+		// P2: extensions manager — register known backends.
+		extensionsMgr = extensions.NewManager()
 
 		return nil
 	},
