@@ -177,6 +177,26 @@ type WhatsAppCloudConfig struct {
 	Listen string `toml:"listen"`
 }
 
+// SignalConfig governs the optional Signal gateway via signal-cli REST API.
+// Off by default; requires signal-cli daemon running with --rest-api.
+type SignalConfig struct {
+	Enabled    bool   `toml:"enabled"`
+	RestAPIURL string `toml:"rest_api_url"` // default http://localhost:8080
+	Account    string `toml:"account"`      // E.164 phone number
+}
+
+// MatrixConfig governs the optional Matrix (Element, etc.) gateway via
+// raw HTTP against the Matrix Client-Server API. Off by default.
+// If AccessToken is empty but Password is set, the bot auto-logs in
+// with m.login.password to obtain a token at startup.
+type MatrixConfig struct {
+	Enabled       bool   `toml:"enabled"`
+	HomeserverURL string `toml:"homeserver_url"` // default https://matrix.org
+	UserID        string `toml:"user_id"`        // @user:homeserver
+	AccessToken   string `toml:"access_token"`   // env: MATRIX_ACCESS_TOKEN
+	Password      string `toml:"password"`       // for auto-login if no token
+}
+
 // GatewayConfig wires all remote messaging gateways. Each sub-section is
 // independently togglable so users can run telegram alone, discord
 // alone, whatsapp alone, the bridge alone, or any combination.
@@ -186,6 +206,8 @@ type GatewayConfig struct {
 	Slack    SlackConfig    `toml:"slack"`
 	WhatsApp WhatsAppConfig `toml:"whatsapp"`
 	Bridge   BridgeConfig   `toml:"bridge"`
+	Signal   SignalConfig   `toml:"signal"`
+	Matrix   MatrixConfig   `toml:"matrix"`
 }
 
 // VisionConfig governs the standalone vision describer used by remote

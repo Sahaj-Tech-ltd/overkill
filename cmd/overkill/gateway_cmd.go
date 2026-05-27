@@ -16,6 +16,8 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/bridge"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/discord"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/matrix"
+	gwsignal "github.com/Sahaj-Tech-ltd/overkill/internal/gateway/signal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/slack"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/telegram"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
@@ -25,15 +27,16 @@ var gatewayDryRun bool
 
 var gatewayCmd = &cobra.Command{
 	Use:   "gateway",
-	Short: "Run remote messaging gateways (Telegram, Discord, Slack, WhatsApp, Bridge)",
+	Short: "Run remote messaging gateways (Telegram, Discord, Slack, WhatsApp, Bridge, Signal, Matrix)",
 	Long: `Pipes inbound messages from configured remote channels into the same
 agent the TUI uses. Cross-channel session continuity: open the TUI,
 step away, /follow tui from your phone, and your phone messages drive
 whatever session the terminal is on.
 
-Configure under [gateways.telegram] / [gateways.discord] / [gateways.slack]
+Configure under [gateways.telegram] / [gateways.discord] / [gateways.slack] / [gateways.matrix]
 in your config, or via env vars:
-  TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN`,
+  TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SIGNAL_ACCOUNT,
+  MATRIX_ACCESS_TOKEN, MATRIX_PASSWORD`,
 
 	RunE: runGateway,
 }
@@ -152,6 +155,51 @@ func runGateway(cmd *cobra.Command, args []string) error {
 		b.Logger = logger
 		hub.Add(b)
 		logger.Printf("bridge: registered on %s (auth=%v)", listen, br.Token != "")
+	}
+
+	// --- Signal ---
+	if sg := cfg.Gateways.Signal; sg.Enabled {
+		restURL := sg.RestAPIURL
+		if restURL == "" {
+			restURL = "http://localhost:8080"
+		}
+		acct := sg.Account
+		if acct == "" {
+			acct = os.Getenv("SIGNAL_ACCOUNT")
+		}
+		if acct == "" {
+			logger.Printf("signal: enabled but no account; skipping")
+		} else {
+			sb := gwsignal.NewBot(restURL, acct, disp)
+			sb.Logger = logger
+			hub.Add(sb)
+			logger.Printf("signal: registered (rest=%s, account=%s)", restURL, acct)
+		}
+	}
+
+	// --- Matrix ---
+	if mx := cfg.Gateways.Matrix; mx.Enabled || os.Getenv("MATRIX_ACCESS_TOKEN") != "" {
+		hsURL := mx.HomeserverURL
+		if hsURL == "" {
+			hsURL = "https://matrix.org"
+		}
+		userID := mx.UserID
+		token := mx.AccessToken
+		if token == "" {
+			token = os.Getenv("MATRIX_ACCESS_TOKEN")
+		}
+		password := mx.Password
+		if password == "" {
+			password = os.Getenv("MATRIX_PASSWORD")
+		}
+		if userID == "" && token == "" {
+			logger.Printf("matrix: enabled but no user_id or access_token; skipping")
+		} else {
+			mb := matrix.NewBot(hsURL, userID, token, password, disp)
+			mb.Logger = logger
+			hub.Add(mb)
+			logger.Printf("matrix: registered (homeserver=%s, user=%s)", hsURL, userID)
+		}
 	}
 
 	if len(hub.Channels) == 0 {
