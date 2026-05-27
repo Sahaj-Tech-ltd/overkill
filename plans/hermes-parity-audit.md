@@ -124,10 +124,11 @@
 1. ~~**Slack gateway**~~ ✅ Done — Socket Mode, integrated
 2. ~~**TUI: streaming markdown + thinking toggle**~~ ✅ Done — SSE + progressive render + thinking-block
 3. ~~**TUI: queued messages badge + git branch**~~ ✅ Done — status bar
-4. **Discord gateway hardening** (exists but fragile)
-5. **WhatsApp gateway hardening** (exists but fragile)
-6. **TUI: subagent status panel** (Overkill's killer feature)
-7. **Learning from corrections** (feedback loop)
-8. **Send message tool** (cross-platform)
-9. **Signal + Matrix gateways** (encrypted messaging)
-10. **Image gen + TTS tools** (multimodal)
+4. ~~**Discord gateway hardening**~~ ✅ Done — backoff reconnect, rate limits, health check
+5. ~~**WhatsApp gateway hardening**~~ ✅ Done — Cloud + WhatsMeow hardened
+6. ~~**TUI: subagent status panel**~~ ✅ Done — sidebar agents tab
+7. ~~**Onboarding wizard**~~ ✅ Done — provider/model/TTS/gateway setup flow
+8. **Learning from corrections** (feedback loop)
+9. **Send message tool** (cross-platform)
+10. **Signal + Matrix gateways** (encrypted messaging)
+11. **Image gen + TTS tools** (multimodal)
