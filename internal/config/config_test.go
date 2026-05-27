@@ -205,8 +205,10 @@ func TestValidate_InvalidProviderType(t *testing.T) {
 		{Name: "bad", Type: "unknown_provider", APIKey: "key"},
 	}
 	errs := cfg.Validate()
-	require.NotEmpty(t, errs)
-	assert.Contains(t, errs[0].Error(), "not a valid provider type")
+	// Unknown provider types are no longer rejected — the factory
+	// auto-discovers from models.dev catalog. The config should
+	// pass validation and let the factory handle discovery.
+	assert.Empty(t, errs, "unknown provider types should be auto-discovered, not rejected")
 }
 
 func TestValidate_MissingProviderName(t *testing.T) {
