@@ -207,6 +207,7 @@ func (g *gatewayAgentAdapter) Stream(ctx context.Context, in string) (<-chan age
 func (g *gatewayAgentAdapter) SetSessionID(id string) { g.a.SetSessionID(id) }
 func (g *gatewayAgentAdapter) SessionID() string      { return g.a.SessionID() }
 func (g *gatewayAgentAdapter) EStop()                 { g.a.EStop() }
+func (g *gatewayAgentAdapter) Interrupt()             { g.a.Interrupt() }
 
 func init() {
 	gatewayCmd.Flags().BoolVar(&gatewayDryRun, "dry-run", false, "register channels and exit without polling")

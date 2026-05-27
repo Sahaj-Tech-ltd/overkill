@@ -299,6 +299,8 @@ func (r *whatsmeowReply) Error(ctx context.Context, _ string, err error) error {
 	return sendErr
 }
 
+func (r *whatsmeowReply) StartTyping() (stop func()) { return func() {} }
+
 func (r *whatsmeowReply) send(ctx context.Context, text string) (string, error) {
 	r.bot.mu.Lock()
 	client := r.bot.client

@@ -21,6 +21,9 @@ type AgentSender interface {
 	SetSessionID(id string)
 	SessionID() string
 	EStop()
+	// Interrupt cancels the currently running stream for this agent.
+	// Safe to call from any goroutine. No-op if no stream is running.
+	Interrupt()
 }
 
 // Inbound is one user-authored message arriving from any channel.
@@ -55,6 +58,10 @@ type Reply interface {
 	Update(ctx context.Context, handle, text string) error
 	Final(ctx context.Context, handle, text string) error
 	Error(ctx context.Context, handle string, err error) error
+	// StartTyping begins the native typing indicator if the channel supports it.
+	// Returns a stop function that clears the indicator. Channels without
+	// native typing support return a no-op stop function.
+	StartTyping() (stop func())
 }
 
 // Channel is one running gateway. Run blocks until ctx is cancelled.

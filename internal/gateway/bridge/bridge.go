@@ -368,6 +368,8 @@ func (r *bridgeReply) Error(_ context.Context, handle string, err error) error {
 	return nil
 }
 
+func (r *bridgeReply) StartTyping() (stop func()) { return func() {} }
+
 var approvalCmdRe = regexp.MustCompile(`^(approve|deny) ([a-f0-9-]+)$`)
 
 // handleApprovalCommand checks whether the inbound text is an approval command

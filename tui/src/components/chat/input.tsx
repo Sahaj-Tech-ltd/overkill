@@ -14,7 +14,8 @@ export function ChatInput({
   const [value, setValue] = useState("");
 
   useInput((input, key) => {
-    if (key.return && !disabled) {
+    // Ctrl+Enter to send, Enter for newline
+    if (key.return && key.ctrl && !disabled) {
       const trimmed = value.trim();
       if (trimmed.length > 0) {
         onSubmit(trimmed);

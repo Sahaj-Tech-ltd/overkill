@@ -196,6 +196,64 @@ func (c *Client) DownloadFile(ctx context.Context, filePath string) ([]byte, err
 	return io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 }
 
+// BotCommand is one entry in the command menu shown in Telegram's input bar.
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
+// SetMyCommands replaces the bot's command list for all chats.
+func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	cmdBytes, _ := json.Marshal(commands)
+	q := url.Values{}
+	q.Set("commands", string(cmdBytes))
+	var resp struct {
+		OK   bool   `json:"ok"`
+		Desc string `json:"description"`
+	}
+	if err := c.do(ctx, "setMyCommands", q, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram: setMyCommands: %s", resp.Desc)
+	}
+	return nil
+}
+
+// DeleteMyCommands removes all commands (for shutdown cleanup).
+func (c *Client) DeleteMyCommands(ctx context.Context) error {
+	var resp struct {
+		OK   bool   `json:"ok"`
+		Desc string `json:"description"`
+	}
+	if err := c.do(ctx, "deleteMyCommands", url.Values{}, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram: deleteMyCommands: %s", resp.Desc)
+	}
+	return nil
+}
+
+// SendChatAction shows a status action in the chat (typing, upload_photo, etc.).
+// The indicator auto-expires after 5 seconds — callers should refresh.
+func (c *Client) SendChatAction(ctx context.Context, chatID int64, action string) error {
+	q := url.Values{}
+	q.Set("chat_id", strconv.FormatInt(chatID, 10))
+	q.Set("action", action)
+	var resp struct {
+		OK   bool   `json:"ok"`
+		Desc string `json:"description"`
+	}
+	if err := c.do(ctx, "sendChatAction", q, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram: sendChatAction: %s", resp.Desc)
+	}
+	return nil
+}
+
 func (c *Client) do(ctx context.Context, method string, q url.Values, out any) error {
 	base := c.BaseURL
 	if base == "" {

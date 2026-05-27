@@ -33,7 +33,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: "Chat",
     shortcuts: [
-      { key: "Enter", description: "Send message" },
+      { key: "Ctrl+Enter", description: "Send message" },
       { key: "Ctrl+L", description: "Clear chat" },
     ],
   },

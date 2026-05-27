@@ -308,3 +308,5 @@ func (r *discordReply) Final(ctx context.Context, handle, text string) error {
 func (r *discordReply) Error(ctx context.Context, handle string, err error) error {
 	return r.Update(ctx, handle, "⚠️ "+err.Error())
 }
+
+func (r *discordReply) StartTyping() (stop func()) { return func() {} }

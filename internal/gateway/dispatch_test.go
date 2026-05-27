@@ -41,6 +41,7 @@ func (f *fakeAgent) Stream(_ context.Context, in string) (<-chan agent.StreamEve
 	return ch, nil
 }
 func (f *fakeAgent) EStop() { f.mu.Lock(); defer f.mu.Unlock(); f.sessionID = "" }
+func (f *fakeAgent) Interrupt() {}
 
 type capturedFrame struct {
 	kind string
@@ -76,6 +77,7 @@ func (r *fakeReply) Error(_ context.Context, _ string, err error) error {
 	r.frames = append(r.frames, capturedFrame{"error", err.Error()})
 	return nil
 }
+func (r *fakeReply) StartTyping() (stop func()) { return func() {} }
 
 func waitFinal(t *testing.T, r *fakeReply) string {
 	t.Helper()
