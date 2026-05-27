@@ -6,7 +6,10 @@ interface ChatInputProps {
   disabled?: boolean;
 }
 
-export function ChatInput({ onSubmit, disabled }: ChatInputProps): React.JSX.Element {
+export function ChatInput({
+  onSubmit,
+  disabled,
+}: ChatInputProps): React.JSX.Element {
   const [value, setValue] = useState("");
 
   return (
@@ -20,7 +23,9 @@ export function ChatInput({ onSubmit, disabled }: ChatInputProps): React.JSX.Ele
           setValue("");
         }
       }}
-      placeholder={disabled ? "Thinking..." : "Type a message... (Ctrl+Enter to send)"}
+      placeholder={
+        disabled ? "Thinking..." : "Type a message... (Ctrl+Enter to send)"
+      }
       focus={!disabled}
     />
   );

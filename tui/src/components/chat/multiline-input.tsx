@@ -86,7 +86,9 @@ export function MultilineInput({
       const lineLen = cursor - before - 1;
       const prevBefore = value.lastIndexOf("\n", before - 1);
       const prevLineLen = before - prevBefore - 1;
-      setCursor(Math.min(prevBefore + 1 + Math.min(lineLen, prevLineLen), before));
+      setCursor(
+        Math.min(prevBefore + 1 + Math.min(lineLen, prevLineLen), before),
+      );
       return;
     }
 
