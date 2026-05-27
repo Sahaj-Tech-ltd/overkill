@@ -40,7 +40,7 @@ func (f *fakeAgent) Stream(_ context.Context, in string) (<-chan agent.StreamEve
 	close(ch)
 	return ch, nil
 }
-func (f *fakeAgent) EStop() { f.mu.Lock(); defer f.mu.Unlock(); f.sessionID = "" }
+func (f *fakeAgent) EStop()     { f.mu.Lock(); defer f.mu.Unlock(); f.sessionID = "" }
 func (f *fakeAgent) Interrupt() {}
 
 type capturedFrame struct {
