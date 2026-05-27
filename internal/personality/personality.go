@@ -28,6 +28,9 @@ type Personality struct {
 	funFacts     *FunFactDB
 	soul         *SoulFile
 	identity     *Identity
+	cooking      *CookingMode
+	movies       *MovieQuotes
+	plan         *PlanState
 }
 
 func New(cfg Config) *Personality {
@@ -48,6 +51,9 @@ func New(cfg Config) *Personality {
 		funFacts:     NewFunFactDB(),
 		soul:         &SoulFile{Exists: false},
 		identity:     id,
+		cooking:      NewCookingMode(),
+		movies:       NewMovieQuotes(),
+		plan:         NewPlanState(""),
 	}
 }
 
@@ -78,6 +84,27 @@ func (p *Personality) Relationship() *RelationshipTracker {
 
 func (p *Personality) FunFacts() *FunFactDB {
 	return p.funFacts
+}
+
+func (p *Personality) Cooking() *CookingMode {
+	if p == nil {
+		return nil
+	}
+	return p.cooking
+}
+
+func (p *Personality) Movies() *MovieQuotes {
+	if p == nil {
+		return nil
+	}
+	return p.movies
+}
+
+func (p *Personality) Plan() *PlanState {
+	if p == nil {
+		return nil
+	}
+	return p.plan
 }
 
 func (p *Personality) Soul() *SoulFile {

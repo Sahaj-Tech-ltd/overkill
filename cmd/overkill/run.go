@@ -309,11 +309,16 @@ func finalizeSession(a *agent.Agent, providerName, modelName string) {
 // narrateCLISession runs the journal summarizer for the CLI (non-TUI)
 // session path. Mirrors writeJournalNarrative but takes raw params
 // instead of a TUI App struct.
+//
+// Uses the cheapest available model from the user's provider for the
+// summarization to keep journal costs negligible (§4.19 sub-agent
+// pattern — a tool-blocked observer that reads raw flight-recorder
+// entries and produces prose).
 func narrateCLISession(ctx context.Context, homeDir, sessionID, providerName, modelName string) {
 	jdir := filepath.Join(homeDir, "journal")
 	rec := journal.NewFlightRecorder(jdir, sessionID)
 
-	pc, model := resolveProvider()
+	pc, _ := resolveProvider()
 	if pc == nil {
 		return
 	}
@@ -330,23 +335,49 @@ func narrateCLISession(ctx context.Context, homeDir, sessionID, providerName, mo
 	if err != nil {
 		return
 	}
-	modelNameForSumm := model
-	if modelNameForSumm == "" {
-		modelNameForSumm = modelName
+
+	// Pick the cheapest model from the provider's list for journal work.
+	// Journal summarization is a fire-and-forget task — no tools needed,
+	// no vision needed, just a single completion call. The cheapest model
+	// that can produce coherent markdown prose wins.
+	cheapestModel := pickCheapestModel(p)
+	if cheapestModel == "" {
+		cheapestModel = modelName // fallback to whatever was passed
 	}
-	summ := journal.NewSummarizer(rec, p, modelNameForSumm)
+	if cheapestModel == "" {
+		cheapestModel = "gpt-4o-mini" // absolute fallback
+	}
+
+	summ := journal.NewSummarizer(rec, p, cheapestModel)
 	path, _, err := summ.NarrateSession(ctx, jdir, sessionID)
 	if err != nil {
 		log.Printf("journal narrate: %v", err)
 		return
 	}
 	if path != "" {
-		log.Printf("journal narrate: wrote %s", path)
+		log.Printf("journal narrate: wrote %s (model=%s)", path, cheapestModel)
 	}
 }
 
+// pickCheapestModel returns the ID of the cheapest model (by output cost)
+// from the provider's model list. Returns empty string if no models.
+func pickCheapestModel(p providers.Provider) string {
+	models := p.Models()
+	if len(models) == 0 {
+		return ""
+	}
+	best := models[0]
+	for i := 1; i < len(models); i++ {
+		if models[i].CostOut < best.CostOut {
+			best = models[i]
+		}
+	}
+	return best.ID
+}
+
 // exportMemoryIfNeeded writes memory-export.md if it doesn't exist
-// or is older than 24 hours. Lightweight — just a timestamp + note.
+// or is older than 24 hours. Contains a summary of recent sessions
+// pulled from the journal entries directory.
 func exportMemoryIfNeeded(homeDir string) {
 	exportPath := filepath.Join(homeDir, "memory-export.md")
 	// Check if recent enough
@@ -355,8 +386,58 @@ func exportMemoryIfNeeded(homeDir string) {
 			return // already fresh
 		}
 	}
-	content := fmt.Sprintf("# Overkill Memory Export\n\n> Auto-generated on session exit.\n> Last updated: %s\n\nMemory export is active. Journal entries are written to `journal/raw/`.\n", time.Now().Format("2006-01-02 15:04:05"))
-	_ = os.WriteFile(exportPath, []byte(content), 0o644)
+
+	// Gather what we know from the journal
+	entriesDir := filepath.Join(homeDir, "journal", "entries")
+	entries, _ := os.ReadDir(entriesDir)
+
+	var b strings.Builder
+	b.WriteString("# Overkill Memory Export\n\n")
+	b.WriteString("> Auto-generated on session exit.\n")
+	b.WriteString("> Last updated: " + time.Now().Format("2006-01-02 15:04:05") + "\n\n")
+
+	b.WriteString("## Recent Journal Entries\n\n")
+	if len(entries) == 0 {
+		b.WriteString("_(No journal entries yet. Start a session to populate the journal.)_\n\n")
+	} else {
+		// Show last 10 entries (newest first)
+		start := 0
+		if len(entries) > 10 {
+			start = len(entries) - 10
+		}
+		for i := len(entries) - 1; i >= start; i-- {
+			name := entries[i].Name()
+			dateStr := strings.TrimSuffix(name, ".md")
+			b.WriteString(fmt.Sprintf("- `%s` — journal entry\n", dateStr))
+		}
+	}
+
+	// Check for soul.md
+	soulPath := filepath.Join(homeDir, "memories", "soul.md")
+	if _, err := os.Stat(soulPath); err == nil {
+		b.WriteString("\n## Personality\n\n")
+		b.WriteString("- Soul file: `memories/soul.md` ✓\n")
+		b.WriteString("- Relationship arc: `memories/relationship-arc.json`\n")
+	}
+
+	// Check for skills
+	skillsDir := filepath.Join(homeDir, "skills")
+	if entries, err := os.ReadDir(skillsDir); err == nil && len(entries) > 0 {
+		b.WriteString("\n## Active Skills\n\n")
+		for _, e := range entries {
+			if !e.IsDir() {
+				b.WriteString(fmt.Sprintf("- `%s`\n", e.Name()))
+			}
+		}
+	}
+
+	b.WriteString("\n## Data Locations\n\n")
+	b.WriteString(fmt.Sprintf("- Journal raw: `%s/journal/raw/`\n", homeDir))
+	b.WriteString(fmt.Sprintf("- Journal entries: `%s/journal/entries/`\n", homeDir))
+	b.WriteString(fmt.Sprintf("- Memories: `%s/memories/`\n", homeDir))
+	b.WriteString(fmt.Sprintf("- Skills: `%s/skills/`\n", homeDir))
+
+	_ = os.WriteFile(exportPath, []byte(b.String()), 0o644)
 }
 
 func buildSystemPrompt(cfg *config.Config) string {
