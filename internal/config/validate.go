@@ -63,14 +63,24 @@ func (c *Config) Validate() []error {
 			"openai":     true,
 			"anthropic":  true,
 			"gemini":     true,
+			"deepseek":   true,
 			"ollama":     true,
 			"openrouter": true,
+			"groq":       true,
+			"xai":        true,
+			"mistral":    true,
+			"togetherai": true,
+			"perplexity": true,
+			"deepinfra":  true,
+			"cerebras":   true,
+			"fireworks":  true,
+			"bedrock":    true,
 			"custom":     true,
 		}
 		if p.Type != "" && !validTypes[p.Type] {
 			errs = append(errs, fmt.Errorf("config: providers[%d].type %q is not a valid provider type", i, p.Type))
 		}
-		if p.Type != "ollama" && p.APIKey == "" {
+		if p.Type != "ollama" && p.Type != "bedrock" && p.APIKey == "" {
 			errs = append(errs, fmt.Errorf("config: providers[%d].api_key is required for non-ollama provider %q", i, p.Type))
 		}
 	}
