@@ -71,9 +71,9 @@ func NewBedrockProvider(region, accessKeyID, secretAccessKey string, models []Mo
 // --- Bedrock Converse API shapes ---
 
 type bedrockConverseReq struct {
-	Messages        []bedrockConvMsg    `json:"messages"`
-	System          []bedrockSysBlock   `json:"system,omitempty"`
-	InferenceConfig *bedrockInfCfg      `json:"inferenceConfig,omitempty"`
+	Messages        []bedrockConvMsg  `json:"messages"`
+	System          []bedrockSysBlock `json:"system,omitempty"`
+	InferenceConfig *bedrockInfCfg    `json:"inferenceConfig,omitempty"`
 }
 
 type bedrockConvMsg struct {
