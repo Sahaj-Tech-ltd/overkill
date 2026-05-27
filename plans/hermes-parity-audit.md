@@ -2,16 +2,16 @@
 
 ## 🔴 CRITICAL (user-facing, immediately noticeable)
 
-### Gateways (Overkill has 4, Hermes has 16)
+### Gateways (Overkill has 7, Hermes has 16)
 | Platform | Hermes | Overkill | Action |
 |---|---|---|---|
 | Telegram | ✅ | ✅ | Polish done |
-| Discord | ✅ | ✅ | Needs hardening |
-| WhatsApp | ✅ | ✅ Cloud + Meow | Needs hardening |
-| **Slack** | ✅ | ✅ | Socket Mode, integrated |
-| Signal | ✅ | ❌ | Build |
-| Matrix | ✅ | ❌ | Build |
-| Mattermost | ✅ | ❌ | Build |
+| Discord | ✅ | ✅ | Hardened — backoff, rate limits, health |
+| WhatsApp | ✅ | ✅ Cloud + Meow | Hardened — backoff, rate limits, health |
+| Slack | ✅ | ✅ | Socket Mode, integrated |
+| **Signal** | ✅ | ✅ | signal-cli REST API, integrated |
+| **Matrix** | ✅ | ✅ | Raw HTTP Client-Server API, integrated |
+| Mattermost | ✅ | ❌ | Low priority |
 | Email | ✅ | ❌ | Low priority |
 | SMS | ✅ | ❌ | Low priority |
 | DingTalk | ✅ | ❌ | Skip (China) |
@@ -34,18 +34,19 @@
 | Queued messages badge | ✅ queuedMessages.tsx | ✅ status bar | ✅ |
 | Git branch display | ✅ useGitBranch.ts | ✅ status bar | ✅ |
 | Context-fill phase display | ✅ | ✅ status bar [phase] | ✅ |
-| Agents/subagent overlay | ✅ agentsOverlay.tsx | ❌ | Build subagent status panel |
-| Todo panel | ✅ todoPanel.tsx | ❌ | Build task tracking sidebar |
-| Skills hub | ✅ skillsHub.tsx | ❌ | Browse/load skills in TUI |
+| Subagent status panel | ✅ agentsOverlay.tsx | ✅ sidebar agents tab | ✅ |
+| Onboarding/setup wizard | ✅ | ✅ 6-step wizard (providers, models, TTS, vision, gateways) | ✅ |
+| Todo panel | ✅ todoPanel.tsx | ❌ | Low priority |
+| Skills hub | ✅ skillsHub.tsx | ❌ | Low priority |
 | Session picker | ✅ sessionPicker.tsx | ✅ session-manager.tsx | ✅ |
 | Model picker | ✅ modelPicker.tsx | ✅ model-switcher.tsx | ✅ |
-| Input history | ✅ useInputHistory.ts | ❌ | Add to multiline-input |
+| Input history | ✅ useInputHistory.ts | ❌ | Low priority |
 | FPS overlay | ✅ fpsOverlay.tsx | ❌ | Low priority |
-| Masked prompt | ✅ maskedPrompt.tsx | ❌ | For sensitive inputs |
+| Masked prompt | ✅ maskedPrompt.tsx | ❌ | Low priority |
 | Branding/skinning | ✅ branding.tsx + themed.tsx | ✅ boot-animation + themes | ✅ |
 | Command palette | ✅ slash/commands/ | ✅ command-palette.tsx | ✅ |
-| Mouse support | ✅ textInput mouse handlers | ❌ | Add to multiline-input |
-| Virtual scrolling | ✅ useVirtualHistory.ts | ❌ | For long transcripts |
+| Mouse support | ✅ textInput mouse handlers | ❌ | Low priority |
+| Virtual scrolling | ✅ useVirtualHistory.ts | ❌ | Low priority |
 
 ## 🟡 HIGH (major UX gaps)
 
@@ -69,9 +70,10 @@
 | Cron job tools | ✅ cronjob_tools.py | ✅ cron/ | ✅ |
 | MCP integration | ✅ mcp_tool.py | ✅ mcp/ | ✅ |
 | Code execution | ✅ code_execution_tool.py | ✅ shell tool | ✅ |
-| Image generation | ✅ image_generation_tool.py | ❌ | Build |
+| Send message | ✅ sendMessage | ✅ tools/messaging/ (Telegram, Discord, Slack) | ✅ |
 | TTS/speech | ✅ neutts_synth.py | ✅ tools/tts/ (edge, KittenTTS, OpenAI, ElevenLabs) | ✅ |
-| Discord messaging tool | ✅ discord_tool.py | ❌ | Build send_message |
+| Image generation | ✅ image_generation_tool.py | ❌ | Build |
+| Discord bot actions | ✅ discord_tool | ❌ | Low priority |
 | Feishu doc/drive | ✅ | ❌ | Skip |
 | HomeAssistant | ✅ | ❌ | Skip |
 | Vision (screenshots) | ✅ browser_cdp_tool.py | ✅ vision/ | ✅ |
@@ -85,8 +87,8 @@
 | Relationship tracking | ✅ trust scoring | ✅ personality/relationship.go | ✅ |
 | Style adaptation | ✅ style_matching | ✅ personality/style.go | ✅ |
 | Frustration detection | ✅ | ✅ personality/frustration.go | ✅ |
-| Cold start / onboarding | ✅ | ✅ onboarding wizard (providers, models, TTS, gateways, smart key detection, gateway test) | ✅ |
-| Learning from corrections | ✅ | ❌ | Build feedback loop |
+| Cold start / onboarding | ✅ | ✅ onboarding wizard | ✅ |
+| Learning from corrections | ✅ | ✅ learning/ (BadgerDB, TF retrieval, agent injection) | ✅ |
 | Skill auto-trigger learning | ✅ learn_trigger | ✅ skills/learn_trigger.go | ✅ |
 
 ### Plugins
@@ -95,20 +97,20 @@
 | Memory providers | ✅ memory/ | ✅ memory/ | ✅ |
 | Model providers | ✅ model-providers/ | ✅ providers/ | ✅ |
 | Spotify | ✅ | ❌ | Low priority |
-| Observability | ✅ observability/ | ❌ | Build metrics export |
+| Observability | ✅ observability/ | ❌ | Low priority |
 | Image gen | ✅ image_gen/ | ❌ | Low priority |
-| Dashboard | ✅ example-dashboard/ | ❌ | Web dashboard |
+| Dashboard | ✅ example-dashboard/ | ❌ | Low priority |
 
 ### Platforms (outbound messaging)
 | Feature | Hermes | Overkill | Action |
 |---|---|---|---|
-| Send message tool | ✅ sendMessage | ❌ | Build cross-platform send |
-| Discord bot actions | ✅ discord_tool | ❌ | Reactions, embeds, threads |
+| Send message tool | ✅ sendMessage | ✅ tools/messaging/ | ✅ |
+| Discord bot actions | ✅ discord_tool | ❌ | Low priority |
 | Voice notes (Telegram) | ✅ ogg voice | ❌ | Audio message support |
 
 ## ⚪ LOW (nice someday)
 
-- ACP/IDE integration (VS Code, Zed, JetBrains) — Hermes has acp_adapter/
+- ACP/IDE integration (VS Code, Zed, JetBrains)
 - Webhook subscriptions
 - Achievement system (hermes-achievements plugin)
 - Strike Freedom Cockpit (gaming plugin)
@@ -121,15 +123,15 @@
 
 ## Priority Execution Order
 
-1. ~~**Slack gateway**~~ ✅ Done — Socket Mode, integrated
-2. ~~**TUI: streaming markdown + thinking toggle**~~ ✅ Done — SSE + progressive render + thinking-block
-3. ~~**TUI: queued messages badge + git branch**~~ ✅ Done — status bar
-4. ~~**Discord gateway hardening**~~ ✅ Done — backoff reconnect, rate limits, health check
-5. ~~**WhatsApp gateway hardening**~~ ✅ Done — Cloud + WhatsMeow hardened
-6. ~~**TUI: subagent status panel**~~ ✅ Done — sidebar agents tab
-7. ~~**Onboarding wizard**~~ ✅ Done — provider/model/TTS/gateway setup flow (+ smart key detection, gateway test, progress bar)
-8. ~~**TTS tools**~~ ✅ Done — edge-tts, KittenTTS, OpenAI, ElevenLabs
-9. **Learning from corrections** (feedback loop)
-10. **Send message tool** (cross-platform)
-11. **Signal + Matrix gateways** (encrypted messaging)
-12. **Image gen tool** (multimodal)
+1. ~~**Slack gateway**~~ ✅ Done
+2. ~~**TUI: streaming markdown + thinking toggle**~~ ✅ Done
+3. ~~**TUI: queued messages badge + git branch**~~ ✅ Done
+4. ~~**Discord gateway hardening**~~ ✅ Done
+5. ~~**WhatsApp gateway hardening**~~ ✅ Done
+6. ~~**TUI: subagent status panel**~~ ✅ Done
+7. ~~**Onboarding wizard**~~ ✅ Done
+8. ~~**TTS tools**~~ ✅ Done
+9. ~~**Learning from corrections**~~ ✅ Done
+10. ~~**Send message tool**~~ ✅ Done
+11. ~~**Signal + Matrix gateways**~~ ✅ Done
+12. **Image gen tool** (multimodal) — last remaining
