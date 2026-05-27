@@ -26,6 +26,7 @@ type Config struct {
 	Browser     BrowserConfig     `toml:"browser"`
 	Rewriter    RewriterConfig    `toml:"rewriter"`
 	Ouroboros   OuroborosConfig   `toml:"ouroboros"`
+	ImageGen    ImageGenConfig    `toml:"image_gen"`
 
 	// DatabaseURL is the PostgreSQL connection string for persistent stores
 	// (learning corrections, etc.). Falls back to DATABASE_URL env var.
@@ -44,6 +45,17 @@ type OuroborosConfig struct {
 	APIKey     string `toml:"api_key"`     // falls back to <PROVIDER>_API_KEY
 	BaseURL    string `toml:"base_url"`    // optional override
 	StrictMode bool   `toml:"strict_mode"` // when true, warnings also block
+}
+
+// ImageGenConfig governs text-to-image generation (image_gen tool).
+// Provider can be "openai" (DALL-E 3), "stability" (Stability AI),
+// or "replicate" (Flux Schnell). API keys fall back to env vars:
+// OPENAI_API_KEY, STABILITY_API_KEY, REPLICATE_API_TOKEN.
+type ImageGenConfig struct {
+	Provider       string `toml:"provider"`        // "openai" | "stability" | "replicate"
+	OpenAIKey      string `toml:"openai_key"`      // falls back to OPENAI_API_KEY
+	StabilityKey   string `toml:"stability_key"`   // falls back to STABILITY_API_KEY
+	ReplicateToken string `toml:"replicate_token"` // falls back to REPLICATE_API_TOKEN
 }
 
 // TTSConfig governs text-to-speech settings for the tts.speak tool.

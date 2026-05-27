@@ -20,6 +20,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
 	termpkg "github.com/Sahaj-Tech-ltd/overkill/internal/term"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
+	imagegen "github.com/Sahaj-Tech-ltd/overkill/internal/tools/imagegen"
 	messaging "github.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging"
 	ttspkg "github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
 	"github.com/spf13/cobra"
@@ -91,6 +92,7 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 	reg := tools.NewRegistry()
 	reg.Register(ttspkg.New(loadedCfg.TTS))
 	reg.Register(messaging.New(loadedCfg.Gateways))
+	reg.Register(imagegen.New(loadedCfg.ImageGen))
 
 	// Wire the learning-from-corrections store (§6.5). The API server
 	// passes it to every agent it creates so the TUI loop benefits from

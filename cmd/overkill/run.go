@@ -36,6 +36,7 @@ import (
 	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
+	imagegen "github.com/Sahaj-Tech-ltd/overkill/internal/tools/imagegen"
 	messaging "github.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging"
 	ttspkg "github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
 )
@@ -98,6 +99,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	toolReg.Register(tools.NewWebTool())
 	toolReg.Register(ttspkg.New(cfg.TTS))
 	toolReg.Register(messaging.New(cfg.Gateways))
+	toolReg.Register(imagegen.New(cfg.ImageGen))
 
 	agentCfg := agent.Config{
 		Provider:    provider,

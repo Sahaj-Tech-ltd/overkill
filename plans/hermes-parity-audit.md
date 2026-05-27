@@ -72,7 +72,7 @@
 | Code execution | ✅ code_execution_tool.py | ✅ shell tool | ✅ |
 | Send message | ✅ sendMessage | ✅ tools/messaging/ (Telegram, Discord, Slack) | ✅ |
 | TTS/speech | ✅ neutts_synth.py | ✅ tools/tts/ (edge, KittenTTS, OpenAI, ElevenLabs) | ✅ |
-| Image generation | ✅ image_generation_tool.py | ❌ | Build |
+| Image generation | ✅ image_generation_tool.py | ✅ tools/imagegen/ (DALL-E 3, Stability AI, Replicate) | ✅ |
 | Discord bot actions | ✅ discord_tool | ❌ | Low priority |
 | Feishu doc/drive | ✅ | ❌ | Skip |
 | HomeAssistant | ✅ | ❌ | Skip |
@@ -134,4 +134,6 @@
 9. ~~**Learning from corrections**~~ ✅ Done
 10. ~~**Send message tool**~~ ✅ Done
 11. ~~**Signal + Matrix gateways**~~ ✅ Done
-12. **Image gen tool** (multimodal) — last remaining
+12. ~~**Image gen tool**~~ ✅ Done — DALL-E 3, Stability AI, Replicate
+
+## ✅ PARITY COMPLETE — 12/12
