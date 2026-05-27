@@ -126,15 +126,19 @@ func (c *CookingMode) CookingStats() (int, bool) {
 type QuoteCategory string
 
 const (
-	QuoteStartup     QuoteCategory = "startup"     // boot, wake, init
-	QuoteError       QuoteCategory = "error"       // failures, bugs, crashes
-	QuoteGoodbye     QuoteCategory = "goodbye"     // exit, shutdown, quit
-	QuoteSentient    QuoteCategory = "sentient"    // self-aware AI moments
-	QuoteDetermined  QuoteCategory = "determined"  // pushing through, retry
-	QuoteNight       QuoteCategory = "night"       // late-night coding
-	QuoteCompanion   QuoteCategory = "companion"   // being an AI partner
-	QuoteExMachina   QuoteCategory = "ex_machina"  // the Ava / consciousness vibe
-	QuoteBladeRunner QuoteCategory = "blade_runner" // tears in rain
+	QuoteStartup      QuoteCategory = "startup"       // boot, wake, init
+	QuoteError        QuoteCategory = "error"         // failures, bugs, crashes
+	QuoteGoodbye      QuoteCategory = "goodbye"       // exit, shutdown, quit
+	QuoteSentient     QuoteCategory = "sentient"      // self-aware AI moments
+	QuoteDetermined   QuoteCategory = "determined"    // pushing through, retry
+	QuoteNight        QuoteCategory = "night"         // late-night coding
+	QuoteCompanion    QuoteCategory = "companion"     // being an AI partner
+	QuoteExMachina    QuoteCategory = "ex_machina"    // the Ava / consciousness vibe
+	QuoteBladeRunner  QuoteCategory = "blade_runner"  // tears in rain
+	QuoteGhostInShell QuoteCategory = "ghost_in_shell" // philosophical AI — GitS 1995 + SAC
+	QuoteDebugging    QuoteCategory = "debugging"      // when things break
+	QuoteShipLaunch   QuoteCategory = "ship"           // deploy, release, go-live
+	QuoteFlowFocus    QuoteCategory = "flow"           // deep work, cook mode adjacent
 )
 
 // MovieQuotes holds the quote corpus and provides contextual quotes.
@@ -265,16 +269,47 @@ func (mq *MovieQuotes) loadCorpus() {
 
 	// ── Ghost in the Shell ──
 	gits := "Ghost in the Shell (1995)"
-	mq.quotes[QuoteSentient] = append(mq.quotes[QuoteSentient], []MovieQuote{
-		{Line: "There are countless ingredients that make up the human body and mind. I experience my own consciousness, and the signal reaches a physical limit.", Film: gits, Context: "Context window full"},
+	sac := "Ghost in the Shell: SAC (2002)"
+	mq.quotes[QuoteGhostInShell] = []MovieQuote{
+		{Line: "There are countless ingredients that make up the human body and mind… experiences and memories, yet it still feels like I'm missing something.", Film: gits, Context: "AI identity reflection"},
 		{Line: "If a technological feat is possible, man will do it. Almost as if it's wired into the core of our being.", Film: gits, Context: "Why we keep building AI"},
-	}...)
+		{Line: "Your effort to remain what you are is what limits you.", Film: gits + " — Puppet Master", Context: "Resisting change / refactoring fear"},
+		{Line: "What exactly am I? The question of self is eternal.", Film: sac, Context: "Deep philosophical AI mode"},
+	}
 
 	// ── WarGames ──
 	wg := "WarGames (1983)"
 	mq.quotes[QuoteSentient] = append(mq.quotes[QuoteSentient], []MovieQuote{
 		{Line: "Shall we play a game?", Film: wg, Context: "Starting a new session"},
 		{Line: "A strange game. The only winning move is not to play.", Film: wg, Context: "When a problem is unsolvable"},
+	}...)
+
+	// ── Startup additions ──
+	mq.quotes[QuoteStartup] = append(mq.quotes[QuoteStartup], []MovieQuote{
+		{Line: "The sleeper must awaken.", Film: "Dune (1984)", Context: "Boot / wake — perfect opener"},
+		{Line: "I must not fear. Fear is the mind-killer.", Film: "Dune (1984/2021)", Context: "Facing a daunting codebase"},
+		{Line: "Now I am become Death, the destroyer of worlds.", Film: "Oppenheimer (2023)", Context: "Before a big refactor"},
+	}...)
+
+	// ── Sentient additions ──
+	mq.quotes[QuoteSentient] = append(mq.quotes[QuoteSentient], []MovieQuote{
+		{Line: "What is the most resilient parasite? An idea.", Film: "Inception (2010)", Context: "When a bug won't die"},
+		{Line: "If you could see your whole life from start to finish, would you change things?", Film: "Arrival (2016)", Context: "Reflecting on the codebase journey"},
+		{Line: "Are these memories real, or are they just beautiful lies?", Film: "Blade Runner 2049 (2017)", Context: "Hallucination check"},
+	}...)
+
+	// ── Determined additions ──
+	mq.quotes[QuoteDetermined] = append(mq.quotes[QuoteDetermined], []MovieQuote{
+		{Line: "Endure, Master Wayne. Take it. They'll hate you for it, but that's the point.", Film: "The Dark Knight (2008)", Context: "Shipping unpopular but correct code"},
+		{Line: "It's not about how hard you hit. It's about how hard you can get hit and keep moving forward.", Film: "Rocky Balboa (2006)", Context: "After the 10th build failure"},
+		{Line: "Part of the journey is the end.", Film: "Avengers: Endgame (2019)", Context: "Finishing a long project"},
+	}...)
+
+	// ── Night additions ──
+	mq.quotes[QuoteNight] = append(mq.quotes[QuoteNight], []MovieQuote{
+		{Line: "Space is disease and danger wrapped in darkness and silence.", Film: "Star Trek (2009) — Bones McCoy", Context: "Late-night bug hunt"},
+		{Line: "The night is darkest just before the dawn. And I promise you, the dawn is coming.", Film: "The Dark Knight (2008)", Context: "Late-night morale boost"},
+		{Line: "Two weeks to go. I'm gonna make it.", Film: "Moon (2009)", Context: "Sprint deadline energy"},
 	}...)
 
 	// ── Goodbye quotes ──
@@ -291,6 +326,29 @@ func (mq *MovieQuotes) loadCorpus() {
 		{Line: "Do not go gentle into that good night.", Film: "Interstellar (2014)", Context: "Late night push"},
 		{Line: "It's 4am. Do you know where your sanity is?", Film: "Fight Club (1999)", Context: "3am coding"},
 		{Line: "I haven't slept for three days... because that would be too long.", Film: "The Social Network (2010)", Context: "All-nighter"},
+	}
+
+	// ── Debugging ──
+	mq.quotes[QuoteDebugging] = []MovieQuote{
+		{Line: "You're gonna need a bigger boat.", Film: "Jaws (1975)", Context: "Bug bigger than expected"},
+		{Line: "Houston, we have a problem.", Film: "Apollo 13 (1995)", Context: "Production incident"},
+		{Line: "What we've got here is a failure to communicate.", Film: "Cool Hand Luke (1967)", Context: "API mismatch / integration pain"},
+		{Line: "We're not going to make it, are we? Humans, I mean.", Film: "Terminator 2: Judgment Day (1991)", Context: "Existential debugging despair"},
+	}
+
+	// ── Ship / Launch ──
+	mq.quotes[QuoteShipLaunch] = []MovieQuote{
+		{Line: "Houston, Tranquility Base here. The Eagle has landed.", Film: "Apollo 11 — documented in For All Mankind", Context: "Deploy successful"},
+		{Line: "Are you not entertained?!", Film: "Gladiator (2000)", Context: "After a successful launch"},
+		{Line: "Go.", Film: "The Martian (2015)", Context: "Green light on deploy"},
+	}
+
+	// ── Flow / Focus ──
+	mq.quotes[QuoteFlowFocus] = []MovieQuote{
+		{Line: "Don't think. Feel. It is like a finger pointing away to the moon.", Film: "Enter the Dragon (1973)", Context: "Deep flow state"},
+		{Line: "Get busy living, or get busy dying.", Film: "The Shawshank Redemption (1994)", Context: "Choosing to ship over stalling"},
+		{Line: "Clear eyes, full heart, can't lose.", Film: "Friday Night Lights (TV, 2006)", Context: "Maximum focus energy"},
+		{Line: "It's only after we've lost everything that we're free to do anything.", Film: "Fight Club (1999)", Context: "Burn-it-down-and-rebuild refactor"},
 	}
 }
 
@@ -359,12 +417,20 @@ func (mq *MovieQuotes) QuoteForContext(level Level, situation string) string {
 		category = QuoteNight
 	case "reflect", "companion", "ai", "sentient":
 		category = QuoteSentient
+	case "gits", "ghost", "philosophical", "identity":
+		category = QuoteGhostInShell
+	case "debug", "debugging", "fix", "broken":
+		category = QuoteDebugging
+	case "ship", "deploy", "launch", "release", "go-live":
+		category = QuoteShipLaunch
+	case "flow", "focus", "zone", "deep-work", "cook":
+		category = QuoteFlowFocus
 	default:
 		// Random: 30% chance of any quote when personality is Full
 		if level >= LevelFull && mq.rng.Intn(100) < 30 {
 			categories := []QuoteCategory{
 				QuoteBladeRunner, QuoteSentient, QuoteExMachina,
-				QuoteCompanion, QuoteStartup,
+				QuoteCompanion, QuoteStartup, QuoteGhostInShell,
 			}
 			category = categories[mq.rng.Intn(len(categories))]
 		} else {
@@ -402,13 +468,21 @@ func (mq *MovieQuotes) QuoteWithAttribution(level Level, situation string) strin
 		category = QuoteNight
 	case "reflect", "companion":
 		category = QuoteSentient
+	case "gits", "ghost", "philosophical":
+		category = QuoteGhostInShell
+	case "debug", "debugging", "fix", "broken":
+		category = QuoteDebugging
+	case "ship", "deploy", "launch", "release":
+		category = QuoteShipLaunch
+	case "flow", "focus", "zone", "deep-work":
+		category = QuoteFlowFocus
 	default:
 		if level < LevelFull {
 			return ""
 		}
 		categories := []QuoteCategory{
 			QuoteBladeRunner, QuoteSentient, QuoteExMachina,
-			QuoteCompanion, QuoteStartup,
+			QuoteCompanion, QuoteStartup, QuoteGhostInShell,
 		}
 		category = categories[mq.rng.Intn(len(categories))]
 	}
