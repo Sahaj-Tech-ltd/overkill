@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
@@ -375,6 +377,122 @@ func (s *Server) handleConfigCreate(_ context.Context, params []byte) (interface
 // Stubbed: returns an empty list until the agent tracks subagent state.
 func (s *Server) handleAgentSubagents(_ context.Context, _ []byte) (interface{}, *RPCError) {
 	return &SubagentListResult{Subagents: []SubagentInfo{}}, nil
+}
+
+// handleGatewayTest tests a gateway token by making a lightweight API call.
+// Supported gateways: discord, telegram, slack.
+func (s *Server) handleGatewayTest(ctx context.Context, params []byte) (interface{}, *RPCError) {
+	var p GatewayTestParams
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.Gateway == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "gateway is required"}
+	}
+	if p.Token == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "token is required"}
+	}
+
+	switch p.Gateway {
+	case "discord":
+		return s.testDiscord(ctx, p.Token)
+	case "telegram":
+		return s.testTelegram(ctx, p.Token)
+	case "slack":
+		return s.testSlack(ctx, p.Token)
+	default:
+		return nil, &RPCError{Code: InvalidParams, Message: fmt.Sprintf("unsupported gateway: %s (use discord, telegram, or slack)", p.Gateway)}
+	}
+}
+
+func (s *Server) testDiscord(ctx context.Context, token string) (*GatewayTestResult, *RPCError) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://discord.com/api/v10/users/@me", nil)
+	if err != nil {
+		return &GatewayTestResult{OK: false, Error: err.Error()}, nil
+	}
+	req.Header.Set("Authorization", "Bot "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return &GatewayTestResult{OK: false, Error: err.Error()}, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return &GatewayTestResult{OK: false, Error: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}, nil
+	}
+
+	var user struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return &GatewayTestResult{OK: false, Error: fmt.Sprintf("failed to parse response: %v", err)}, nil
+	}
+
+	return &GatewayTestResult{OK: true, User: user.Username}, nil
+}
+
+func (s *Server) testTelegram(ctx context.Context, token string) (*GatewayTestResult, *RPCError) {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/getMe", token)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return &GatewayTestResult{OK: false, Error: err.Error()}, nil
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return &GatewayTestResult{OK: false, Error: err.Error()}, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return &GatewayTestResult{OK: false, Error: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}, nil
+	}
+
+	var result struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Username string `json:"username"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return &GatewayTestResult{OK: false, Error: fmt.Sprintf("failed to parse response: %v", err)}, nil
+	}
+	if !result.OK {
+		return &GatewayTestResult{OK: false, Error: "telegram API returned ok=false"}, nil
+	}
+
+	return &GatewayTestResult{OK: true, User: result.Result.Username}, nil
+}
+
+func (s *Server) testSlack(ctx context.Context, token string) (*GatewayTestResult, *RPCError) {
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://slack.com/api/auth.test", nil)
+	if err != nil {
+		return &GatewayTestResult{OK: false, Error: err.Error()}, nil
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return &GatewayTestResult{OK: false, Error: err.Error()}, nil
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		OK   bool   `json:"ok"`
+		User string `json:"user"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return &GatewayTestResult{OK: false, Error: fmt.Sprintf("failed to parse response: %v", err)}, nil
+	}
+	if !result.OK {
+		return &GatewayTestResult{OK: false, Error: "slack API returned ok=false"}, nil
+	}
+
+	return &GatewayTestResult{OK: true, User: result.User}, nil
 }
 
 // ---------------------------------------------------------------------------

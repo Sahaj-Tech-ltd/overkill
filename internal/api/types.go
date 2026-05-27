@@ -207,6 +207,19 @@ type SubagentListResult struct {
 	Subagents []SubagentInfo `json:"subagents"`
 }
 
+// --- gateway.test ---
+
+type GatewayTestParams struct {
+	Gateway string `json:"gateway"` // "discord" | "telegram" | "slack"
+	Token   string `json:"token"`
+}
+
+type GatewayTestResult struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	User  string `json:"user,omitempty"` // bot username if OK
+}
+
 // --- status ---
 
 type HealthResult struct {

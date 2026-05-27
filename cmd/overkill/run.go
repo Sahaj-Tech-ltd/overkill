@@ -24,6 +24,7 @@ import (
 	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
+	ttspkg "github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
 )
 
 var (
@@ -81,6 +82,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	toolReg.Register(tools.NewGitTool(cwd))
 	toolReg.Register(tools.NewGrepTool(cwd))
 	toolReg.Register(tools.NewWebTool())
+	toolReg.Register(ttspkg.New(cfg.TTS))
 
 	agentCfg := agent.Config{
 		Provider:    provider,
