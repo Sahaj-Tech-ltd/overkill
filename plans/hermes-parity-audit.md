@@ -70,7 +70,7 @@
 | MCP integration | ✅ mcp_tool.py | ✅ mcp/ | ✅ |
 | Code execution | ✅ code_execution_tool.py | ✅ shell tool | ✅ |
 | Image generation | ✅ image_generation_tool.py | ❌ | Build |
-| TTS/speech | ✅ neutts_synth.py | ❌ | Build |
+| TTS/speech | ✅ neutts_synth.py | ✅ tools/tts/ (edge, KittenTTS, OpenAI, ElevenLabs) | ✅ |
 | Discord messaging tool | ✅ discord_tool.py | ❌ | Build send_message |
 | Feishu doc/drive | ✅ | ❌ | Skip |
 | HomeAssistant | ✅ | ❌ | Skip |
@@ -85,7 +85,7 @@
 | Relationship tracking | ✅ trust scoring | ✅ personality/relationship.go | ✅ |
 | Style adaptation | ✅ style_matching | ✅ personality/style.go | ✅ |
 | Frustration detection | ✅ | ✅ personality/frustration.go | ✅ |
-| Cold start / onboarding | ✅ | ✅ personality/coldstart.go | ✅ |
+| Cold start / onboarding | ✅ | ✅ onboarding wizard (providers, models, TTS, gateways, smart key detection, gateway test) | ✅ |
 | Learning from corrections | ✅ | ❌ | Build feedback loop |
 | Skill auto-trigger learning | ✅ learn_trigger | ✅ skills/learn_trigger.go | ✅ |
 
@@ -127,8 +127,9 @@
 4. ~~**Discord gateway hardening**~~ ✅ Done — backoff reconnect, rate limits, health check
 5. ~~**WhatsApp gateway hardening**~~ ✅ Done — Cloud + WhatsMeow hardened
 6. ~~**TUI: subagent status panel**~~ ✅ Done — sidebar agents tab
-7. ~~**Onboarding wizard**~~ ✅ Done — provider/model/TTS/gateway setup flow
-8. **Learning from corrections** (feedback loop)
-9. **Send message tool** (cross-platform)
-10. **Signal + Matrix gateways** (encrypted messaging)
-11. **Image gen + TTS tools** (multimodal)
+7. ~~**Onboarding wizard**~~ ✅ Done — provider/model/TTS/gateway setup flow (+ smart key detection, gateway test, progress bar)
+8. ~~**TTS tools**~~ ✅ Done — edge-tts, KittenTTS, OpenAI, ElevenLabs
+9. **Learning from corrections** (feedback loop)
+10. **Send message tool** (cross-platform)
+11. **Signal + Matrix gateways** (encrypted messaging)
+12. **Image gen tool** (multimodal)
