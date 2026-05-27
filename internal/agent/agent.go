@@ -11,6 +11,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
@@ -45,7 +46,7 @@ type Agent struct {
 	// privilege is the optional write-gate. Stored as atomic.Pointer so
 	// the hot read in react.go's tool dispatch path doesn't need a.mu
 	// (SetPrivilegeGate writes via Store).
-	privilege       atomic.Pointer[security.PrivilegeGate]
+	privilege atomic.Pointer[security.PrivilegeGate]
 	// contextProviderFn, if set, is invoked once per turn before the model
 	// call. The returned snippet is appended to the system prompt. Used by
 	// plugins (and anything else) to inject per-turn context like git status,
@@ -223,6 +224,12 @@ type Agent struct {
 	// costTracker, if set, is queried at session end to populate
 	// CompletionEvent.CostUSD. When nil, cost is reported as 0.
 	costTracker cost.Tracker
+
+	// flightRecorder is the journal's append-only flight recorder (§4.19).
+	// When set, every user input, agent reply, and tool call is logged to
+	// ~/.overkill/journal/raw/ as JSONL. Nil-safe — absent recorder is a
+	// no-op during Run(). Set via SetFlightRecorder.
+	flightRecorder *journal.FlightRecorder
 }
 
 // PromptCompressor is the small interface the agent calls before assembling
@@ -411,7 +418,6 @@ func (a *Agent) RestoreHistory(history []providers.Message) {
 	defer a.mu.Unlock()
 	a.history = append([]providers.Message(nil), history...)
 }
-
 
 // FireSessionStart fires the on_session_start hook (master plan §6.3). Safe
 // to call repeatedly; callers (cmd/overkill) typically fire once on agent boot.
@@ -606,6 +612,15 @@ func (a *Agent) SetRecoveryAlertSink(s AlertSink, sessionID string) {
 	a.recovery.SetAlertSink(s, sessionID)
 }
 
+// SetFlightRecorder wires the journal flight recorder (§4.19). When set, every
+// user input, agent reply, and tool call is written to ~/.overkill/journal/raw/
+// as append-only JSONL. Nil-safe — pass nil to disable flight recording.
+func (a *Agent) SetFlightRecorder(fr *journal.FlightRecorder) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.flightRecorder = fr
+}
+
 // SetCompletionEmitter wires the completion-event emitter (§8.7.2). When set,
 // the emitter is called once at the end of every Run() with a populated
 // CompletionEvent. Pass nil to disable. costTracker is optional; pass nil if
@@ -707,6 +722,10 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		Content: userInput,
 	})
 	a.mu.Unlock()
+
+	// §4.19 journal: record user input to flight recorder. Best-effort —
+	// failure here never blocks the agent loop.
+	a.recordFlight(journal.EntryUserInput, userInput)
 
 	// Pre-load any files the user referenced with @path so the model has
 	// their contents in-context without needing to call a tool.
@@ -1661,4 +1680,16 @@ func artefactKind(toolName string) string {
 		return "commit"
 	}
 	return "file"
+}
+
+// recordFlight appends a flight-recorder entry. Best-effort only — failures
+// are silently dropped so the journal never blocks the agent loop (§4.19).
+// Safe to call with a nil flightRecorder; nil receivers are no-ops.
+func (a *Agent) recordFlight(entryType journal.EntryType, content string) {
+	if a.flightRecorder == nil {
+		return
+	}
+	// Recover from panics so a journal bug can't crash the agent.
+	defer func() { _ = recover() }()
+	_ = a.flightRecorder.Record(entryType, content, nil)
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
@@ -63,6 +64,8 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		})
 		result.Done = true
 		result.Thought = filtered
+		// §4.19 journal: record agent reply (no tool calls).
+		a.recordFlight(journal.EntryAgentReply, filtered)
 		return result, nil
 	}
 
@@ -71,6 +74,9 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		Content:   filtered,
 		ToolCalls: resp.ToolCalls,
 	})
+
+	// §4.19 journal: record agent reply + tool call dispatch.
+	a.recordFlight(journal.EntryAgentReply, filtered+" [dispatched "+fmt.Sprintf("%d", len(resp.ToolCalls))+" tool calls]")
 
 	result.ToolResults = make([]ToolResult, 0, len(resp.ToolCalls))
 
@@ -167,6 +173,9 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 			"session_id": a.sessionID,
 		})
 		toolResult, toolErr := a.executeTool(ctx, tc.Name, input)
+
+		// §4.19 journal: record tool execution. Best-effort only.
+		a.recordFlight(journal.EntryToolCall, tc.Name+" input="+string(input))
 
 		// Append to the cryptographic receipt chain so the non-streaming
 		// react path produces the same audit trail as the streaming path.
