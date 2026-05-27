@@ -493,6 +493,8 @@ func (r *cloudReply) Error(ctx context.Context, _ string, err error) error {
 	return r.bot.sendMessage(ctx, r.to, "⚠️ "+err.Error())
 }
 
+func (r *cloudReply) StartTyping() (stop func()) { return func() {} }
+
 // webhookPayload is the slice of Meta's webhook JSON we care about.
 // The full schema has 30+ fields we don't use; we narrow to what
 // the dispatcher needs.

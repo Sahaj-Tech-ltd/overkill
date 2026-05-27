@@ -41,12 +41,55 @@ func NewBot(c *Client, d *gateway.Dispatcher, allowedChats []int64) *Bot {
 	}
 }
 
+// registeredCommands returns the slash commands for the Telegram bot menu.
+// Keep in sync with dispatch.go:handleCommand.
+func registeredCommands() []BotCommand {
+	return []BotCommand{
+		{Command: "help", Description: "Show available commands"},
+		{Command: "sessions", Description: "List recent sessions"},
+		{Command: "attach", Description: "Bind chat to a session ID"},
+		{Command: "follow", Description: "Mirror TUI session"},
+		{Command: "unfollow", Description: "Clear follow mode"},
+		{Command: "new", Description: "Start a fresh session"},
+		{Command: "end", Description: "Clear follow, keep binding"},
+		{Command: "bm", Description: "Bookmark current session"},
+		{Command: "estop", Description: "Emergency stop all agents"},
+	}
+}
+
+// registerCommands pushes the slash-command menu to Telegram with retry.
+// Run as a goroutine during startup so it never blocks message intake.
+func (b *Bot) registerCommands(ctx context.Context) {
+	cmds := registeredCommands()
+	backoff := 2 * time.Second
+	maxBackoff := 5 * time.Minute
+	for {
+		if err := b.Client.SetMyCommands(ctx, cmds); err != nil {
+			b.Logger.Printf("telegram: setMyCommands: %v (retry in %s)", err, backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			continue
+		}
+		b.Logger.Printf("telegram: %d commands registered", len(cmds))
+		return
+	}
+}
+
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "telegram" }
 
 // Run drives the long-poll loop until ctx is cancelled. Network
 // hiccups back off; "fatal" errors surface to the caller.
 func (b *Bot) Run(ctx context.Context) error {
+	go b.registerCommands(ctx)
+
 	backoff := time.Second
 	for {
 		if err := ctx.Err(); err != nil {
@@ -219,6 +262,31 @@ func chunkAtRune(s string, max int) (head, tail string) {
 		cut--
 	}
 	return s[:cut], s[cut:]
+}
+
+// StartTyping implements gateway.Reply. Sends the native Telegram typing
+// indicator and refreshes it every 4s until stop() is called.
+func (r *telegramReply) StartTyping() (stop func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = r.client.SendChatAction(ctx, r.chatID, "typing")
+		ticker := time.NewTicker(4 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = r.client.SendChatAction(ctx, r.chatID, "typing")
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 func (r *telegramReply) Error(ctx context.Context, handle string, err error) error {

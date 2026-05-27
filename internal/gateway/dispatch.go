@@ -45,6 +45,18 @@ type Dispatcher struct {
 	// memory at the cost of rare contention between unrelated
 	// sessions whose IDs collide on hash.
 	lockStripes [64]sync.Mutex
+
+	// active tracks which sessions currently have a running turn.
+	// When a new message arrives for an active session, the current
+	// turn is interrupted and the message is queued.
+	active   map[string]bool
+	activeMu sync.Mutex
+
+	// pending holds messages that interrupted a running turn.
+	// Surfaced as the first message of the next turn so the user
+	// can read/edit their interrupted message before it's sent.
+	pending   map[string]string
+	pendingMu sync.Mutex
 }
 
 // NewDispatcher returns a Dispatcher with sensible defaults filled in.
@@ -54,6 +66,8 @@ func NewDispatcher(ag AgentSender, r *SessionRouter) *Dispatcher {
 		Router:      r,
 		Logger:      log.New(io.Discard, "", 0),
 		UpdateEvery: 750 * time.Millisecond,
+		active:      make(map[string]bool),
+		pending:     make(map[string]string),
 	}
 }
 
@@ -77,8 +91,7 @@ func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 	if text == "" && len(in.Images) == 0 {
 		return
 	}
-	// Slash commands: only route as commands when there's no image. An
-	// image with /caption as its caption is just a labeled image.
+	// Slash commands: always route immediately — they're fast.
 	if text != "" && strings.HasPrefix(text, "/") && len(in.Images) == 0 {
 		d.handleCommand(ctx, in, reply, text)
 		return
@@ -89,7 +102,45 @@ func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 		return
 	}
 	sid := d.resolveSession(in)
-	d.serialize(sid, func() { d.runTurn(ctx, in, reply, sid, prompt) })
+
+	// Check if session is busy. If so, interrupt the running turn
+	// and queue the new message to surface on the next turn.
+	d.activeMu.Lock()
+	if d.active[sid] {
+		d.pendingMu.Lock()
+		d.pending[sid] = prompt
+		d.pendingMu.Unlock()
+		d.activeMu.Unlock()
+		d.Agent.Interrupt()
+		// Brief ack so user knows we caught their message.
+		postCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		handle, _ := reply.PostInitial(postCtx, in, "⏸️ interrupting — your message is queued…")
+		cancel()
+		if handle != "" {
+			_ = reply.Final(ctx, handle, "⏸️ interrupted. your message is queued for the next turn.\n\ntap to edit before it sends.")
+		}
+		return
+	}
+	d.active[sid] = true
+	d.activeMu.Unlock()
+
+	defer func() {
+		d.activeMu.Lock()
+		delete(d.active, sid)
+		d.activeMu.Unlock()
+	}()
+
+	// Check for queued message from a previous interrupt.
+	d.pendingMu.Lock()
+	queued := d.pending[sid]
+	delete(d.pending, sid)
+	d.pendingMu.Unlock()
+
+	if queued != "" {
+		prompt = queued + "\n\n[new message]\n" + prompt
+	}
+
+	d.runTurn(ctx, in, reply, sid, prompt)
 }
 
 // buildPrompt prepends "[image: <caption>]" lines for any attached
@@ -364,10 +415,21 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 	case "/estop":
 		d.Agent.EStop()
 		d.respond(ctx, in, reply, "🛑 emergency stop triggered. all running agent loops halted.")
+	case "/stop":
+		sid := d.resolveSession(in)
+		d.pendingMu.Lock()
+		queued := d.pending[sid]
+		d.pendingMu.Unlock()
+		d.Agent.Interrupt()
+		if queued != "" {
+			d.respond(ctx, in, reply, fmt.Sprintf("⏸️ stopped. queued message: %q", queued))
+		} else {
+			d.respond(ctx, in, reply, "⏸️ stopped. nothing queued.")
+		}
 	default:
 		// Unknown slash → treat as agent input.
 		sid := d.resolveSession(in)
-		d.serialize(sid, func() { d.runTurn(ctx, in, reply, sid, raw) })
+		d.runTurn(ctx, in, reply, sid, raw)
 	}
 }
 
@@ -411,6 +473,8 @@ func helpText() string {
 		"  /unfollow         clear follow mode",
 		"  /new              start a fresh session for this chat",
 		"  /end              clear follow but keep the binding",
+		"  /stop             stop the current turn (queues your next message)",
+		"  /estop            emergency stop ALL agent loops",
 		"  /bm <label>       bookmark the active session with a label",
 		"  /help             this message",
 		"anything else is sent to the agent.",

@@ -135,6 +135,12 @@ type Agent struct {
 	stopMu sync.Mutex
 	stopCh chan struct{}
 
+	// streamCancel is set when Stream() is called, wrapping the caller's
+	// context with WithCancel. Interrupt() calls it to abort the current
+	// stream. No-op when nil (no stream running).
+	streamMu     sync.Mutex
+	streamCancel context.CancelFunc
+
 	// modelRouter, if set, is invoked at the start of each Run with a
 	// classification of the user input + history. The returned model ID
 	// replaces a.model for that turn only. Failures fall back to the static
@@ -364,6 +370,23 @@ func (a *Agent) EStop() {
 		// already stopped; nothing to do
 	default:
 		close(a.stopCh)
+	}
+}
+
+// Interrupt cancels the currently running stream for this agent by
+// cancelling the per-stream context. Safe to call from any goroutine.
+// No-op if no stream is running. Unlike EStop (which halts ALL future
+// runs), Interrupt only cancels the in-flight turn — subsequent runs
+// proceed normally.
+func (a *Agent) Interrupt() {
+	if a == nil {
+		return
+	}
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
+	if a.streamCancel != nil {
+		a.streamCancel()
+		a.streamCancel = nil
 	}
 }
 
