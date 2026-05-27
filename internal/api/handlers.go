@@ -650,6 +650,10 @@ func (s *Server) createAgent(ctx context.Context, sessionID string) (*agent.Agen
 		Tools:     s.toolRegistry,
 		SessionID: sessionID,
 	})
+	// Wire the learning store if configured (§6.5).
+	if s.learningStore != nil {
+		a.SetLearningStore(s.learningStore)
+	}
 	return a, nil
 }
 

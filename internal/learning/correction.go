@@ -1,7 +1,7 @@
 // Package learning implements a lightweight learning-from-corrections system.
 //
 // When the user corrects the assistant ("no, that's wrong", "actually, ..."),
-// the correction is detected and stored in a BadgerDB-backed store. Future
+// the correction is detected and stored in a SQLite-backed store. Future
 // agent runs query the store and inject relevant past corrections into the
 // system prompt to improve responses.
 package learning
