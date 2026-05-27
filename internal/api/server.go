@@ -186,6 +186,15 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	case "status.health":
 		result, rpcErr := s.handleStatusHealth(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
+	case "config.exists":
+		result, rpcErr := s.handleConfigExists(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "config.create":
+		result, rpcErr := s.handleConfigCreate(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "agent.subagents":
+		result, rpcErr := s.handleAgentSubagents(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
 	default:
 		resp.Error = &RPCError{Code: MethodNotFound, Message: fmt.Sprintf("unknown method: %s", req.Method)}
 	}

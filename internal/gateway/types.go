@@ -70,3 +70,17 @@ type Channel interface {
 	Name() string
 	Run(ctx context.Context) error
 }
+
+// HealthChecker is implemented by gateways that can report their
+// current health. A healthy gateway can send and receive messages.
+type HealthChecker interface {
+	Healthy() bool
+}
+
+// Reconnecter is implemented by gateways that support explicit
+// reconnection with backoff. Run handles automatic reconnection;
+// Reconnect is the public hook for callers to trigger a reconnect
+// externally (e.g. from a health monitor).
+type Reconnecter interface {
+	Reconnect(ctx context.Context) error
+}

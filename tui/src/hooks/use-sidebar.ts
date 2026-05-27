@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 
-export type SidebarTab = "sessions" | "tools" | "files";
+export type SidebarTab = "sessions" | "tools" | "files" | "agents";
 
 export interface UseSidebarResult {
   visible: boolean;

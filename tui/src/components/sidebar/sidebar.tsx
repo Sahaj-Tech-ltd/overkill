@@ -6,6 +6,7 @@ const TABS: { id: SidebarTab; label: string }[] = [
   { id: "sessions", label: "Sessions" },
   { id: "tools", label: "Tools" },
   { id: "files", label: "Files" },
+  { id: "agents", label: "Agents" },
 ];
 
 interface SidebarProps {

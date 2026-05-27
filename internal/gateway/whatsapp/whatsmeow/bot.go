@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,12 @@ type Bot struct {
 
 	mu     sync.Mutex
 	client *whatsmeow.Client
+
+	// Health / reconnect state
+	healthMu        sync.Mutex
+	connected       bool
+	lastConnected   time.Time
+	backoffAttempt  int
 }
 
 // AlertSink is the minimal interface the bot needs to surface
@@ -88,6 +95,54 @@ func NewBot(storePath string, allowedFrom []string, d *gateway.Dispatcher) *Bot 
 
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "whatsapp-whatsmeow" }
+
+// --- health and reconnect ---
+
+// backoff returns the current backoff duration and advances the
+// attempt counter. Caps at 30 seconds.
+func (b *Bot) backoff() time.Duration {
+	b.healthMu.Lock()
+	attempt := b.backoffAttempt
+	b.backoffAttempt++
+	b.healthMu.Unlock()
+	d := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+	if d > 30*time.Second {
+		d = 30 * time.Second
+	}
+	return d
+}
+
+// Healthy reports whether the whatsmeow client is connected and has
+// been connected (with recent ping/pong traffic) within 60 seconds.
+func (b *Bot) Healthy() bool {
+	b.healthMu.Lock()
+	defer b.healthMu.Unlock()
+	if !b.connected {
+		return false
+	}
+	if b.lastConnected.IsZero() {
+		return false
+	}
+	return time.Since(b.lastConnected) < 60*time.Second
+}
+
+// Reconnect disconnects the current client and triggers a fresh
+// connection with the configured store.
+func (b *Bot) Reconnect(ctx context.Context) error {
+	b.mu.Lock()
+	b.healthMu.Lock()
+	b.connected = false
+	client := b.client
+	b.healthMu.Unlock()
+	b.mu.Unlock()
+
+	if client != nil {
+		client.Disconnect()
+	}
+
+	// Re-open the store and connect.
+	return b.connectWithBackoff(ctx)
+}
 
 // Notify sends an unsolicited WhatsApp message to the given JID.
 // Used by the §7.1 Layer 6 completion-push poller. Returns an
@@ -116,38 +171,86 @@ func (b *Bot) Notify(ctx context.Context, jidStr, text string) error {
 }
 
 // Run loads the paired device, connects, and blocks until ctx is
-// cancelled. Disconnect is automatic on ctx cancel.
+// cancelled. On disconnect the bot reconnects with exponential backoff
+// (1s, 2s, 4s, 8s, 16s, 30s cap). Returns ctx.Err() on cancel.
 func (b *Bot) Run(ctx context.Context) error {
 	if b.StorePath == "" {
-		return fmt.Errorf("whatsmeow: store_path required")
+		return fmt.Errorf("whatsmeow: store_path is required — no database file specified for WhatsApp device storage. Provide a path like ~/.overkill/whatsapp/whatsmeow.db")
 	}
 	if _, err := os.Stat(b.StorePath); os.IsNotExist(err) {
-		return fmt.Errorf("whatsmeow: no paired device at %s — run `overkill whatsapp pair` first", b.StorePath)
+		return fmt.Errorf("whatsmeow: no paired device found at %q — this WhatsApp gateway needs to be paired first. Run `overkill whatsapp pair` to scan the QR code with your phone's WhatsApp (Settings → Linked Devices). The pairing will create the device store at this path", b.StorePath)
 	}
 
-	client, err := openClient(ctx, b.StorePath)
-	if err != nil {
-		return err
+	return b.connectWithBackoff(ctx)
+}
+
+// connectWithBackoff opens the store, connects the client, and
+// reconnects with exponential backoff on any disconnection or
+// connection failure.
+func (b *Bot) connectWithBackoff(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		client, err := openClient(ctx, b.StorePath)
+		if err != nil {
+			b.Logger.Printf("whatsmeow: open store: %v", err)
+			delay := b.backoff()
+			b.Logger.Printf("whatsmeow: backoff %v before retry", delay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+			continue
+		}
+
+		if client.Store.ID == nil {
+			// Store exists but isn't paired — same UX as missing file.
+			return fmt.Errorf("whatsmeow: store at %q exists but has no paired device — run `overkill whatsapp pair` to scan the QR code and link your phone (Settings → Linked Devices → Link a Device)", b.StorePath)
+		}
+
+		b.mu.Lock()
+		b.client = client
+		b.mu.Unlock()
+
+		client.AddEventHandler(b.handleEvent)
+
+		if err := client.Connect(); err != nil {
+			b.Logger.Printf("whatsmeow: connect: %v", err)
+			b.healthMu.Lock()
+			b.connected = false
+			b.healthMu.Unlock()
+			client.Disconnect()
+			delay := b.backoff()
+			b.Logger.Printf("whatsmeow: backoff %v before reconnect", delay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+			continue
+		}
+
+		// Connected successfully — reset backoff.
+		b.healthMu.Lock()
+		b.connected = true
+		b.lastConnected = time.Now()
+		b.backoffAttempt = 0
+		b.healthMu.Unlock()
+		b.Logger.Printf("whatsmeow: connected as %s", client.Store.ID)
+
+		// Wait for disconnect.
+		<-ctx.Done()
+		client.Disconnect()
+		b.healthMu.Lock()
+		b.connected = false
+		b.healthMu.Unlock()
+		return ctx.Err()
 	}
-	if client.Store.ID == nil {
-		// Store exists but isn't paired — same UX as missing file.
-		return fmt.Errorf("whatsmeow: store at %s has no paired device — run `overkill whatsapp pair`", b.StorePath)
-	}
-
-	b.mu.Lock()
-	b.client = client
-	b.mu.Unlock()
-
-	client.AddEventHandler(b.handleEvent)
-
-	if err := client.Connect(); err != nil {
-		return fmt.Errorf("whatsmeow: connect: %w", err)
-	}
-	b.Logger.Printf("whatsmeow: connected as %s", client.Store.ID)
-
-	<-ctx.Done()
-	client.Disconnect()
-	return ctx.Err()
 }
 
 // OpenClientForPair is the exported entry point the pair command
@@ -178,28 +281,34 @@ func openClient(ctx context.Context, path string) (*whatsmeow.Client, error) {
 
 // handleEvent dispatches whatsmeow events to the right handler. We
 // only care about Message events; the rest log at debug level.
+// Connected/Disconnected events update the health state.
 func (b *Bot) handleEvent(ev any) {
 	switch e := ev.(type) {
 	case *events.Message:
 		b.handleMessage(e)
+	case *events.Connected:
+		b.healthMu.Lock()
+		b.connected = true
+		b.lastConnected = time.Now()
+		b.healthMu.Unlock()
+		b.Logger.Printf("whatsmeow: connected (event)")
 	case *events.Disconnected:
-		b.Logger.Printf("whatsmeow: disconnected; whatsmeow will auto-reconnect")
+		b.healthMu.Lock()
+		b.connected = false
+		b.healthMu.Unlock()
+		b.Logger.Printf("whatsmeow: disconnected; reconnecting with backoff")
 	case *events.LoggedOut:
 		// Log AND surface a structured alert so a daemon-mode user
 		// actually finds out the bot stopped working. Whatsmeow's
 		// auto-reconnect doesn't help after LoggedOut — the device
 		// store is wiped and we need a fresh QR-pair to recover.
-		// Future work: trigger b.startPairing() automatically and
-		// post the new QR via the alert sink instead of expecting
-		// the user to notice the log line.
-		b.Logger.Printf("whatsmeow: logged out by phone — pair again to recover")
-		_ = e // reason field is in e.Reason for future telemetry
+		b.Logger.Printf("whatsmeow: logged out by phone — the device was unlinked from the phone's WhatsApp. Run `overkill whatsapp pair` to re-link via QR code (Settings → Linked Devices → Link a Device)")
 		if b.AlertSink != nil {
 			func() {
 				defer func() { _ = recover() }()
 				_ = b.AlertSink.Create(
 					"gateway_logged_out",
-					"WhatsApp gateway logged out by phone. Run `overkill gateway whatsmeow pair` to re-link.",
+					"WhatsApp gateway logged out — the device was unlinked from the phone. Run `overkill whatsapp pair` to re-link via QR code.",
 					b.SessionID,
 				)
 			}()

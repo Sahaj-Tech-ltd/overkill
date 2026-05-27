@@ -17,6 +17,40 @@ export interface ModelInfo {
   maxTokens?: number;
 }
 
+export type SubagentStatus = "running" | "completed" | "failed";
+
+export interface SubagentInfo {
+  id: string;
+  name: string;
+  status: SubagentStatus;
+  startedAt: string;
+  elapsed: number;
+  model?: string;
+}
+
+export interface OnboardingProviderConfig {
+  name: string;
+  apiKey: string;
+  baseUrl?: string;
+}
+
+export interface OnboardingTTSConfig {
+  provider: string;
+  apiKey?: string;
+}
+
+export interface OnboardingGatewayConfig {
+  discordToken?: string;
+  telegramToken?: string;
+}
+
+export interface OnboardingConfig {
+  providers: OnboardingProviderConfig[];
+  defaultModel: string;
+  tts?: OnboardingTTSConfig;
+  gateway?: OnboardingGatewayConfig;
+}
+
 export interface HealthResult {
   ok: boolean;
   version: string;

@@ -286,6 +286,97 @@ func (s *Server) handleStatusHealth(_ context.Context, _ []byte) (interface{}, *
 	return &HealthResult{Status: "ok", Version: s.cfg.Version}, nil
 }
 
+// handleConfigExists checks whether the Overkill config file exists on disk.
+func (s *Server) handleConfigExists(_ context.Context, _ []byte) (interface{}, *RPCError) {
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return &ConfigExistsResult{Exists: false}, nil
+	}
+	_, statErr := os.Stat(cfgPath)
+	return &ConfigExistsResult{Exists: statErr == nil}, nil
+}
+
+// handleConfigCreate accepts a partial config payload and writes the initial
+// config file. Used by the onboarding wizard to persist the user's choices.
+func (s *Server) handleConfigCreate(_ context.Context, params []byte) (interface{}, *RPCError) {
+	var p ConfigCreateParams
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+
+	// Build a config from defaults, then overlay the provided values.
+	cfg := config.Default()
+
+	// Providers + models.
+	if len(p.Providers) > 0 || len(p.Models) > 0 {
+		cfg.Providers = nil
+		for _, pc := range p.Providers {
+			// Overlay per-provider models if the top-level models list is set.
+			if len(p.Models) > 0 && len(pc.Models) == 0 {
+				pc.Models = p.Models
+			}
+			cfg.Providers = append(cfg.Providers, pc)
+			// Use the first provider as the default.
+			if cfg.Agent.DefaultProvider == "" || cfg.Agent.DefaultProvider == config.Default().Agent.DefaultProvider {
+				cfg.Agent.DefaultProvider = pc.Name
+				if len(pc.Models) > 0 {
+					cfg.Agent.DefaultModel = pc.Models[0].ID
+				}
+			}
+		}
+	}
+
+	// Gateways.
+	if p.Gateways != nil {
+		if p.Gateways.Discord != nil {
+			cfg.Gateways.Discord = config.DiscordConfig{
+				Enabled:         p.Gateways.Discord.Enabled,
+				BotToken:        p.Gateways.Discord.BotToken,
+				NotifyChannelID: p.Gateways.Discord.NotifyChannelID,
+			}
+		}
+		if p.Gateways.Telegram != nil {
+			cfg.Gateways.Telegram = config.TelegramConfig{
+				Enabled:      p.Gateways.Telegram.Enabled,
+				BotToken:     p.Gateways.Telegram.BotToken,
+				NotifyChatID: p.Gateways.Telegram.NotifyChatID,
+			}
+		}
+		if p.Gateways.WhatsApp != nil {
+			cfg.Gateways.WhatsApp = config.WhatsAppConfig{
+				Enabled: p.Gateways.WhatsApp.Enabled,
+				Backend: p.Gateways.WhatsApp.Backend,
+			}
+		}
+	}
+
+	// Write the config file.
+	cfgPath := ""
+	if path, err := config.ConfigPath(); err == nil {
+		cfgPath = path
+	}
+	if cfgPath == "" {
+		return nil, &RPCError{Code: InternalError, Message: "cannot determine config path"}
+	}
+
+	if err := cfg.Save(cfgPath); err != nil {
+		return nil, &RPCError{Code: InternalError, Message: fmt.Sprintf("failed to save config: %v", err)}
+	}
+
+	// Update the in-memory config so the running server reflects the change.
+	s.mu.Lock()
+	s.cfg = cfg
+	s.mu.Unlock()
+
+	return map[string]string{"status": "created", "path": cfgPath}, nil
+}
+
+// handleAgentSubagents returns the list of currently active subagents.
+// Stubbed: returns an empty list until the agent tracks subagent state.
+func (s *Server) handleAgentSubagents(_ context.Context, _ []byte) (interface{}, *RPCError) {
+	return &SubagentListResult{Subagents: []SubagentInfo{}}, nil
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
