@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Box, Text, useInput } from "ink";
-import TextInput from "ink-text-input";
+import { TextInput } from "../text-input.tsx";
 import { DialogContainer } from "./dialog-container.tsx";
 import type { BackendClient } from "../../backend/client.ts";
 import type { SessionInfo } from "../../backend/types.ts";

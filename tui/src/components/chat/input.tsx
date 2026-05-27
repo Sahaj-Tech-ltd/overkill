@@ -1,38 +1,27 @@
 import React, { useState } from "react";
-import { Text, Box, useInput } from "ink";
-import TextInput from "ink-text-input";
+import { MultilineInput } from "./multiline-input";
 
 interface ChatInputProps {
   onSubmit: (text: string) => void;
   disabled?: boolean;
 }
 
-export function ChatInput({
-  onSubmit,
-  disabled,
-}: ChatInputProps): React.JSX.Element {
+export function ChatInput({ onSubmit, disabled }: ChatInputProps): React.JSX.Element {
   const [value, setValue] = useState("");
 
-  useInput((input, key) => {
-    // Ctrl+Enter to send, Enter for newline
-    if (key.return && key.ctrl && !disabled) {
-      const trimmed = value.trim();
-      if (trimmed.length > 0) {
-        onSubmit(trimmed);
-        setValue("");
-      }
-    }
-  });
-
   return (
-    <Box>
-      <Text color="gray">{"> "}</Text>
-      <TextInput
-        value={value}
-        onChange={setValue}
-        placeholder={disabled ? "Thinking..." : "Type a message..."}
-        focus={!disabled}
-      />
-    </Box>
+    <MultilineInput
+      value={value}
+      onChange={setValue}
+      onSubmit={() => {
+        const trimmed = value.trim();
+        if (trimmed.length > 0) {
+          onSubmit(trimmed);
+          setValue("");
+        }
+      }}
+      placeholder={disabled ? "Thinking..." : "Type a message... (Ctrl+Enter to send)"}
+      focus={!disabled}
+    />
   );
 }
