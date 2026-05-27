@@ -14,6 +14,8 @@ const TTS_PROVIDERS = [
   { id: "openai-tts", label: "OpenAI TTS" },
   { id: "elevenlabs", label: "ElevenLabs" },
   { id: "edge-tts", label: "Edge TTS (free)" },
+  { id: "kittentts", label: "KittenTTS (local, free)" },
+  { id: "play.ht", label: "Play.ht" },
 ];
 
 export function StepTTS({
@@ -33,8 +35,8 @@ export function StepTTS({
     const selected = TTS_PROVIDERS[selectedIdx];
     if (!selected || selected.id === "none") {
       setTTS(null);
-    } else if (selected.id === "edge-tts") {
-      // Edge TTS doesn't need an API key
+    } else if (selected.id === "edge-tts" || selected.id === "kittentts") {
+      // Free providers that don't need an API key
       setTTS({ provider: selected.id });
     } else {
       // Providers that need API keys

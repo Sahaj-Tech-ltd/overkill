@@ -15,32 +15,39 @@ interface WizardProps {
 
 const STEP_TITLES: Record<string, string> = {
   welcome: "Welcome",
-  provider: "Providers",
-  model: "Model",
-  tts: "TTS",
-  gateway: "Gateway",
+  provider: "Choose Providers",
+  model: "Choose Models",
+  tts: "Configure TTS",
+  gateway: "Connect Gateways",
   done: "Done",
 };
 
 function ProgressBar({
   current,
   total,
+  label,
 }: {
   current: number;
   total: number;
+  label: string;
 }): React.JSX.Element {
   const width = 30;
   const filled = Math.floor(((current + 1) / total) * width);
   const empty = width - filled;
 
   return (
-    <Box marginBottom={1}>
-      <Text color="cyan">Progress: </Text>
-      <Text color="green">{"█".repeat(filled)}</Text>
-      <Text dimColor>{"░".repeat(empty)}</Text>
+    <Box marginBottom={1} flexDirection="column">
+      <Box>
+        <Text color="cyan">Progress: </Text>
+        <Text color="green">{"█".repeat(filled)}</Text>
+        <Text dimColor>{"░".repeat(empty)}</Text>
+        <Text dimColor>
+          {" "}
+          {current + 1}/{total}
+        </Text>
+      </Box>
       <Text dimColor>
-        {" "}
-        {current + 1}/{total}
+        Step {current + 1}/{total} — {label}
       </Text>
     </Box>
   );
@@ -97,6 +104,7 @@ export function Wizard({
       case "gateway":
         return (
           <StepGateway
+            backend={backend}
             gateway={onboarding.gateway}
             setGateway={onboarding.setGateway}
             onNext={handleSaved}
@@ -135,6 +143,7 @@ export function Wizard({
         <ProgressBar
           current={onboarding.stepIndex}
           total={onboarding.totalSteps}
+          label={STEP_TITLES[onboarding.step] ?? "..."}
         />
       </Box>
 

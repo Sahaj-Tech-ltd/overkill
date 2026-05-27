@@ -17,6 +17,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
 )
 
 // Server is the JSON-RPC 2.0 HTTP server that wraps the existing internal
@@ -50,6 +51,15 @@ func NewServer(sc ServerConfig) *Server {
 	if reg == nil {
 		reg = tools.NewRegistry()
 	}
+
+	// Register TTS tool if configured.
+	if sc.Config != nil && sc.Config.TTS.Provider != "" {
+		ttsTool := tts.New(sc.Config.TTS)
+		if err := reg.Register(ttsTool); err != nil {
+			log.Printf("api: failed to register tts tool: %v", err)
+		}
+	}
+
 	return &Server{
 		cfg:          sc.Config,
 		sessionStore: sc.SessionStore,
@@ -194,6 +204,9 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		resp.Result, resp.Error = result, rpcErr
 	case "agent.subagents":
 		result, rpcErr := s.handleAgentSubagents(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "gateway.test":
+		result, rpcErr := s.handleGatewayTest(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
 	default:
 		resp.Error = &RPCError{Code: MethodNotFound, Message: fmt.Sprintf("unknown method: %s", req.Method)}

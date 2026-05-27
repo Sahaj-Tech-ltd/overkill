@@ -6,6 +6,7 @@ type Config struct {
 	Version     int               `toml:"version"`
 	Agent       AgentConfig       `toml:"agent"`
 	Providers   []ProviderConfig  `toml:"providers"`
+	TTS         TTSConfig         `toml:"tts"`
 	Personality PersonalityConfig `toml:"personality"`
 	Security    SecurityConfig    `toml:"security"`
 	Session     SessionConfig     `toml:"session"`
@@ -38,6 +39,14 @@ type OuroborosConfig struct {
 	APIKey     string `toml:"api_key"`     // falls back to <PROVIDER>_API_KEY
 	BaseURL    string `toml:"base_url"`    // optional override
 	StrictMode bool   `toml:"strict_mode"` // when true, warnings also block
+}
+
+// TTSConfig governs text-to-speech settings for the tts.speak tool.
+type TTSConfig struct {
+	Provider      string `toml:"provider"`       // default provider: "edge"|"kittentts"|"openai"|"elevenlabs"
+	OpenAIKey     string `toml:"openai_key"`     // falls back to OPENAI_API_KEY
+	ElevenLabsKey string `toml:"elevenlabs_key"` // falls back to ELEVENLABS_API_KEY
+	Voice         string `toml:"voice"`          // default voice for the provider
 }
 
 // RewriterConfig governs the prompt rewriter middleware (master plan §4.10).

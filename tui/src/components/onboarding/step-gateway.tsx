@@ -1,8 +1,13 @@
 import React, { useState, useCallback } from "react";
 import { Box, Text, useInput } from "ink";
-import type { OnboardingGatewayConfig } from "../../backend/types.ts";
+import type {
+  OnboardingGatewayConfig,
+  GatewayTestResult,
+} from "../../backend/types.ts";
+import type { BackendClient } from "../../backend/client.ts";
 
 interface StepGatewayProps {
+  backend: BackendClient;
   gateway: OnboardingGatewayConfig | null;
   setGateway: (config: OnboardingGatewayConfig | null) => void;
   onNext: () => void;
@@ -25,6 +30,7 @@ const GATEWAY_OPTIONS: GatewayOption[] = [
 ];
 
 export function StepGateway({
+  backend,
   gateway,
   setGateway,
   onNext,
@@ -35,6 +41,10 @@ export function StepGateway({
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [editingField, setEditingField] = useState<GatewayField | null>(null);
   const [tokenInput, setTokenInput] = useState("");
+
+  // Test state
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<GatewayTestResult | null>(null);
 
   const getToken = (field: GatewayField): string => {
     if (!gateway) return "";
@@ -52,7 +62,6 @@ export function StepGateway({
             ...(gateway ?? {}),
             discordToken: undefined,
           };
-          // If no tokens remain, clear gateway entirely
           if (!updated.discordToken && !updated.telegramToken) {
             setGateway(null);
           } else {
@@ -72,11 +81,13 @@ export function StepGateway({
         if (editingField === field) {
           setEditingField(null);
           setTokenInput("");
+          setTestResult(null);
         }
       } else {
         // Start editing token
         setEditingField(field);
         setTokenInput("");
+        setTestResult(null);
       }
     },
     [gateway, editingField, setGateway],
@@ -93,7 +104,36 @@ export function StepGateway({
     setGateway(updated);
     setEditingField(null);
     setTokenInput("");
+    setTestResult(null);
   }, [editingField, tokenInput, gateway, setGateway]);
+
+  const runTest = useCallback(
+    async (field: GatewayField) => {
+      // Use the token from the input if currently editing, otherwise from saved config
+      const token =
+        editingField === field ? tokenInput : getToken(field);
+      if (!token) return;
+
+      setTesting(true);
+      setTestResult(null);
+
+      try {
+        const result = await backend.call<GatewayTestResult>(
+          "gateway.test",
+          { gateway: field, token },
+        );
+        setTestResult(result);
+      } catch (err) {
+        setTestResult({
+          ok: false,
+          error: (err as Error).message,
+        });
+      } finally {
+        setTesting(false);
+      }
+    },
+    [backend, editingField, tokenInput, gateway],
+  );
 
   const hasAnyToken = !!(
     gateway?.discordToken || gateway?.telegramToken
@@ -106,8 +146,17 @@ export function StepGateway({
       } else if (key.escape) {
         setEditingField(null);
         setTokenInput("");
+        setTestResult(null);
       } else if (key.delete || key.backspace) {
         setTokenInput((prev) => prev.slice(0, -1));
+      } else if (input === "t" || input === "T") {
+        // Test the current token
+        const currentIdx = GATEWAY_OPTIONS.findIndex(
+          (o) => o.id === editingField,
+        );
+        if (currentIdx >= 0) {
+          void runTest(GATEWAY_OPTIONS[currentIdx].id);
+        }
       } else if (input.length === 1) {
         setTokenInput((prev) => prev + input);
       }
@@ -122,6 +171,13 @@ export function StepGateway({
       );
     } else if (key.return || input === " ") {
       toggleGateway(GATEWAY_OPTIONS[selectedIdx].id);
+    } else if (input === "t" || input === "T") {
+      // Test saved token for currently highlighted gateway
+      const field = GATEWAY_OPTIONS[selectedIdx].id;
+      const token = getToken(field);
+      if (token) {
+        void runTest(field);
+      }
     } else if (key.rightArrow) {
       onNext();
     } else if (key.leftArrow) {
@@ -168,24 +224,55 @@ export function StepGateway({
                 {isConfigured && (
                   <Text dimColor> → {maskToken(token)}</Text>
                 )}
+                {isConfigured && !editingField && (
+                  <Text color="cyan" dimColor={!isHighlighted}>
+                    {" "}
+                    [t:test]
+                  </Text>
+                )}
               </Box>
 
               {/* Token input */}
               {editingField === opt.id && (
+                <Box marginLeft={4} flexDirection="column">
+                  <Box>
+                    <Text color="yellow">Token: </Text>
+                    <Text color="white">{tokenInput}</Text>
+                    <Text dimColor>
+                      {tokenInput.length > 0
+                        ? "▌"
+                        : "(paste token, Enter to confirm, Esc to cancel, t to test)"}
+                    </Text>
+                  </Box>
+                </Box>
+              )}
+
+              {/* Test result for this gateway */}
+              {testResult && isConfigured && opt.id ===
+                (editingField ?? GATEWAY_OPTIONS[selectedIdx]?.id) && (
                 <Box marginLeft={4}>
-                  <Text color="yellow">Token: </Text>
-                  <Text color="white">{tokenInput}</Text>
-                  <Text dimColor>
-                    {tokenInput.length > 0
-                      ? "▌"
-                      : "(paste token, Enter to confirm, Esc to cancel)"}
-                  </Text>
+                  {testResult.ok ? (
+                    <Text color="green">
+                      ✓ Gateway test passed!
+                    </Text>
+                  ) : (
+                    <Text color="red">
+                      ✗ Test failed: {testResult.error ?? "unknown error"}
+                    </Text>
+                  )}
                 </Box>
               )}
             </Box>
           );
         })}
       </Box>
+
+      {/* Testing indicator */}
+      {testing && (
+        <Box marginBottom={1}>
+          <Text color="yellow">Testing gateway connection...</Text>
+        </Box>
+      )}
 
       {/* Status */}
       {hasAnyToken && (
@@ -204,7 +291,9 @@ export function StepGateway({
 
       {!hasAnyToken && (
         <Box marginBottom={1}>
-          <Text dimColor>No gateways configured (you can set these later)</Text>
+          <Text dimColor>
+            No gateways configured (you can set these later)
+          </Text>
         </Box>
       )}
 
@@ -224,8 +313,8 @@ export function StepGateway({
       {/* Navigation */}
       <Box flexDirection="column" marginTop={1}>
         <Text dimColor>
-          ↑↓ navigate · space/enter toggle · right arrow finish · left arrow
-          back
+          ↑↓ navigate · space/enter toggle · t test · right arrow finish ·
+          left arrow back
         </Text>
         <Text color="cyan" bold>
           Press right arrow to save and finish setup!

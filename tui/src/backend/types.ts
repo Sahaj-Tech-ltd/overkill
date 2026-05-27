@@ -51,6 +51,16 @@ export interface OnboardingConfig {
   gateway?: OnboardingGatewayConfig;
 }
 
+export interface GatewayTestParams {
+  gateway: string;
+  token: string;
+}
+
+export interface GatewayTestResult {
+  ok: boolean;
+  error?: string;
+}
+
 export interface HealthResult {
   ok: boolean;
   version: string;
