@@ -332,3 +332,5 @@ func dramaticObservation() string {
 	r := localRand(len(observations))
 	return observations[r]
 }
+
+// test

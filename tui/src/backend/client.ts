@@ -104,6 +104,10 @@ export class BackendClient {
       return false;
     }
   }
+
+  async estop(): Promise<string> {
+    return this.call<string>("estop");
+  }
 }
 
 export function createClient(baseUrl?: string): BackendClient {

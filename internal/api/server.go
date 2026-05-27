@@ -158,6 +158,9 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	case "agent.abort":
 		result, rpcErr := s.handleAgentAbort(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
+	case "estop":
+		result, rpcErr := s.handleEStop(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
 	case "session.list":
 		result, rpcErr := s.handleSessionList(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
