@@ -66,6 +66,60 @@ var builtinProviders = map[string]ProviderSetup{
 		AltEndpoints: []string{"https://openrouter.ai/api/v1"},
 		Models:       []string{"anthropic/claude-sonnet-4-20250514", "openai/gpt-4o", "google/gemini-2.5-pro"},
 	},
+	"groq": {
+		Name:       "Groq",
+		APIKeyEnv:  "GROQ_API_KEY",
+		DefaultBase: "https://api.groq.com/openai/v1",
+		Models:     []string{"llama-3.3-70b-versatile", "mixtral-8x7b-32768"},
+	},
+	"xai": {
+		Name:       "xAI",
+		APIKeyEnv:  "XAI_API_KEY",
+		DefaultBase: "https://api.x.ai/v1",
+		Models:     []string{"grok-2"},
+	},
+	"mistral": {
+		Name:       "Mistral",
+		APIKeyEnv:  "MISTRAL_API_KEY",
+		DefaultBase: "https://api.mistral.ai/v1",
+		Models:     []string{"mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"},
+	},
+	"togetherai": {
+		Name:       "Together AI",
+		APIKeyEnv:  "TOGETHER_API_KEY",
+		DefaultBase: "https://api.together.xyz/v1",
+		Models:     []string{"meta-llama/Llama-3.3-70B-Instruct-Turbo"},
+	},
+	"perplexity": {
+		Name:       "Perplexity",
+		APIKeyEnv:  "PERPLEXITY_API_KEY",
+		DefaultBase: "https://api.perplexity.ai",
+		Models:     []string{"sonar-pro", "sonar"},
+	},
+	"deepinfra": {
+		Name:       "DeepInfra",
+		APIKeyEnv:  "DEEPINFRA_API_KEY",
+		DefaultBase: "https://api.deepinfra.com/v1/openai",
+		Models:     []string{},
+	},
+	"cerebras": {
+		Name:       "Cerebras",
+		APIKeyEnv:  "CEREBRAS_API_KEY",
+		DefaultBase: "https://api.cerebras.ai/v1",
+		Models:     []string{},
+	},
+	"fireworks": {
+		Name:       "Fireworks AI",
+		APIKeyEnv:  "FIREWORKS_API_KEY",
+		DefaultBase: "https://api.fireworks.ai/inference/v1",
+		Models:     []string{},
+	},
+	"bedrock": {
+		Name:       "AWS Bedrock",
+		APIKeyEnv:  "",
+		DefaultBase: "us-east-1",
+		Models:     []string{"us.anthropic.claude-sonnet-4-20250514-v1:0"},
+	},
 }
 
 func NewSetupWizard(cfg *Config) *SetupWizard {
@@ -120,7 +174,7 @@ func (sw *SetupWizard) ProviderSteps(providerName string) []SetupStep {
 	}
 
 	apiKeyValidate := func(v string) error {
-		if providerName == "ollama" {
+		if providerName == "ollama" || providerName == "bedrock" {
 			return nil
 		}
 		return sw.ValidateStep("api_key", v)
@@ -182,7 +236,7 @@ func (sw *SetupWizard) ValidateStep(stepID string, value string) error {
 		}
 		return nil
 	case "api_key":
-		if sw.selected == "ollama" {
+		if sw.selected == "ollama" || sw.selected == "bedrock" {
 			return nil
 		}
 		if strings.TrimSpace(value) == "" {

@@ -64,6 +64,59 @@ func NewProvider(cfg FactoryConfig) (Provider, error) {
 		p.BaseProvider.headers["X-Title"] = "Overkill"
 		return p, nil
 
+	case "groq":
+		models := cfg.Models
+		if len(models) == 0 {
+			models = GroqModels()
+		}
+		return NewOpenAICompatProvider("groq", "https://api.groq.com/openai/v1", cfg.APIKey, models), nil
+
+	case "xai":
+		models := cfg.Models
+		if len(models) == 0 {
+			models = XAIModels()
+		}
+		return NewOpenAICompatProvider("xai", "https://api.x.ai/v1", cfg.APIKey, models), nil
+
+	case "mistral":
+		models := cfg.Models
+		if len(models) == 0 {
+			models = MistralModels()
+		}
+		return NewOpenAICompatProvider("mistral", "https://api.mistral.ai/v1", cfg.APIKey, models), nil
+
+	case "togetherai":
+		models := cfg.Models
+		if len(models) == 0 {
+			models = TogetherAIModels()
+		}
+		return NewOpenAICompatProvider("togetherai", "https://api.together.xyz/v1", cfg.APIKey, models), nil
+
+	case "perplexity":
+		models := cfg.Models
+		if len(models) == 0 {
+			models = PerplexityModels()
+		}
+		return NewOpenAICompatProvider("perplexity", "https://api.perplexity.ai", cfg.APIKey, models), nil
+
+	case "deepinfra":
+		return NewOpenAICompatProvider("deepinfra", "https://api.deepinfra.com/v1/openai", cfg.APIKey, cfg.Models), nil
+
+	case "cerebras":
+		return NewOpenAICompatProvider("cerebras", "https://api.cerebras.ai/v1", cfg.APIKey, cfg.Models), nil
+
+	case "fireworks":
+		return NewOpenAICompatProvider("fireworks", "https://api.fireworks.ai/inference/v1", cfg.APIKey, cfg.Models), nil
+
+	case "bedrock":
+		region := cfg.BaseURL
+		if region == "" {
+			region = "us-east-1"
+		}
+		// access key + secret read from BaseURL params or env vars.
+		// When BaseURL == "us-east-1" it's treated as a region.
+		return NewBedrockProvider(region, cfg.APIKey, "", cfg.Models)
+
 	case "custom":
 		if cfg.BaseURL == "" {
 			return nil, fmt.Errorf("providers: custom provider requires base_url")
