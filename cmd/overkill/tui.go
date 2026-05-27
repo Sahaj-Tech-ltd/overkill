@@ -17,6 +17,8 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
+	termpkg "github.com/Sahaj-Tech-ltd/overkill/internal/term"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	messaging "github.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging"
 	ttspkg "github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
@@ -59,6 +61,16 @@ func (a *acpAgentAdapter) SessionID() string { return "" }
 // runInkTUI starts the JSON-RPC API server on a random port, then launches
 // the Ink TUI frontend. The old Bubble Tea TUI lives in deprecated/bubbletea-tui/.
 func runInkTUI(cmd *cobra.Command, args []string) error {
+	// P1: term background probe — detect dark/light mode before launching TUI.
+	// Best-effort probe; falls back silently on error.
+	if dark, err := termProbeBackground(); err == nil {
+		if dark {
+			os.Setenv("OVERKILL_THEME", "dark")
+		} else {
+			os.Setenv("OVERKILL_THEME", "light")
+		}
+	}
+
 	repoRoot, err := findRepoRoot()
 	if err != nil {
 		return fmt.Errorf("can't find repo root: %w", err)
@@ -95,11 +107,17 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// P2: speculative read cache for the TUI path.
+	readCache := speculative.NewReadCache(speculative.Options{})
+
 	apiServer := api.NewServer(api.ServerConfig{
-		Config:        loadedCfg,
-		SessionStore:  sstore,
-		Tools:         reg,
-		LearningStore: learningStore,
+		Config:            loadedCfg,
+		SessionStore:      sstore,
+		Tools:             reg,
+		LearningStore:     learningStore,
+		FeatureManager:    featureMgr,
+		ExtensionsManager: extensionsMgr,
+		ReadCache:         readCache,
 	})
 
 	// Start API server in background.
@@ -179,4 +197,10 @@ func findRepoRoot() (string, error) {
 		dir = parent
 	}
 	return os.Getwd()
+}
+
+// termProbeBackground queries the terminal for its background color.
+// Returns (dark, nil), (light, nil), or (_, error) on timeout/no tty.
+func termProbeBackground() (bool, error) {
+	return termpkg.QueryBackground(200 * time.Millisecond)
 }

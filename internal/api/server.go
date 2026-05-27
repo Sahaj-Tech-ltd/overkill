@@ -15,8 +15,11 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/extensions"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/features"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
 )
@@ -34,6 +37,12 @@ type Server struct {
 	// learningStore is wired into every agent created by this server
 	// so the TUI's agent loop can record and retrieve corrections (§6.5).
 	learningStore *learning.Store
+	// featureMgr gates runtime feature flags (P1).
+	featureMgr *features.Manager
+	// extensionsMgr is the unified extensions registry (P2).
+	extensionsMgr *extensions.Manager
+	// readCache is the speculative read cache (P2).
+	readCache *speculative.ReadCache
 }
 
 // Addr returns the address the server is listening on.
@@ -48,6 +57,12 @@ type ServerConfig struct {
 	SessionStore  session.Store
 	Tools         *tools.Registry
 	LearningStore *learning.Store // optional: correction learning store (§6.5)
+	// FeatureManager gates runtime feature flags (P1). Optional.
+	FeatureManager *features.Manager
+	// ExtensionsManager is the unified extensions registry (P2). Optional.
+	ExtensionsManager *extensions.Manager
+	// ReadCache is the speculative read cache (P2). Optional.
+	ReadCache *speculative.ReadCache
 }
 
 // NewServer creates a new API server. Call Start to begin listening.
@@ -71,6 +86,9 @@ func NewServer(sc ServerConfig) *Server {
 		agents:        make(map[string]*agent.Agent),
 		toolRegistry:  reg,
 		learningStore: sc.LearningStore,
+		featureMgr:    sc.FeatureManager,
+		extensionsMgr: sc.ExtensionsManager,
+		readCache:     sc.ReadCache,
 	}
 }
 

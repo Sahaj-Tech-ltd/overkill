@@ -5,13 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/compaction"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
+	eventsinks "github.com/Sahaj-Tech-ltd/overkill/internal/events/sinks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/extensions"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/input"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 )
 
 // handleAgentSend runs the agent loop for a session and returns the result.
@@ -654,6 +661,37 @@ func (s *Server) createAgent(ctx context.Context, sessionID string) (*agent.Agen
 	if s.learningStore != nil {
 		a.SetLearningStore(s.learningStore)
 	}
+
+	// P0: context compaction — wire LCM-based compactor.
+	if prov != nil {
+		compactor := compaction.NewAgentCompactor(prov, tokenizer.NewEstimator(), 20)
+		a.SetCompactor(compactor, true)
+	}
+
+	// P0: input classifier — shell vs NL routing.
+	a.SetInputClassifier(func(raw string) agent.InputKind {
+		return agent.InputKind(input.Classify(raw))
+	})
+
+	// P1: events/sinks — completion event emitter.
+	emit := events.NewEmitter(eventsinks.NewLogSink(log.Default()))
+	a.SetCompletionEmitter(emit, nil)
+
+	// P1: feature flags.
+	if s.featureMgr != nil {
+		a.SetFeatureManager(s.featureMgr)
+	}
+
+	// P2: speculative read cache.
+	if s.readCache != nil {
+		a.SetReadCache(s.readCache)
+	}
+
+	// P2: extensions manager.
+	if s.extensionsMgr != nil {
+		a.SetExtensionsManager(wrapExtensions(s.extensionsMgr))
+	}
+
 	return a, nil
 }
 
@@ -677,4 +715,32 @@ func (s *Server) createProviders() map[string]providers.Provider {
 		result[pc.Name] = p
 	}
 	return result
+}
+
+// wrapExtensions adapts *extensions.Manager to agent.ExtensionsManager.
+func wrapExtensions(m *extensions.Manager) agent.ExtensionsManager {
+	return &extensionsAdapter{mgr: m}
+}
+
+type extensionsAdapter struct {
+	mgr *extensions.Manager
+}
+
+func (e *extensionsAdapter) ListEnabled() []agent.ExtensionMeta {
+	if e.mgr == nil {
+		return nil
+	}
+	exts, _ := e.mgr.List()
+	out := make([]agent.ExtensionMeta, 0, len(exts))
+	for _, ext := range exts {
+		if ext.Enabled {
+			out = append(out, agent.ExtensionMeta{
+				ID:          ext.ID,
+				Name:        ext.Name,
+				Kind:        string(ext.Kind),
+				Description: ext.Description,
+			})
+		}
+	}
+	return out
 }
