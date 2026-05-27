@@ -428,11 +428,11 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					}
 
 					out <- StreamEvent{
-						Type:      EventToolOutput,
-						Content:   call.Name,
-						ToolCall:  &call,
-						ToolName:  call.Name,
-						ToolInput: parseToolInput(call.Arguments),
+						Type:       EventToolOutput,
+						Content:    call.Name,
+						ToolCall:   &call,
+						ToolName:   call.Name,
+						ToolInput:  parseToolInput(call.Arguments),
 						ToolOutput: string(output),
 						Metadata: map[string]interface{}{
 							"output": string(output),
@@ -594,7 +594,7 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					}()
 				}
 				out <- StreamEvent{
-					Type: EventStatus,
+					Type:  EventStatus,
 					Phase: "done",
 				}
 				out <- StreamEvent{

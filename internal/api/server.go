@@ -237,8 +237,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 // handleStream is the plan-aligned SSE endpoint at GET /stream.
 // Accepts two query-param styles:
-//   1. Direct: ?session_id=X&message=...
-//   2. JSON-RPC style (TUI client): ?method=agent.send&params={"message":"...","session_id":"..."}
+//  1. Direct: ?session_id=X&message=...
+//  2. JSON-RPC style (TUI client): ?method=agent.send&params={"message":"...","session_id":"..."}
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
 	message := r.URL.Query().Get("message")
