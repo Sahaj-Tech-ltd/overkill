@@ -29,16 +29,17 @@
 | Feature | Hermes | Overkill | Action |
 |---|---|---|---|
 | Multiline input | ✅ | ✅ Section 1 done | ✅ |
-| Streaming markdown | ✅ streamingMarkdown.tsx | ❌ basic text | Build progressive renderer |
-| Reasoning/thinking toggle | ✅ thinking.tsx | ❌ | Build collapsible thinking blocks |
-| Queued messages badge | ✅ queuedMessages.tsx | ❌ | Add to status bar |
+| Streaming markdown | ✅ streamingMarkdown.tsx | ✅ SSE + progressive render | ✅ |
+| Reasoning/thinking toggle | ✅ thinking.tsx | ✅ thinking-block.tsx | ✅ |
+| Queued messages badge | ✅ queuedMessages.tsx | ✅ status bar | ✅ |
+| Git branch display | ✅ useGitBranch.ts | ✅ status bar | ✅ |
+| Context-fill phase display | ✅ | ✅ status bar [phase] | ✅ |
 | Agents/subagent overlay | ✅ agentsOverlay.tsx | ❌ | Build subagent status panel |
 | Todo panel | ✅ todoPanel.tsx | ❌ | Build task tracking sidebar |
 | Skills hub | ✅ skillsHub.tsx | ❌ | Browse/load skills in TUI |
 | Session picker | ✅ sessionPicker.tsx | ✅ session-manager.tsx | ✅ |
 | Model picker | ✅ modelPicker.tsx | ✅ model-switcher.tsx | ✅ |
 | Input history | ✅ useInputHistory.ts | ❌ | Add to multiline-input |
-| Git branch display | ✅ useGitBranch.ts | ❌ | Add to status bar |
 | FPS overlay | ✅ fpsOverlay.tsx | ❌ | Low priority |
 | Masked prompt | ✅ maskedPrompt.tsx | ❌ | For sensitive inputs |
 | Branding/skinning | ✅ branding.tsx + themed.tsx | ✅ boot-animation + themes | ✅ |
@@ -121,8 +122,8 @@
 ## Priority Execution Order
 
 1. ~~**Slack gateway**~~ ✅ Done — Socket Mode, integrated
-2. **TUI: streaming markdown + thinking toggle** (core UX gap)
-3. **TUI: queued messages badge + git branch** (small, high impact)
+2. ~~**TUI: streaming markdown + thinking toggle**~~ ✅ Done — SSE + progressive render + thinking-block
+3. ~~**TUI: queued messages badge + git branch**~~ ✅ Done — status bar
 4. **Discord gateway hardening** (exists but fragile)
 5. **WhatsApp gateway hardening** (exists but fragile)
 6. **TUI: subagent status panel** (Overkill's killer feature)
