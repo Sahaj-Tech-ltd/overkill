@@ -18,6 +18,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
@@ -112,6 +113,17 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	}
 
 	a := agent.New(agentCfg)
+
+	// Wire the learning-from-corrections store (§6.5). This persists
+	// user corrections so future turns benefit from past feedback.
+	homeDir, _ := config.ConfigDir()
+	if homeDir != "" {
+		correctionsDir := filepath.Join(homeDir, "corrections")
+		if ls, err := learning.NewStore(correctionsDir, 1000); err == nil {
+			a.SetLearningStore(ls)
+			defer ls.Close()
+		}
+	}
 
 	// Best-effort sync manager — only when the user enabled it in config.
 	// We only need it if auto-push is on; otherwise skip the open entirely.

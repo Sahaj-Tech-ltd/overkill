@@ -12,6 +12,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
@@ -202,6 +203,11 @@ type Agent struct {
 	// emitRecovery. Consumed (and cleared) by the next successful Run().
 	lastErrorClass string
 
+	// learningStore persists user corrections and retrieves them for
+	// injection into the system prompt (§6.5). Nil-safe — when unset,
+	// correction recording and retrieval are no-ops.
+	learningStore *learning.Store
+
 	// memoryArchiver, if set, receives each evicted message during
 	// Compact so the original full-text survives in cold storage and
 	// can be retrieved later via memory_search (master plan §6.1
@@ -352,6 +358,15 @@ func (a *Agent) SetFlowStore(store FlowStore, alarmSink func(*FlowState)) {
 	a.flowStore = store
 	a.flowAlarmSink = alarmSink
 	a.mu.Unlock()
+}
+
+// SetLearningStore wires the correction learning store (§6.5). When set,
+// the agent queries for relevant past corrections before each Run() and
+// records new corrections after successful turns. Pass nil to disable.
+func (a *Agent) SetLearningStore(store *learning.Store) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.learningStore = store
 }
 
 // EStop broadcasts an emergency-stop to every in-flight run loop on
@@ -766,6 +781,10 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		})
 	}
 
+	// §6.5 learning: inject relevant past corrections into conversation
+	// so the model knows about user preferences before responding.
+	a.injectLearningCorrections(userInput)
+
 	result := &RunResult{
 		Model: a.Model(),
 	}
@@ -813,6 +832,9 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 			// completed cleanly, count it as a recovery. Self-learning's
 			// "you've solved this 3 times" trigger fires from these.
 			a.recordRecoverySuccess()
+			// §6.5 learning: record a correction if the user's message
+			// looks like one, so future turns benefit from the feedback.
+			a.recordCorrectionIfNeeded(userInput, result.Response)
 			a.emitCompletion(ctx, userInput, "success", runStart, nil)
 			return result, nil
 		}
@@ -1715,4 +1737,57 @@ func (a *Agent) recordFlight(entryType journal.EntryType, content string) {
 	// Recover from panics so a journal bug can't crash the agent.
 	defer func() { _ = recover() }()
 	_ = a.flightRecorder.Record(entryType, content, nil)
+}
+
+// injectLearningCorrections queries the learning store for past corrections
+// relevant to the user's input and appends them as a system message so the
+// model can adjust its response.
+func (a *Agent) injectLearningCorrections(userInput string) {
+	a.mu.RLock()
+	store := a.learningStore
+	a.mu.RUnlock()
+	if store == nil {
+		return
+	}
+
+	corrections, err := store.FindCorrections(userInput, 3)
+	if err != nil || len(corrections) == 0 {
+		return
+	}
+
+	prompt := learning.FormatPrompt(corrections)
+	if prompt != "" {
+		a.appendMessage(providers.Message{
+			Role:    "system",
+			Content: prompt,
+		})
+	}
+}
+
+// recordCorrectionIfNeeded checks whether the user's message is a correction
+// and, if so, stores it in the learning store for future reference.
+func (a *Agent) recordCorrectionIfNeeded(userInput, assistantResponse string) {
+	a.mu.RLock()
+	store := a.learningStore
+	a.mu.RUnlock()
+	if store == nil {
+		return
+	}
+
+	if !learning.IsCorrection(userInput) {
+		return
+	}
+
+	correct := learning.ExtractCorrect(userInput)
+	if correct == "" {
+		return
+	}
+
+	corr := learning.NewCorrection(userInput, assistantResponse, correct)
+	if err := store.Save(corr); err != nil {
+		a.emit("learning_save_failed", map[string]any{
+			"error":      err.Error(),
+			"session_id": a.sessionID,
+		})
+	}
 }

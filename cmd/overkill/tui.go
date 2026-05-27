@@ -15,6 +15,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/acp"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/api"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	messaging "github.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging"
@@ -79,10 +80,24 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 	reg.Register(ttspkg.New(loadedCfg.TTS))
 	reg.Register(messaging.New(loadedCfg.Gateways))
 
+	// Wire the learning-from-corrections store (§6.5). The API server
+	// passes it to every agent it creates so the TUI loop benefits from
+	// past user corrections.
+	homeDir := os.Getenv("HOME")
+	var learningStore *learning.Store
+	if homeDir != "" {
+		correctionsDir := filepath.Join(homeDir, ".overkill", "corrections")
+		if ls, err := learning.NewStore(correctionsDir, 1000); err == nil {
+			learningStore = ls
+			defer ls.Close()
+		}
+	}
+
 	apiServer := api.NewServer(api.ServerConfig{
-		Config:       loadedCfg,
-		SessionStore: sstore,
-		Tools:        reg,
+		Config:        loadedCfg,
+		SessionStore:  sstore,
+		Tools:         reg,
+		LearningStore: learningStore,
 	})
 
 	// Start API server in background.

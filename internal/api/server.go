@@ -15,6 +15,7 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
@@ -30,6 +31,9 @@ type Server struct {
 	toolRegistry *tools.Registry
 	httpServer   *http.Server
 	port         int // set after Start()
+	// learningStore is wired into every agent created by this server
+	// so the TUI's agent loop can record and retrieve corrections (§6.5).
+	learningStore *learning.Store
 }
 
 // Addr returns the address the server is listening on.
@@ -40,9 +44,10 @@ func (s *Server) Addr() string {
 
 // ServerConfig holds everything the API server needs at startup.
 type ServerConfig struct {
-	Config       *config.Config
-	SessionStore session.Store
-	Tools        *tools.Registry
+	Config        *config.Config
+	SessionStore  session.Store
+	Tools         *tools.Registry
+	LearningStore *learning.Store // optional: correction learning store (§6.5)
 }
 
 // NewServer creates a new API server. Call Start to begin listening.
@@ -61,10 +66,11 @@ func NewServer(sc ServerConfig) *Server {
 	}
 
 	return &Server{
-		cfg:          sc.Config,
-		sessionStore: sc.SessionStore,
-		agents:       make(map[string]*agent.Agent),
-		toolRegistry: reg,
+		cfg:           sc.Config,
+		sessionStore:  sc.SessionStore,
+		agents:        make(map[string]*agent.Agent),
+		toolRegistry:  reg,
+		learningStore: sc.LearningStore,
 	}
 }
 
