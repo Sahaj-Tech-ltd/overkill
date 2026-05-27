@@ -174,6 +174,7 @@ type WhatsAppCloudConfig struct {
 type GatewayConfig struct {
 	Telegram TelegramConfig `toml:"telegram"`
 	Discord  DiscordConfig  `toml:"discord"`
+	Slack    SlackConfig    `toml:"slack"`
 	WhatsApp WhatsAppConfig `toml:"whatsapp"`
 	Bridge   BridgeConfig   `toml:"bridge"`
 }

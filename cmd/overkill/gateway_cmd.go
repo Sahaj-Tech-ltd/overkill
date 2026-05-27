@@ -16,6 +16,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/bridge"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/discord"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/slack"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway/telegram"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
@@ -24,14 +25,16 @@ var gatewayDryRun bool
 
 var gatewayCmd = &cobra.Command{
 	Use:   "gateway",
-	Short: "Run remote messaging gateways (Telegram, Discord, HTTP bridge for WhatsApp sidecars)",
+	Short: "Run remote messaging gateways (Telegram, Discord, Slack, WhatsApp, Bridge)",
 	Long: `Pipes inbound messages from configured remote channels into the same
 agent the TUI uses. Cross-channel session continuity: open the TUI,
 step away, /follow tui from your phone, and your phone messages drive
 whatever session the terminal is on.
 
-Configure under [gateways.telegram] / [gateways.bridge] in your config,
-or via TELEGRAM_BOT_TOKEN env var.`,
+Configure under [gateways.telegram] / [gateways.discord] / [gateways.slack]
+in your config, or via env vars:
+  TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN`,
+
 	RunE: runGateway,
 }
 
@@ -61,12 +64,6 @@ func runGateway(cmd *cobra.Command, args []string) error {
 		disp.Vision = v
 		logger.Printf("vision: %s/%s wired for inbound images", cfg.Vision.Provider, cfg.Vision.Model)
 	}
-	// §7.4 bookmark wiring. /bm <label> from any gateway tags the
-	// active session with a bookmark-prefixed label so the agent can
-	// later recall it. We reuse the tui App's Tags manager when
-	// present so bookmarks made from gateway + TUI land in the same
-	// store. Nil-safe: Bookmark stays nil and the dispatcher surfaces
-	// a clear error.
 	if app.Tags != nil {
 		disp.Bookmark = func(ctx context.Context, sessionID, label string) error {
 			return app.Tags.Tag(sessionID, "bookmark/"+label, "gateway-bookmark")
@@ -76,13 +73,9 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	hub := gateway.NewHub()
 	hub.Logger = logger
 
-	// notifyBots captures references to running bots so the
-	// §7.1 Layer 6 completion-push poller can call their Notify
-	// methods. Each block sets the matching field when its bot is
-	// successfully constructed; nil entries mean "channel not
-	// enabled this run".
 	var nb notifyBots
 
+	// --- Telegram ---
 	if t := cfg.Gateways.Telegram; t.Enabled || os.Getenv("TELEGRAM_BOT_TOKEN") != "" {
 		token := t.BotToken
 		if token == "" {
@@ -100,6 +93,7 @@ func runGateway(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// --- Discord ---
 	if dc := cfg.Gateways.Discord; dc.Enabled || os.Getenv("DISCORD_BOT_TOKEN") != "" {
 		token := dc.BotToken
 		if token == "" {
@@ -108,11 +102,6 @@ func runGateway(cmd *cobra.Command, args []string) error {
 		if token == "" {
 			logger.Printf("discord: enabled but no token; skipping")
 		} else {
-			// Default require_mention=true. The bot replying to every
-			// channel message uninvited is a footgun — users opt out
-			// explicitly via DISCORD_ALLOW_UNMENTIONED=1 only if they
-			// really want it. TOML's `require_mention=true` is the
-			// idiomatic enable; the env var is the escape hatch.
 			requireMention := true
 			if os.Getenv("DISCORD_ALLOW_UNMENTIONED") != "" {
 				requireMention = false
@@ -126,12 +115,34 @@ func runGateway(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// --- Slack ---
+	if sl := cfg.Gateways.Slack; sl.Enabled || os.Getenv("SLACK_BOT_TOKEN") != "" {
+		botToken := sl.BotToken
+		if botToken == "" {
+			botToken = os.Getenv("SLACK_BOT_TOKEN")
+		}
+		appToken := sl.AppToken
+		if appToken == "" {
+			appToken = os.Getenv("SLACK_APP_TOKEN")
+		}
+		if botToken == "" || appToken == "" {
+			logger.Printf("slack: enabled but missing tokens; skipping")
+		} else {
+			sb := slack.NewBot(botToken, appToken, disp, sl.AllowedChannels)
+			sb.Logger = logger
+			hub.Add(sb)
+			logger.Printf("slack: registered (socket mode)")
+		}
+	}
+
+	// --- WhatsApp ---
 	if wa := cfg.Gateways.WhatsApp; wa.Enabled {
 		if err := registerWhatsApp(hub, disp, wa, logger, &nb); err != nil {
 			logger.Printf("whatsapp: %v", err)
 		}
 	}
 
+	// --- Bridge ---
 	if br := cfg.Gateways.Bridge; br.Enabled {
 		listen := br.Listen
 		if listen == "" {
@@ -144,7 +155,7 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(hub.Channels) == 0 {
-		return fmt.Errorf("gateway: no channels enabled — set [gateways.telegram] enabled = true or [gateways.bridge] enabled = true")
+		return fmt.Errorf("gateway: no channels enabled")
 	}
 
 	if gatewayDryRun {
@@ -155,10 +166,6 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// §7.1 Layer 6: poll the alert store for task-completion alerts
-	// and push them to configured channels. The daemon writes
-	// AlertTaskCompleted records; the gateway delivers. Two-process
-	// design via shared file store — no RPC required.
 	notifyShutdown := startCompletionNotifyPoller(ctx, cfg, logger, nb)
 	defer notifyShutdown()
 
@@ -168,8 +175,6 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// buildVisionDescriber returns nil when vision is disabled or
-// misconfigured. Today only the Anthropic provider is wired.
 func buildVisionDescriber(v config.VisionConfig) vision.Describer {
 	if !v.Enabled {
 		return nil
@@ -197,8 +202,6 @@ func buildVisionDescriber(v config.VisionConfig) vision.Describer {
 	}
 }
 
-// gatewayAgentAdapter trims *agent.Agent down to gateway.AgentSender.
-// Lives here so the gateway package never imports cmd/overkill.
 type gatewayAgentAdapter struct{ a *agent.Agent }
 
 func (g *gatewayAgentAdapter) Stream(ctx context.Context, in string) (<-chan agent.StreamEvent, error) {
