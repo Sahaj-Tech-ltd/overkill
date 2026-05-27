@@ -52,10 +52,12 @@ type Dispatcher struct {
 	active   map[string]bool
 	activeMu sync.Mutex
 
-	// pending holds messages that interrupted a running turn.
-	// Surfaced as the first message of the next turn so the user
-	// can read/edit their interrupted message before it's sent.
-	pending   map[string]string
+	// pending holds message queues for sessions that were interrupted.
+	// When a user interrupts a running turn, their message is appended.
+	// Messages are dequeued FIFO — each turn processes the oldest first.
+	// If more messages remain after a turn completes, the next one
+	// auto-fires without the user needing to send anything.
+	pending   map[string][]string
 	pendingMu sync.Mutex
 }
 
@@ -67,7 +69,7 @@ func NewDispatcher(ag AgentSender, r *SessionRouter) *Dispatcher {
 		Logger:      log.New(io.Discard, "", 0),
 		UpdateEvery: 750 * time.Millisecond,
 		active:      make(map[string]bool),
-		pending:     make(map[string]string),
+		pending:     make(map[string][]string),
 	}
 }
 
@@ -108,16 +110,16 @@ func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 	d.activeMu.Lock()
 	if d.active[sid] {
 		d.pendingMu.Lock()
-		d.pending[sid] = prompt
+		d.pending[sid] = append(d.pending[sid], prompt)
 		d.pendingMu.Unlock()
 		d.activeMu.Unlock()
 		d.Agent.Interrupt()
-		// Brief ack so user knows we caught their message.
+		// Post the interrupting message as a real message in chat.
 		postCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		handle, _ := reply.PostInitial(postCtx, in, "⏸️ interrupting — your message is queued…")
+		handle, _ := reply.PostInitial(postCtx, in, "⏸️ " + prompt)
 		cancel()
 		if handle != "" {
-			_ = reply.Final(ctx, handle, "⏸️ interrupted. your message is queued for the next turn.\n\ntap to edit before it sends.")
+			d.Logger.Printf("dispatch: interrupt posted as msg %s", handle)
 		}
 		return
 	}
@@ -130,10 +132,17 @@ func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 		d.activeMu.Unlock()
 	}()
 
-	// Check for queued message from a previous interrupt.
+	// Check for queued messages from previous interrupts (FIFO).
 	d.pendingMu.Lock()
-	queued := d.pending[sid]
-	delete(d.pending, sid)
+	queue := d.pending[sid]
+	var queued string
+	if len(queue) > 0 {
+		queued = queue[0]
+		d.pending[sid] = queue[1:]
+	}
+	if len(d.pending[sid]) == 0 {
+		delete(d.pending, sid)
+	}
 	d.pendingMu.Unlock()
 
 	if queued != "" {
@@ -141,6 +150,21 @@ func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 	}
 
 	d.runTurn(ctx, in, reply, sid, prompt)
+
+	// If more messages are queued, auto-fire the next turn.
+	d.pendingMu.Lock()
+	if len(d.pending[sid]) > 0 {
+		nextPrompt := d.pending[sid][0]
+		d.pending[sid] = d.pending[sid][1:]
+		if len(d.pending[sid]) == 0 {
+			delete(d.pending, sid)
+		}
+		d.pendingMu.Unlock()
+		// Run next turn in a new goroutine so we don't block the caller.
+		go d.runTurn(ctx, in, reply, sid, nextPrompt)
+	} else {
+		d.pendingMu.Unlock()
+	}
 }
 
 // buildPrompt prepends "[image: <caption>]" lines for any attached
@@ -418,11 +442,11 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 	case "/stop":
 		sid := d.resolveSession(in)
 		d.pendingMu.Lock()
-		queued := d.pending[sid]
+		queueLen := len(d.pending[sid])
 		d.pendingMu.Unlock()
 		d.Agent.Interrupt()
-		if queued != "" {
-			d.respond(ctx, in, reply, fmt.Sprintf("⏸️ stopped. queued message: %q", queued))
+		if queueLen > 0 {
+			d.respond(ctx, in, reply, fmt.Sprintf("⏸️ stopped. %d message(s) queued.", queueLen))
 		} else {
 			d.respond(ctx, in, reply, "⏸️ stopped. nothing queued.")
 		}
