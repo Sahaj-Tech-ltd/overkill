@@ -116,7 +116,7 @@ func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 		d.Agent.Interrupt()
 		// Post the interrupting message as a real message in chat.
 		postCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		handle, _ := reply.PostInitial(postCtx, in, "⏸️ " + prompt)
+		handle, _ := reply.PostInitial(postCtx, in, "⏸️ "+prompt)
 		cancel()
 		if handle != "" {
 			d.Logger.Printf("dispatch: interrupt posted as msg %s", handle)
