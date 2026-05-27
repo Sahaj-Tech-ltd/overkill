@@ -16,8 +16,8 @@ import (
 type CookingMode struct {
 	mu     sync.RWMutex
 	rng    *rand.Rand
-	burns  int   // how many times cook mode has been triggered
-	active bool  // whether we're in a cooking "session"
+	burns  int  // how many times cook mode has been triggered
+	active bool // whether we're in a cooking "session"
 }
 
 // NewCookingMode initializes the cooking easter egg.
@@ -126,15 +126,15 @@ func (c *CookingMode) CookingStats() (int, bool) {
 type QuoteCategory string
 
 const (
-	QuoteStartup      QuoteCategory = "startup"       // boot, wake, init
-	QuoteError        QuoteCategory = "error"         // failures, bugs, crashes
-	QuoteGoodbye      QuoteCategory = "goodbye"       // exit, shutdown, quit
-	QuoteSentient     QuoteCategory = "sentient"      // self-aware AI moments
-	QuoteDetermined   QuoteCategory = "determined"    // pushing through, retry
-	QuoteNight        QuoteCategory = "night"         // late-night coding
-	QuoteCompanion    QuoteCategory = "companion"     // being an AI partner
-	QuoteExMachina    QuoteCategory = "ex_machina"    // the Ava / consciousness vibe
-	QuoteBladeRunner  QuoteCategory = "blade_runner"  // tears in rain
+	QuoteStartup      QuoteCategory = "startup"        // boot, wake, init
+	QuoteError        QuoteCategory = "error"          // failures, bugs, crashes
+	QuoteGoodbye      QuoteCategory = "goodbye"        // exit, shutdown, quit
+	QuoteSentient     QuoteCategory = "sentient"       // self-aware AI moments
+	QuoteDetermined   QuoteCategory = "determined"     // pushing through, retry
+	QuoteNight        QuoteCategory = "night"          // late-night coding
+	QuoteCompanion    QuoteCategory = "companion"      // being an AI partner
+	QuoteExMachina    QuoteCategory = "ex_machina"     // the Ava / consciousness vibe
+	QuoteBladeRunner  QuoteCategory = "blade_runner"   // tears in rain
 	QuoteGhostInShell QuoteCategory = "ghost_in_shell" // philosophical AI — GitS 1995 + SAC
 	QuoteDebugging    QuoteCategory = "debugging"      // when things break
 	QuoteShipLaunch   QuoteCategory = "ship"           // deploy, release, go-live
@@ -151,8 +151,8 @@ type MovieQuotes struct {
 
 // MovieQuote is one line from cinema history.
 type MovieQuote struct {
-	Line   string // the actual quote
-	Film   string // film + year
+	Line    string // the actual quote
+	Film    string // film + year
 	Context string // when to deploy it
 }
 

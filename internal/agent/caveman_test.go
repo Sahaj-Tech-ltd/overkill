@@ -90,9 +90,10 @@ func TestCaveman_DirectiveOverhead(t *testing.T) {
 
 // TestCaveman_EscalationPath verifies the 3-tier escalation: Off→Curt→Blunt→Full.
 // The 4-level design ensures progressive compression:
-//   Curt (50%+ util):  be concise, skip preamble
-//   Blunt (65%+ util): terse only, one-sentence answers
-//   Full (80%+ util):  caveman speak, tools direct, no words wasted
+//
+//	Curt (50%+ util):  be concise, skip preamble
+//	Blunt (65%+ util): terse only, one-sentence answers
+//	Full (80%+ util):  caveman speak, tools direct, no words wasted
 //
 // The combined design (caveman directive + prompt compressor) targets 60%+
 // output token reduction at Full level, but verification requires live

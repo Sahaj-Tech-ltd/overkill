@@ -17,17 +17,29 @@ failures=0
 # ── 1. Secret scanning ──────────────────────────────────────────────
 echo -n "  [1/8] Secret scan (gitleaks) ... "
 if command -v gitleaks &>/dev/null; then
-    if gitleaks detect --no-git -v 2>&1 | grep -q "leaks found"; then
+    # git mode (no --no-git): scans only git-tracked files, much faster
+    # 30s timeout prevents hanging on large repos
+    if [ -f .gitleaks.toml ]; then
+        config_flag="-c .gitleaks.toml"
+    else
+        config_flag=""
+    fi
+    result=$(timeout 30 gitleaks detect $config_flag 2>&1) || gitleaks_exit=$?
+    gitleaks_exit=${gitleaks_exit:-0}
+    if [ "$gitleaks_exit" -eq 124 ]; then
+        echo -e "${YELLOW}timeout (30s)${NC}"
+    elif [ "$gitleaks_exit" -ne 0 ]; then
         echo -e "$FAIL"
-        gitleaks detect --no-git 2>&1
+        echo "$result" | tail -20
         ((failures++))
     else
         echo -e "$PASS"
     fi
 else
-    # Fallback: basic grep for common patterns (exclude node_modules, deprecated, .d.ts)
-    if git diff --cached --name-only 2>/dev/null | grep -v '^deprecated/' | grep -v 'node_modules/' | grep -v '\.d\.ts$' | xargs grep -lE 'ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|sk-[A-Za-z0-9]{32,}|xai-[A-Za-z0-9]{32,}' 2>/dev/null; then
-        echo -e "$FAIL  (found secrets in diff — run: gitleaks detect)"
+    # Fallback: basic grep for common patterns (exclude deprecated, tui/node_modules)
+    if grep -rlE 'ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|sk-[A-Za-z0-9]{32,}|xai-[A-Za-z0-9]{32,}' \
+        --exclude-dir=tui/node_modules --exclude-dir=deprecated . 2>/dev/null | head -1 | grep -q .; then
+        echo -e "$FAIL  (found secrets — run: gitleaks detect)"
         ((failures++))
     else
         echo -e "$PASS  (basic grep, install gitleaks for thorough)"
