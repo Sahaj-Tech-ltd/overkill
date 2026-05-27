@@ -39,10 +39,10 @@ type Manifest struct {
 
 // Entry is one file captured by the checkpoint. Stored at <root>/<id>/<sha>.
 type Entry struct {
-	Path    string `json:"path"`     // original absolute path
-	Sha256  string `json:"sha256"`   // content hash (also the filename in the checkpoint dir)
+	Path    string `json:"path"`   // original absolute path
+	Sha256  string `json:"sha256"` // content hash (also the filename in the checkpoint dir)
 	Size    int64  `json:"size"`
-	Existed bool   `json:"existed"`  // false → file did not exist before; rollback removes it
+	Existed bool   `json:"existed"` // false → file did not exist before; rollback removes it
 }
 
 // Manager owns the checkpoint root and per-session retention.

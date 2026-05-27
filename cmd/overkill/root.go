@@ -76,6 +76,16 @@ var rootCmd = &cobra.Command{
 			if err := BootstrapOverkillHome(homeDir); err != nil {
 				log.Warn().Err(err).Msg("bootstrap failed, continuing anyway")
 			}
+
+			// §4.20: probe storage integrity on boot. A corrupt database
+			// must NOT cause a silent cold-start (amnesia). Surface the
+			// restore option before the agent loads.
+			if res := probDBIntegrity(homeDir); res != nil && res.corrupt {
+				log.Warn().
+					Str("cause", res.cause).
+					Bool("export_exists", res.exportExists).
+					Msg("⚠️  DATABASE CORRUPT — run 'overkill doctor --check-db' for recovery options")
+			}
 		} else {
 			log.Warn().Err(err).Msg("cannot resolve home dir, skipping bootstrap")
 		}

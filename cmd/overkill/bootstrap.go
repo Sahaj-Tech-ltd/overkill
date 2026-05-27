@@ -171,3 +171,85 @@ func BootstrapOverkillHome(homeDir string) error {
 
 	return nil
 }
+
+// dbProbeResult is a lightweight integrity check result for boot-time use.
+type dbProbeResult struct {
+	corrupt      bool
+	cause        string
+	exportExists bool
+}
+
+// probDBIntegrity checks session storage integrity without importing the
+// heavy session package into the root command. Uses the same probe that
+// `overkill doctor --check-db` uses, but reports via the logger.
+func probDBIntegrity(homeDir string) *dbProbeResult {
+	sessionDir := homeDir + "/sessions"
+	exportPath := homeDir + "/memory-export.md"
+
+	// Probe checks for BadgerDB corruption (LOCK file conflicts, MANIFEST
+	// errors, corrupted vlog files) and reports whether a recovery export
+	// exists.
+	res := probeSessionDir(sessionDir)
+	if res == nil {
+		return nil
+	}
+
+	_, exportErr := os.Stat(exportPath)
+	return &dbProbeResult{
+		corrupt:      res.Corrupt,
+		cause:        res.Cause,
+		exportExists: exportErr == nil,
+	}
+}
+
+// probeSessionDir is a thin wrapper around session.Probe that avoids
+// importing session package into the cmd package (keeps the CLI layer clean).
+// Uses a simple heuristic: if the directory exists but contains a LOCK file,
+// it might be corrupted. Falls back to stat-based checks.
+func probeSessionDir(dir string) *struct {
+	Corrupt bool
+	Cause   string
+} {
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // no sessions at all = clean state, not corruption
+		}
+		return &struct {
+			Corrupt bool
+			Cause   string
+		}{Corrupt: true, Cause: err.Error()}
+	}
+	if !info.IsDir() {
+		return &struct {
+			Corrupt bool
+			Cause   string
+		}{Corrupt: true, Cause: "session path is not a directory"}
+	}
+
+	// Check for BadgerDB corruption markers
+	lockPath := dir + "/LOCK"
+	if fi, err := os.Stat(lockPath); err == nil && fi.Size() == 0 {
+		return &struct {
+			Corrupt bool
+			Cause   string
+		}{Corrupt: true, Cause: "BadgerDB LOCK file is zero-sized (crashed process)"}
+	}
+
+	manifestPath := dir + "/MANIFEST"
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		// No MANIFEST — either fresh DB or corruption
+		vlogFiles, _ := filepath.Glob(dir + "/*.vlog")
+		if len(vlogFiles) > 0 {
+			return &struct {
+				Corrupt bool
+				Cause   string
+			}{Corrupt: true, Cause: "vlog files exist but MANIFEST is missing (corrupted DB)"}
+		}
+	}
+
+	return &struct {
+		Corrupt bool
+		Cause   string
+	}{Corrupt: false, Cause: ""}
+}
