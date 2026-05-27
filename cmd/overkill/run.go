@@ -116,10 +116,12 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	// Wire the learning-from-corrections store (§6.5). This persists
 	// user corrections so future turns benefit from past feedback.
-	homeDir, _ := config.ConfigDir()
-	if homeDir != "" {
-		correctionsDir := filepath.Join(homeDir, "corrections")
-		if ls, err := learning.NewStore(correctionsDir, 1000); err == nil {
+	connString := cfg.DatabaseURL
+	if connString == "" {
+		connString = os.Getenv("DATABASE_URL")
+	}
+	if connString != "" {
+		if ls, err := learning.NewStore(connString, 1000); err == nil {
 			a.SetLearningStore(ls)
 			defer ls.Close()
 		}

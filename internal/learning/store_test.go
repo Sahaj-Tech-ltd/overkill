@@ -5,18 +5,23 @@ import (
 	"testing"
 )
 
-func TestStoreSaveAndFind(t *testing.T) {
-	dir, err := os.MkdirTemp("", "learning-test-*")
-	if err != nil {
-		t.Fatal(err)
+// postgresStore creates a store if DATABASE_URL is set, otherwise skips.
+func postgresStore(t *testing.T, maxItems int) *Store {
+	t.Helper()
+	connString := os.Getenv("DATABASE_URL")
+	if connString == "" {
+		t.Skip("DATABASE_URL not set; skipping PostgreSQL test")
 	}
-	defer os.RemoveAll(dir)
+	store, err := NewStore(connString, maxItems)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	return store
+}
 
-	store, err := NewStore(dir, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+func TestStoreSaveAndFind(t *testing.T) {
+	store := postgresStore(t, 100)
 
 	// Save a correction
 	c := NewCorrection(
@@ -45,17 +50,7 @@ func TestStoreSaveAndFind(t *testing.T) {
 }
 
 func TestStoreDeduplication(t *testing.T) {
-	dir, err := os.MkdirTemp("", "learning-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	store, err := NewStore(dir, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := postgresStore(t, 100)
 
 	c1 := NewCorrection("context", "wrong", "correct v1")
 	c2 := NewCorrection("context", "wrong", "correct v2")
@@ -91,18 +86,8 @@ func TestStoreDeduplication(t *testing.T) {
 }
 
 func TestStoreLRUEviction(t *testing.T) {
-	dir, err := os.MkdirTemp("", "learning-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
 	maxItems := 5
-	store, err := NewStore(dir, maxItems)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := postgresStore(t, maxItems)
 
 	// Insert maxItems corrections
 	for i := 0; i < maxItems; i++ {
@@ -156,17 +141,7 @@ func TestStoreLRUEviction(t *testing.T) {
 }
 
 func TestStoreFindRelevance(t *testing.T) {
-	dir, err := os.MkdirTemp("", "learning-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	store, err := NewStore(dir, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := postgresStore(t, 100)
 
 	// Store several corrections on different topics
 	store.Save(NewCorrection(
@@ -200,17 +175,7 @@ func TestStoreFindRelevance(t *testing.T) {
 }
 
 func TestStoreEmptyFind(t *testing.T) {
-	dir, err := os.MkdirTemp("", "learning-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	store, err := NewStore(dir, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := postgresStore(t, 100)
 
 	results, err := store.FindCorrections("nonexistent query", 3)
 	if err != nil {
@@ -222,33 +187,14 @@ func TestStoreEmptyFind(t *testing.T) {
 }
 
 func TestStoreClose(t *testing.T) {
-	dir, err := os.MkdirTemp("", "learning-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	store, err := NewStore(dir, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := postgresStore(t, 100)
 	if err := store.Close(); err != nil {
 		t.Errorf("close: %v", err)
 	}
 }
 
 func TestStoreCount(t *testing.T) {
-	dir, err := os.MkdirTemp("", "learning-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	store, err := NewStore(dir, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := postgresStore(t, 100)
 
 	count, err := store.Count()
 	if err != nil {

@@ -88,6 +88,11 @@ func Load(path string) (*Config, error) {
 		return Default(), nil
 	}
 
+	// Apply env var fallbacks for any unset fields.
+	if cfg.DatabaseURL == "" {
+		cfg.DatabaseURL = os.Getenv("DATABASE_URL")
+	}
+
 	return &cfg, nil
 }
 

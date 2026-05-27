@@ -3,12 +3,10 @@ package learning
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/lib/pq"
 
 	"github.com/rs/zerolog/log"
 )
@@ -17,7 +15,7 @@ import (
 // before evicting the oldest (LRU).
 const DefaultMaxCorrections = 1000
 
-// Store persists corrections using SQLite and provides retrieval
+// Store persists corrections using PostgreSQL and provides retrieval
 // via LIKE keyword search.
 type Store struct {
 	mu       sync.RWMutex
@@ -25,39 +23,25 @@ type Store struct {
 	maxItems int
 }
 
-// NewStore opens or creates a SQLite-backed correction store at dir.
-func NewStore(dir string, maxItems int) (*Store, error) {
+// NewStore opens or creates a PostgreSQL-backed correction store.
+// connString should be a PostgreSQL connection string, e.g.
+// "postgres://user:pass@localhost:5432/overkill?sslmode=disable".
+func NewStore(connString string, maxItems int) (*Store, error) {
 	if maxItems <= 0 {
 		maxItems = DefaultMaxCorrections
 	}
 
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("learning: creating corrections dir %s: %w", dir, err)
-	}
-
-	dbPath := filepath.Join(dir, "corrections.db")
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("postgres", connString)
 	if err != nil {
-		return nil, fmt.Errorf("learning: opening sqlite db: %w", err)
-	}
-
-	// Enable WAL mode for better concurrent access.
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("learning: enabling WAL: %w", err)
-	}
-	// Set busy timeout so concurrent readers don't immediately fail.
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("learning: setting busy_timeout: %w", err)
+		return nil, fmt.Errorf("learning: opening postgres db: %w", err)
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS corrections (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id SERIAL PRIMARY KEY,
 		context TEXT NOT NULL,
 		wrong TEXT NOT NULL,
 		correct TEXT NOT NULL,
-		timestamp INTEGER NOT NULL,
+		timestamp BIGINT NOT NULL,
 		UNIQUE(context, wrong)
 	)`)
 	if err != nil {
@@ -65,7 +49,7 @@ func NewStore(dir string, maxItems int) (*Store, error) {
 		return nil, fmt.Errorf("learning: creating table: %w", err)
 	}
 
-	log.Info().Str("dir", dir).Int("max_items", maxItems).Msg("corrections store opened")
+	log.Info().Int("max_items", maxItems).Msg("corrections store opened")
 
 	return &Store{
 		db:       db,
@@ -73,14 +57,14 @@ func NewStore(dir string, maxItems int) (*Store, error) {
 	}, nil
 }
 
-// Close closes the underlying SQLite database.
+// Close closes the underlying PostgreSQL database.
 func (s *Store) Close() error {
 	log.Info().Msg("corrections store closing")
 	return s.db.Close()
 }
 
 // Save stores a correction. If a correction with the same (context, wrong)
-// already exists, it is overwritten (UPSERT via the UNIQUE constraint).
+// already exists, it is overwritten (UPSERT via ON CONFLICT).
 // Enforces maxItems by evicting the oldest corrections when full.
 func (s *Store) Save(c *Correction) error {
 	if c == nil {
@@ -90,10 +74,13 @@ func (s *Store) Save(c *Correction) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// INSERT OR REPLACE handles dedup via UNIQUE(context, wrong).
+	// ON CONFLICT ... DO UPDATE handles dedup via UNIQUE(context, wrong).
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO corrections (context, wrong, correct, timestamp)
-		 VALUES (?, ?, ?, ?)`,
+		`INSERT INTO corrections (context, wrong, correct, timestamp)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (context, wrong) DO UPDATE SET
+			correct = EXCLUDED.correct,
+			timestamp = EXCLUDED.timestamp`,
 		c.Context, c.Wrong, c.Correct, c.Timestamp,
 	)
 	if err != nil {
@@ -108,7 +95,7 @@ func (s *Store) Save(c *Correction) error {
 	if count > s.maxItems {
 		_, err = s.db.Exec(
 			`DELETE FROM corrections WHERE id IN (
-				SELECT id FROM corrections ORDER BY timestamp ASC LIMIT ?
+				SELECT id FROM corrections ORDER BY timestamp ASC LIMIT $1
 			)`,
 			count-s.maxItems,
 		)
@@ -139,15 +126,16 @@ func (s *Store) FindCorrections(query string, topK int) ([]*Correction, error) {
 	// Build WHERE clause: each token must appear in either context or wrong.
 	var conditions []string
 	var args []any
-	for _, tok := range queryTokens {
+	for i, tok := range queryTokens {
 		pattern := "%" + tok + "%"
-		conditions = append(conditions, "(context LIKE ? OR wrong LIKE ?)")
+		conditions = append(conditions, fmt.Sprintf("(context LIKE $%d OR wrong LIKE $%d)", i*2+1, i*2+2))
 		args = append(args, pattern, pattern)
 	}
 
 	querySQL := fmt.Sprintf(
-		"SELECT context, wrong, correct, timestamp FROM corrections WHERE %s ORDER BY timestamp DESC LIMIT ?",
+		"SELECT context, wrong, correct, timestamp FROM corrections WHERE %s ORDER BY timestamp DESC LIMIT $%d",
 		strings.Join(conditions, " AND "),
+		len(args)+1,
 	)
 	args = append(args, topK)
 
