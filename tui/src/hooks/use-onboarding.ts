@@ -12,6 +12,7 @@ export type WizardStep =
   | "provider"
   | "model"
   | "tts"
+  | "vision"
   | "gateway"
   | "done";
 
@@ -21,12 +22,14 @@ interface UseOnboardingResult {
   stepIndex: number;
   providers: OnboardingProviderConfig[];
   defaultModel: string;
+  visionProvider: string;
   tts: OnboardingTTSConfig | null;
   gateway: OnboardingGatewayConfig | null;
   saving: boolean;
   error: string | null;
   setProviders: (providers: OnboardingProviderConfig[]) => void;
   setDefaultModel: (model: string) => void;
+  setVisionProvider: (model: string) => void;
   setTTS: (config: OnboardingTTSConfig | null) => void;
   setGateway: (config: OnboardingGatewayConfig | null) => void;
   nextStep: () => void;
@@ -40,6 +43,7 @@ const STEP_ORDER: WizardStep[] = [
   "provider",
   "model",
   "tts",
+  "vision",
   "gateway",
   "done",
 ];
@@ -48,6 +52,7 @@ export function useOnboarding(): UseOnboardingResult {
   const [step, setStep] = useState<WizardStep>("welcome");
   const [providers, setProviders] = useState<OnboardingProviderConfig[]>([]);
   const [defaultModel, setDefaultModel] = useState("");
+  const [visionProvider, setVisionProvider] = useState("");
   const [tts, setTTS] = useState<OnboardingTTSConfig | null>(null);
   const [gateway, setGateway] = useState<OnboardingGatewayConfig | null>(null);
   const [saving, setSaving] = useState(false);
@@ -81,6 +86,7 @@ export function useOnboarding(): UseOnboardingResult {
       const config: OnboardingConfig = {
         providers,
         defaultModel,
+        visionProvider: visionProvider || undefined,
         tts: tts ?? undefined,
         gateway: gateway ?? undefined,
       };
@@ -95,7 +101,7 @@ export function useOnboarding(): UseOnboardingResult {
         setSaving(false);
       }
     },
-    [providers, defaultModel, tts, gateway],
+    [providers, defaultModel, visionProvider, tts, gateway],
   );
 
   return {
@@ -104,12 +110,14 @@ export function useOnboarding(): UseOnboardingResult {
     stepIndex,
     providers,
     defaultModel,
+    visionProvider,
     tts,
     gateway,
     saving,
     error,
     setProviders,
     setDefaultModel,
+    setVisionProvider,
     setTTS,
     setGateway,
     nextStep,

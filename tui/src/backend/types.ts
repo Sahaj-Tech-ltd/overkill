@@ -15,6 +15,7 @@ export interface ModelInfo {
   id: string;
   name: string;
   maxTokens?: number;
+  supports_vision?: boolean;
 }
 
 export type SubagentStatus = "running" | "completed" | "failed";
@@ -47,6 +48,7 @@ export interface OnboardingGatewayConfig {
 export interface OnboardingConfig {
   providers: OnboardingProviderConfig[];
   defaultModel: string;
+  visionProvider?: string;
   tts?: OnboardingTTSConfig;
   gateway?: OnboardingGatewayConfig;
 }
