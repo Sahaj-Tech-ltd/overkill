@@ -57,6 +57,23 @@ func (s *Server) handleAgentSend(ctx context.Context, params []byte) (interface{
 	}, nil
 }
 
+// handleEStop fires an emergency stop on ALL running agents. No session ID
+// required — this is the "kill everything" command for the TUI command palette.
+func (s *Server) handleEStop(_ context.Context, _ []byte) (interface{}, *RPCError) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, a := range s.agents {
+		a.EStop()
+		count++
+	}
+	return map[string]interface{}{
+		"status":  "estopped",
+		"stopped": count,
+	}, nil
+}
+
 // handleAgentAbort fires an emergency stop on the agent running for the given session.
 func (s *Server) handleAgentAbort(_ context.Context, params []byte) (interface{}, *RPCError) {
 	var p AbortParams

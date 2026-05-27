@@ -81,6 +81,18 @@ export function App(): React.JSX.Element {
         keybind: "Ctrl+C",
         action: () => exit(),
       },
+      {
+        id: "estop",
+        title: "Emergency Stop",
+        description: "Halt all running agent loops immediately",
+        keybind: "",
+        action: () => {
+          if (backend.estop) {
+            backend.estop();
+          }
+          exit();
+        },
+      },
     ],
     [open, exit],
   );
@@ -157,3 +169,5 @@ export function App(): React.JSX.Element {
     </Box>
   );
 }
+
+// test

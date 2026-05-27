@@ -5,9 +5,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from concurrent import futures
 
+import grpc  # noqa: E402
 import overkill_pb2  # noqa: E402
 import overkill_pb2_grpc  # noqa: E402
-import grpc  # noqa: E402
 
 from compaction.service import CompactionService  # noqa: E402
 from embeddings.service import EmbeddingService  # noqa: E402
@@ -99,3 +99,4 @@ def serve(port: int = 50051) -> None:
 
 if __name__ == "__main__":
     serve()
+# test

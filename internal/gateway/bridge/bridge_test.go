@@ -25,6 +25,7 @@ func (f *fakeAgent) Stream(_ context.Context, _ string) (<-chan agent.StreamEven
 	close(ch)
 	return ch, nil
 }
+func (f *fakeAgent) EStop() {}
 
 func TestBridge_InboundFansOutToSSE(t *testing.T) {
 	r, _ := gateway.NewSessionRouter("")

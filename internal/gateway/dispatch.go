@@ -361,6 +361,9 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			return
 		}
 		d.respond(ctx, in, reply, "bookmarked: "+label)
+	case "/estop":
+		d.Agent.EStop()
+		d.respond(ctx, in, reply, "🛑 emergency stop triggered. all running agent loops halted.")
 	default:
 		// Unknown slash → treat as agent input.
 		sid := d.resolveSession(in)

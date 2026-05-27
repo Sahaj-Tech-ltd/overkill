@@ -20,6 +20,7 @@ type AgentSender interface {
 	Stream(ctx context.Context, in string) (<-chan agent.StreamEvent, error)
 	SetSessionID(id string)
 	SessionID() string
+	EStop()
 }
 
 // Inbound is one user-authored message arriving from any channel.
