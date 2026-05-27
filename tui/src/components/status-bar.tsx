@@ -9,6 +9,9 @@ interface StatusBarProps {
   provider?: string;
   sessionName?: string;
   theme: Theme;
+  gitBranch?: string;
+  queuedMessages?: number;
+  statusPhase?: string;
 }
 
 const STATUS_SYMBOLS: Record<
@@ -35,6 +38,9 @@ export function StatusBar({
   provider,
   sessionName,
   theme,
+  gitBranch,
+  queuedMessages,
+  statusPhase,
 }: StatusBarProps): React.JSX.Element {
   const status = STATUS_SYMBOLS[connectionState];
   const [time, setTime] = useState(formatTime);
@@ -58,6 +64,9 @@ export function StatusBar({
       <Box>
         <Text color={status.color}>{status.symbol} </Text>
         <Text color={theme.text}>{connectionState}</Text>
+        {statusPhase && (
+          <Text color={theme.warning}> [{statusPhase.replace(/_/g, " ")}]</Text>
+        )}
         {provider && model && (
           <>
             <Text color={theme.muted}> │ </Text>
@@ -72,8 +81,22 @@ export function StatusBar({
             <Text color={theme.text}>{sessionName}</Text>
           </>
         )}
+        {queuedMessages !== undefined && queuedMessages > 0 && (
+          <>
+            <Text color={theme.muted}> │ </Text>
+            <Text color={theme.warning}>
+              [{queuedMessages} queued]
+            </Text>
+          </>
+        )}
       </Box>
       <Box>
+        {gitBranch && (
+          <>
+            <Text color={theme.accent}>{gitBranch}</Text>
+            <Text color={theme.muted}> │ </Text>
+          </>
+        )}
         <Text color={theme.muted}>{time} </Text>
         <Text color={theme.accent}>{VERSION}</Text>
       </Box>

@@ -72,3 +72,17 @@ export interface AgentSendResult {
 }
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
+
+export interface StreamEvent {
+  type: "status" | "reasoning" | "text" | "tool_call" | "done" | "error";
+  phase?: string;
+  content?: string;
+  name?: string;
+  input?: unknown;
+  output?: string;
+  model?: string;
+  tokens?: number;
+  tool_calls?: number;
+  steps?: number;
+  message?: string;
+}

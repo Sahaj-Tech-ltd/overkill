@@ -65,6 +65,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rpc", s.withMiddleware(s.handleRPC))
 	mux.HandleFunc("/sse", s.withMiddleware(s.handleSSE))
+	mux.HandleFunc("/stream", s.withMiddleware(s.handleStream))
 	mux.HandleFunc("/health", s.withMiddleware(s.handleHealth))
 
 	ln, err := net.Listen("tcp", "localhost:0")
@@ -234,6 +235,77 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	s.saveSessionState(ctx, sessionID, a)
 }
 
+// handleStream is the plan-aligned SSE endpoint at GET /stream.
+// Accepts two query-param styles:
+//   1. Direct: ?session_id=X&message=...
+//   2. JSON-RPC style (TUI client): ?method=agent.send&params={"message":"...","session_id":"..."}
+func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("session_id")
+	message := r.URL.Query().Get("message")
+
+	// Fallback: parse JSON-RPC style params if direct query params are missing.
+	if message == "" {
+		paramsRaw := r.URL.Query().Get("params")
+		if paramsRaw != "" {
+			var p struct {
+				SessionID string `json:"session_id"`
+				Message   string `json:"message"`
+			}
+			if err := json.Unmarshal([]byte(paramsRaw), &p); err == nil {
+				if p.SessionID != "" {
+					sessionID = p.SessionID
+				}
+				message = p.Message
+			}
+		}
+	}
+
+	if sessionID == "" {
+		// Auto-create a session for this folder, same as handleAgentSend.
+		sess := session.NewSession(getCwd())
+		if createErr := s.sessionStore.Create(r.Context(), sess); createErr != nil {
+			http.Error(w, fmt.Sprintf("failed to create session: %v", createErr), http.StatusInternalServerError)
+			return
+		}
+		sessionID = sess.ID
+	}
+	if message == "" {
+		http.Error(w, "message query parameter required", http.StatusBadRequest)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	a, rpcErr := s.getOrCreateAgent(ctx, sessionID)
+	if rpcErr != nil {
+		http.Error(w, rpcErr.Message, http.StatusInternalServerError)
+		return
+	}
+
+	events, err := a.Stream(ctx, message)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	s.consumeStreamEvents(ctx, w, flusher, events)
+
+	// Persist after stream completes.
+	s.saveSessionState(ctx, sessionID, a)
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(HealthResult{
@@ -279,15 +351,19 @@ func (s *Server) writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, evt 
 func streamEventType(evt agent.StreamEvent) string {
 	switch evt.Type {
 	case agent.EventToken:
-		return "token"
+		return "text"
 	case agent.EventToolStart:
-		return "tool_start"
+		return "tool_call"
 	case agent.EventToolOutput:
-		return "tool_output"
+		return "tool_call"
 	case agent.EventDone:
 		return "done"
 	case agent.EventError:
 		return "error"
+	case agent.EventStatus:
+		return "status"
+	case agent.EventReasoning:
+		return "reasoning"
 	default:
 		return "unknown"
 	}
@@ -295,29 +371,71 @@ func streamEventType(evt agent.StreamEvent) string {
 
 func buildSSEData(evt agent.StreamEvent) map[string]interface{} {
 	data := map[string]interface{}{}
-	if evt.Content != "" {
-		data["content"] = evt.Content
-	}
-	if evt.ToolCall != nil {
-		data["tool_call"] = map[string]interface{}{
-			"id":        evt.ToolCall.ID,
-			"name":      evt.ToolCall.Name,
-			"arguments": evt.ToolCall.Arguments,
+	switch evt.Type {
+	case agent.EventStatus:
+		if evt.Phase != "" {
+			data["phase"] = evt.Phase
 		}
-	}
-	if evt.Result != nil {
-		data["result"] = &SendMessageResult{
-			Response:    evt.Result.Response,
-			ToolCalls:   evt.Result.ToolCalls,
-			TotalTokens: evt.Result.TotalTokens,
-			Steps:       evt.Result.Steps,
-			Model:       evt.Result.Model,
-			Blocked:     evt.Result.Blocked,
-			BlockReason: evt.Result.BlockReason,
+	case agent.EventReasoning:
+		if evt.Content != "" {
+			data["content"] = evt.Content
 		}
-	}
-	if evt.Error != nil {
-		data["error"] = evt.Error.Error()
+	case agent.EventToken:
+		if evt.Content != "" {
+			data["content"] = evt.Content
+		}
+	case agent.EventToolStart, agent.EventToolOutput:
+		if evt.ToolName != "" {
+			data["name"] = evt.ToolName
+		}
+		if evt.ToolInput != nil {
+			data["input"] = evt.ToolInput
+		}
+		if evt.ToolOutput != "" {
+			data["output"] = evt.ToolOutput
+		}
+		// Fallback: use ToolCall struct for backward compat fields
+		if evt.ToolCall != nil {
+			if evt.ToolName == "" {
+				data["name"] = evt.ToolCall.Name
+			}
+			if evt.ToolInput == nil {
+				data["input"] = evt.ToolCall.Arguments
+			}
+		}
+		// Legacy metadata output
+		if evt.Metadata != nil {
+			if output, ok := evt.Metadata["output"]; ok && evt.ToolOutput == "" {
+				data["output"] = output
+			}
+		}
+	case agent.EventDone:
+		if evt.Result != nil {
+			data["model"] = evt.Result.Model
+			data["tokens"] = evt.Result.TotalTokens
+			data["tool_calls"] = evt.Result.ToolCalls
+			data["steps"] = evt.Result.Steps
+			if evt.Result.Response != "" {
+				data["response"] = evt.Result.Response
+			}
+			if evt.Result.Blocked {
+				data["blocked"] = true
+				if evt.Result.BlockReason != "" {
+					data["block_reason"] = evt.Result.BlockReason
+				}
+			}
+		}
+		// If Model/Tokens set directly on event, override
+		if evt.Model != "" {
+			data["model"] = evt.Model
+		}
+		if evt.Tokens > 0 {
+			data["tokens"] = evt.Tokens
+		}
+	case agent.EventError:
+		if evt.Error != nil {
+			data["message"] = evt.Error.Error()
+		}
 	}
 	if len(evt.Metadata) > 0 {
 		data["metadata"] = evt.Metadata

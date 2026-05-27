@@ -18,6 +18,8 @@ const (
 	EventToolOutput
 	EventDone
 	EventError
+	EventStatus
+	EventReasoning
 )
 
 type StreamEvent struct {
@@ -27,6 +29,14 @@ type StreamEvent struct {
 	Result   *RunResult             `json:"result,omitempty"`
 	Error    error                  `json:"-"`
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+
+	// Plan-aligned wire fields for SSE streaming.
+	Phase      string      `json:"phase,omitempty"`       // for status events
+	ToolName   string      `json:"tool_name,omitempty"`   // for tool_call events
+	ToolInput  interface{} `json:"tool_input,omitempty"`  // for tool_call events
+	ToolOutput string      `json:"tool_output,omitempty"` // for tool_call events
+	Model      string      `json:"model,omitempty"`       // for done events
+	Tokens     int         `json:"tokens,omitempty"`      // for done events
 }
 
 func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEvent, error) {
@@ -86,6 +96,9 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 	go func() {
 		defer close(out)
 
+		// Emit status: thinking phase
+		out <- StreamEvent{Type: EventStatus, Phase: "thinking"}
+
 		runResult := &RunResult{
 			Model: a.Model(),
 		}
@@ -134,6 +147,7 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			var contentBuf string
 			var toolCalls []providers.ToolCall
 			var usage providers.Usage
+			var emittedResponding bool
 
 			var streamErr error
 			// Explicit select on chunk + ctx + estop. The original
@@ -178,6 +192,10 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					}
 
 					if chunk.Content != "" {
+						if !emittedResponding {
+							emittedResponding = true
+							out <- StreamEvent{Type: EventStatus, Phase: "responding"}
+						}
 						contentBuf += chunk.Content
 						out <- StreamEvent{Type: EventToken, Content: chunk.Content}
 					}
@@ -240,7 +258,13 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 				}
 
 				runResult.Confidence = a.assessTurnConfidence(userInput)
-				out <- StreamEvent{Type: EventDone, Result: runResult}
+				out <- StreamEvent{Type: EventStatus, Phase: "done"}
+				out <- StreamEvent{
+					Type:   EventDone,
+					Result: runResult,
+					Model:  runResult.Model,
+					Tokens: runResult.TotalTokens,
+				}
 				return
 			}
 
@@ -274,6 +298,14 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					out <- StreamEvent{
 						Type:     EventToolStart,
 						ToolCall: &call,
+						ToolName: call.Name,
+						ToolInput: func() interface{} {
+							var v interface{}
+							if err := json.Unmarshal([]byte(call.Arguments), &v); err != nil {
+								return call.Arguments
+							}
+							return v
+						}(),
 					}
 
 					if a.hooks != nil {
@@ -293,10 +325,12 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 							Error:      deniedErr,
 						}
 						out <- StreamEvent{
-							Type:     EventToolOutput,
-							Content:  call.Name,
-							ToolCall: &call,
-							Metadata: map[string]interface{}{"output": "", "error": deniedErr},
+							Type:      EventToolOutput,
+							Content:   call.Name,
+							ToolCall:  &call,
+							ToolName:  call.Name,
+							ToolInput: parseToolInput(call.Arguments),
+							Metadata:  map[string]interface{}{"output": "", "error": deniedErr},
 						}
 						return
 					}
@@ -327,10 +361,12 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 							Error:      blockErr,
 						}
 						out <- StreamEvent{
-							Type:     EventToolOutput,
-							Content:  call.Name,
-							ToolCall: &call,
-							Metadata: map[string]interface{}{"output": "", "error": blockErr},
+							Type:      EventToolOutput,
+							Content:   call.Name,
+							ToolCall:  &call,
+							ToolName:  call.Name,
+							ToolInput: parseToolInput(call.Arguments),
+							Metadata:  map[string]interface{}{"output": "", "error": blockErr},
 						}
 						return
 					}
@@ -392,9 +428,12 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					}
 
 					out <- StreamEvent{
-						Type:     EventToolOutput,
-						Content:  call.Name,
-						ToolCall: &call,
+						Type:      EventToolOutput,
+						Content:   call.Name,
+						ToolCall:  &call,
+						ToolName:  call.Name,
+						ToolInput: parseToolInput(call.Arguments),
+						ToolOutput: string(output),
 						Metadata: map[string]interface{}{
 							"output": string(output),
 							"error":  toolErr,
@@ -555,6 +594,10 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					}()
 				}
 				out <- StreamEvent{
+					Type: EventStatus,
+					Phase: "done",
+				}
+				out <- StreamEvent{
 					Type: EventDone,
 					Result: &RunResult{
 						Model:    model,
@@ -708,4 +751,17 @@ func (a *Agent) checkpointInterrupt(userInput string, step int, reason string) {
 		}
 	}()
 	_, _ = CheckpointFlow(store, flowID, a.sessionID, userInput, model, "", histCopy, step, reason)
+}
+
+// parseToolInput unmarshals tool call arguments JSON into an interface{}.
+// Used to populate StreamEvent.ToolInput for SSE streaming consumers.
+func parseToolInput(args string) interface{} {
+	if args == "" {
+		return nil
+	}
+	var v interface{}
+	if err := json.Unmarshal([]byte(args), &v); err != nil {
+		return args
+	}
+	return v
 }

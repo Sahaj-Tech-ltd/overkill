@@ -1,24 +1,32 @@
 import React from "react";
 import { Box, useInput } from "ink";
-import type { BackendClient } from "../../backend/client.ts";
+import type { Message } from "../../backend/types.ts";
 import { MessageList } from "./message-list.tsx";
 import { Prompt } from "./prompt.tsx";
-import { useChat } from "../../hooks/use-chat.ts";
 
 interface ChatViewProps {
-  backend: BackendClient;
+  messages: Message[];
+  sendMessage: (text: string) => Promise<void>;
+  clearChat: () => void;
+  isLoading: boolean;
+  streamingText?: string;
+  model?: string;
+  provider?: string;
   onOpenPalette: () => void;
   isDialogOpen: boolean;
 }
 
 export function ChatView({
-  backend,
+  messages,
+  sendMessage,
+  clearChat,
+  isLoading,
+  streamingText,
+  model,
+  provider,
   onOpenPalette,
   isDialogOpen,
 }: ChatViewProps): React.JSX.Element {
-  const { messages, sendMessage, clearChat, isLoading, model, provider } =
-    useChat(backend);
-
   useInput((input, key) => {
     if (isDialogOpen) return;
 
@@ -32,7 +40,7 @@ export function ChatView({
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <MessageList messages={messages} />
+      <MessageList messages={messages} streamingText={streamingText} />
       <Prompt
         onSubmit={sendMessage}
         disabled={isLoading}
