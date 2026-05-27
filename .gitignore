@@ -33,3 +33,5 @@ bridge/.venv/
 # Inspiration repos (embedded git repos — don't track)
 inspiration/
 research/
+overkill
+bin/
