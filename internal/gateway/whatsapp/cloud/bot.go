@@ -31,9 +31,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
@@ -78,6 +80,20 @@ type Bot struct {
 	Logger     *log.Logger
 
 	server *http.Server
+
+	// Health state
+	serverRunning atomic.Bool
+	lastAPICall   time.Time
+	apiCallMu     sync.Mutex
+	backoffAttempt int
+	backoffMu      sync.Mutex
+
+	// Rate limit tracking (parsed from X-Business-Use-Case-Usage).
+	// When approaching the limit we throttle outbound messages.
+	usageMu     sync.Mutex
+	usageLimit  int
+	usageCurrent int
+	usageLastCheck time.Time
 
 	// seenMu + seenIDs deduplicate Meta's webhook retries. Meta will
 	// retry the same delivery up to 3× if our handler is slow or the
@@ -158,6 +174,47 @@ func NewBot(phoneNumberID, accessToken, appSecret, verifyToken, listen string, a
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "whatsapp-cloud" }
 
+// --- health and reconnect ---
+
+// backoff returns the current backoff duration and advances the
+// attempt counter. Caps at 30 seconds.
+func (b *Bot) backoff() time.Duration {
+	b.backoffMu.Lock()
+	attempt := b.backoffAttempt
+	b.backoffAttempt++
+	b.backoffMu.Unlock()
+	d := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+	if d > 30*time.Second {
+		d = 30 * time.Second
+	}
+	return d
+}
+
+// Healthy reports whether the webhook server is running and the last
+// Graph API call succeeded within the last 120 seconds.
+func (b *Bot) Healthy() bool {
+	if !b.serverRunning.Load() {
+		return false
+	}
+	b.apiCallMu.Lock()
+	defer b.apiCallMu.Unlock()
+	if b.lastAPICall.IsZero() {
+		return true // haven't made an API call yet; still healthy
+	}
+	return time.Since(b.lastAPICall) < 120*time.Second
+}
+
+// Reconnect triggers a fresh webhook server listen cycle.
+func (b *Bot) Reconnect(ctx context.Context) error {
+	b.serverRunning.Store(false)
+	if b.server != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = b.server.Shutdown(shutdownCtx)
+	}
+	return nil // Run's loop will restart the server
+}
+
 // Notify sends an unsolicited WhatsApp message via the Cloud API.
 // `to` is the recipient phone number in E.164 form (no leading +).
 // WhatsApp enforces a 24-hour messaging window: free-form outbound
@@ -173,34 +230,54 @@ func (b *Bot) Notify(ctx context.Context, to, text string) error {
 }
 
 // Run starts the webhook HTTP server and blocks until ctx is
-// cancelled. Returns ctx.Err() on cancel; wrapped errors for missing
-// config or listen failures.
+// cancelled. On listen failures (port in use, network down) the
+// server retries with exponential backoff. Returns ctx.Err() on cancel.
 func (b *Bot) Run(ctx context.Context) error {
 	if err := b.validate(); err != nil {
 		return err
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/webhook", b.handleWebhook)
-	b.server = &http.Server{
-		Addr:              b.Listen,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	b.Logger.Printf("whatsapp-cloud: listening on %s", b.Listen)
 
-	// Shut down on ctx cancellation. Done on a goroutine so Run can
-	// block on ListenAndServe.
+	// Shut down on ctx cancellation.
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = b.server.Shutdown(shutdownCtx)
+		if b.server != nil {
+			_ = b.server.Shutdown(shutdownCtx)
+		}
 	}()
-	err := b.server.ListenAndServe()
-	if err == http.ErrServerClosed {
-		return ctx.Err()
+
+	for {
+		b.server = &http.Server{
+			Addr:              b.Listen,
+			Handler:           mux,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		b.Logger.Printf("whatsapp-cloud: listening on %s", b.Listen)
+		b.serverRunning.Store(true)
+
+		// Reset backoff on successful listen start.
+		b.backoffMu.Lock()
+		b.backoffAttempt = 0
+		b.backoffMu.Unlock()
+
+		err := b.server.ListenAndServe()
+		b.serverRunning.Store(false)
+		if err == http.ErrServerClosed {
+			return ctx.Err()
+		}
+
+		b.Logger.Printf("whatsapp-cloud: listen error: %v", err)
+		delay := b.backoff()
+		b.Logger.Printf("whatsapp-cloud: backoff %v before re-listen", delay)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
 	}
-	return err
 }
 
 func (b *Bot) validate() error {
@@ -402,11 +479,24 @@ func (b *Bot) graphURL() string {
 	return "https://graph.facebook.com/v18.0"
 }
 
-// sendMessage posts a text message to the Cloud API.
+// sendMessage posts a text message to the Cloud API. Tracks the last
+// successful API call timestamp for health checks and parses the
+// X-Business-Use-Case-Usage header for rate-limit awareness.
 func (b *Bot) sendMessage(ctx context.Context, to, text string) error {
 	if text == "" {
 		text = " " // Cloud API rejects empty bodies
 	}
+
+	// Check rate limit before sending. Cloud API has per-business
+	// messaging limits (default 250/hour for test numbers). Skip the
+	// send if we're at the limit — the caller can retry.
+	b.usageMu.Lock()
+	if b.usageLimit > 0 && b.usageCurrent >= b.usageLimit {
+		b.usageMu.Unlock()
+		return fmt.Errorf("whatsapp-cloud: rate limit reached (%d/%d messages), retry later", b.usageCurrent, b.usageLimit)
+	}
+	b.usageMu.Unlock()
+
 	body := map[string]any{
 		"messaging_product": "whatsapp",
 		"to":                to,
@@ -423,11 +513,54 @@ func (b *Bot) sendMessage(ctx context.Context, to, text string) error {
 		return fmt.Errorf("send: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Parse X-Business-Use-Case-Usage for rate limit awareness.
+	// Format: {"<business_id>":[{"type":"messages","limit":250,"usage":3}]}
+	if usageHeader := resp.Header.Get("X-Business-Use-Case-Usage"); usageHeader != "" {
+		b.parseUsageHeader(usageHeader)
+	}
+
+	// Track successful API call for health checks.
+	b.apiCallMu.Lock()
+	b.lastAPICall = time.Now()
+	b.apiCallMu.Unlock()
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("send status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 	return nil
+}
+
+// parseUsageHeader parses Meta's X-Business-Use-Case-Usage response
+// header to track current messaging rate limit usage.
+func (b *Bot) parseUsageHeader(header string) {
+	// The header is a JSON object keyed by business ID. Each value is
+	// an array of usage objects. We extract the first "messages" type.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(header), &raw); err != nil {
+		return
+	}
+	for _, v := range raw {
+		var entries []struct {
+			Type  string `json:"type"`
+			Limit int    `json:"limit"`
+			Usage int    `json:"usage"`
+		}
+		if err := json.Unmarshal(v, &entries); err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.Type == "messages" {
+				b.usageMu.Lock()
+				b.usageLimit = e.Limit
+				b.usageCurrent = e.Usage
+				b.usageLastCheck = time.Now()
+				b.usageMu.Unlock()
+				return
+			}
+		}
+	}
 }
 
 // verifySignature computes the expected HMAC-SHA256 of body using

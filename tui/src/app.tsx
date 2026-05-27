@@ -16,6 +16,8 @@ import { HelpDialog } from "./components/dialogs/help-dialog.tsx";
 import { ToastContainer } from "./components/toast.tsx";
 import { Sidebar } from "./components/sidebar/sidebar.tsx";
 import { SessionPanel } from "./components/sidebar/session-panel.tsx";
+import { SubagentPanel } from "./components/sidebar/subagent-panel.tsx";
+import { Wizard } from "./components/onboarding/wizard.tsx";
 import type { ModelInfo, SessionInfo } from "./backend/types.ts";
 
 function useGitBranch(): string | undefined {
@@ -36,8 +38,46 @@ function useGitBranch(): string | undefined {
   return branch;
 }
 
+function useConfigExists(backend: ReturnType<typeof useBackend>["backend"]): {
+  exists: boolean | null;
+  loading: boolean;
+} {
+  const [exists, setExists] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    backend
+      .call<{ exists: boolean }>("config.exists")
+      .then((result) => {
+        if (!cancelled) {
+          setExists(result.exists);
+        }
+      })
+      .catch(() => {
+        // If the API fails, assume config exists (don't block the app)
+        if (!cancelled) {
+          setExists(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backend]);
+
+  return { exists, loading };
+}
+
 export function App(): React.JSX.Element {
   const { backend, connected } = useBackend();
+  const { exists: configExists, loading: configLoading } =
+    useConfigExists(backend);
+  const [onboardingComplete, setOnboardingComplete] = useState(false);
   const {
     messages,
     sendMessage,
@@ -67,6 +107,10 @@ export function App(): React.JSX.Element {
 
   const handleSidebarSessionSelect = (session: SessionInfo) => {
     handleSessionSelect(session);
+  };
+
+  const handleOnboardingComplete = () => {
+    setOnboardingComplete(true);
   };
 
   const commands = useMemo(
@@ -143,6 +187,30 @@ export function App(): React.JSX.Element {
     }
   });
 
+  // Show loading while checking config
+  if (configLoading) {
+    return (
+      <Box
+        flexDirection="column"
+        width="100%"
+        height="100%"
+        alignItems="center"
+        justifyContent="center"
+      >
+        <Text color="yellow">Checking configuration...</Text>
+      </Box>
+    );
+  }
+
+  // Show onboarding wizard if no config exists
+  if (!configExists && !onboardingComplete) {
+    return (
+      <Box flexDirection="column" width="100%" height="100%">
+        <Wizard backend={backend} onComplete={handleOnboardingComplete} />
+      </Box>
+    );
+  }
+
   return (
     <Box flexDirection="column" width="100%" height="100%">
       <Box flexDirection="row" flexGrow={1} width="100%">
@@ -177,6 +245,9 @@ export function App(): React.JSX.Element {
             <Box paddingX={1}>
               <Text dimColor>No files modified</Text>
             </Box>
+          )}
+          {activeTab === "agents" && (
+            <SubagentPanel backend={backend} />
           )}
         </Sidebar>
       </Box>

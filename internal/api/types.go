@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // JSON-RPC 2.0 envelope types.
@@ -146,6 +148,63 @@ type ModelsListParams struct {
 
 type ModelsListResult struct {
 	Models []ModelInfo `json:"models"`
+}
+
+// --- config.exists / config.create ---
+
+type ConfigExistsResult struct {
+	Exists bool `json:"exists"`
+}
+
+type ConfigCreateParams struct {
+	Providers []config.ProviderConfig `json:"providers,omitempty"`
+	Models    []config.ModelConfig    `json:"models,omitempty"`
+	TTS       *TTSConfig              `json:"tts,omitempty"`
+	Gateways  *GatewayConfigFields    `json:"gateways,omitempty"`
+}
+
+// TTSConfig holds text-to-speech settings written as part of config.create.
+type TTSConfig struct {
+	Provider string `json:"provider,omitempty"` // "openai" | "elevenlabs" | "edge"
+	APIKey   string `json:"api_key,omitempty"`
+	Voice    string `json:"voice,omitempty"`
+}
+
+// GatewayConfigFields holds gateway configuration for the onboarding wizard.
+type GatewayConfigFields struct {
+	Discord  *DiscordGatewayConfig  `json:"discord,omitempty"`
+	Telegram *TelegramGatewayConfig `json:"telegram,omitempty"`
+	WhatsApp *WhatsAppGatewayConfig `json:"whatsapp,omitempty"`
+}
+
+type DiscordGatewayConfig struct {
+	BotToken        string `json:"bot_token,omitempty"`
+	Enabled         bool   `json:"enabled"`
+	NotifyChannelID string `json:"notify_channel_id,omitempty"`
+}
+
+type TelegramGatewayConfig struct {
+	BotToken      string `json:"bot_token,omitempty"`
+	Enabled       bool   `json:"enabled"`
+	NotifyChatID  int64  `json:"notify_chat_id,omitempty"`
+}
+
+type WhatsAppGatewayConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Backend  string `json:"backend,omitempty"` // "whatsmeow" | "cloud"
+}
+
+// --- agent.subagents ---
+
+type SubagentInfo struct {
+	Name      string `json:"name"`
+	Status    string `json:"status"` // "running" | "completed" | "failed"
+	ElapsedMs int64  `json:"elapsed_ms"`
+	Model     string `json:"model"`
+}
+
+type SubagentListResult struct {
+	Subagents []SubagentInfo `json:"subagents"`
 }
 
 // --- status ---

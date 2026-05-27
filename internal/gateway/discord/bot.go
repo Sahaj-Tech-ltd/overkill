@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -45,6 +46,18 @@ type Bot struct {
 
 	mu     sync.Mutex
 	closed bool
+
+	// Health / reconnect state
+	healthMu         sync.Mutex
+	connected        bool
+	lastHeartbeatAck time.Time
+	backoffAttempt   int
+
+	// Per-channel edit rate limits (5 edits per 5s per channel).
+	// Discord enforces this server-side; we track it client-side
+	// so we can throttle before hitting HTTP 429.
+	editRLMu       sync.Mutex
+	editRateLimits map[string]*editRL
 }
 
 // NewBot returns a Bot wired to a token + dispatcher. Allow-list
@@ -71,6 +84,90 @@ func NewBot(token string, d *gateway.Dispatcher, allowedGuilds, allowedChannels 
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "discord" }
 
+// --- edit rate limiter (5 edits per 5s per channel) ---
+
+// editRL is a simple sliding-window rate limiter for Discord's
+// ChannelMessageEdit endpoint (5 edits / 5 seconds per channel).
+type editRL struct {
+	timestamps []time.Time
+}
+
+func (r *editRL) allow(now time.Time) bool {
+	// Prune old entries beyond the 5-second window.
+	cutoff := now.Add(-5 * time.Second)
+	i := 0
+	for ; i < len(r.timestamps); i++ {
+		if r.timestamps[i].After(cutoff) {
+			break
+		}
+	}
+	r.timestamps = r.timestamps[i:]
+	if len(r.timestamps) < 5 {
+		r.timestamps = append(r.timestamps, now)
+		return true
+	}
+	return false
+}
+
+func (b *Bot) editCheck(channelID string) bool {
+	b.editRLMu.Lock()
+	defer b.editRLMu.Unlock()
+	if b.editRateLimits == nil {
+		b.editRateLimits = make(map[string]*editRL)
+	}
+	rl, ok := b.editRateLimits[channelID]
+	if !ok {
+		rl = &editRL{}
+		b.editRateLimits[channelID] = rl
+	}
+	return rl.allow(time.Now())
+}
+
+// --- health and reconnect ---
+
+// backoff returns the current backoff duration and advances the
+// attempt counter. Caps at 30 seconds. The caller must reset the
+// counter to 0 on a successful connection.
+func (b *Bot) backoff() time.Duration {
+	b.healthMu.Lock()
+	attempt := b.backoffAttempt
+	b.backoffAttempt++
+	b.healthMu.Unlock()
+	d := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+	if d > 30*time.Second {
+		d = 30 * time.Second
+	}
+	return d
+}
+
+// Healthy reports whether the gateway is connected and received a
+// heartbeat acknowledgment within the last 60 seconds.
+func (b *Bot) Healthy() bool {
+	b.healthMu.Lock()
+	defer b.healthMu.Unlock()
+	if !b.connected {
+		return false
+	}
+	return time.Since(b.lastHeartbeatAck) < 60*time.Second
+}
+
+// Reconnect closes the current session and opens a new one with
+// exponential backoff.
+func (b *Bot) Reconnect(ctx context.Context) error {
+	b.mu.Lock()
+	b.healthMu.Lock()
+	b.connected = false
+	sess := b.session
+	b.healthMu.Unlock()
+	b.mu.Unlock()
+
+	if sess != nil {
+		_ = sess.Close()
+	}
+
+	return b.connectLoop(ctx, sess)
+}
+
 // Notify sends an unsolicited message to channelID. Returns an
 // error when the bot's gateway session isn't open yet (Run hasn't
 // established it, or has already shut down). Used by the §7.1
@@ -95,8 +192,8 @@ func (b *Bot) Notify(ctx context.Context, channelID, text string) error {
 }
 
 // Run opens the Discord gateway connection and blocks until ctx is
-// cancelled. Returns ctx.Err() on cancel, or a wrapped error if the
-// initial Open fails.
+// cancelled. On disconnect the bot reconnects with exponential backoff
+// (1s, 2s, 4s, 8s, 16s, 30s cap). Returns ctx.Err() on cancel.
 func (b *Bot) Run(ctx context.Context) error {
 	sess, err := discordgo.New("Bot " + b.Token)
 	if err != nil {
@@ -115,37 +212,108 @@ func (b *Bot) Run(ctx context.Context) error {
 	sess.AddHandler(b.onMessage)
 	sess.AddHandler(b.onReady)
 
-	if err := sess.Open(); err != nil {
-		return fmt.Errorf("discord: open gateway: %w", err)
-	}
-	b.Logger.Printf("discord: gateway open, waiting for events")
+	return b.connectLoop(ctx, sess)
+}
 
-	<-ctx.Done()
+// connectLoop connects with exponential backoff, waits for
+// disconnect, then reconnects. It respects ctx cancellation.
+func (b *Bot) connectLoop(ctx context.Context, sess *discordgo.Session) error {
+	for {
+		// Check ctx before attempting.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 
-	b.mu.Lock()
-	b.closed = true
-	b.mu.Unlock()
-	if err := sess.Close(); err != nil {
-		b.Logger.Printf("discord: close: %v", err)
+		// Create a fresh session if the old one was closed.
+		if sess == nil {
+			var err error
+			sess, err = discordgo.New("Bot " + b.Token)
+			if err != nil {
+				b.Logger.Printf("discord: new session: %v", err)
+				delay := b.backoff()
+				b.Logger.Printf("discord: backoff %v before retry", delay)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(delay):
+				}
+				continue
+			}
+			sess.Identify.Intents = discordgo.IntentsGuildMessages |
+				discordgo.IntentsDirectMessages |
+				discordgo.IntentsMessageContent
+			sess.AddHandler(b.onMessage)
+			sess.AddHandler(b.onReady)
+			b.mu.Lock()
+			b.session = sess
+			b.mu.Unlock()
+		}
+
+		if err := sess.Open(); err != nil {
+			b.Logger.Printf("discord: open gateway: %v", err)
+			// Mark disconnected.
+			b.healthMu.Lock()
+			b.connected = false
+			b.healthMu.Unlock()
+			// Close the dead session so we create a new one.
+			_ = sess.Close()
+			sess = nil
+			delay := b.backoff()
+			b.Logger.Printf("discord: backoff %v before reconnect", delay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+			continue
+		}
+
+		// Open() blocks until the websocket closes (disconnect).
+		// When we get here, the connection dropped.
+		b.healthMu.Lock()
+		b.connected = false
+		b.healthMu.Unlock()
+		sess = nil // force fresh session next loop
+
+		delay := b.backoff()
+		b.Logger.Printf("discord: disconnected, backoff %v before reconnect", delay)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
 	}
-	return ctx.Err()
 }
 
 // onReady captures the bot's own user ID so onMessage can recognize
 // mentions of itself. discordgo fires Ready exactly once on each
-// successful gateway handshake.
+// successful gateway handshake. We reset the backoff counter and mark
+// the gateway as connected for health checks.
 func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
 	b.mu.Lock()
 	b.selfID = r.User.ID
 	b.mu.Unlock()
+	b.healthMu.Lock()
+	b.connected = true
+	b.lastHeartbeatAck = time.Now()
+	b.backoffAttempt = 0
+	b.healthMu.Unlock()
 	b.Logger.Printf("discord: ready as %s (%s)", r.User.Username, r.User.ID)
 }
 
 // onMessage is discordgo's MessageCreate handler. We filter aggressively
 // (bot's own messages, disallowed guilds/channels, mention-required-but-
 // missing) before constructing a gateway.Inbound and handing to the
-// dispatcher.
+// dispatcher. Also bumps the health-check timestamp since any event
+// means the connection is alive.
 func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// Bump health timestamp — any event proves the WS is alive.
+	b.healthMu.Lock()
+	b.lastHeartbeatAck = time.Now()
+	b.healthMu.Unlock()
+
 	// Skip our own messages — discordgo doesn't auto-filter, and
 	// without this we'd loop on every reply we post.
 	b.mu.Lock()
@@ -207,7 +375,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		in.Images = append(in.Images, img)
 	}
 
-	reply := &discordReply{session: s, channelID: m.ChannelID}
+	reply := &discordReply{bot: b, session: s, channelID: m.ChannelID}
 	// Best-effort: each message gets its own goroutine so a slow
 	// dispatcher call doesn't head-of-line block the gateway. The
 	// session router serializes per chat key.
@@ -275,6 +443,7 @@ func (b *Bot) fetchImage(url string) (gateway.InboundImage, error) {
 // at ~5/5s per channel, which is finer-grained than Telegram and
 // matches Dispatcher.UpdateEvery defaults (750ms).
 type discordReply struct {
+	bot       *Bot
 	session   *discordgo.Session
 	channelID string
 
@@ -296,6 +465,12 @@ func (r *discordReply) PostInitial(ctx context.Context, _ gateway.Inbound, text 
 func (r *discordReply) Update(_ context.Context, handle, text string) error {
 	if text == "" {
 		text = "⏳ thinking…"
+	}
+	// Respect Discord's 5-edits-per-5-seconds per-channel rate limit.
+	// If the limiter says no, we skip this update — the dispatcher
+	// will deliver the next chunk (or Final) shortly.
+	if r.bot != nil && !r.bot.editCheck(r.channelID) {
+		return nil
 	}
 	_, err := r.session.ChannelMessageEdit(r.channelID, handle, text)
 	return err
