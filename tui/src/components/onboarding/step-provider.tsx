@@ -1,30 +1,15 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Box, Text, useInput } from "ink";
-import type { OnboardingProviderConfig } from "../../backend/types.ts";
+import type { BackendClient } from "../../backend/client.ts";
+import type { OnboardingProviderConfig, ProviderInfo } from "../../backend/types.ts";
 
 interface StepProviderProps {
+  backend: BackendClient;
   providers: OnboardingProviderConfig[];
   setProviders: (providers: OnboardingProviderConfig[]) => void;
   onNext: () => void;
   onBack: () => void;
 }
-
-const AVAILABLE_PROVIDERS = [
-  "openai",
-  "anthropic",
-  "deepseek",
-  "ollama",
-  "google",
-  "groq",
-  "openrouter",
-  "mistral",
-  "xai",
-  "together",
-  "fireworks",
-  "perplexity",
-  "cohere",
-  "custom",
-];
 
 type CustomField = "name" | "baseUrl" | "apiKey";
 
@@ -39,11 +24,15 @@ function detectProvider(key: string): string | null {
 }
 
 export function StepProvider({
+  backend,
   providers,
   setProviders,
   onNext,
   onBack,
 }: StepProviderProps): React.JSX.Element {
+  const [availableProviders, setAvailableProviders] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -55,6 +44,37 @@ export function StepProvider({
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customApiKey, setCustomApiKey] = useState("");
 
+  // Fetch available providers from the API on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchProviders() {
+      setLoading(true);
+      setFetchError(null);
+      try {
+        const result = await backend.call<ProviderInfo[]>("providers.list");
+        if (cancelled) return;
+        const names = result.map((p) => p.name);
+        setAvailableProviders(names);
+      } catch (err) {
+        if (cancelled) return;
+        setFetchError((err as Error).message);
+        setAvailableProviders([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchProviders();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backend]);
+
+  // Full list with "custom" appended
+  const displayList = [...availableProviders, "custom"];
+
   const detectFromInput = useCallback(
     (input: string) => {
       const detected = detectProvider(input);
@@ -62,13 +82,13 @@ export function StepProvider({
       // If detected matches a different provider than the one being edited,
       // auto-highlight that provider
       if (detected && editingProvider !== detected) {
-        const idx = AVAILABLE_PROVIDERS.indexOf(detected);
+        const idx = displayList.indexOf(detected);
         if (idx >= 0) {
           setSelectedIdx(idx);
         }
       }
     },
-    [editingProvider],
+    [editingProvider, displayList],
   );
 
   const toggleProvider = useCallback(
@@ -221,14 +241,16 @@ export function StepProvider({
       return;
     }
 
+    if (loading) return;
+
     if (key.upArrow) {
       setSelectedIdx((prev) => Math.max(0, prev - 1));
     } else if (key.downArrow) {
       setSelectedIdx((prev) =>
-        Math.min(AVAILABLE_PROVIDERS.length - 1, prev + 1),
+        Math.min(displayList.length - 1, prev + 1),
       );
     } else if (key.return || input === " ") {
-      toggleProvider(AVAILABLE_PROVIDERS[selectedIdx]);
+      toggleProvider(displayList[selectedIdx]);
     } else if (key.rightArrow && providers.length > 0) {
       onNext();
     } else if (key.leftArrow) {
@@ -244,6 +266,26 @@ export function StepProvider({
     return name;
   };
 
+  // Loading state
+  if (loading) {
+    return (
+      <Box flexDirection="column">
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold>Select AI Providers</Text>
+          <Text dimColor>
+            Choose at least one provider and enter your API key.
+          </Text>
+        </Box>
+        <Box marginY={2}>
+          <Text color="yellow">Fetching available providers...</Text>
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
+          <Text dimColor>Loading from config and models.dev catalog...</Text>
+        </Box>
+      </Box>
+    );
+  }
+
   return (
     <Box flexDirection="column">
       <Box flexDirection="column" marginBottom={1}>
@@ -253,9 +295,24 @@ export function StepProvider({
         </Text>
       </Box>
 
+      {/* Error banner */}
+      {fetchError && (
+        <Box marginBottom={1}>
+          <Text color="red">Failed to fetch providers: {fetchError}</Text>
+        </Box>
+      )}
+      {!fetchError && availableProviders.length === 0 && (
+        <Box marginBottom={1}>
+          <Text color="yellow">
+            No providers discovered. Add a custom provider below or check
+            your config.
+          </Text>
+        </Box>
+      )}
+
       {/* Provider list */}
       <Box flexDirection="column" marginBottom={1}>
-        {AVAILABLE_PROVIDERS.map((name, i) => {
+        {displayList.map((name, i) => {
           const selected = isSelected(name);
           const provider = providers.find((p) => p.name === name);
           const isEditing = editingProvider === name;

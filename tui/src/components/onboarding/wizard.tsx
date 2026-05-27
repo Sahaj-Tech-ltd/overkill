@@ -6,6 +6,7 @@ import { StepWelcome } from "./step-welcome.tsx";
 import { StepProvider } from "./step-provider.tsx";
 import { StepModel } from "./step-model.tsx";
 import { StepTTS } from "./step-tts.tsx";
+import { StepVision } from "./step-vision.tsx";
 import { StepGateway } from "./step-gateway.tsx";
 
 interface WizardProps {
@@ -18,6 +19,7 @@ const STEP_TITLES: Record<string, string> = {
   provider: "Choose Providers",
   model: "Choose Models",
   tts: "Configure TTS",
+  vision: "Choose Vision",
   gateway: "Connect Gateways",
   done: "Done",
 };
@@ -76,6 +78,7 @@ export function Wizard({
       case "provider":
         return (
           <StepProvider
+            backend={backend}
             providers={onboarding.providers}
             setProviders={onboarding.setProviders}
             onNext={onboarding.nextStep}
@@ -101,6 +104,16 @@ export function Wizard({
             onBack={onboarding.prevStep}
           />
         );
+      case "vision":
+        return (
+          <StepVision
+            providers={onboarding.providers}
+            visionProvider={onboarding.visionProvider}
+            setVisionProvider={onboarding.setVisionProvider}
+            onNext={onboarding.nextStep}
+            onBack={onboarding.prevStep}
+          />
+        );
       case "gateway":
         return (
           <StepGateway
@@ -120,6 +133,12 @@ export function Wizard({
             <Box marginTop={1}>
               <Text dimColor>Launching Overkill...</Text>
             </Box>
+          </Box>
+        );
+      default:
+        return (
+          <Box flexDirection="column" alignItems="center" justifyContent="center" height="100%">
+            <Text color="red">Unknown step: {String(onboarding.step)}</Text>
           </Box>
         );
     }
