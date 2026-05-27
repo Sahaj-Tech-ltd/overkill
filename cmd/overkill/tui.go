@@ -83,11 +83,13 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 	// Wire the learning-from-corrections store (§6.5). The API server
 	// passes it to every agent it creates so the TUI loop benefits from
 	// past user corrections.
-	homeDir := os.Getenv("HOME")
+	connString := loadedCfg.DatabaseURL
+	if connString == "" {
+		connString = os.Getenv("DATABASE_URL")
+	}
 	var learningStore *learning.Store
-	if homeDir != "" {
-		correctionsDir := filepath.Join(homeDir, ".overkill", "corrections")
-		if ls, err := learning.NewStore(correctionsDir, 1000); err == nil {
+	if connString != "" {
+		if ls, err := learning.NewStore(connString, 1000); err == nil {
 			learningStore = ls
 			defer ls.Close()
 		}

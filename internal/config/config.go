@@ -26,6 +26,11 @@ type Config struct {
 	Browser     BrowserConfig     `toml:"browser"`
 	Rewriter    RewriterConfig    `toml:"rewriter"`
 	Ouroboros   OuroborosConfig   `toml:"ouroboros"`
+
+	// DatabaseURL is the PostgreSQL connection string for persistent stores
+	// (learning corrections, etc.). Falls back to DATABASE_URL env var.
+	// Example: "postgres://user:pass@localhost:5432/overkill?sslmode=disable"
+	DatabaseURL string `toml:"database_url"`
 }
 
 // OuroborosConfig governs the Ouroboros adversarial-review wall
