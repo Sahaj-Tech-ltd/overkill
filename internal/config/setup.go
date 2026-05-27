@@ -115,10 +115,28 @@ var builtinProviders = map[string]ProviderSetup{
 		Models:     []string{},
 	},
 	"bedrock": {
-		Name:       "AWS Bedrock",
-		APIKeyEnv:  "",
+		Name:        "AWS Bedrock",
+		APIKeyEnv:   "",
 		DefaultBase: "us-east-1",
-		Models:     []string{"us.anthropic.claude-sonnet-4-20250514-v1:0"},
+		Models:      []string{"us.anthropic.claude-sonnet-4-20250514-v1:0"},
+	},
+	"vertex": {
+		Name:        "Google Vertex AI",
+		APIKeyEnv:   "GOOGLE_APPLICATION_CREDENTIALS",
+		DefaultBase: "us-central1-aiplatform.googleapis.com",
+		Models:      []string{},
+	},
+	"azure": {
+		Name:        "Azure OpenAI",
+		APIKeyEnv:   "AZURE_OPENAI_API_KEY",
+		DefaultBase: "https://{resource}.openai.azure.com/openai",
+		Models:      []string{},
+	},
+	"copilot": {
+		Name:        "GitHub Copilot",
+		APIKeyEnv:   "GITHUB_TOKEN",
+		DefaultBase: "https://api.githubcopilot.com",
+		Models:      []string{},
 	},
 }
 

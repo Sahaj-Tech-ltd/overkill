@@ -66,14 +66,14 @@ type StepDriver interface {
 
 // StatusReport is a mid-flight snapshot of the runner.
 type StatusReport struct {
-	ContractID            string             `json:"contract_id"`
-	Done                  []string           `json:"done"`
-	Pending               []string           `json:"pending"`
+	ContractID            string              `json:"contract_id"`
+	Done                  []string            `json:"done"`
+	Pending               []string            `json:"pending"`
 	Violations            []ContractViolation `json:"violations,omitempty"`
-	TokensUsed            int                `json:"tokens_used"`
-	StepsUsed             int                `json:"steps_used"`
-	Elapsed               time.Duration      `json:"elapsed"`
-	NextRecommendedAction string             `json:"next_recommended_action"`
+	TokensUsed            int                 `json:"tokens_used"`
+	StepsUsed             int                 `json:"steps_used"`
+	Elapsed               time.Duration       `json:"elapsed"`
+	NextRecommendedAction string              `json:"next_recommended_action"`
 }
 
 // FinalReport is the terminal outcome of a Run.
@@ -247,7 +247,7 @@ func (r *AutonomousRunner) Run(ctx context.Context) (*FinalReport, error) {
 			// Default: compact_and_continue.
 			newBs, err := r.driver.Compact(ctx)
 			if err != nil {
-				return r.handoffNow("compaction failed: "+err.Error()), nil
+				return r.handoffNow("compaction failed: " + err.Error()), nil
 			}
 			if newBs.MaxTokens > 0 && newBs.Utilization() >= 0.80 {
 				return r.handoffNow(fmt.Sprintf("post-compact still at %.0f%%", newBs.Utilization()*100)), nil

@@ -43,9 +43,9 @@ import (
 
 // Segment is one labeled slice of the codebase.
 type Segment struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 	// Globs is the file-pattern list that defines this segment.
 	// Relative to the segment's RootDir. Standard glob syntax via
 	// filepath.Match plus a `**` recursive wildcard.

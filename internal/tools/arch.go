@@ -158,7 +158,7 @@ func (t *GlossaryAddTermTool) Execute(_ context.Context, in json.RawMessage) (js
 	return body, nil
 }
 
-// upsertGlossaryTerm replaces an existing `### `term`` section with
+// upsertGlossaryTerm replaces an existing `### `term“ section with
 // fresh content if found, otherwise appends a new section at the end.
 // Returns (newContent, replaced).
 func upsertGlossaryTerm(existing, term, def, example string) (string, bool) {

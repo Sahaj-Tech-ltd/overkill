@@ -63,8 +63,8 @@ type Decision struct {
 // Policy holds capability declarations keyed by server name. Safe
 // for concurrent use; tests + production share the same shape.
 type Policy struct {
-	mu    sync.RWMutex
-	caps  map[string]Capability
+	mu   sync.RWMutex
+	caps map[string]Capability
 }
 
 // NewPolicy returns an empty policy. By default every server is

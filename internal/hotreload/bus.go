@@ -39,12 +39,12 @@ import (
 type Subject string
 
 const (
-	SubjectSkill        Subject = "skill"
-	SubjectSubagent     Subject = "subagent"
-	SubjectTool         Subject = "tool"
-	SubjectMCPServer    Subject = "mcp_server"
-	SubjectPermission   Subject = "permission"
-	SubjectConfig       Subject = "config" // user.yaml itself
+	SubjectSkill      Subject = "skill"
+	SubjectSubagent   Subject = "subagent"
+	SubjectTool       Subject = "tool"
+	SubjectMCPServer  Subject = "mcp_server"
+	SubjectPermission Subject = "permission"
+	SubjectConfig     Subject = "config" // user.yaml itself
 )
 
 // EventKind reports what fsnotify saw. Created/Modified are

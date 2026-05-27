@@ -7,15 +7,15 @@
 //
 // The ladder is deliberately ordered cheapest → most expensive:
 //
-//   1. compile      — does it build?
-//   2. unit-test    — does the failing test now pass?
-//   3. broader-test — do the surrounding tests pass?
-//   4. lint         — does static analysis flag anything?
-//   5. cli          — does invoking via CLI reproduce the symptom?
-//   6. curl         — does an end-to-end network probe pass?
-//   7. headless-browser — does headless browser smoke pass?
-//   8. property     — does property-based / fuzz testing find a counterexample?
-//   9. bisect       — git bisect against prior known-good?
+//  1. compile      — does it build?
+//  2. unit-test    — does the failing test now pass?
+//  3. broader-test — do the surrounding tests pass?
+//  4. lint         — does static analysis flag anything?
+//  5. cli          — does invoking via CLI reproduce the symptom?
+//  6. curl         — does an end-to-end network probe pass?
+//  7. headless-browser — does headless browser smoke pass?
+//  8. property     — does property-based / fuzz testing find a counterexample?
+//  9. bisect       — git bisect against prior known-good?
 //  10. hitl-bash    — surface to the human; ask them to run a bash check.
 //
 // The ladder is data — callers (tools, slash command, the agent itself)

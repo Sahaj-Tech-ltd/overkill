@@ -46,7 +46,7 @@ func TestFirstWordLower(t *testing.T) {
 		"refactor the thing":  "refactor",
 		"BUILD me a feature":  "BUILD", // function does NOT lower — caller pre-lowers
 		"single":              "single",
-		"  leading spaces ok": "",      // leading whitespace returns empty first token
+		"  leading spaces ok": "", // leading whitespace returns empty first token
 	}
 	for in, want := range cases {
 		got := firstWordLower(in)

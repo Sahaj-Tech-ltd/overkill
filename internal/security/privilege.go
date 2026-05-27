@@ -79,12 +79,12 @@ func (g *PrivilegeGate) Allow(toolName string, rawInput json.RawMessage) (bool, 
 // the subagent enforcer; kept independent so neither package depends on the
 // other.
 var writeLikeTools = map[string]bool{
-	"fs_write":         true,
-	"patch":            true,
-	"worktree_add":     true,
-	"worktree_remove":  true,
-	"memory_remember":  true,
-	"memory_forget":    true,
+	"fs_write":            true,
+	"patch":               true,
+	"worktree_add":        true,
+	"worktree_remove":     true,
+	"memory_remember":     true,
+	"memory_forget":       true,
 	"checkpoint_snapshot": true, // technically read-of-files-then-copy, but mutates ~/.overkill
 	"checkpoint_restore":  true,
 	"regression_record":   true,

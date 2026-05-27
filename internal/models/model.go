@@ -61,14 +61,14 @@ type Capabilities struct {
 // Cost is per-million-tokens by default. Tiered pricing for very-long
 // contexts (typically >200K) goes in TieredOver200K when present.
 type Cost struct {
-	Input         float64  `toml:"input" json:"input"`
-	Output        float64  `toml:"output" json:"output"`
-	CacheRead     float64  `toml:"cache_read" json:"cache_read,omitempty"`
-	CacheWrite    float64  `toml:"cache_write" json:"cache_write,omitempty"`
-	AudioIn       float64  `toml:"audio_in" json:"audio_in,omitempty"`
-	AudioOut      float64  `toml:"audio_out" json:"audio_out,omitempty"`
-	Reasoning     float64  `toml:"reasoning" json:"reasoning,omitempty"`
-	TieredOver200K *Cost `toml:"tiered_over_200k" json:"tiered_over_200k,omitempty"`
+	Input          float64 `toml:"input" json:"input"`
+	Output         float64 `toml:"output" json:"output"`
+	CacheRead      float64 `toml:"cache_read" json:"cache_read,omitempty"`
+	CacheWrite     float64 `toml:"cache_write" json:"cache_write,omitempty"`
+	AudioIn        float64 `toml:"audio_in" json:"audio_in,omitempty"`
+	AudioOut       float64 `toml:"audio_out" json:"audio_out,omitempty"`
+	Reasoning      float64 `toml:"reasoning" json:"reasoning,omitempty"`
+	TieredOver200K *Cost   `toml:"tiered_over_200k" json:"tiered_over_200k,omitempty"`
 }
 
 // Modalities lists the input/output media types a model accepts /
@@ -92,8 +92,8 @@ var ErrNotFound = errors.New("models: not found")
 
 // Catalog is the in-memory model database. Read-only after Load.
 type Catalog struct {
-	root    string
-	byID    map[string]*Model
+	root     string
+	byID     map[string]*Model
 	byFamily map[string][]*Model
 }
 

@@ -43,8 +43,8 @@ type RelationshipTracker struct {
 
 	// hooks fire on every RecordBeat. Failures are swallowed (best-effort).
 	// First-of-kind hooks fire only on the first time a beat type is seen.
-	hooks       []BeatHook
-	firstHooks  []BeatHook
+	hooks      []BeatHook
+	firstHooks []BeatHook
 }
 
 // BeatHook is a callback invoked on RecordBeat. Returning an error is allowed

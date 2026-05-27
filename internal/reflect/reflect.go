@@ -12,12 +12,12 @@
 //     linters do this constantly.
 //   - Reflector interface: Reflect(Failure) -> Reflection. Two
 //     impls today:
-//       - HeuristicReflector: deterministic, no LLM, instant.
-//         Catches the obvious shapes (build error, test failure,
-//         permission denied, not-found) by pattern. Cheap rope.
-//       - LLM-backed impl is deliberately not in this package
-//         yet — keeping the wiring above the LLM dep so callers
-//         can pick. The interface is the contract.
+//   - HeuristicReflector: deterministic, no LLM, instant.
+//     Catches the obvious shapes (build error, test failure,
+//     permission denied, not-found) by pattern. Cheap rope.
+//   - LLM-backed impl is deliberately not in this package
+//     yet — keeping the wiring above the LLM dep so callers
+//     can pick. The interface is the contract.
 //   - FormatSystemNote: prose the agent reads. Stays terse so the
 //     model doesn't drown its own reasoning in the reflection.
 package reflect

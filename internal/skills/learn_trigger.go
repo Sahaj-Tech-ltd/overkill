@@ -20,11 +20,11 @@ const SuggestThreshold = 3
 
 // Suggestion is what the trigger emits when the threshold is hit.
 type Suggestion struct {
-	Class       string    `json:"class"`        // problem class key (e.g. "test-flaky-fix")
-	Successes   int       `json:"successes"`    // count at time of suggestion
+	Class       string    `json:"class"`     // problem class key (e.g. "test-flaky-fix")
+	Successes   int       `json:"successes"` // count at time of suggestion
 	SuggestedAt time.Time `json:"suggested_at"`
-	SkillName   string    `json:"skill_name"`   // sanitized class → skill folder name
-	Hint        string    `json:"hint"`         // human-readable nudge
+	SkillName   string    `json:"skill_name"` // sanitized class → skill folder name
+	Hint        string    `json:"hint"`       // human-readable nudge
 }
 
 // LearnTrigger tracks per-class success counts and fires a callback once

@@ -31,12 +31,12 @@ import (
 
 // InboundPayload is the JSON shape sidecars POST to /v1/in.
 type InboundPayload struct {
-	Channel  string            `json:"channel"`   // "whatsapp", "discord", etc.
-	ChatKey  string            `json:"chat"`      // sidecar-stable chat identifier
-	Thread   string            `json:"thread"`    // optional
-	From     string            `json:"from"`      // display name for logging
-	Text     string            `json:"text"`      // user text
-	Images   []InboundImageB64 `json:"images"`    // optional attached images
+	Channel  string            `json:"channel"` // "whatsapp", "discord", etc.
+	ChatKey  string            `json:"chat"`    // sidecar-stable chat identifier
+	Thread   string            `json:"thread"`  // optional
+	From     string            `json:"from"`    // display name for logging
+	Text     string            `json:"text"`    // user text
+	Images   []InboundImageB64 `json:"images"`  // optional attached images
 	IsDirect bool              `json:"is_direct"`
 }
 

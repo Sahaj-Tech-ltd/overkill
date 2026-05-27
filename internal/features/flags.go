@@ -24,10 +24,10 @@ import (
 type Flag struct {
 	Name             string            `toml:"-" json:"name"`
 	Default          bool              `toml:"default" json:"default"`
-	Percent          int               `toml:"percent" json:"percent"`            // 0..100; 0 = disabled rollout
-	UserOverrides    map[string]bool   `toml:"users" json:"users,omitempty"`      // userID → enabled
+	Percent          int               `toml:"percent" json:"percent"`       // 0..100; 0 = disabled rollout
+	UserOverrides    map[string]bool   `toml:"users" json:"users,omitempty"` // userID → enabled
 	ChannelOverrides map[string]bool   `toml:"channels" json:"channels,omitempty"`
-	Tags             map[string]string `toml:"tags" json:"tags,omitempty"`        // free-form metadata for UI
+	Tags             map[string]string `toml:"tags" json:"tags,omitempty"` // free-form metadata for UI
 }
 
 // EvalContext supplies the inputs the layered rules evaluate against.

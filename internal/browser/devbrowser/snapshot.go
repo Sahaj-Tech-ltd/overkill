@@ -24,14 +24,14 @@ import (
 // Snapshot is the structured page content the agent reads. JSON-
 // marshalable so tools can serialize without ceremony.
 type Snapshot struct {
-	URL         string         `json:"url"`
-	Title       string         `json:"title"`
-	Headings    []HeadingEntry `json:"headings,omitempty"`
-	Links       []LinkEntry    `json:"links,omitempty"`
-	Forms       []FormEntry    `json:"forms,omitempty"`
-	Text        string         `json:"text"`
-	TextLength  int            `json:"text_length"`
-	WasTruncated bool          `json:"truncated,omitempty"`
+	URL          string         `json:"url"`
+	Title        string         `json:"title"`
+	Headings     []HeadingEntry `json:"headings,omitempty"`
+	Links        []LinkEntry    `json:"links,omitempty"`
+	Forms        []FormEntry    `json:"forms,omitempty"`
+	Text         string         `json:"text"`
+	TextLength   int            `json:"text_length"`
+	WasTruncated bool           `json:"truncated,omitempty"`
 }
 
 // HeadingEntry is one h1-h6 in document order.
@@ -49,9 +49,9 @@ type LinkEntry struct {
 // FormEntry is one <form>. Inputs lists the form's controls so the
 // agent can decide what to fill before submitting.
 type FormEntry struct {
-	Action string       `json:"action,omitempty"`
-	Method string       `json:"method,omitempty"`
-	Inputs []FormInput  `json:"inputs,omitempty"`
+	Action string      `json:"action,omitempty"`
+	Method string      `json:"method,omitempty"`
+	Inputs []FormInput `json:"inputs,omitempty"`
 }
 
 // FormInput is one input/textarea/select inside a form.

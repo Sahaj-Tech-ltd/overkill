@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Sahaj-Tech-ltd/overkill/deprecated/bubbletea-tui"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
-	"github.com/Sahaj-Tech-ltd/overkill/pkg/tui"
 )
 
 // writeJournalNarrative is the TUI session-end hook for §4.19. All

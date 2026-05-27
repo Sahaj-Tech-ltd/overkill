@@ -10,13 +10,13 @@ import (
 )
 
 type titleProvider struct {
-	resp string
-	err  error
+	resp    string
+	err     error
 	lastReq providers.Request
 }
 
-func (p *titleProvider) Name() string                            { return "fake" }
-func (p *titleProvider) Models() []providers.Model               { return nil }
+func (p *titleProvider) Name() string              { return "fake" }
+func (p *titleProvider) Models() []providers.Model { return nil }
 func (p *titleProvider) Complete(_ context.Context, r providers.Request) (providers.Response, error) {
 	p.lastReq = r
 	if p.err != nil {

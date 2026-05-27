@@ -3,9 +3,9 @@
 // External systems (CI hooks, monitoring alerts, MQTT-to-HTTP relays)
 // can kick off a stored SOP by POSTing to this server. Endpoints:
 //
-//   POST /sop/{id}      → start the SOP by ID
-//   GET  /sop           → list registered SOP IDs and statuses
-//   GET  /health        → 204 for liveness probes
+//	POST /sop/{id}      → start the SOP by ID
+//	GET  /sop           → list registered SOP IDs and statuses
+//	GET  /health        → 204 for liveness probes
 //
 // Loopback-only by default; expose publicly only behind a reverse
 // proxy + authentication. The optional Token field enforces a
@@ -29,8 +29,8 @@ import (
 // SOPWebhookServer wraps an SOPEngine with an HTTP trigger surface.
 type SOPWebhookServer struct {
 	Engine *SOPEngine
-	Listen string // default 127.0.0.1:7801
-	Token  string // empty = no auth (loopback-only deployments)
+	Listen string        // default 127.0.0.1:7801
+	Token  string        // empty = no auth (loopback-only deployments)
 	Logger *http.Handler // unused; reserved for future hook-in
 
 	server *http.Server

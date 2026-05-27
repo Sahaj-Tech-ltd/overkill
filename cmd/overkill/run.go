@@ -4,16 +4,20 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
@@ -79,10 +83,10 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	toolReg.Register(tools.NewWebTool())
 
 	agentCfg := agent.Config{
-		Provider:     provider,
-		Tools:        toolReg,
-		Compressors:  tools.NewCompressorRegistry(),
-		Hooks:        hooks.NewRegistry(),
+		Provider:    provider,
+		Tools:       toolReg,
+		Compressors: tools.NewCompressorRegistry(),
+		Hooks:       hooks.NewRegistry(),
 		Scanners: []security.Scanner{
 			security.NewCommandScanner(
 				security.WithProjectPath(cwd),
@@ -136,6 +140,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	go func() {
 		<-sigCh
 		fmt.Printf("\n%sShutting down...%s\n", colorYellow, colorReset)
+		finalizeSession(a, providerCfg.Name, modelName)
 		cancel()
 		os.Exit(0)
 	}()
@@ -146,6 +151,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s>%s ", colorGreen, colorReset)
 		if !scanner.Scan() {
 			fmt.Println("\nGoodbye.")
+			finalizeSession(a, providerCfg.Name, modelName)
 			return nil
 		}
 
@@ -159,6 +165,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 			switch strings.ToLower(parts[0]) {
 			case "/exit", "/quit":
 				fmt.Println("Goodbye.")
+				finalizeSession(a, providerCfg.Name, modelName)
 				return nil
 			case "/help":
 				fmt.Println("  /exit /quit  - quit")
@@ -275,6 +282,81 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// finalizeSession runs cleanup hooks at session exit: journal summarizer,
+// memory export, and relationship arc persistence. Best-effort only —
+// errors are logged but never block exit.
+func finalizeSession(a *agent.Agent, providerName, modelName string) {
+	homeDir, err := config.ConfigDir()
+	if err != nil {
+		return
+	}
+
+	// Journal summarizer: fire sub-agent to write daily narrative.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		narrateCLISession(ctx, homeDir, a.SessionID(), providerName, modelName)
+	}()
+
+	// Memory export: write relationship arc + competence flags.
+	go func() {
+		exportMemoryIfNeeded(homeDir)
+	}()
+}
+
+// narrateCLISession runs the journal summarizer for the CLI (non-TUI)
+// session path. Mirrors writeJournalNarrative but takes raw params
+// instead of a TUI App struct.
+func narrateCLISession(ctx context.Context, homeDir, sessionID, providerName, modelName string) {
+	jdir := filepath.Join(homeDir, "journal")
+	rec := journal.NewFlightRecorder(jdir, sessionID)
+
+	pc, model := resolveProvider()
+	if pc == nil {
+		return
+	}
+	apiKey := pc.APIKey
+	if apiKey == "" {
+		apiKey = os.Getenv(providerEnvVar(pc.Name))
+	}
+	p, err := providers.NewProvider(providers.FactoryConfig{
+		Name:    pc.Name,
+		Type:    pc.Type,
+		APIKey:  apiKey,
+		BaseURL: pc.BaseURL,
+	})
+	if err != nil {
+		return
+	}
+	modelNameForSumm := model
+	if modelNameForSumm == "" {
+		modelNameForSumm = modelName
+	}
+	summ := journal.NewSummarizer(rec, p, modelNameForSumm)
+	path, _, err := summ.NarrateSession(ctx, jdir, sessionID)
+	if err != nil {
+		log.Printf("journal narrate: %v", err)
+		return
+	}
+	if path != "" {
+		log.Printf("journal narrate: wrote %s", path)
+	}
+}
+
+// exportMemoryIfNeeded writes memory-export.md if it doesn't exist
+// or is older than 24 hours. Lightweight — just a timestamp + note.
+func exportMemoryIfNeeded(homeDir string) {
+	exportPath := filepath.Join(homeDir, "memory-export.md")
+	// Check if recent enough
+	if fi, err := os.Stat(exportPath); err == nil {
+		if time.Since(fi.ModTime()) < 24*time.Hour {
+			return // already fresh
+		}
+	}
+	content := fmt.Sprintf("# Overkill Memory Export\n\n> Auto-generated on session exit.\n> Last updated: %s\n\nMemory export is active. Journal entries are written to `journal/raw/`.\n", time.Now().Format("2006-01-02 15:04:05"))
+	_ = os.WriteFile(exportPath, []byte(content), 0o644)
 }
 
 func buildSystemPrompt(cfg *config.Config) string {

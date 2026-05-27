@@ -327,8 +327,8 @@ type SessionConfig struct {
 }
 
 type CostConfig struct {
-	DailyLimitUSD    float64 `toml:"daily_limit_usd"`
-	PerTaskLimitUSD  float64 `toml:"per_task_limit_usd"`
+	DailyLimitUSD   float64 `toml:"daily_limit_usd"`
+	PerTaskLimitUSD float64 `toml:"per_task_limit_usd"`
 	// RollingWindowHrs is the look-back window for RollingLimitUSD.
 	// Default 5 hours per master plan §4.5. Ignored when
 	// RollingLimitUSD is 0.
@@ -343,10 +343,10 @@ type CostConfig struct {
 }
 
 type CompactionConfig struct {
-	SoftTriggerPercent int  `toml:"soft_trigger_percent"`
-	HardTriggerPercent int  `toml:"hard_trigger_percent"`
-	PreserveMessages   int  `toml:"preserve_messages"`
-	MaxSummaryTokens   int  `toml:"max_summary_tokens"`
+	SoftTriggerPercent int `toml:"soft_trigger_percent"`
+	HardTriggerPercent int `toml:"hard_trigger_percent"`
+	PreserveMessages   int `toml:"preserve_messages"`
+	MaxSummaryTokens   int `toml:"max_summary_tokens"`
 	// Model overrides the model used for the summarisation LLM call.
 	// Empty falls back to DefaultCompactOptions ("gpt-4o-mini") —
 	// historically the cheap model for compaction. Setting this is

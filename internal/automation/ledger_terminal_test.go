@@ -33,9 +33,9 @@ func TestLedger_TerminalSinkFiresOnComplete(t *testing.T) {
 
 func TestLedger_TerminalSinkFiresOnFailLostTimedOutCancel(t *testing.T) {
 	cases := []struct {
-		name  string
+		name   string
 		mutate func(l *Ledger, id string)
-		want  TaskState
+		want   TaskState
 	}{
 		{"fail", func(l *Ledger, id string) { l.Fail(id, fmt.Errorf("boom")) }, TaskFailed},
 		{"lost", func(l *Ledger, id string) { l.MarkLost(id, "no heartbeat") }, TaskLost},

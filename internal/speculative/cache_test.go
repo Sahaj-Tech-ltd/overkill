@@ -94,9 +94,9 @@ func TestReadCache_StatsAccumulate(t *testing.T) {
 	info, _ := os.Stat(path)
 	c.Put(path, []byte("x"), info.ModTime())
 
-	_, _ = c.Get(path)             // hit
-	_, _ = c.Get("nonexistent")    // miss
-	_, _ = c.Get(path)             // hit
+	_, _ = c.Get(path)          // hit
+	_, _ = c.Get("nonexistent") // miss
+	_, _ = c.Get(path)          // hit
 
 	s := c.Stats()
 	if s.Hits != 2 || s.Misses != 1 {

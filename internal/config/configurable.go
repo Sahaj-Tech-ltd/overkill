@@ -47,9 +47,9 @@ type Configurable interface {
 // Nested objects aren't supported — flatten with dotted names if you
 // need hierarchy.
 type Schema struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Fields      []Field  `json:"fields"`
+	Name        string  `json:"name"`
+	Description string  `json:"description,omitempty"`
+	Fields      []Field `json:"fields"`
 	// Category groups multiple Configurables in the Advanced tab
 	// (e.g. "scanners", "tools", "memory"). Empty falls back to
 	// "tools".
@@ -60,14 +60,14 @@ type Schema struct {
 type FieldKind string
 
 const (
-	FieldString  FieldKind = "string"
-	FieldInt     FieldKind = "int"
-	FieldFloat   FieldKind = "float"
-	FieldBool    FieldKind = "bool"
-	FieldEnum    FieldKind = "enum"     // values come from Field.Options
-	FieldList    FieldKind = "list"     // string[]; one entry per line in the UI
-	FieldSecret  FieldKind = "secret"   // string, masked in the UI
-	FieldText    FieldKind = "text"     // multi-line string (system_prompt etc.)
+	FieldString FieldKind = "string"
+	FieldInt    FieldKind = "int"
+	FieldFloat  FieldKind = "float"
+	FieldBool   FieldKind = "bool"
+	FieldEnum   FieldKind = "enum"   // values come from Field.Options
+	FieldList   FieldKind = "list"   // string[]; one entry per line in the UI
+	FieldSecret FieldKind = "secret" // string, masked in the UI
+	FieldText   FieldKind = "text"   // multi-line string (system_prompt etc.)
 )
 
 // Field is one row in a settings card.

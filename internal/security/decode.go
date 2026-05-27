@@ -3,7 +3,7 @@
 // Plain regex on input bytes misses encoded bypasses. An agent
 // (hallucinating or adversarial) can write:
 //
-//   echo cm0gLXJmIC8K | base64 -d | sh
+//	echo cm0gLXJmIC8K | base64 -d | sh
 //
 // where `cm0gLXJmIC8K` decodes to `rm -rf /`. The original Scan
 // pattern set only matches plain-text — without this file, the

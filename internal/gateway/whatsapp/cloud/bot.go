@@ -3,16 +3,16 @@
 //
 // Two surfaces:
 //
-//   1. Webhook receiver. Meta POSTs incoming messages here, signed via
-//      HMAC-SHA256 in X-Hub-Signature-256. GET requests are the
-//      "verify" challenge we echo on first setup.
+//  1. Webhook receiver. Meta POSTs incoming messages here, signed via
+//     HMAC-SHA256 in X-Hub-Signature-256. GET requests are the
+//     "verify" challenge we echo on first setup.
 //
-//   2. Send API. Outgoing messages POST to graph.facebook.com with a
-//      bearer token. The 24-hour customer-service window applies:
-//      free-form messages only work if the user messaged us first
-//      within the past 24h. Outside that window only pre-approved
-//      template messages send — we surface that as an error rather
-//      than silently falling back.
+//  2. Send API. Outgoing messages POST to graph.facebook.com with a
+//     bearer token. The 24-hour customer-service window applies:
+//     free-form messages only work if the user messaged us first
+//     within the past 24h. Outside that window only pre-approved
+//     template messages send — we surface that as an error rather
+//     than silently falling back.
 //
 // Reply streaming: Cloud API has no edit-in-place. PostInitial sends
 // "thinking…", Update no-ops, Final sends the full assembled response

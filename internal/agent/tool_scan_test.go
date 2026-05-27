@@ -177,4 +177,3 @@ func TestCheckProtectedPaths_BlocksStandingOrdersFile(t *testing.T) {
 		}
 	}
 }
-

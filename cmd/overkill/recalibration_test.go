@@ -111,8 +111,8 @@ func TestBelongsToPriorModel(t *testing.T) {
 		{"claude-opus-4-7", "claude-opus", "claude-opus-4-7", true}, // version match
 		{"claude-opus-4-7-20260301", "claude-opus", "", true},       // prefix match
 		{"gpt-5-4", "claude-opus", "claude-opus-4-7", false},        // no match
-		{"", "claude-opus", "x", false},                              // empty model
-		{"claude-opus-4-7", "", "", false},                           // empty prev
+		{"", "claude-opus", "x", false},                             // empty model
+		{"claude-opus-4-7", "", "", false},                          // empty prev
 	}
 	for _, c := range cases {
 		got := belongsToPriorModel(c.modelID, c.family, c.version)

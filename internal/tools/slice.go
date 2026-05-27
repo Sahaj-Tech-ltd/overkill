@@ -37,8 +37,8 @@ type sliceDecomposeInput struct {
 }
 
 type sliceDecomposeOutput struct {
-	Count  int               `json:"count"`
-	Slices []pipeline.Slice  `json:"slices"`
+	Count  int              `json:"count"`
+	Slices []pipeline.Slice `json:"slices"`
 }
 
 func (t *SliceDecomposeTool) Execute(_ context.Context, in json.RawMessage) (json.RawMessage, error) {

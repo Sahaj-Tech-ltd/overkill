@@ -180,4 +180,3 @@ func renderGlossaryTemplate(projectName string) string {
 
 	return b.String()
 }
-

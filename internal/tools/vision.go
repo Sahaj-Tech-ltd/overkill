@@ -20,12 +20,12 @@ import (
 // separate "screenshot, then describe" two-step.
 type VisionDescribeTool struct {
 	Describer vision.Describer
-	Mgr       *browser.Manager   // optional; required for url/screenshot modes
-	Policy    BrowserHostPolicy  // re-uses the same SSRF policy as browser tools
+	Mgr       *browser.Manager  // optional; required for url/screenshot modes
+	Policy    BrowserHostPolicy // re-uses the same SSRF policy as browser tools
 	// RootDir bounds the `file:` mode so `vision_describe` can't read
 	// arbitrary paths like /etc/shadow. Empty disables the check
 	// (legacy behaviour); production callers should always set it.
-	RootDir   string
+	RootDir string
 }
 
 // NewVisionDescribeTool wires the dependencies. Mgr may be nil when

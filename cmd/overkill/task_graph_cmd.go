@@ -110,7 +110,8 @@ var threadShowCmd = &cobra.Command{
 					fmt.Printf("  commits:\n")
 					for _, c := range t.Commits {
 						fmt.Printf("    - %s\n", c)
-					}}
+					}
+				}
 				if t.Notes != "" {
 					fmt.Printf("  notes: %s\n", t.Notes)
 				}

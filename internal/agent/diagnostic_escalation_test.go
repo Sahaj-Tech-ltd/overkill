@@ -8,12 +8,12 @@ import (
 
 func TestEscalator_FirstSightingUsesInitialTier(t *testing.T) {
 	cases := map[string]diagnostic.Tier{
-		"compile error: undefined: foo":     diagnostic.TierCompile,
-		"--- FAIL: TestThing":               diagnostic.TierUnitTest,
-		"panic: nil pointer dereference":    diagnostic.TierUnitTest,
-		"vet ./...: bad declaration":        diagnostic.TierLint,
-		"dial tcp: connection refused":      diagnostic.TierCurl,
-		"some weird thing happened":         diagnostic.TierCompile,
+		"compile error: undefined: foo":  diagnostic.TierCompile,
+		"--- FAIL: TestThing":            diagnostic.TierUnitTest,
+		"panic: nil pointer dereference": diagnostic.TierUnitTest,
+		"vet ./...: bad declaration":     diagnostic.TierLint,
+		"dial tcp: connection refused":   diagnostic.TierCurl,
+		"some weird thing happened":      diagnostic.TierCompile,
 	}
 	for msg, want := range cases {
 		t.Run(msg, func(t *testing.T) {

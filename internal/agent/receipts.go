@@ -35,15 +35,15 @@ import (
 // canonicalized JSON of every other field, including PrevHash. The
 // chain invariant: Receipt[N].PrevHash == Receipt[N-1].Hash.
 type Receipt struct {
-	Seq       int       `json:"seq"`
-	SessionID string    `json:"session_id"`
-	ToolName  string    `json:"tool_name"`
-	InputHash string    `json:"input_hash"`
-	OutputHash string   `json:"output_hash"`
-	Err       string    `json:"error,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
-	PrevHash  string    `json:"prev_hash"`
-	Hash      string    `json:"hash"`
+	Seq        int       `json:"seq"`
+	SessionID  string    `json:"session_id"`
+	ToolName   string    `json:"tool_name"`
+	InputHash  string    `json:"input_hash"`
+	OutputHash string    `json:"output_hash"`
+	Err        string    `json:"error,omitempty"`
+	Timestamp  time.Time `json:"timestamp"`
+	PrevHash   string    `json:"prev_hash"`
+	Hash       string    `json:"hash"`
 }
 
 // ReceiptChain is the append-only ledger. The first receipt has

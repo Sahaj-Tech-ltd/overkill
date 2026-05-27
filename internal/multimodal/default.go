@@ -12,12 +12,12 @@ import "github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 // nil keeps images on the metadata-only path.
 //
 // Registration order (first match wins):
-//   1. PDF
-//   2. Pandoc (DOCX/DOC/RTF/ODT)
-//   3. Audio (whisper)
-//   4. Image (vision describer)
-//   5. Text (plain text + code + structured config)
-//   6. Binary fallback (claims everything)
+//  1. PDF
+//  2. Pandoc (DOCX/DOC/RTF/ODT)
+//  3. Audio (whisper)
+//  4. Image (vision describer)
+//  5. Text (plain text + code + structured config)
+//  6. Binary fallback (claims everything)
 func DefaultRegistry(d vision.Describer) *Registry {
 	r := NewRegistry()
 	r.Register(NewPDFExtractor())

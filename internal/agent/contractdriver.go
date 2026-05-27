@@ -18,9 +18,9 @@ import (
 
 // ContractDriver adapts *Agent to subagent.StepDriver.
 type ContractDriver struct {
-	agent    *Agent
-	contract *subagent.Contract
-	workdir  string
+	agent        *Agent
+	contract     *subagent.Contract
+	workdir      string
 	bootstrapped bool
 }
 

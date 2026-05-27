@@ -28,7 +28,6 @@ func historyView(history []providers.Message) []providersMessageView {
 	return out
 }
 
-
 // HallucinationScanner is the minimal surface the agent calls after
 // each assistant turn. The wiring layer (cmd/overkill) plugs in the
 // concrete scanner from internal/halluscan.

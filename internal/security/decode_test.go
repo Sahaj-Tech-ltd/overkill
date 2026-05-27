@@ -125,8 +125,8 @@ func TestLooksLikeCommand(t *testing.T) {
 		{"curl example.com", true},
 		{"\x00\x01\x02", false},
 		{"", false},
-		{"ab", false}, // too short
-		{"12345", false}, // no letters
+		{"ab", false},                   // too short
+		{"12345", false},                // no letters
 		{"\x80\x81\x82\x83\x84", false}, // non-ASCII binary
 	}
 	for _, c := range cases {

@@ -76,6 +76,9 @@ func (c *Config) Validate() []error {
 			"cerebras":   true,
 			"fireworks":  true,
 			"bedrock":    true,
+			"vertex":     true,
+			"azure":      true,
+			"copilot":    true,
 			"custom":     true,
 		}
 		if p.Type != "" && !validTypes[p.Type] {
@@ -83,7 +86,7 @@ func (c *Config) Validate() []error {
 			// auto-discovers from models.dev catalog. Only warn, don't reject.
 			log.Warn().Str("type", p.Type).Msg("config: provider type not in known list; will attempt auto-discovery from models.dev")
 		}
-		if p.Type != "ollama" && p.Type != "bedrock" && p.APIKey == "" {
+		if p.Type != "ollama" && p.Type != "bedrock" && p.Type != "vertex" && p.APIKey == "" {
 			errs = append(errs, fmt.Errorf("config: providers[%d].api_key is required for non-ollama provider %q", i, p.Type))
 		}
 	}

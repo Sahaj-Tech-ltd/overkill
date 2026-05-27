@@ -19,22 +19,22 @@ import (
 //
 // Lifecycle:
 //
-//   1. SpawnInWorktree(ctx, contract) acquires a worktree keyed by
-//      contract.ID and hands its path to subagent.SpawnFromFactory
-//      as the workdir.
-//   2. A background goroutine waits on the contract via
-//      AutonomousWait, then releases the worktree (force-remove +
-//      drop branch on failure, plain release on success so the user
-//      can review the branch).
+//  1. SpawnInWorktree(ctx, contract) acquires a worktree keyed by
+//     contract.ID and hands its path to subagent.SpawnFromFactory
+//     as the workdir.
+//  2. A background goroutine waits on the contract via
+//     AutonomousWait, then releases the worktree (force-remove +
+//     drop branch on failure, plain release on success so the user
+//     can review the branch).
 //
 // If no worktree.Manager is wired (single-agent mode), the runner
 // falls through to bare SpawnFromFactory with whatever workdir the
 // caller provides.
 type parallelRunner struct {
-	wt        *worktree.Manager
-	sub       *subagent.Manager
-	fallback  string // workdir to use when wt is nil
-	released  sync.Map // contractID → struct{}{}; idempotent release
+	wt       *worktree.Manager
+	sub      *subagent.Manager
+	fallback string   // workdir to use when wt is nil
+	released sync.Map // contractID → struct{}{}; idempotent release
 }
 
 func newParallelRunner(wt *worktree.Manager, sub *subagent.Manager, fallbackWorkdir string) *parallelRunner {

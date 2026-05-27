@@ -34,7 +34,7 @@ func (s *stubProvider) Stream(ctx context.Context, req providers.Request) (<-cha
 	return ch, nil
 }
 
-func (s *stubProvider) Name() string             { return "stub" }
+func (s *stubProvider) Name() string              { return "stub" }
 func (s *stubProvider) Models() []providers.Model { return nil }
 
 func TestNarrateSession_EmptyJournalIsNoOp(t *testing.T) {

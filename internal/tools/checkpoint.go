@@ -17,8 +17,8 @@ import (
 
 // CheckpointSnapshotTool captures the current contents of one or more files.
 type CheckpointSnapshotTool struct {
-	mgr        *checkpoint.Manager
-	sessionFn  func() string
+	mgr       *checkpoint.Manager
+	sessionFn func() string
 }
 
 func NewCheckpointSnapshotTool(m *checkpoint.Manager, sessionFn func() string) *CheckpointSnapshotTool {

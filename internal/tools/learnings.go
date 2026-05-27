@@ -85,7 +85,7 @@ func (t *RecordLearningTool) Execute(_ context.Context, in json.RawMessage) (jso
 		return errorJSON(err.Error()), nil
 	}
 	return json.Marshal(map[string]any{
-		"ok":      true,
+		"ok":       true,
 		"learning": l,
 	})
 }

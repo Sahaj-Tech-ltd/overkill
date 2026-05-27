@@ -51,20 +51,20 @@ func (l AutonomyLevel) NeedsApproval(isDangerous bool) bool {
 
 // DangerousOps are tool patterns that trigger approval in yolo mode.
 var dangerousOps = map[string]bool{
-	"git push":           true,
-	"git push --force":   true,
-	"rm -rf":             true,
-	"rm -r":              true,
-	"chmod 777":          true,
-	"docker rm":          true,
+	"git push":            true,
+	"git push --force":    true,
+	"rm -rf":              true,
+	"rm -r":               true,
+	"chmod 777":           true,
+	"docker rm":           true,
 	"docker system prune": true,
-	"shutdown":           true,
-	"reboot":             true,
-	"mkfs":               true,
-	"dd if=":             true,
-	":(){ :|:& };:":      true, // fork bomb
-	"curl.*|.*sh":        true, // pipe to shell
-	"wget.*|.*sh":        true,
+	"shutdown":            true,
+	"reboot":              true,
+	"mkfs":                true,
+	"dd if=":              true,
+	":(){ :|:& };:":       true, // fork bomb
+	"curl.*|.*sh":         true, // pipe to shell
+	"wget.*|.*sh":         true,
 }
 
 // IsDangerousTool checks a command string against the dangerous pattern list.
@@ -337,17 +337,17 @@ func (am *AutoMode) analyzePhase(phase *PlanPhase) string {
 
 	// Detect ambiguous decisions
 	ambiguous := map[string]string{
-		"either":      "which option should be chosen?",
-		"decide":      "what's the decision criteria?",
-		"choose":      "which choice do you prefer?",
-		"config":      "any specific config values needed?",
-		"deploy":      "which environment (staging/prod)?",
-		"migrate":     "any rollback strategy required?",
-		"rename":      "confirm the exact new name?",
-		"refactor":    "any constraints on approach (incremental vs big-bang)?",
-		"api":         "any API version or auth requirements?",
-		"database":    "which database backend?",
-		"scale":       "target capacity/performance numbers?",
+		"either":   "which option should be chosen?",
+		"decide":   "what's the decision criteria?",
+		"choose":   "which choice do you prefer?",
+		"config":   "any specific config values needed?",
+		"deploy":   "which environment (staging/prod)?",
+		"migrate":  "any rollback strategy required?",
+		"rename":   "confirm the exact new name?",
+		"refactor": "any constraints on approach (incremental vs big-bang)?",
+		"api":      "any API version or auth requirements?",
+		"database": "which database backend?",
+		"scale":    "target capacity/performance numbers?",
 	}
 
 	for keyword, question := range ambiguous {

@@ -1,0 +1,74 @@
+export interface SessionInfo {
+  id: string;
+  folder: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProviderInfo {
+  name: string;
+  models: ModelInfo[];
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  maxTokens?: number;
+}
+
+export interface HealthResult {
+  ok: boolean;
+  version: string;
+  uptime: string;
+  sessions: number;
+}
+
+export interface SendMessageParams {
+  sessionId: string;
+  message: string;
+}
+
+export interface SendMessageResult {
+  reply: string;
+  tokensUsed: number;
+}
+
+export interface JSONRPCRequest {
+  jsonrpc: "2.0";
+  method: string;
+  params?: unknown;
+  id: number;
+}
+
+export interface JSONRPCResponse {
+  jsonrpc: "2.0";
+  result?: unknown;
+  error?: JSONRPCError;
+  id: number;
+}
+
+export interface JSONRPCError {
+  code: number;
+  message: string;
+  data?: unknown;
+}
+
+export interface Message {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface AgentSendParams {
+  message: string;
+  sessionId?: string;
+}
+
+export interface AgentSendResult {
+  response: string;
+  toolCalls?: unknown[];
+  totalTokens?: number;
+  model?: string;
+}
+
+export type ConnectionState = "connecting" | "connected" | "disconnected";

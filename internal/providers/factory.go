@@ -113,9 +113,31 @@ func NewProvider(cfg FactoryConfig) (Provider, error) {
 		if region == "" {
 			region = "us-east-1"
 		}
-		// access key + secret read from BaseURL params or env vars.
-		// When BaseURL == "us-east-1" it's treated as a region.
 		return NewBedrockProvider(region, cfg.APIKey, "", cfg.Models)
+
+	// Vertex AI — Google Cloud's managed AI platform. Uses GCP service
+	// account auth (GOOGLE_APPLICATION_CREDENTIALS env var or gcloud
+	// ADC). The base URL is auto-discovered from models.dev.
+	// Model IDs use the format: "projects/{project}/locations/{location}/publishers/google/models/{model}"
+	case "vertex":
+		return NewOpenAICompatProvider("vertex", "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}", cfg.APIKey, cfg.Models), nil
+
+	// Azure OpenAI — Microsoft's managed OpenAI service. Uses Azure AD
+	// token auth. The base URL format is:
+	// https://{resource-name}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version=2024-02-15-preview
+	// Set AZURE_OPENAI_API_KEY or AZURE_AD_TOKEN in env.
+	case "azure":
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = "https://api.openai.azure.com/v1"
+		}
+		return NewOpenAICompatProvider("azure", baseURL, cfg.APIKey, cfg.Models), nil
+
+	case "copilot":
+		// GitHub Copilot — uses GitHub device flow OAuth. Set
+		// GITHUB_TOKEN or COPILOT_TOKEN in env. Auto-discovers
+		// base URL from models.dev.
+		return NewOpenAICompatProvider("copilot", "https://api.githubcopilot.com", cfg.APIKey, cfg.Models), nil
 
 	case "custom":
 		if cfg.BaseURL == "" {

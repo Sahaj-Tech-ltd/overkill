@@ -118,11 +118,11 @@ func (w *memAuditWriter) Entries() []AuditEntry {
 // conservative: the enforcer prefers false negatives (over-allow) to false
 // positives that would cripple a legitimate child.
 var writeLikeTools = map[string]bool{
-	"fs_write":         true,
-	"fs":               false, // depends on action; handled below
-	"patch":            true,
-	"worktree_add":     true,
-	"worktree_remove":  true,
+	"fs_write":        true,
+	"fs":              false, // depends on action; handled below
+	"patch":           true,
+	"worktree_add":    true,
+	"worktree_remove": true,
 }
 
 // shellWriteRe matches the leading verb of a shell command that suggests a

@@ -166,7 +166,9 @@ func TestDecodeLocations(t *testing.T) {
 	loc := Location{URI: "file:///a.go", Range: Range{Start: Position{1, 2}, End: Position{3, 4}}}
 	null := func() []Location { return nil }
 	single := func() []Location { return []Location{loc} }
-	multi := func() []Location { return []Location{loc, {URI: "file:///b.go", Range: Range{Start: Position{5, 6}, End: Position{7, 8}}}} }
+	multi := func() []Location {
+		return []Location{loc, {URI: "file:///b.go", Range: Range{Start: Position{5, 6}, End: Position{7, 8}}}}
+	}
 
 	tests := []struct {
 		name    string
@@ -318,7 +320,10 @@ func TestJSONRPCConn_FailAllPending(t *testing.T) {
 func TestReadLoop_ContentLengthZero(t *testing.T) {
 	r, w := io.Pipe()
 	c := newJSONRPCConn(io.Discard, r)
-	go func() { _, _ = w.Write([]byte("Content-Length: 0\r\n\r\nContent-Length: 3\r\n\r\nnull")); _ = w.Close() }()
+	go func() {
+		_, _ = w.Write([]byte("Content-Length: 0\r\n\r\nContent-Length: 3\r\n\r\nnull"))
+		_ = w.Close()
+	}()
 	done := make(chan error, 1)
 	go func() { done <- c.readLoop() }()
 	select {
@@ -336,7 +341,11 @@ func TestReadLoop_ContentLengthZero(t *testing.T) {
 func TestReadLoop_Oversized(t *testing.T) {
 	r, w := io.Pipe()
 	c := newJSONRPCConn(io.Discard, r)
-	go func() { _, _ = w.Write([]byte("Content-Length: 999999999\r\n\r\n")); time.Sleep(100 * time.Millisecond); _ = w.Close() }()
+	go func() {
+		_, _ = w.Write([]byte("Content-Length: 999999999\r\n\r\n"))
+		time.Sleep(100 * time.Millisecond)
+		_ = w.Close()
+	}()
 	done := make(chan error, 1)
 	go func() { done <- c.readLoop() }()
 	select {
@@ -358,7 +367,10 @@ func TestReadLoop_EdgeCases(t *testing.T) {
 	t.Run("malformedJSON", func(t *testing.T) {
 		r, w := io.Pipe()
 		c := newJSONRPCConn(io.Discard, r)
-		go func() { _, _ = w.Write([]byte("Content-Length: 4\r\n\r\nnullContent-Length: 5\r\n\r\nXXXXX")); _ = w.Close() }()
+		go func() {
+			_, _ = w.Write([]byte("Content-Length: 4\r\n\r\nnullContent-Length: 5\r\n\r\nXXXXX"))
+			_ = w.Close()
+		}()
 		done := make(chan error, 1)
 		go func() { done <- c.readLoop() }()
 		select {
@@ -375,7 +387,10 @@ func TestReadLoop_EdgeCases(t *testing.T) {
 	t.Run("nonNumericCL", func(t *testing.T) {
 		r, w := io.Pipe()
 		c := newJSONRPCConn(io.Discard, r)
-		go func() { _, _ = w.Write([]byte("Content-Length: abc\r\n\r\nContent-Length: 4\r\n\r\nnull")); _ = w.Close() }()
+		go func() {
+			_, _ = w.Write([]byte("Content-Length: abc\r\n\r\nContent-Length: 4\r\n\r\nnull"))
+			_ = w.Close()
+		}()
 		done := make(chan error, 1)
 		go func() { done <- c.readLoop() }()
 		select {
@@ -392,7 +407,10 @@ func TestReadLoop_EdgeCases(t *testing.T) {
 	t.Run("negativeCL", func(t *testing.T) {
 		r, w := io.Pipe()
 		c := newJSONRPCConn(io.Discard, r)
-		go func() { _, _ = w.Write([]byte("Content-Length: -5\r\n\r\nContent-Length: 4\r\n\r\nnull")); _ = w.Close() }()
+		go func() {
+			_, _ = w.Write([]byte("Content-Length: -5\r\n\r\nContent-Length: 4\r\n\r\nnull"))
+			_ = w.Close()
+		}()
 		done := make(chan error, 1)
 		go func() { done <- c.readLoop() }()
 		select {

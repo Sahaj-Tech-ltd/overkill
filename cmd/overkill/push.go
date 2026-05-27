@@ -74,12 +74,13 @@ func runPush(cmd *cobra.Command, args []string) error {
 }
 
 // renderPushPreview prints a window like:
-//   ─── push origin main ────────────────────────────────────
-//   3 commits ahead · +127 / -42 lines
-//   abc1234  feat: ship the thing
-//   def5678  fix: typo in readme
-//   9876543  test: cover the new branch
-//   ─────────────────────────────────────────────────────────
+//
+//	─── push origin main ────────────────────────────────────
+//	3 commits ahead · +127 / -42 lines
+//	abc1234  feat: ship the thing
+//	def5678  fix: typo in readme
+//	9876543  test: cover the new branch
+//	─────────────────────────────────────────────────────────
 func renderPushPreview(remote, branch string) error {
 	upstream := remote + "/" + branch
 

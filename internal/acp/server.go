@@ -80,7 +80,7 @@ type Server struct {
 
 // RoutePattern is one registered route with its HTTP method expectation.
 type RoutePattern struct {
-	Path    string // e.g. "/v1/info", "/v1/messages/{id}/events"
+	Path    string   // e.g. "/v1/info", "/v1/messages/{id}/events"
 	Methods []string // expected methods; empty = test all standard methods
 }
 

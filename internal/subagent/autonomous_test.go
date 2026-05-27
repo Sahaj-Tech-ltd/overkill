@@ -13,11 +13,11 @@ type fakeDriver struct {
 	steps        atomic.Int32
 	current      atomic.Int32 // current tokens
 	max          int
-	completeAt   int    // step number at which CheckOutput returns all specs
-	failAt       int    // step number at which Step returns an error
+	completeAt   int // step number at which CheckOutput returns all specs
+	failAt       int // step number at which Step returns an error
 	failErr      error
-	doneAt       int    // step number at which Step.Done = true
-	compactDelta int    // tokens to subtract on Compact
+	doneAt       int // step number at which Step.Done = true
+	compactDelta int // tokens to subtract on Compact
 	compactErr   error
 	specs        []string
 }

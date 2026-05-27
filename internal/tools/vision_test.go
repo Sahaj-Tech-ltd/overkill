@@ -12,10 +12,10 @@ import (
 )
 
 type fakeDescriber struct {
-	desc       string
-	gotMime    string
-	gotPrompt  string
-	wasCalled  bool
+	desc      string
+	gotMime   string
+	gotPrompt string
+	wasCalled bool
 }
 
 func (f *fakeDescriber) Describe(_ context.Context, imgs []vision.Image, prompt string) (string, error) {

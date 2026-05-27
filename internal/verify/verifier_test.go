@@ -12,12 +12,12 @@ import (
 
 // fakeVerifier is a deterministic stand-in for time-bounded tests.
 type fakeVerifier struct {
-	name     string
-	timeout  time.Duration
-	ok       bool
-	detail   string
-	skipped  bool
-	delay    time.Duration // simulate work for timeout tests
+	name      string
+	timeout   time.Duration
+	ok        bool
+	detail    string
+	skipped   bool
+	delay     time.Duration // simulate work for timeout tests
 	callCount int
 }
 

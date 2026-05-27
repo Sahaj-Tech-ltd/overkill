@@ -622,13 +622,13 @@ func TestManagerConcurrentStatus(t *testing.T) {
 
 func TestAutoPushBailouts(t *testing.T) {
 	t.Parallel()
-	AutoPushIfEnabled(nil, nil, "x", nil)                                      // nil config
+	AutoPushIfEnabled(nil, nil, "x", nil)                                                     // nil config
 	AutoPushIfEnabled(&config.Config{Sync: config.SyncConfig{AutoPush: true}}, nil, "x", nil) // nil mgr
 	cfg := &config.Config{Sync: config.SyncConfig{AutoPush: true}}
 	dir := t.TempDir()
 	be, _ := NewFileBackend(config.SyncFileConfig{Path: dir})
 	mgr := NewManager(newTestStore(t), be)
-	AutoPushIfEnabled(cfg, mgr, "", nil)                  // empty ID
+	AutoPushIfEnabled(cfg, mgr, "", nil)                                                       // empty ID
 	AutoPushIfEnabled(&config.Config{Sync: config.SyncConfig{AutoPush: false}}, mgr, "x", nil) // disabled
 }
 

@@ -232,9 +232,9 @@ func TestAlarmClock_FireCallbackErrorIsLogged(t *testing.T) {
 
 type failOnSaveStore struct{ err error }
 
-func (s *failOnSaveStore) Save(*Alarm) error      { return s.err }
+func (s *failOnSaveStore) Save(*Alarm) error       { return s.err }
 func (s *failOnSaveStore) Load() ([]*Alarm, error) { return nil, nil }
-func (s *failOnSaveStore) Delete(string) error    { return nil }
+func (s *failOnSaveStore) Delete(string) error     { return nil }
 
 type failOnSaveAfterN struct {
 	mu    sync.Mutex
@@ -252,7 +252,7 @@ func (s *failOnSaveAfterN) Save(*Alarm) error {
 	return nil
 }
 func (s *failOnSaveAfterN) Load() ([]*Alarm, error) { return nil, nil }
-func (s *failOnSaveAfterN) Delete(string) error    { return nil }
+func (s *failOnSaveAfterN) Delete(string) error     { return nil }
 
 // uuidFake returns deterministic IDs without bringing in the uuid
 // package's random source — easier to debug test failures.

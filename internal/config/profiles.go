@@ -2,18 +2,18 @@
 //
 // Five named one-click profiles flip a coordinated set of fields:
 //
-//   yolo       — vibe coder defaults. Scanners off, auto-approve all,
-//                no confirmations. The bed-coder profile.
-//   default    — sane developer defaults. CommandScanner on, write
-//                confirms on destructive ops, no auto-approve.
-//   paranoid   — production-repo posture. Every scanner on, MCP
-//                default-deny via mcpshield, cost cap enabled.
-//   enterprise — paranoid + receipt-chain verify on boot, flight
-//                recorder always-on, telemetry forwarded to operator.
-//   remote     — bridge / API-originated jobs. CommandScanner on,
-//                no auto-approve, pty_shell denied, shell/patch/git-push
-//                require explicit approval, web fetches restricted to
-//                operator-configured allowlist (empty by default).
+//	yolo       — vibe coder defaults. Scanners off, auto-approve all,
+//	             no confirmations. The bed-coder profile.
+//	default    — sane developer defaults. CommandScanner on, write
+//	             confirms on destructive ops, no auto-approve.
+//	paranoid   — production-repo posture. Every scanner on, MCP
+//	             default-deny via mcpshield, cost cap enabled.
+//	enterprise — paranoid + receipt-chain verify on boot, flight
+//	             recorder always-on, telemetry forwarded to operator.
+//	remote     — bridge / API-originated jobs. CommandScanner on,
+//	             no auto-approve, pty_shell denied, shell/patch/git-push
+//	             require explicit approval, web fetches restricted to
+//	             operator-configured allowlist (empty by default).
 //
 // Switching profiles rewrites the affected fields in-memory. Users in
 // the Settings → Advanced view can still flip individual switches

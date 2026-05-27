@@ -165,13 +165,13 @@ func TestManager_ReclaimDiscoversExistingTrees(t *testing.T) {
 
 func TestSanitizeBranch(t *testing.T) {
 	cases := map[string]string{
-		"abc":              "abc",
-		"task-1":           "task-1",
-		"path/with/slash":  "path-with-slash",
-		"weird name here":  "weird-name-here",
-		"a/b/c":            "a-b-c",
-		"":                 "task",
-		"---":              "task",
+		"abc":             "abc",
+		"task-1":          "task-1",
+		"path/with/slash": "path-with-slash",
+		"weird name here": "weird-name-here",
+		"a/b/c":           "a-b-c",
+		"":                "task",
+		"---":             "task",
 	}
 	for in, want := range cases {
 		if got := sanitizeBranch(in); got != want {

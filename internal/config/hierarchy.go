@@ -2,11 +2,11 @@
 //
 // The layered loader merges five sources in precedence order:
 //
-//   layer 0: DefaultUserOverrides (the yolo profile)
-//   layer 1: /etc/overkill/user.yaml          (system defaults; ops-set)
-//   layer 2: ~/.config/overkill/user.yaml     (user, the normal case)
-//   layer 3: $WORKSPACE/.overkill/user.yaml   (per-project tweaks)
-//   layer 4: /etc/overkill/enforced.yaml      (admin lock — LAST WORD)
+//	layer 0: DefaultUserOverrides (the yolo profile)
+//	layer 1: /etc/overkill/user.yaml          (system defaults; ops-set)
+//	layer 2: ~/.config/overkill/user.yaml     (user, the normal case)
+//	layer 3: $WORKSPACE/.overkill/user.yaml   (per-project tweaks)
+//	layer 4: /etc/overkill/enforced.yaml      (admin lock — LAST WORD)
 //
 // Each later layer wins on a per-field basis. The enforced layer
 // applies AFTER the user/workspace layers so an org deployment can
