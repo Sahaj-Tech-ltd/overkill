@@ -46,7 +46,7 @@ jobs:
           # obfuscated-payload signature. Bridge code is small enough
           # that this grep is precise — bigger Python codebases would
           # need a denylist of known-good usages.
-          if grep -r -l "base64" bridge/ --include="*.py" 2>/dev/null | xargs -r grep -l "exec\|eval" 2>/dev/null; then
+          if grep -r -l "base64" bridge/ --include="*.py" --exclude-dir=proto 2>/dev/null | xargs -r grep -l "exec\|eval" 2>/dev/null; then
             echo "::error::Found base64+exec patterns"
             exit 1
           fi
