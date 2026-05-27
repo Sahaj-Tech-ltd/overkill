@@ -1,6 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { Box, Text, useApp, useInput } from "ink";
+import { execSync } from "node:child_process";
 import { useBackend } from "./hooks/use-backend.ts";
+import { useChat } from "./hooks/use-chat.ts";
 import { useDialogs } from "./hooks/use-dialogs.ts";
 import { useSidebar } from "./hooks/use-sidebar.ts";
 import { useTheme } from "./hooks/use-theme.ts";
@@ -16,13 +18,43 @@ import { Sidebar } from "./components/sidebar/sidebar.tsx";
 import { SessionPanel } from "./components/sidebar/session-panel.tsx";
 import type { ModelInfo, SessionInfo } from "./backend/types.ts";
 
+function useGitBranch(): string | undefined {
+  const [branch, setBranch] = useState<string | undefined>();
+
+  useEffect(() => {
+    try {
+      const result = execSync("git rev-parse --abbrev-ref HEAD", {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      setBranch(result.trim() || undefined);
+    } catch {
+      // Silently fail — not in a git repo
+    }
+  }, []);
+
+  return branch;
+}
+
 export function App(): React.JSX.Element {
   const { backend, connected } = useBackend();
+  const {
+    messages,
+    sendMessage,
+    clearChat,
+    isLoading,
+    model,
+    provider,
+    streamingText,
+    queuedMessages,
+    statusPhase,
+  } = useChat(backend);
   const { openDialog, open, close } = useDialogs();
   const { visible: sidebarVisible, activeTab, toggle, setTab } = useSidebar();
   const { exit } = useApp();
   const { theme } = useTheme();
   const { toasts } = useToast();
+  const gitBranch = useGitBranch();
 
   const handleModelSelect = (provider: string, model: ModelInfo) => {
     void provider;
@@ -115,7 +147,13 @@ export function App(): React.JSX.Element {
     <Box flexDirection="column" width="100%" height="100%">
       <Box flexDirection="row" flexGrow={1} width="100%">
         <ChatView
-          backend={backend}
+          messages={messages}
+          sendMessage={sendMessage}
+          clearChat={clearChat}
+          isLoading={isLoading}
+          streamingText={streamingText}
+          model={model}
+          provider={provider}
           onOpenPalette={() => open("command-palette")}
           isDialogOpen={isDialogOpen}
         />
@@ -142,7 +180,15 @@ export function App(): React.JSX.Element {
           )}
         </Sidebar>
       </Box>
-      <StatusBar connectionState={connected} theme={theme} />
+      <StatusBar
+        connectionState={connected}
+        theme={theme}
+        model={model}
+        provider={provider}
+        queuedMessages={queuedMessages}
+        gitBranch={gitBranch}
+        statusPhase={statusPhase}
+      />
 
       {/* Toast notifications */}
       <ToastContainer toasts={toasts} />

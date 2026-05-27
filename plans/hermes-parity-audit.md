@@ -8,7 +8,7 @@
 | Telegram | ✅ | ✅ | Polish done |
 | Discord | ✅ | ✅ | Needs hardening |
 | WhatsApp | ✅ | ✅ Cloud + Meow | Needs hardening |
-| **Slack** | ✅ | ❌ | **BUILD** |
+| **Slack** | ✅ | ✅ | Socket Mode, integrated |
 | Signal | ✅ | ❌ | Build |
 | Matrix | ✅ | ❌ | Build |
 | Mattermost | ✅ | ❌ | Build |
@@ -120,7 +120,7 @@
 
 ## Priority Execution Order
 
-1. **Slack gateway** (most requested, completely missing)
+1. ~~**Slack gateway**~~ ✅ Done — Socket Mode, integrated
 2. **TUI: streaming markdown + thinking toggle** (core UX gap)
 3. **TUI: queued messages badge + git branch** (small, high impact)
 4. **Discord gateway hardening** (exists but fragile)

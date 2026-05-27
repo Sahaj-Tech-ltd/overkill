@@ -1,11 +1,13 @@
 import React from "react";
 import { Text, Box } from "ink";
+import { ThinkingBlock } from "./thinking-block.tsx";
 
 interface MessageProps {
   role: "user" | "assistant" | "system";
   content: string;
   streaming?: boolean;
   terminalWidth?: number;
+  reasoning?: string;
 }
 
 interface TextSegment {
@@ -132,6 +134,7 @@ export function MessageBubble({
   content,
   streaming,
   terminalWidth,
+  reasoning,
 }: MessageProps): React.JSX.Element {
   const maxWidth = terminalWidth ? terminalWidth - 4 : 80;
 
@@ -168,6 +171,7 @@ export function MessageBubble({
 
   return (
     <Box flexDirection="column">
+      {reasoning && <ThinkingBlock reasoning={reasoning} />}
       {wrapped.map((line, i) => (
         <Box key={i}>
           {i === 0 ? (
