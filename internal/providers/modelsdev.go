@@ -27,6 +27,21 @@ var ModelsDevURL = "https://models.dev/api.json"
 // to disk cache. 5 seconds aligns with the spec.
 const FetchTimeout = 5 * time.Second
 
+// globalCatalog is the in-memory copy of the models.dev catalog, populated
+// on first FetchCatalog and updated on subsequent fetches. Used by the
+// provider factory to auto-discover unknown provider types.
+var (
+	globalCatalogMu sync.RWMutex
+	globalCatalog   *Catalog
+)
+
+// getGlobalCatalog returns the in-memory catalog copy. Thread-safe.
+func getGlobalCatalog() *Catalog {
+	globalCatalogMu.RLock()
+	defer globalCatalogMu.RUnlock()
+	return globalCatalog
+}
+
 // CatalogSource indicates which tier produced the loaded catalog.
 type CatalogSource string
 
@@ -338,6 +353,12 @@ func parseCatalog(body []byte, source CatalogSource) (*Catalog, error) {
 	for i := range c.providers {
 		c.byID[c.providers[i].ID] = &c.providers[i]
 	}
+
+	// Update global catalog for provider auto-discovery.
+	globalCatalogMu.Lock()
+	globalCatalog = c
+	globalCatalogMu.Unlock()
+
 	return c, nil
 }
 

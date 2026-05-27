@@ -124,6 +124,29 @@ func NewProvider(cfg FactoryConfig) (Provider, error) {
 		return NewOpenAICompatProvider(cfg.Name, cfg.BaseURL, cfg.APIKey, cfg.Models), nil
 
 	default:
+		// Auto-discover from models.dev catalog. If the provider type
+		// matches a known catalog entry, use its base URL. This means
+		// ANY of the 104+ OpenAI-compatible providers in models.dev
+		// can be used without writing Go code — just configure the
+		// type and API key.
+		if catalogURL := lookupCatalogURL(cfg.Type); catalogURL != "" {
+			return NewOpenAICompatProvider(cfg.Name, catalogURL, cfg.APIKey, cfg.Models), nil
+		}
 		return nil, fmt.Errorf("providers: unknown provider type: %s", cfg.Type)
 	}
+}
+
+// lookupCatalogURL checks the in-memory models.dev cache for a provider's
+// API base URL. Returns empty string if not found or not cached.
+func lookupCatalogURL(providerType string) string {
+	cat := getGlobalCatalog()
+	if cat == nil {
+		return ""
+	}
+	for _, p := range cat.providers {
+		if p.ID == providerType && p.API != "" {
+			return p.API
+		}
+	}
+	return ""
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/rs/zerolog/log"
 )
 
 type Warning string
@@ -78,7 +79,9 @@ func (c *Config) Validate() []error {
 			"custom":     true,
 		}
 		if p.Type != "" && !validTypes[p.Type] {
-			errs = append(errs, fmt.Errorf("config: providers[%d].type %q is not a valid provider type", i, p.Type))
+			// Provider type not in our known list — but the factory now
+			// auto-discovers from models.dev catalog. Only warn, don't reject.
+			log.Warn().Str("type", p.Type).Msg("config: provider type not in known list; will attempt auto-discovery from models.dev")
 		}
 		if p.Type != "ollama" && p.Type != "bedrock" && p.APIKey == "" {
 			errs = append(errs, fmt.Errorf("config: providers[%d].api_key is required for non-ollama provider %q", i, p.Type))
