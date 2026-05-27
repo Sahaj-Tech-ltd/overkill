@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { Box, Text, useInput } from "ink";
-import TextInput from "ink-text-input";
+import { TextInput } from "../text-input.tsx";
 import { DialogContainer } from "./dialog-container.tsx";
 
 interface Command {
