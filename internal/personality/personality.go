@@ -204,6 +204,27 @@ func (p *Personality) BootMessage() string {
 	}
 }
 
+// ExitQuote returns a time-aware farewell quote. At night (22:00–05:00)
+// it draws from the Night category; otherwise from Goodbye. Witty+ only.
+// Returns empty string for Off/Subtle levels.
+func (p *Personality) ExitQuote() string {
+	if p == nil || p.config.Level < LevelWitty {
+		return ""
+	}
+	hour := time.Now().Hour()
+	if hour >= 22 || hour < 5 {
+		if q, ok := p.movies.For(QuoteNight); ok {
+			p.movies.MarkUsed(q.Line)
+			return q.Line
+		}
+	}
+	if q, ok := p.movies.For(QuoteGoodbye); ok {
+		p.movies.MarkUsed(q.Line)
+		return q.Line
+	}
+	return ""
+}
+
 // ackPattern is the cross-level "acknowledge-then-act" directive. The
 // user wants terse acknowledgement responses when they give a green
 // light — "heard, implementing X now" — instead of restating the plan

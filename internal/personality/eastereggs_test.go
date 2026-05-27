@@ -389,7 +389,8 @@ func TestQuoteCategories_NotEmpty(t *testing.T) {
 	for _, cat := range []QuoteCategory{
 		QuoteStartup, QuoteError, QuoteGoodbye, QuoteSentient,
 		QuoteDetermined, QuoteNight, QuoteCompanion, QuoteExMachina,
-		QuoteBladeRunner,
+		QuoteBladeRunner, QuoteGhostInShell, QuoteDebugging,
+		QuoteShipLaunch, QuoteFlowFocus,
 	} {
 		qs := mq.quotes[cat]
 		catCounts[cat] = len(qs)
