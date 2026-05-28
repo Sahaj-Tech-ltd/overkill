@@ -22,12 +22,6 @@
     reverse_proxy host.docker.internal:3001
   }
 
-  @dash host dash.databunker.uk
-  handle @dash {
-    import protected
-    reverse_proxy host.docker.internal:3002
-  }
-
   @affine host affine.databunker.uk
   handle @affine {
     reverse_proxy host.docker.internal:3010
@@ -37,17 +31,6 @@
   handle @pdf {
     import protected
     reverse_proxy host.docker.internal:8080
-  }
-
-  @bar host bar.databunker.uk
-  handle @bar {
-    import protected
-    reverse_proxy host.docker.internal:8090
-  }
-
-  @bar-api host bar-api.databunker.uk
-  handle @bar-api {
-    reverse_proxy host.docker.internal:8091
   }
 
   @joules host joules.me
