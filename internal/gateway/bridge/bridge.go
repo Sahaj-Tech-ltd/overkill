@@ -234,7 +234,10 @@ func (b *Bridge) handleIn(w http.ResponseWriter, r *http.Request) {
 		chatKey: in.ChatKey,
 		thread:  in.Thread,
 	}
-	go b.Dispatcher.Handle(context.Background(), in, reply)
+	// Use a context detached from the HTTP request lifecycle so the
+	// dispatched goroutine isn't killed when the handler returns 202.
+	// Values from the request context (tracing, etc.) are still propagated.
+	go b.Dispatcher.Handle(context.WithoutCancel(r.Context()), in, reply)
 	w.WriteHeader(http.StatusAccepted)
 }
 

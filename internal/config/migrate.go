@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 
 	"github.com/rs/zerolog/log"
 )
@@ -19,13 +21,18 @@ func (c *Config) Migrate() (*Config, []string, error) {
 			c.Agent.Name = "Overkill"
 			changes = append(changes, "set default agent name to \"Overkill\"")
 		}
-		if c.Agent.DefaultProvider == "" {
-			c.Agent.DefaultProvider = "openai"
-			changes = append(changes, "set default provider to \"openai\"")
+		// DefaultProvider / DefaultModel: only auto-set if there are
+		// actually configured providers. Otherwise leave them blank so
+		// the runtime can detect from env vars (OPENAI_API_KEY, etc.).
+		// Writing "openai"/"gpt-4o" unconditionally was baking a
+		// provider the user may never have set up into their config file.
+		if c.Agent.DefaultProvider == "" && len(c.Providers) > 0 {
+			c.Agent.DefaultProvider = c.Providers[0].Name
+			changes = append(changes, fmt.Sprintf("set default provider to first configured: %q", c.Providers[0].Name))
 		}
-		if c.Agent.DefaultModel == "" {
-			c.Agent.DefaultModel = "gpt-4o"
-			changes = append(changes, "set default model to \"gpt-4o\"")
+		if c.Agent.DefaultModel == "" && len(c.Providers) > 0 && len(c.Providers[0].Models) > 0 {
+			c.Agent.DefaultModel = c.Providers[0].Models[0].ID
+			changes = append(changes, fmt.Sprintf("set default model to first provider model: %q", c.Providers[0].Models[0].ID))
 		}
 
 		if c.Personality.Level == "" {
@@ -55,7 +62,16 @@ func (c *Config) Migrate() (*Config, []string, error) {
 		if c.Session.DataDir == "" {
 			homeDir, _ := os.UserHomeDir()
 			if homeDir != "" {
-				c.Session.DataDir = homeDir + "/.overkill/data"
+				if runtime.GOOS == "windows" {
+					localAppData := os.Getenv("LOCALAPPDATA")
+					if localAppData != "" {
+						c.Session.DataDir = filepath.Join(localAppData, "overkill", "data")
+					} else {
+						c.Session.DataDir = filepath.Join(homeDir, ".overkill", "data")
+					}
+				} else {
+					c.Session.DataDir = filepath.Join(homeDir, ".overkill", "data")
+				}
 			}
 			changes = append(changes, "set default data directory")
 		}
@@ -89,8 +105,6 @@ func (c *Config) Migrate() (*Config, []string, error) {
 		if c.Providers == nil {
 			c.Providers = []ProviderConfig{}
 		}
-
-		fallthrough
 
 	case c.Version == CurrentVersion:
 		// up to date

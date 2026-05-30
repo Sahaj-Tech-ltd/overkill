@@ -24,6 +24,53 @@ type AgentSender interface {
 	// Interrupt cancels the currently running stream for this agent.
 	// Safe to call from any goroutine. No-op if no stream is running.
 	Interrupt()
+	// SetQuestionFunc wires the clarify callback so the agent can ask
+	// the user questions mid-execution (§8.6).
+	SetQuestionFunc(fn agent.QuestionFunc)
+	// Undo removes the last exchange from session history.
+	Undo() (string, error)
+	// Retry replays the last user message with a fresh model call.
+	Retry() (string, error)
+	// Steer queues a guidance message for mid-run injection into the
+	// agent loop. Returns a confirmation string.
+	Steer(msg string) string
+	// Fork creates a new session branched from the current one with
+	// an optional name. Returns the new session ID.
+	Fork(name string) (string, error)
+	// Snapshot creates a git-based filesystem checkpoint with the
+	// given name. Returns the new commit hash.
+	Snapshot(name string) (string, error)
+	// Rollback rolls back to the Nth most recent checkpoint
+	// (0 = latest). Returns a human-readable summary.
+	Rollback(n int) (string, error)
+	// Snapshots returns a human-readable listing of saved checkpoints.
+	Snapshots() (string, error)
+	// SetGoal sets or updates the standing goal for the current session.
+	SetGoal(ctx context.Context, text string) error
+	// GetGoal returns the current goal text (empty string if none set).
+	GetGoal(ctx context.Context) (string, error)
+	// PauseGoal pauses the current goal (keeps it but stops injecting).
+	PauseGoal(ctx context.Context) error
+	// ResumeGoal resumes a paused goal so it injects again.
+	ResumeGoal(ctx context.Context) error
+	// ClearGoal removes the goal entirely.
+	ClearGoal(ctx context.Context) error
+	// Compact triggers context compaction on the current session.
+	// Returns the compaction result with before/after token counts and a summary.
+	Compact(ctx context.Context) (*agent.CompactResult, error)
+	// ExportHistory writes the current session's message history to a
+	// markdown file at the given path and returns the path.
+	ExportHistory(path string) (string, error)
+	// SetThinkingLevel sets the extended thinking budget.
+	SetThinkingLevel(level string)
+	// ThinkingLevel returns the current thinking level.
+	ThinkingLevel() string
+	// Mode returns the current plan/build mode ("plan" or "build").
+	// Plan mode means analysis-only; build mode allows execution.
+	Mode() string
+	// IsBusy returns true when the agent loop is actively executing Run().
+	// Used by harness to guard commands that would interrupt a running agent.
+	IsBusy() bool
 }
 
 // Inbound is one user-authored message arriving from any channel.

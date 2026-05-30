@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,20 +14,22 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
-	"syscall"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/spf13/cobra"
-
-	"encoding/json"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cron"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/daemon"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/db"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor/health"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 // daemonStartedAt is captured on Start so the `ping` RPC can report
@@ -69,6 +72,14 @@ func init() {
 }
 
 func daemonHomeDir() (string, error) {
+	// Respect OVERKILL_HOME when set (e.g. container/profiles).
+	if dir := os.Getenv("OVERKILL_HOME"); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", fmt.Errorf("daemon: creating OVERKILL_HOME dir %s: %w", dir, err)
+		}
+		return dir, nil
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -90,7 +101,19 @@ func writePIDFile() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, []byte(strconv.Itoa(os.Getpid())), 0o644)
+	// Use O_CREATE|O_EXCL for atomic creation — prevents TOCTOU race
+	// where two daemon start invocations both see no running PID and
+	// both write a PID file, creating a split-brain daemon.
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("daemon already running (PID file exists at %s)", p)
+		}
+		return fmt.Errorf("daemon: pidfile: %w", err)
+	}
+	defer f.Close()
+	_, err = f.Write([]byte(strconv.Itoa(os.Getpid())))
+	return err
 }
 
 func readPID() (int, error) {
@@ -121,21 +144,44 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
-	home, err := daemonHomeDir()
+	// Open a single Postgres connection for all subsystems via internal/db.
+	connString := os.Getenv("DATABASE_URL")
+	if connString == "" && cfg != nil {
+		connString = cfg.DatabaseURL
+	}
+	if connString == "" {
+		return fmt.Errorf("daemon: DATABASE_URL must be set for Postgres backend")
+	}
+	database, err := db.Open(connString)
 	if err != nil {
-		return err
+		return fmt.Errorf("daemon: open postgres: %w", err)
+	}
+	defer database.Close()
+
+	if err := db.Migrate(database); err != nil {
+		return fmt.Errorf("daemon: migrate: %w", err)
 	}
 
-	// Open per-subsystem Badger DBs. Each lives in its own subdir so a
-	// schema change in one doesn't corrupt the other. Best-effort: a failure
-	// in one subsystem doesn't prevent the others from starting.
-	cronDir := filepath.Join(home, "cron")
-	autoDir := filepath.Join(home, "automation")
-	_ = os.MkdirAll(cronDir, 0o755)
-	_ = os.MkdirAll(autoDir, 0o755)
+	// Health check sweep on boot (§7.1.5.2). Non-blocking — failures
+	// are logged but never prevent daemon startup.
+	if cfg != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			result, err := health.RunDoctor(ctx, cfg, false) // core checks only on boot
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "daemon: health sweep failed: %v\n", err)
+				return
+			}
+			if len(result.Findings) > 0 {
+				fmt.Fprintf(os.Stderr, "%s⚕ health sweep: %d findings (%d repaired, %d failed)%s\n",
+					colorYellow, len(result.Findings), len(result.Repaired), len(result.Failed), colorReset)
+			}
+		}()
+	}
 
 	var (
 		wg          sync.WaitGroup
@@ -143,15 +189,30 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		startedAuto bool
 	)
 
-	if cronDB, err := badger.Open(badger.DefaultOptions(cronDir).WithLoggingLevel(badger.ERROR)); err == nil {
-		defer cronDB.Close()
-		store := cron.NewBadgerJobStore(cronDB)
-		sched, err := cron.NewScheduler(cron.Config{
-			Store:  store,
-			OnFire: shellOnFire,
+	// ── Cron → Gateway bridge (§7.1 Layer 1) ──
+	// Activity tracker records the last user activity timestamp so cron
+	// output can be deferred until the user is idle. The output buffer
+	// queues cron job output and auto-flushes via background goroutine
+	// when DefaultIdleWindow (5 min) has passed since the last activity.
+	activityTracker := cron.NewActivityTracker()
+	outputBuffer := cron.NewOutputBuffer(
+		cron.DefaultIdleWindow,
+		activityTracker,
+		// onFlush: dispatch cron output through the gateway.
+		// nil here signals standalone daemon mode — shellOnFire fallback
+		// handles command execution directly.
+		nil,
+	)
+	defer outputBuffer.Stop()
+
+	// Cron scheduler via Postgres.
+	if cronStore, cerr := cron.NewPostgresJobStore(database); cerr == nil {
+		sched, serr := cron.NewScheduler(cron.Config{
+			Store:  cronStore,
+			OnFire: gatewayOnFire(nil, activityTracker, outputBuffer),
 		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "daemon: cron init failed: %v\n", err)
+		if serr != nil {
+			fmt.Fprintf(os.Stderr, "daemon: cron init failed: %v\n", serr)
 		} else {
 			sched.Start()
 			defer sched.Stop()
@@ -159,50 +220,54 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 			startedCron = true
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "daemon: cron Badger open failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "daemon: cron store open failed: %v\n", cerr)
 	}
 
 	var daemonAlarm *automation.AlarmClock
-	if autoDB, err := badger.Open(badger.DefaultOptions(autoDir).WithLoggingLevel(badger.ERROR)); err == nil {
-		defer autoDB.Close()
-		sopStore := automation.NewBadgerSOPStore(autoDB)
+	// Automation engine via Postgres.
+	sopStore, serr := automation.NewPostgresSOPStore(database)
+	if serr != nil {
+		fmt.Fprintf(os.Stderr, "daemon: sop store open failed: %v\n", serr)
+	} else {
 		daemonSOPEngine = automation.NewSOPEngine(sopStore, shellExecutor)
 
-		alarmStore := automation.NewBadgerAlarmStore(autoDB)
-		daemonAlarm = automation.NewAlarmClockWithStore(
-			alarmDispatchFire(daemonLedger),
-			alarmStore,
-		)
-		daemonAlarm.Start()
-		defer daemonAlarm.Stop()
-		fmt.Printf("%s✓ automation engine started (%d alarms)%s\n", colorGreen, len(daemonAlarm.List()), colorReset)
-
-		// Routine engine (§7.1 Layer 4). Persists across restarts
-		// so registered event→action rules survive reboots with
-		// their cooldown timers intact.
-		routineStore := automation.NewBadgerRoutineStore(autoDB)
-		routineEngine, rerr := automation.NewRoutineEngineWithStore(shellExecutor, routineStore)
-		if rerr != nil {
-			fmt.Fprintf(os.Stderr, "daemon: routine load: %v\n", rerr)
-		}
-		// Defensive: NewRoutineEngineWithStore returns a non-nil engine
-		// even on load failure today, but a future refactor could make
-		// the nil case live. Guard so a single edit upstream can't
-		// surface as a daemon-boot panic (which autoheal would then
-		// restart-loop — see commit f335821).
-		if routineEngine != nil {
-			daemonRoutines = routineEngine
-			fmt.Printf("%s✓ routine engine started (%d routines)%s\n", colorGreen, len(routineEngine.List()), colorReset)
+		alarmStore, aerr := automation.NewPostgresAlarmStore(database)
+		if aerr != nil {
+			fmt.Fprintf(os.Stderr, "daemon: alarm store open failed: %v\n", aerr)
 		} else {
-			fmt.Fprintf(os.Stderr, "daemon: routine engine nil — routines disabled this run\n")
+			daemonAlarm = automation.NewAlarmClockWithStore(
+				alarmDispatchFire(daemonLedger),
+				alarmStore,
+			)
+			daemonAlarm.Start()
+			defer daemonAlarm.Stop()
+			fmt.Printf("%s✓ automation engine started (%d alarms)%s\n", colorGreen, len(daemonAlarm.List()), colorReset)
+			startedAuto = true
+		}
+
+		// Routine engine (§7.1 Layer 4). Persists across restarts.
+		routineStore, rerr := automation.NewPostgresRoutineStore(database)
+		if rerr == nil {
+			routineEngine, rengErr := automation.NewRoutineEngineWithStore(shellExecutor, routineStore)
+			if rengErr != nil {
+				fmt.Fprintf(os.Stderr, "daemon: routine load: %v\n", rengErr)
+			}
+			if routineEngine != nil {
+				daemonRoutines = routineEngine
+				fmt.Printf("%s✓ routine engine started (%d routines)%s\n", colorGreen, len(routineEngine.List()), colorReset)
+			} else {
+				fmt.Fprintf(os.Stderr, "daemon: routine engine nil — routines disabled this run\n")
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "daemon: routine store open failed: %v\n", rerr)
 		}
 
 		// Flow store for Task Flow durable resume (§7.1 Layer 7).
-		// Shares the same Badger DB as alarms/SOPs.
-		daemonFlowStore = agent.NewBadgerFlowStore(autoDB)
-		startedAuto = true
-	} else {
-		fmt.Fprintf(os.Stderr, "daemon: automation Badger open failed: %v\n", err)
+		if fs, ferr := agent.NewPostgresFlowStore(database); ferr == nil {
+			daemonFlowStore = fs
+		} else {
+			fmt.Fprintf(os.Stderr, "daemon: flow store open failed: %v\n", ferr)
+		}
 	}
 
 	if !startedCron && !startedAuto {
@@ -210,10 +275,11 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Daily snapshot tick (master plan §4.20). Fire on start, then every 24h.
+	dailySnapshotStore := session.NewPostgresStore(database)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		dailySnapshotTick(ctx)
+		dailySnapshotTick(dailySnapshotStore)
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for {
@@ -221,7 +287,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				dailySnapshotTick(ctx)
+				dailySnapshotTick(dailySnapshotStore)
 			}
 		}
 	}()
@@ -248,7 +314,19 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	// AlertTaskCompleted record; the gateway hub (running in a
 	// separate process) reads pending alerts and delivers them to
 	// the user's bound channels.
-	daemonLedger.SetTerminalSink(taskCompletionAlertSink())
+	// D-6 / PCA-3: Wrap the terminal sink with OvenActions dispatch so
+	// configured git_push, open_pr, deploy, notify_slack actions fire
+	// automatically on task completion. Load user overrides to extract
+	// any configured oven actions.
+	sink := taskCompletionAlertSink()
+	if uoPath, uoErr := config.UserOverridesPath(); uoErr == nil {
+		if overrides, ovErr := config.LoadUserOverrides(uoPath); ovErr == nil && overrides != nil {
+			if len(overrides.Advanced.Board.OvenActions) > 0 {
+				sink = automation.WrapTerminalSinkWithOven(sink, overrides.Advanced.Board.OvenActions)
+			}
+		}
+	}
+	daemonLedger.SetTerminalSink(sink)
 
 	// §4.19 SSE memory dashboard. Streams observation + alert events
 	// over Server-Sent Events so users can build their own dashboard
@@ -268,7 +346,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	{
 		addr := dashboard.Listen
 		if addr == "" {
-			addr = "127.0.0.1:7802"
+			addr = config.DefaultSSEDashboardAddr
 		}
 		fmt.Printf("%s✓ SSE dashboard armed at http://%s/dashboard/events%s\n", colorGreen, addr, colorReset)
 	}
@@ -294,7 +372,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		}()
 		addr := listen
 		if addr == "" {
-			addr = "127.0.0.1:7801"
+			addr = config.DefaultSOPWebhookAddr
 		}
 		fmt.Printf("%s✓ SOP webhook armed at http://%s%s\n", colorGreen, addr, colorReset)
 	}
@@ -304,6 +382,45 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	// today's journal entries every 5 minutes. Findings land in the
 	// alert store so the next TUI boot surfaces them.
 	behaviorTickerStart(ctx, &wg)
+
+	// ImpossibleBench probe ticker (paper #8.4). Runs known-impossible
+	// tasks against the agent every 15 minutes to detect cheating
+	// (agent claiming success on tasks with no valid solution).
+	// Uses a no-op responder in daemon mode — probes fire via cron/alarm
+	// when an actual agent session is available. The ticker here ensures
+	// the probe infrastructure is warmed and available.
+	impossibleProbeStart(ctx, &wg)
+
+	// PCA-8: Learning evolution engine — cold-path batch processing.
+	// Clusters turn records, drafts skill improvements, judges success.
+	// Runs every 6 hours. The learning store (hot-path) records every
+	// correction; the engine (cold-path) turns those records into
+	// actionable skill drafts.
+	{
+		homeDir, _ := daemonHomeDir()
+		if homeDir != "" {
+			recordDir := filepath.Join(homeDir, "learning", "records")
+			skillDir := filepath.Join(homeDir, "skills")
+			engine := learning.NewEngine(recordDir, skillDir, nil, nil, nil)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// Run once on startup, then every 6 hours.
+				learningEvolveTick(ctx, engine)
+				ticker := time.NewTicker(6 * time.Hour)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						learningEvolveTick(ctx, engine)
+					}
+				}
+			}()
+			fmt.Printf("%s✓ learning evolution engine armed%s\n", colorGreen, colorReset)
+		}
+	}
 
 	// RPC socket so the TUI / CLI / future webhook receivers can talk
 	// to the running daemon without sharing in-process state. Bind
@@ -364,12 +481,30 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// validateShellCommand blocks dangerous shell metacharacters that
+// indicate command injection or chaining. Used as a safety net before
+// any cron/SOP/alarm shell execution. Returns nil when safe.
+func validateShellCommand(cmdStr string) error {
+	// Block dangerous metacharacters for injection / chaining.
+	if strings.ContainsAny(cmdStr, ";&|`$(){}[]") {
+		return fmt.Errorf("shell command contains dangerous characters: %q", cmdStr)
+	}
+	// Block newlines — prevents multi-command injection via \n.
+	if strings.Contains(cmdStr, "\n") || strings.Contains(cmdStr, "\r") {
+		return fmt.Errorf("shell command contains newline: %q", cmdStr)
+	}
+	return nil
+}
+
 // shellOnFire is the default OnFire hook — runs the job's Command via /bin/sh.
 // Output is logged and recorded into the daemon ledger so `overkill task list`
 // can show what the daemon has done while the user was AFK.
 func shellOnFire(j *cron.Job) error {
 	if j.Command == "" {
 		return errors.New("cron: job has no command")
+	}
+	if err := validateShellCommand(j.Command); err != nil {
+		return fmt.Errorf("cron: %w", err)
 	}
 	t := daemonLedger.Begin("cron", j.Name)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -390,6 +525,9 @@ func shellExecutor(action string) (string, error) {
 	if action == "" {
 		return "", nil
 	}
+	if err := validateShellCommand(action); err != nil {
+		return "", fmt.Errorf("shell: %w", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "sh", "-c", action).CombinedOutput()
@@ -407,10 +545,18 @@ func runDaemonStop(cmd *cobra.Command, args []string) error {
 		_ = os.Remove(p)
 		return nil
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		return fmt.Errorf("daemon: kill: %w", err)
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("daemon: find process: %w", err)
 	}
-	fmt.Printf("%sSent SIGTERM to daemon (pid %d)%s\n", colorGreen, pid, colorReset)
+	if err := proc.Signal(os.Interrupt); err != nil {
+		// On Windows, os.Interrupt is not supported for remote processes.
+		// Fall back to Kill.
+		if err2 := proc.Kill(); err2 != nil {
+			return fmt.Errorf("daemon: kill: %w", err2)
+		}
+	}
+	fmt.Printf("%sSent interrupt to daemon (pid %d)%s\n", colorGreen, pid, colorReset)
 	return nil
 }
 
@@ -544,14 +690,22 @@ func runDaemonInstall(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func pidIsRunning(pid int) bool {
-	if pid <= 0 {
-		return false
+// pidIsRunning is implemented in daemon_unix.go and daemon_windows.go.
+
+// learningEvolveTick fires one cold-path evolution cycle. Best-effort —
+// errors are logged, never fatal. The engine accumulates turn records
+// from the learning store and clusters them into skill drafts.
+func learningEvolveTick(ctx context.Context, engine *learning.Engine) {
+	if engine == nil {
+		return
 	}
-	proc, err := os.FindProcess(pid)
+	res, err := engine.RunColdPath(ctx, "", false)
 	if err != nil {
-		return false
+		fmt.Fprintf(os.Stderr, "daemon: learning evolve: %v\n", err)
+		return
 	}
-	// Signal 0 probes liveness without actually delivering anything.
-	return proc.Signal(syscall.Signal(0)) == nil
+	if res != nil && (res.ClustersFound > 0 || res.CandidateDrafts > 0) {
+		fmt.Fprintf(os.Stderr, "%slearning evolve: %d records, %d clusters, %d candidates%s\n",
+			colorDim, res.RecordsLoaded, res.ClustersFound, res.CandidateDrafts, colorReset)
+	}
 }

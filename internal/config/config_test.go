@@ -14,8 +14,8 @@ func TestDefault(t *testing.T) {
 
 	assert.Equal(t, CurrentVersion, cfg.Version)
 	assert.Equal(t, "Overkill", cfg.Agent.Name)
-	assert.Equal(t, "openai", cfg.Agent.DefaultProvider)
-	assert.Equal(t, "gpt-4o", cfg.Agent.DefaultModel)
+	assert.Empty(t, cfg.Agent.DefaultProvider) // intentionally blank — resolved at runtime
+	assert.Empty(t, cfg.Agent.DefaultModel)    // intentionally blank — resolved at runtime
 	assert.Equal(t, 0, cfg.Agent.MaxTurns)
 	assert.False(t, cfg.Agent.SpecDriven)
 
@@ -297,7 +297,7 @@ func TestMigrate_V0ToV1(t *testing.T) {
 	require.NotEmpty(t, changes)
 	assert.Equal(t, CurrentVersion, migrated.Version)
 	assert.Equal(t, "Overkill", migrated.Agent.Name)
-	assert.Equal(t, "openai", migrated.Agent.DefaultProvider)
+	assert.Empty(t, migrated.Agent.DefaultProvider) // blank: no providers configured
 	assert.Equal(t, "subtle", migrated.Personality.Level)
 	assert.Equal(t, "supervised", migrated.Security.AutonomyLevel)
 	assert.Equal(t, 50, migrated.Compaction.SoftTriggerPercent)

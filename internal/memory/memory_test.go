@@ -2,49 +2,58 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
-	"github.com/dgraph-io/badger/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
-type BadgerStoreTestSuite struct {
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("postgres: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+type PostgresStoreTestSuite struct {
 	suite.Suite
-	store *BadgerStore
-	db    *badger.DB
-	dir   string
+	store *PostgresStore
+	db    *sql.DB
 	ctx   context.Context
 }
 
-func (s *BadgerStoreTestSuite) SetupTest() {
+func (s *PostgresStoreTestSuite) SetupTest() {
 	s.ctx = context.Background()
-	s.dir = s.T().TempDir()
-
-	opts := badger.DefaultOptions(s.dir).
-		WithLoggingLevel(badger.ERROR)
-
-	db, err := badger.Open(opts)
+	s.db = openTestDB(s.T())
+	var err error
+	s.store, err = NewPostgresStore(s.db)
 	s.Require().NoError(err)
-
-	s.db = db
-	s.store = NewBadgerStore(db)
 }
 
-func (s *BadgerStoreTestSuite) TearDownTest() {
+func (s *PostgresStoreTestSuite) TearDownTest() {
 	s.store.Close()
 }
 
-func TestBadgerStoreTestSuite(t *testing.T) {
-	suite.Run(t, new(BadgerStoreTestSuite))
+func TestPostgresStoreTestSuite(t *testing.T) {
+	suite.Run(t, new(PostgresStoreTestSuite))
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_StoreAndGet() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_StoreAndGet() {
 	m := &Memory{
 		Type:      MemoryEpisodic,
 		Content:   "deployed v2.3 to production",
@@ -69,7 +78,7 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_StoreAndGet() {
 	s.Equal("prod", got.Metadata["env"])
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_Delete() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_Delete() {
 	m := &Memory{
 		Type:    MemorySemantic,
 		Content: "project uses Go 1.24",
@@ -86,7 +95,7 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_Delete() {
 	s.ErrorIs(err, ErrNotFound)
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_List_All() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_List_All() {
 	for i := 0; i < 5; i++ {
 		m := &Memory{
 			Type:    MemoryEpisodic,
@@ -101,7 +110,7 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_List_All() {
 	s.Len(memories, 5)
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_List_ByType() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_List_ByType() {
 	episodic := &Memory{Type: MemoryEpisodic, Content: "event happened"}
 	semantic := &Memory{Type: MemorySemantic, Content: "fact learned"}
 	procedural := &Memory{Type: MemoryProcedural, Content: "how to do X"}
@@ -117,7 +126,7 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_List_ByType() {
 	s.Equal("fact learned", memories[0].Content)
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_List_BySession() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_List_BySession() {
 	sessA := &Memory{Type: MemoryEpisodic, Content: "event A", SessionID: "sess-a"}
 	sessB := &Memory{Type: MemoryEpisodic, Content: "event B", SessionID: "sess-b"}
 	sessA2 := &Memory{Type: MemoryEpisodic, Content: "event A2", SessionID: "sess-a"}
@@ -135,7 +144,7 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_List_BySession() {
 	s.Contains(ids, sessA2.ID)
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_List_Pagination() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_List_Pagination() {
 	for i := 0; i < 7; i++ {
 		m := &Memory{
 			Type:    MemoryEpisodic,
@@ -158,7 +167,7 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_List_Pagination() {
 	s.Empty(memories)
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_Retrieve_Keyword() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_Retrieve_Keyword() {
 	s.Require().NoError(s.store.Store(s.ctx, &Memory{
 		Type:    MemorySemantic,
 		Content: "The project uses PostgreSQL for persistence",
@@ -183,7 +192,7 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_Retrieve_Keyword() {
 	}
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_Retrieve_Tags() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_Retrieve_Tags() {
 	s.Require().NoError(s.store.Store(s.ctx, &Memory{
 		Type:    MemorySemantic,
 		Content: "database config",
@@ -204,7 +213,7 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_Retrieve_Tags() {
 	s.Equal("database config", result.Memories[0].Content)
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_Retrieve_MinRelevance() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_Retrieve_MinRelevance() {
 	s.Require().NoError(s.store.Store(s.ctx, &Memory{
 		Type:    MemorySemantic,
 		Content: "Go is a statically typed language",
@@ -224,7 +233,7 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_Retrieve_MinRelevance() {
 	}
 }
 
-func (s *BadgerStoreTestSuite) TestBadgerStore_Retrieve_Limit() {
+func (s *PostgresStoreTestSuite) TestPostgresStore_Retrieve_Limit() {
 	for i := 0; i < 5; i++ {
 		s.Require().NoError(s.store.Store(s.ctx, &Memory{
 			Type:    MemorySemantic,
@@ -242,34 +251,26 @@ func (s *BadgerStoreTestSuite) TestBadgerStore_Retrieve_Limit() {
 }
 
 func TestOrchestrator_Remember(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR)
-	db, err := badger.Open(opts)
+	db := openTestDB(t)
+	store, err := NewPostgresStore(db)
 	require.NoError(t, err)
-	defer db.Close()
-
-	store := NewBadgerStore(db)
 	orch := NewOrchestrator(store, nil, "")
 
 	ctx := context.Background()
-	err = orch.Remember(ctx, "learned about BadgerDB indexes", MemorySemantic, []string{"database", "badger"}, "sess-1")
+	err = orch.Remember(ctx, "learned about PostgreSQL indexes", MemorySemantic, []string{"database", "postgres"}, "sess-1")
 	require.NoError(t, err)
 
 	memories, err := store.List(ctx, ListOptions{SessionID: "sess-1"})
 	require.NoError(t, err)
 	require.Len(t, memories, 1)
-	assert.Equal(t, "learned about BadgerDB indexes", memories[0].Content)
+	assert.Equal(t, "learned about PostgreSQL indexes", memories[0].Content)
 	assert.Equal(t, MemorySemantic, memories[0].Type)
 }
 
 func TestOrchestrator_Recall(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR)
-	db, err := badger.Open(opts)
+	db := openTestDB(t)
+	store, err := NewPostgresStore(db)
 	require.NoError(t, err)
-	defer db.Close()
-
-	store := NewBadgerStore(db)
 	orch := NewOrchestrator(store, nil, "")
 
 	ctx := context.Background()
@@ -283,17 +284,13 @@ func TestOrchestrator_Recall(t *testing.T) {
 }
 
 func TestOrchestrator_Summarize(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR)
-	db, err := badger.Open(opts)
+	db := openTestDB(t)
+	store, err := NewPostgresStore(db)
 	require.NoError(t, err)
-	defer db.Close()
-
-	store := NewBadgerStore(db)
 
 	mockProvider := providers.NewMockProvider("test", nil, func(req providers.Request) (providers.Response, error) {
 		return providers.Response{
-			Content: "Summary: project uses Go and BadgerDB",
+			Content: "Summary: project uses Go and PostgreSQL",
 			Usage:   providers.Usage{InputTokens: 50, OutputTokens: 10},
 		}, nil
 	})
@@ -303,22 +300,18 @@ func TestOrchestrator_Summarize(t *testing.T) {
 	ctx := context.Background()
 	memories := []Memory{
 		{Content: "project uses Go 1.24"},
-		{Content: "storage is BadgerDB"},
+		{Content: "storage is PostgreSQL"},
 	}
 
 	summary, err := orch.Summarize(ctx, memories)
 	require.NoError(t, err)
-	assert.Equal(t, "Summary: project uses Go and BadgerDB", summary)
+	assert.Equal(t, "Summary: project uses Go and PostgreSQL", summary)
 }
 
 func TestOrchestrator_Summarize_Empty(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR)
-	db, err := badger.Open(opts)
+	db := openTestDB(t)
+	store, err := NewPostgresStore(db)
 	require.NoError(t, err)
-	defer db.Close()
-
-	store := NewBadgerStore(db)
 	orch := NewOrchestrator(store, nil, "")
 
 	ctx := context.Background()
@@ -328,13 +321,9 @@ func TestOrchestrator_Summarize_Empty(t *testing.T) {
 }
 
 func TestOrchestrator_ExtractMemories(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR)
-	db, err := badger.Open(opts)
+	db := openTestDB(t)
+	store, err := NewPostgresStore(db)
 	require.NoError(t, err)
-	defer db.Close()
-
-	store := NewBadgerStore(db)
 
 	extracted := []map[string]any{
 		{"type": "semantic", "content": "user prefers dark theme", "tags": []string{"ui", "preference"}},
@@ -371,13 +360,9 @@ func TestOrchestrator_ExtractMemories(t *testing.T) {
 }
 
 func TestMemory_Types(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR)
-	db, err := badger.Open(opts)
+	db := openTestDB(t)
+	store, err := NewPostgresStore(db)
 	require.NoError(t, err)
-	defer db.Close()
-
-	store := NewBadgerStore(db)
 	ctx := context.Background()
 
 	episodic := &Memory{Type: MemoryEpisodic, Content: "event occurred"}

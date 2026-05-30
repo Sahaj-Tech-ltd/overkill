@@ -2,14 +2,16 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/share"
+
+	_ "github.com/lib/pq"
 )
 
 var shareCmd = &cobra.Command{
@@ -18,15 +20,19 @@ var shareCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
+		connString := os.Getenv("DATABASE_URL")
+		if connString == "" && cfg != nil {
+			connString = cfg.DatabaseURL
 		}
-		store, err := session.NewBadgerStore(filepath.Join(home, ".overkill", "sessions"))
-		if err != nil {
-			return fmt.Errorf("share: open store: %w", err)
+		if connString == "" {
+			return fmt.Errorf("share: DATABASE_URL must be set for Postgres backend")
 		}
-		defer store.Close()
+		db, err := sql.Open("postgres", connString)
+		if err != nil {
+			return fmt.Errorf("share: open postgres: %w", err)
+		}
+		defer db.Close()
+		store := session.NewPostgresStore(db)
 		sess, err := store.Load(context.Background(), id)
 		if err != nil {
 			return fmt.Errorf("share: load session: %w", err)

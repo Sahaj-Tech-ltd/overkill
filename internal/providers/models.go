@@ -29,7 +29,7 @@ func GeminiModels() []Model {
 func DeepSeekModels() []Model {
 	return []Model{
 		{ID: "deepseek-chat", Name: "DeepSeek Chat", MaxTokens: 128000, CostIn: 0.27, CostOut: 1.10, CostCacheIn: 0.07, CostCacheOut: 1.10, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
-		{ID: "deepseek-reasoner", Name: "DeepSeek Reasoner", MaxTokens: 128000, CostIn: 0.55, CostOut: 2.19, CostCacheIn: 0.14, CostCacheOut: 2.19, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
+		{ID: "deepseek-reasoner", Name: "DeepSeek Reasoner", MaxTokens: 128000, CostIn: 0.55, CostOut: 2.19, CostCacheIn: 0.14, CostCacheOut: 2.19, SupportsTools: false, SupportsStreaming: true, SupportsVision: false},
 	}
 }
 
@@ -103,5 +103,46 @@ func PerplexityModels() []Model {
 	return []Model{
 		{ID: "sonar-pro", Name: "Sonar Pro", MaxTokens: 200000, CostIn: 3.00, CostOut: 15.00, CostCacheIn: 0.00, CostCacheOut: 0.00, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
 		{ID: "sonar", Name: "Sonar", MaxTokens: 128000, CostIn: 1.00, CostOut: 1.00, CostCacheIn: 0.00, CostCacheOut: 0.00, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
+	}
+}
+
+func DeepInfraModels() []Model {
+	return []Model{
+		{ID: "meta-llama/Llama-3.3-70B-Instruct-Turbo", Name: "Llama 3.3 70B Instruct Turbo", MaxTokens: 131072, CostIn: 0.59, CostOut: 0.79, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
+		{ID: "meta-llama/Llama-3.1-8B-Instruct", Name: "Llama 3.1 8B Instruct", MaxTokens: 131072, CostIn: 0.06, CostOut: 0.06, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
+	}
+}
+
+func CerebrasModels() []Model {
+	return []Model{
+		{ID: "llama3.1-70b", Name: "Llama 3.1 70B", MaxTokens: 131072, CostIn: 0.60, CostOut: 0.60, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
+		{ID: "llama3.1-8b", Name: "Llama 3.1 8B", MaxTokens: 131072, CostIn: 0.10, CostOut: 0.10, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
+	}
+}
+
+func FireworksModels() []Model {
+	return []Model{
+		{ID: "accounts/fireworks/models/llama-v3p1-70b-instruct", Name: "Llama 3.1 70B Instruct", MaxTokens: 131072, CostIn: 0.90, CostOut: 0.90, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
+		{ID: "accounts/fireworks/models/llama-v3p1-8b-instruct", Name: "Llama 3.1 8B Instruct", MaxTokens: 131072, CostIn: 0.20, CostOut: 0.20, SupportsTools: true, SupportsStreaming: true, SupportsVision: false},
+	}
+}
+
+func VertexModels() []Model {
+	return []Model{
+		{ID: "gemini-2.5-flash", Name: "Gemini 2.5 Flash", MaxTokens: 1000000, CostIn: 0.15, CostOut: 0.60, SupportsTools: true, SupportsStreaming: true, SupportsVision: true},
+		{ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro", MaxTokens: 1000000, CostIn: 1.25, CostOut: 5.00, SupportsTools: true, SupportsStreaming: true, SupportsVision: true},
+	}
+}
+
+func AzureModels() []Model {
+	return []Model{
+		{ID: "gpt-4o", Name: "GPT-4o", MaxTokens: 128000, CostIn: 2.50, CostOut: 10.00, SupportsTools: true, SupportsStreaming: true, SupportsVision: true},
+		{ID: "gpt-4o-mini", Name: "GPT-4o Mini", MaxTokens: 128000, CostIn: 0.15, CostOut: 0.60, SupportsTools: true, SupportsStreaming: true, SupportsVision: true},
+	}
+}
+
+func CopilotModels() []Model {
+	return []Model{
+		{ID: "gpt-4o", Name: "GPT-4o (Copilot)", MaxTokens: 128000, CostIn: 0.00, CostOut: 0.00, SupportsTools: true, SupportsStreaming: true, SupportsVision: true},
 	}
 }

@@ -245,6 +245,20 @@ func Race(
 		i := i
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					if results[i] == nil {
+						res := &BranchResult{
+							Branch:    branches[i],
+							StartedAt: time.Now().UTC(),
+							EndedAt:   time.Now().UTC(),
+							Outcome:   "failed",
+							Err:       fmt.Errorf("lats: branch runner panicked: %v", r),
+						}
+						results[i] = res
+					}
+				}
+			}()
 			b := branches[i]
 			res := &BranchResult{
 				Branch:    b,
@@ -294,15 +308,13 @@ func Race(
 		}()
 	}
 
-	// Goroutine to cancel losers on the win signal. Tracked in wg so
-	// it can't outlive Race — the old code spawned it without an Add
-	// and leaked the goroutine until ctx expired when no branch ever
-	// signalled (all losers, all errored, etc.). Also close
-	// winnerSignal on Race exit so this goroutine always wakes.
+	// Goroutine to cancel losers on the win signal. NOT tracked in wg
+	// — if no branch ever signals a win (all negative scores, all errors),
+	// this goroutine blocks on winnerSignal and would deadlock wg.Wait().
+	// Instead we close winnerSignal after wg.Wait() below, which wakes
+	// this goroutine cleanly.
 	if opts.CancelLosersOnWin {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			select {
 			case <-winnerSignal:
 				for _, c := range branchCancels {
@@ -313,9 +325,10 @@ func Race(
 		}()
 	}
 
-	// Belt + suspenders: close winnerSignal on Race exit so a
-	// CancelLosersOnWin watcher that's still selecting wakes up
-	// even if no branch wrote a positive score.
+	// Belt + suspenders: close winnerSignal after wg.Wait() so the
+	// CancelLosersOnWin goroutine above always exits, even when no branch
+	// scored positive. winnerOnce ensures signalWin + our close don't
+	// double-close the channel.
 	defer winnerOnce.Do(func() { close(winnerSignal) })
 
 	wg.Wait()
@@ -346,7 +359,11 @@ func Race(
 		}
 	}
 	if !usable {
-		return out, fmt.Errorf("lats: all %d branches failed; first err: %w", len(out), out[0].Err)
+		firstErr := out[0].Err
+		if firstErr == nil {
+			firstErr = fmt.Errorf("unknown error")
+		}
+		return out, fmt.Errorf("lats: all %d branches failed; first err: %w", len(out), firstErr)
 	}
 	return out, nil
 }
@@ -358,8 +375,11 @@ func FormatWinnerSummary(results []*BranchResult) string {
 	if len(results) == 0 {
 		return ""
 	}
-	var b strings.Builder
 	w := results[0]
+	if w == nil {
+		return ""
+	}
+	var b strings.Builder
 	fmt.Fprintf(&b, "winner: %s (score %.2f, %s)",
 		w.Branch.Approach, w.Score, w.Duration.Round(time.Millisecond))
 	if len(results) > 1 {

@@ -94,7 +94,10 @@ func (t *LSPHoverTool) Execute(ctx context.Context, in json.RawMessage) (json.Ra
 	if err != nil {
 		return errorJSON(err.Error()), nil
 	}
-	out, _ := json.Marshal(map[string]any{"contents": h.Contents})
+	out, err := json.Marshal(map[string]any{"contents": h.Contents})
+	if err != nil {
+		return nil, fmt.Errorf("lsp_hover: marshal: %w", err)
+	}
 	return out, nil
 }
 
@@ -128,7 +131,10 @@ func (t *LSPDefinitionTool) Execute(ctx context.Context, in json.RawMessage) (js
 	if err != nil {
 		return errorJSON(err.Error()), nil
 	}
-	out, _ := json.Marshal(map[string]any{"locations": locs, "count": len(locs)})
+	out, err := json.Marshal(map[string]any{"locations": locs, "count": len(locs)})
+	if err != nil {
+		return nil, fmt.Errorf("lsp_definition: marshal: %w", err)
+	}
 	return out, nil
 }
 
@@ -162,7 +168,10 @@ func (t *LSPReferencesTool) Execute(ctx context.Context, in json.RawMessage) (js
 	if err != nil {
 		return errorJSON(err.Error()), nil
 	}
-	out, _ := json.Marshal(map[string]any{"locations": locs, "count": len(locs)})
+	out, err := json.Marshal(map[string]any{"locations": locs, "count": len(locs)})
+	if err != nil {
+		return nil, fmt.Errorf("lsp_references: marshal: %w", err)
+	}
 	return out, nil
 }
 
@@ -204,6 +213,9 @@ func (t *LSPSymbolsTool) Execute(ctx context.Context, in json.RawMessage) (json.
 	if err != nil {
 		return errorJSON(err.Error()), nil
 	}
-	out, _ := json.Marshal(map[string]any{"symbols": syms, "count": len(syms)})
+	out, err := json.Marshal(map[string]any{"symbols": syms, "count": len(syms)})
+	if err != nil {
+		return nil, fmt.Errorf("lsp_symbols: marshal: %w", err)
+	}
 	return out, nil
 }

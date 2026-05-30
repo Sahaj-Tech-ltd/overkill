@@ -295,7 +295,9 @@ func (b *Bot) streamToMessage(ctx context.Context, channel, ts string, stream <-
 				_ = b.API.AddReaction(ctx, channel, ts, "white_check_mark")
 			case agent.EventError:
 				if ev.Error != nil {
+					mu.Lock()
 					streamErr = ev.Error
+					mu.Unlock()
 				}
 			case agent.EventDone:
 				// Stream loop will exit on channel close; no extra action.

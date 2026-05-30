@@ -59,9 +59,11 @@ type CompactOptions struct {
 
 func DefaultCompactOptions() CompactOptions {
 	return CompactOptions{
-		PreserveLast:    20,
-		SoftThreshold:   0.5,
-		HardThreshold:   0.95,
-		CompactionModel: "gpt-4o-mini",
+		PreserveLast: 20,
+		SoftThreshold: 0.5,
+		HardThreshold: 0.95,
+		// CompactionModel is intentionally left empty — the caller should
+		// pick the cheapest provider model capable of text generation.
+		// lcm.go:callLLM resolves an empty model at runtime.
 	}
 }

@@ -33,6 +33,9 @@ func writeSkill(t *testing.T, root, name, body string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if len(body) < 20 {
+		body = body + " -- padded so instructions are at least twenty characters"
+	}
 	skillMD := "---\n" +
 		"name: " + name + "\n" +
 		"description: a test skill that has plenty of words to pass the validator gate\n" +

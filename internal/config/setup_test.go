@@ -48,8 +48,8 @@ func TestProviderSteps_OpenAI(t *testing.T) {
 	}
 
 	modelStep := steps[3]
-	if len(modelStep.Options) != 5 {
-		t.Errorf("expected 5 model options, got %d", len(modelStep.Options))
+	if len(modelStep.Options) != 4 {
+		t.Errorf("expected 4 model options, got %d", len(modelStep.Options))
 	}
 	if modelStep.Default != "gpt-4o" {
 		t.Errorf("expected default model 'gpt-4o', got %s", modelStep.Default)

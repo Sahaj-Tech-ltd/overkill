@@ -47,13 +47,66 @@ type Bot struct {
 	lastSync time.Time
 	mu       sync.Mutex
 
-	// permanent auth error — Healthy() returns false once this is set
+	// auth error — Healthy() returns false once this is set
 	authErr error
 	authMu  sync.RWMutex
 
-	// room member count cache (roomID → count); used for IsDirect
-	memberCounts map[string]int
+	// runCtx carries the Run context for dispatching, so in-flight
+	// handlers survive only as long as the bot is alive.
+	runCtx   context.Context
+	runCtxMu sync.Mutex
+
+	// seenEventIDs deduplicates events across sync cycles (retried
+	// syncs reprocess events). Eviction-capped.
+	seenMu     sync.Mutex
+	seenEvents map[string]time.Time
+
+	// room member count cache (roomID → count + timestamp); used for IsDirect
+	memberCounts map[string]timeCount
 	memberMu     sync.RWMutex
+}
+
+type timeCount struct {
+	count int
+	ts    time.Time
+}
+
+const (
+	// seenEventsCap bounds the dedup map.
+	matrixSeenCap = 4096
+	// seenEventsTTL caps how long an event ID is remembered.
+	matrixSeenTTL = 10 * time.Minute
+	// memberCountTTL expires cached member counts so routing decisions
+	// don't stay permanently stale after membership changes.
+	memberCountTTL = 5 * time.Minute
+)
+
+// alreadySeen reports whether an event ID was already processed.
+func (b *Bot) alreadySeen(eventID string) bool {
+	b.seenMu.Lock()
+	defer b.seenMu.Unlock()
+	if b.seenEvents == nil {
+		b.seenEvents = make(map[string]time.Time, 64)
+	}
+	now := time.Now()
+	if ts, ok := b.seenEvents[eventID]; ok && now.Sub(ts) < matrixSeenTTL {
+		return true
+	}
+	if len(b.seenEvents) >= matrixSeenCap {
+		for k, ts := range b.seenEvents {
+			if now.Sub(ts) > matrixSeenTTL {
+				delete(b.seenEvents, k)
+			}
+		}
+		if len(b.seenEvents) >= matrixSeenCap {
+			for k := range b.seenEvents {
+				delete(b.seenEvents, k)
+				break
+			}
+		}
+	}
+	b.seenEvents[eventID] = now
+	return false
 }
 
 // NewBot returns a Bot wired to the given config and dispatcher.
@@ -66,15 +119,24 @@ func NewBot(homeserverURL, userID, accessToken, password string, d *gateway.Disp
 		Dispatcher:    d,
 		Logger:        log.New(io.Discard, "", 0),
 		httpClient:    &http.Client{Timeout: 60 * time.Second},
-		memberCounts:  make(map[string]int),
+		memberCounts:  make(map[string]timeCount),
 	}
 }
 
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "matrix" }
 
+// Reconnect implements gateway.Reconnecter (B135). The sync loop in Run
+// already handles reconnection with backoff; this provides an explicit
+// hook for external health monitors.
+func (b *Bot) Reconnect(ctx context.Context) error { return nil }
+
 // Run drives the sync loop until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) error {
+	b.runCtxMu.Lock()
+	b.runCtx = ctx
+	b.runCtxMu.Unlock()
+
 	// Login if needed.
 	if err := b.login(ctx); err != nil {
 		b.setAuthErr(err)
@@ -253,7 +315,10 @@ func (b *Bot) doSync(ctx context.Context) (*matrixSyncResponse, error) {
 	}
 	req.URL.RawQuery = q.Encode()
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := b.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 60 * time.Second}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("matrix sync: %w", err)
@@ -273,7 +338,7 @@ func (b *Bot) doSync(ctx context.Context) (*matrixSyncResponse, error) {
 	}
 
 	var syncResp matrixSyncResponse
-	if err := json.NewDecoder(resp.Body).Decode(&syncResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<20)).Decode(&syncResp); err != nil {
 		return nil, fmt.Errorf("matrix sync decode: %w", err)
 	}
 
@@ -302,6 +367,10 @@ func (b *Bot) processEvents(syncResp *matrixSyncResponse) {
 			if event.Sender == b.UserID {
 				continue
 			}
+			// Dedup by event ID across sync cycles.
+			if event.EventID != "" && b.alreadySeen(event.EventID) {
+				continue
+			}
 			text := strings.TrimSpace(event.Content.Body)
 			if text == "" {
 				continue
@@ -318,25 +387,31 @@ func (b *Bot) processEvents(syncResp *matrixSyncResponse) {
 			}
 
 			reply := &matrixReply{bot: b, roomID: roomID}
-			go b.Dispatcher.Handle(context.Background(), in, reply)
+			b.runCtxMu.Lock()
+			dispatchCtx := b.runCtx
+			b.runCtxMu.Unlock()
+			if dispatchCtx == nil {
+				dispatchCtx = context.Background()
+			}
+			go b.Dispatcher.Handle(dispatchCtx, in, reply)
 		}
 	}
 }
 
 // isDirectRoom returns true if the room has exactly 2 joined members.
-// Results are cached in-memory for the lifetime of the bot.
+// Results are cached with a TTL so membership changes propagate.
 func (b *Bot) isDirectRoom(roomID string) bool {
 	b.memberMu.RLock()
-	count, ok := b.memberCounts[roomID]
+	tc, ok := b.memberCounts[roomID]
 	b.memberMu.RUnlock()
-	if ok {
-		return count == 2
+	if ok && time.Since(tc.ts) < memberCountTTL {
+		return tc.count == 2
 	}
 
-	count = b.fetchMemberCount(roomID)
+	count := b.fetchMemberCount(roomID)
 
 	b.memberMu.Lock()
-	b.memberCounts[roomID] = count
+	b.memberCounts[roomID] = timeCount{count: count, ts: time.Now()}
 	b.memberMu.Unlock()
 
 	return count == 2

@@ -57,7 +57,7 @@ var identRe = regexp.MustCompile("`([a-zA-Z][a-zA-Z0-9_.\\-]{2,79})`")
 // hallucination than fire on every appearance of `Read` or `Bash`.
 var stopwords = map[string]bool{
 	// Common bash/shell names
-	"bash": true, "sh": true, "zsh": true, "fish": true,
+	"bash": true, "zsh": true, "fish": true,
 	// Common tool / verb names the agent uses generically
 	"read": true, "write": true, "edit": true, "patch": true, "grep": true,
 	"find": true, "ls": true, "cat": true, "cd": true, "mkdir": true,

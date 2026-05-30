@@ -487,7 +487,7 @@ func TestGemini_Complete(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Contains(t, r.URL.Path, "models/gemini-2.5-flash:generateContent")
-		assert.Equal(t, "test-key", r.URL.Query().Get("key"))
+		assert.Equal(t, "test-key", r.Header.Get("X-Goog-Api-Key"))
 		assert.Equal(t, "overkill/0.1.0", r.Header.Get("User-Agent"))
 
 		var body map[string]any

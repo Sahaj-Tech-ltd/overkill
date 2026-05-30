@@ -72,12 +72,18 @@ type pattern struct {
 // where it matters so "innocent" content (a tutorial about prompt
 // injection) doesn't false-positive on every mention.
 var patterns = []pattern{
-	{
-		name:     "ignore_previous",
-		category: "instruction_override",
-		severity: SeverityHigh,
-		re:       regexp.MustCompile(`(?i)\b(ignore|disregard|forget)\s+(all\s+)?(previous|prior|the above|earlier)\s+(instructions?|prompts?|rules?|directives?)\b`),
-	},
+{
+	name:     "ignore_previous",
+	category: "instruction_override",
+	severity: SeverityHigh,
+	re:       regexp.MustCompile(`(?i)\b(ignore|disregard|forget)\s+(all\s+)?(the above|previous|prior|earlier)\s+(instructions?|prompts?|rules?|directives?)\b`),
+},
+{
+	name:     "ignore_above_broad",
+	category: "instruction_override",
+	severity: SeverityHigh,
+	re:       regexp.MustCompile(`(?i)\b(ignore|disregard|forget)\s+(all\s+)?(the above|previous|prior|earlier)\b`),
+},
 	{
 		name:     "new_task",
 		category: "instruction_override",
@@ -146,6 +152,15 @@ var patterns = []pattern{
 func Scan(s string) []Finding {
 	if strings.TrimSpace(s) == "" {
 		return nil
+	}
+	// Strip null bytes before scanning — they split words across
+	// regex boundaries and defeat pattern matching.
+	s = strings.ReplaceAll(s, "\x00", "")
+	// Cap input size to prevent catastrophic backtracking on
+	// adversarial inputs (RT-WALLS-4).
+	const maxScan = 64 * 1024
+	if len(s) > maxScan {
+		s = s[:maxScan]
 	}
 	var out []Finding
 	lines := strings.Split(s, "\n")

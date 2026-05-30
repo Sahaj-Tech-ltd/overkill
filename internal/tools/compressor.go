@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 type Compressor interface {
@@ -13,6 +14,7 @@ type Compressor interface {
 }
 
 type CompressorRegistry struct {
+	mu          sync.Mutex
 	compressors map[string]Compressor
 }
 
@@ -44,6 +46,8 @@ func (cr *CompressorRegistry) Register(c Compressor) error {
 	if name == "" {
 		return fmt.Errorf("compressor: cannot register compressor with empty name")
 	}
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
 	cr.compressors[name] = c
 	return nil
 }
@@ -53,7 +57,9 @@ func (cr *CompressorRegistry) Compress(toolName string, output json.RawMessage) 
 		return nil, 0, nil
 	}
 
+	cr.mu.Lock()
 	c, ok := cr.compressors[toolName]
+	cr.mu.Unlock()
 	if !ok {
 		return output, 0, nil
 	}

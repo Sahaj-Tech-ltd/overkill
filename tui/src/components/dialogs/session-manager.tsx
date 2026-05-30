@@ -15,6 +15,62 @@ interface SessionManagerProps {
 
 type Mode = "list" | "create" | "delete-confirm";
 
+/** Input handler that only mounts when the dialog is open. */
+function SessionInputHandler({
+  mode,
+  sessions,
+  selectedIdx,
+  setSelectedIdx,
+  setMode,
+  setNewFolder,
+  setDeleteTarget,
+  onSessionSelect,
+  onClose,
+  handleCreate,
+  handleDelete,
+}: {
+  mode: Mode;
+  sessions: SessionInfo[];
+  selectedIdx: number;
+  setSelectedIdx: (n: number) => void;
+  setMode: (m: Mode) => void;
+  setNewFolder: (s: string) => void;
+  setDeleteTarget: (s: SessionInfo | null) => void;
+  onSessionSelect: (session: SessionInfo) => void;
+  onClose: () => void;
+  handleCreate: () => void;
+  handleDelete: () => void;
+}) {
+  useInput((input, key) => {
+    if (mode === "list") {
+      if (key.upArrow) {
+        setSelectedIdx(Math.max(0, selectedIdx - 1));
+      } else if (key.downArrow) {
+        setSelectedIdx(Math.min(Math.max(0, sessions.length - 1), selectedIdx + 1));
+      } else if (key.return) {
+        if (sessions[selectedIdx]) {
+          onSessionSelect(sessions[selectedIdx]);
+          onClose();
+        }
+      } else if (input === "n") {
+        setMode("create");
+        setNewFolder("");
+      } else if (input === "d" && sessions[selectedIdx]) {
+        setDeleteTarget(sessions[selectedIdx]);
+        setMode("delete-confirm");
+      }
+    } else if (mode === "delete-confirm") {
+      if (input === "y" || key.return) {
+        handleDelete();
+      } else if (input === "n" || key.escape) {
+        setMode("list");
+        setDeleteTarget(null);
+      }
+    }
+  });
+  return null;
+}
+
 export function SessionManager({
   open,
   onClose,
@@ -88,36 +144,6 @@ export function SessionManager({
       });
   }, [backend, deleteTarget]);
 
-  useInput((input, key) => {
-    if (!open) return;
-
-    if (mode === "list") {
-      if (key.upArrow) {
-        setSelectedIdx((prev) => Math.max(0, prev - 1));
-      } else if (key.downArrow) {
-        setSelectedIdx((prev) => Math.min(sessions.length - 1, prev + 1));
-      } else if (key.return) {
-        if (sessions[selectedIdx]) {
-          onSessionSelect(sessions[selectedIdx]);
-          onClose();
-        }
-      } else if (input === "n") {
-        setMode("create");
-        setNewFolder("");
-      } else if (input === "d" && sessions[selectedIdx]) {
-        setDeleteTarget(sessions[selectedIdx]);
-        setMode("delete-confirm");
-      }
-    } else if (mode === "delete-confirm") {
-      if (input === "y" || key.return) {
-        handleDelete();
-      } else if (input === "n" || key.escape) {
-        setMode("list");
-        setDeleteTarget(null);
-      }
-    }
-  });
-
   const formatDate = (iso: string): string => {
     try {
       const d = new Date(iso);
@@ -136,6 +162,19 @@ export function SessionManager({
 
   return (
     <DialogContainer open={open} onClose={onClose} title="Sessions">
+      <SessionInputHandler
+        mode={mode}
+        sessions={sessions}
+        selectedIdx={selectedIdx}
+        setSelectedIdx={setSelectedIdx}
+        setMode={setMode}
+        setNewFolder={setNewFolder}
+        setDeleteTarget={setDeleteTarget}
+        onSessionSelect={onSessionSelect}
+        onClose={onClose}
+        handleCreate={handleCreate}
+        handleDelete={handleDelete}
+      />
       {loading && (
         <Box paddingX={1} paddingY={1}>
           <Text color="yellow">Loading sessions...</Text>

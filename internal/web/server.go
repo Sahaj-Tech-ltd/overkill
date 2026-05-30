@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
@@ -58,7 +60,7 @@ type Server struct {
 // NewServer wires the routes; Start binds the listener.
 func NewServer(cfg Config) *Server {
 	if cfg.Addr == "" {
-		cfg.Addr = "127.0.0.1:8420"
+		cfg.Addr = config.DefaultWebUIAddr
 	}
 	if cfg.Version == "" {
 		cfg.Version = "dev"
@@ -79,7 +81,7 @@ func (s *Server) Handler() http.Handler {
 	if err != nil {
 		// Embed declared above; impossible at runtime unless someone deleted
 		// the directive. Fail loudly.
-		panic(fmt.Errorf("web: missing static fs: %w", err))
+		log.Fatalf("web: missing static fs: %v", err)
 	}
 	staticHandler := http.StripPrefix("/static/", cacheStatic(http.FileServer(http.FS(sub))))
 	mux.Handle("/static/", staticHandler)
@@ -96,6 +98,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/cancel", s.auth(limitBody(s.handleCancel)))
 	mux.HandleFunc("/api/models", s.auth(s.handleModels))
 	mux.HandleFunc("/api/events", s.auth(s.handleEvents))
+	// Unified flow system (§7.1.5-7.1.8)
+	s.flowRoutes(mux)
+	s.pairingRoutes(mux)
+	s.canvasRoutes(mux)
 	return mux
 }
 

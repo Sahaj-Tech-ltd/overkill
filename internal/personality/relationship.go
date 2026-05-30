@@ -1,3 +1,9 @@
+// Package personality — relationship tracking: beats, milestones,
+// session counting, and context-aware opener generation.
+//
+// Clock: RelationshipTracker injects its own clock (now field + SetClock)
+// for testability. Other components in this package use time.Now() directly
+// — there is no shared TimeProvider interface yet.
 package personality
 
 import (
@@ -98,7 +104,7 @@ func (r *RelationshipTracker) RecordBeat(beatType BeatType, context string, sess
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	now := time.Now()
+	now := r.now()
 	if r.state.FirstSeen.IsZero() {
 		r.state.FirstSeen = now
 	}

@@ -3,15 +3,17 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/sync"
+
+	_ "github.com/lib/pq"
 )
 
 var syncCmd = &cobra.Command{
@@ -85,7 +87,7 @@ var syncSetupCmd = &cobra.Command{
 	},
 }
 
-func openSyncManager() (*sync.Manager, *session.BadgerStore, error) {
+func openSyncManager() (*sync.Manager, session.Store, error) {
 	if cfg == nil {
 		return nil, nil, fmt.Errorf("sync: config not loaded")
 	}
@@ -96,15 +98,18 @@ func openSyncManager() (*sync.Manager, *session.BadgerStore, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, nil, err
+	connString := cfg.DatabaseURL
+	if connString == "" {
+		connString = os.Getenv("DATABASE_URL")
 	}
-	dir := filepath.Join(home, ".overkill", "sessions")
-	store, err := session.NewBadgerStore(dir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("sync: open store: %w", err)
+	if connString == "" {
+		return nil, nil, fmt.Errorf("sync: DATABASE_URL must be set for Postgres backend")
 	}
+	db, err := sql.Open("postgres", connString)
+	if err != nil {
+		return nil, nil, fmt.Errorf("sync: open postgres: %w", err)
+	}
+	store := session.NewPostgresStore(db)
 	return sync.NewManager(store, be), store, nil
 }
 

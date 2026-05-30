@@ -66,7 +66,15 @@ func (w *OuroborosWall) Check(ctx context.Context, code string, spec string) (*W
 
 	var parsed ouroborosResponse
 	if err := json.Unmarshal([]byte(resp.Content), &parsed); err != nil {
-		return nil, fmt.Errorf("walls: ouroboros response parse failed: %w", err)
+		// B106: Treat unparseable LLM JSON as a warning, not a hard error.
+		// A model that returns garbled output didn't successfully avoid
+		// self-reference, so we flag it but don't crash the wall check.
+		return &WallResult{
+			Wall:     WallOuroboros,
+			Passed:   false,
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("ouroboros response parse failed (treating as warning): %v", err),
+		}, nil
 	}
 
 	severity := SeverityInfo
@@ -77,20 +85,29 @@ func (w *OuroborosWall) Check(ctx context.Context, code string, spec string) (*W
 		severity = SeverityBlock
 	}
 
-	passed := true
+	var passed bool
 	effectiveSeverity := severity
-	if !w.config.StrictMode && severity == SeverityBlock {
-		effectiveSeverity = SeverityWarning
-	}
-	if w.config.StrictMode && (severity == SeverityBlock || severity == SeverityWarning) {
-		passed = false
-	}
-	if !w.config.StrictMode && severity == SeverityWarning {
-		passed = false
-	}
-	if severity == SeverityInfo {
+
+	switch severity {
+	case SeverityInfo:
 		passed = true
+		effectiveSeverity = SeverityInfo
+	case SeverityWarning:
+		passed = false
+		effectiveSeverity = SeverityWarning
+	case SeverityBlock:
+		if w.config.StrictMode {
+			passed = false
+			effectiveSeverity = SeverityBlock
+		} else {
+			passed = false
+			effectiveSeverity = SeverityWarning
+		}
+	default:
+		passed = true
+		effectiveSeverity = SeverityInfo
 	}
+
 	// Empty-issues bypass guard: the prior version coerced
 	// passed=true whenever Issues was empty, regardless of declared
 	// severity. A jailbroken Ouroboros that returns

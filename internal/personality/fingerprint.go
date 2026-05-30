@@ -1,3 +1,6 @@
+// Package personality — model fingerprint detection. Captures a hash
+// of provider-model pairs at boot and surfaces changes across sessions
+// to warn when the model has been swapped or updated.
 package personality
 
 import (
@@ -27,14 +30,33 @@ type FingerprintTracker struct {
 }
 
 var contextWindowMap = map[string]int{
+	// Claude
 	"claude-opus":   200000,
 	"claude-sonnet": 200000,
 	"claude-haiku":  200000,
-	"gpt-4o":        128000,
+	// GPT
+	"gpt-4o":       128000,
+	"gpt-4o-mini":  128000,
+	"gpt-4-turbo":  128000,
 	"gpt-4":         128000,
-	"gpt-3.5":       16385,
-	"gemini-pro":    1000000,
+	"gpt-3.5":        16385,
+	"gpt-3":          16385,
+	// Gemini
+	"gemini-pro":    2000000,
 	"gemini-flash":  1000000,
+	"gemini":        1000000,
+	// Llama
+	"llama":         131072,
+	// Mistral / Mixtral
+	"mistral":        32768,
+	"mistral-large":  131072,
+	"mistral-small":   32768,
+	"mistral-medium":  32768,
+	"mixtral":         32768,
+	// DeepSeek
+	"deepseek":      131072,
+	"deepseek-v3":   131072,
+	"deepseek-r1":   131072,
 }
 
 const defaultContextWindow = 8192

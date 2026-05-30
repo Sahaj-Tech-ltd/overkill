@@ -103,7 +103,7 @@ func (r *FlightRecorder) Replay(ctx context.Context, sessionID string, opts Repl
 // chronologically-sorted entries. Sort is stable so entries with
 // identical timestamps preserve their on-disk order.
 func filterAndSort(entries []Entry, opts ReplayOptions) []Entry {
-	out := entries[:0]
+	out := make([]Entry, 0, len(entries))
 	allow := map[EntryType]bool{}
 	for _, t := range opts.Types {
 		allow[t] = true

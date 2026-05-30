@@ -141,7 +141,7 @@ func (r *Runner) Run(ctx context.Context) Summary {
 	}
 	wg.Wait()
 
-	// Serial phase (filesystem-sensitive, BadgerDB open, etc.).
+	// Serial phase (filesystem-sensitive, DB open, etc.).
 	for i, c := range r.checks {
 		if c.Parallel {
 			continue

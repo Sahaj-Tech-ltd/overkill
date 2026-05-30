@@ -17,6 +17,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,6 +33,11 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
 
+// ErrRateLimited is returned by Reply.Update when the per-channel
+// edit rate limiter blocks the update. Callers can check for this
+// sentinel to distinguish rate-limiting from other errors.
+var ErrRateLimited = errors.New("discord: rate limited")
+
 // Bot implements gateway.Channel for Discord. One Bot per token.
 type Bot struct {
 	Token           string
@@ -46,6 +52,11 @@ type Bot struct {
 
 	mu     sync.Mutex
 	closed bool
+
+	// runCtx carries the Run context for dispatching, so in-flight
+	// handlers survive only as long as the bot is alive.
+	runCtx   context.Context
+	runCtxMu sync.Mutex
 
 	// Health / reconnect state
 	healthMu         sync.Mutex
@@ -123,6 +134,31 @@ func (b *Bot) editCheck(channelID string) bool {
 	return rl.allow(time.Now())
 }
 
+// editRateLimitCleaner periodically evicts stale channel entries from
+// editRateLimits to prevent unbounded memory growth on long-running bots.
+// Runs until ctx is cancelled.
+func (b *Bot) editRateLimitCleaner(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			b.editRLMu.Lock()
+			if b.editRateLimits != nil {
+				cutoff := time.Now().Add(-10 * time.Minute)
+				for ch, rl := range b.editRateLimits {
+					if len(rl.timestamps) == 0 || rl.timestamps[len(rl.timestamps)-1].Before(cutoff) {
+						delete(b.editRateLimits, ch)
+					}
+				}
+			}
+			b.editRLMu.Unlock()
+		}
+	}
+}
+
 // --- health and reconnect ---
 
 // backoff returns the current backoff duration and advances the
@@ -133,6 +169,10 @@ func (b *Bot) backoff() time.Duration {
 	attempt := b.backoffAttempt
 	b.backoffAttempt++
 	b.healthMu.Unlock()
+	// Cap attempt to prevent integer overflow in math.Pow.
+	if attempt > 30 {
+		attempt = 30
+	}
 	d := time.Duration(math.Pow(2, float64(attempt))) * time.Second
 	if d > 30*time.Second {
 		d = 30 * time.Second
@@ -195,6 +235,14 @@ func (b *Bot) Notify(ctx context.Context, channelID, text string) error {
 // cancelled. On disconnect the bot reconnects with exponential backoff
 // (1s, 2s, 4s, 8s, 16s, 30s cap). Returns ctx.Err() on cancel.
 func (b *Bot) Run(ctx context.Context) error {
+	b.runCtxMu.Lock()
+	b.runCtx = ctx
+	b.runCtxMu.Unlock()
+
+	// Periodic cleanup of stale editRateLimits entries to prevent
+	// unbounded memory growth on long-running bots.
+	go b.editRateLimitCleaner(ctx)
+
 	sess, err := discordgo.New("Bot " + b.Token)
 	if err != nil {
 		return fmt.Errorf("discord: new session: %w", err)
@@ -260,6 +308,9 @@ func (b *Bot) connectLoop(ctx context.Context, sess *discordgo.Session) error {
 			// Close the dead session so we create a new one.
 			_ = sess.Close()
 			sess = nil
+			b.mu.Lock()
+			b.session = nil
+			b.mu.Unlock()
 			delay := b.backoff()
 			b.Logger.Printf("discord: backoff %v before reconnect", delay)
 			select {
@@ -276,6 +327,9 @@ func (b *Bot) connectLoop(ctx context.Context, sess *discordgo.Session) error {
 		b.connected = false
 		b.healthMu.Unlock()
 		sess = nil // force fresh session next loop
+		b.mu.Lock()
+		b.session = nil
+		b.mu.Unlock()
 
 		delay := b.backoff()
 		b.Logger.Printf("discord: disconnected, backoff %v before reconnect", delay)
@@ -379,7 +433,13 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Best-effort: each message gets its own goroutine so a slow
 	// dispatcher call doesn't head-of-line block the gateway. The
 	// session router serializes per chat key.
-	go b.Dispatcher.Handle(context.Background(), in, reply)
+	b.runCtxMu.Lock()
+	dispatchCtx := b.runCtx
+	b.runCtxMu.Unlock()
+	if dispatchCtx == nil {
+		dispatchCtx = context.Background()
+	}
+	go b.Dispatcher.Handle(dispatchCtx, in, reply)
 }
 
 // mentionsSelf reports whether the message's Mentions array contains
@@ -470,7 +530,7 @@ func (r *discordReply) Update(_ context.Context, handle, text string) error {
 	// If the limiter says no, we skip this update — the dispatcher
 	// will deliver the next chunk (or Final) shortly.
 	if r.bot != nil && !r.bot.editCheck(r.channelID) {
-		return nil
+		return ErrRateLimited
 	}
 	_, err := r.session.ChannelMessageEdit(r.channelID, handle, text)
 	return err

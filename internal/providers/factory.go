@@ -2,6 +2,8 @@ package providers
 
 import (
 	"fmt"
+	"os"
+	"strings"
 )
 
 type FactoryConfig struct {
@@ -14,6 +16,19 @@ type FactoryConfig struct {
 }
 
 func NewProvider(cfg FactoryConfig) (Provider, error) {
+	p, err := newProviderRaw(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(cfg.Headers) > 0 {
+		if hs, ok := p.(interface{ SetCustomHeaders(map[string]string) }); ok {
+			hs.SetCustomHeaders(cfg.Headers)
+		}
+	}
+	return p, nil
+}
+
+func newProviderRaw(cfg FactoryConfig) (Provider, error) {
 	switch cfg.Type {
 	case "openai":
 		models := cfg.Models
@@ -43,7 +58,7 @@ func NewProvider(cfg FactoryConfig) (Provider, error) {
 		}
 		baseURL := cfg.BaseURL
 		if baseURL == "" {
-			baseURL = "https://api.deepseek.com/v1"
+			baseURL = CanonicalBaseURL("deepseek")
 		}
 		return NewOpenAICompatProvider("deepseek", baseURL, cfg.APIKey, models), nil
 
@@ -59,7 +74,7 @@ func NewProvider(cfg FactoryConfig) (Provider, error) {
 		if len(models) == 0 {
 			models = OpenRouterModels()
 		}
-		p := NewOpenAICompatProvider("openrouter", "https://openrouter.ai/api/v1", cfg.APIKey, models)
+		p := NewOpenAICompatProvider("openrouter", CanonicalBaseURL("openrouter"), cfg.APIKey, models)
 		p.BaseProvider.headers["HTTP-Referer"] = "https://github.com/Sahaj-Tech-ltd/overkill"
 		p.BaseProvider.headers["X-Title"] = "Overkill"
 		return p, nil
@@ -69,75 +84,145 @@ func NewProvider(cfg FactoryConfig) (Provider, error) {
 		if len(models) == 0 {
 			models = GroqModels()
 		}
-		return NewOpenAICompatProvider("groq", "https://api.groq.com/openai/v1", cfg.APIKey, models), nil
+		return NewOpenAICompatProvider("groq", CanonicalBaseURL("groq"), cfg.APIKey, models), nil
 
 	case "xai":
 		models := cfg.Models
 		if len(models) == 0 {
 			models = XAIModels()
 		}
-		return NewOpenAICompatProvider("xai", "https://api.x.ai/v1", cfg.APIKey, models), nil
+		return NewOpenAICompatProvider("xai", CanonicalBaseURL("xai"), cfg.APIKey, models), nil
 
 	case "mistral":
 		models := cfg.Models
 		if len(models) == 0 {
 			models = MistralModels()
 		}
-		return NewOpenAICompatProvider("mistral", "https://api.mistral.ai/v1", cfg.APIKey, models), nil
+		return NewOpenAICompatProvider("mistral", CanonicalBaseURL("mistral"), cfg.APIKey, models), nil
 
 	case "togetherai":
 		models := cfg.Models
 		if len(models) == 0 {
 			models = TogetherAIModels()
 		}
-		return NewOpenAICompatProvider("togetherai", "https://api.together.xyz/v1", cfg.APIKey, models), nil
+		return NewOpenAICompatProvider("togetherai", CanonicalBaseURL("togetherai"), cfg.APIKey, models), nil
 
 	case "perplexity":
 		models := cfg.Models
 		if len(models) == 0 {
 			models = PerplexityModels()
 		}
-		return NewOpenAICompatProvider("perplexity", "https://api.perplexity.ai", cfg.APIKey, models), nil
+		return NewOpenAICompatProvider("perplexity", CanonicalBaseURL("perplexity"), cfg.APIKey, models), nil
 
 	case "deepinfra":
-		return NewOpenAICompatProvider("deepinfra", "https://api.deepinfra.com/v1/openai", cfg.APIKey, cfg.Models), nil
+		models := cfg.Models
+		if len(models) == 0 {
+			models = DeepInfraModels()
+		}
+		return NewOpenAICompatProvider("deepinfra", CanonicalBaseURL("deepinfra"), cfg.APIKey, models), nil
 
 	case "cerebras":
-		return NewOpenAICompatProvider("cerebras", "https://api.cerebras.ai/v1", cfg.APIKey, cfg.Models), nil
+		models := cfg.Models
+		if len(models) == 0 {
+			models = CerebrasModels()
+		}
+		return NewOpenAICompatProvider("cerebras", CanonicalBaseURL("cerebras"), cfg.APIKey, models), nil
 
 	case "fireworks":
-		return NewOpenAICompatProvider("fireworks", "https://api.fireworks.ai/inference/v1", cfg.APIKey, cfg.Models), nil
+		models := cfg.Models
+		if len(models) == 0 {
+			models = FireworksModels()
+		}
+		return NewOpenAICompatProvider("fireworks", CanonicalBaseURL("fireworks"), cfg.APIKey, models), nil
 
 	case "bedrock":
 		region := cfg.BaseURL
 		if region == "" {
+			region = os.Getenv("AWS_REGION")
+		}
+		if region == "" {
+			region = os.Getenv("AWS_DEFAULT_REGION")
+		}
+		if region == "" {
 			region = "us-east-1"
 		}
-		return NewBedrockProvider(region, cfg.APIKey, "", cfg.Models)
+		accessKey := cfg.APIKey
+		secretKey := ""
+		// AWS needs two separate credentials. If cfg.APIKey is colon-separated
+		// "accessKeyID:secretAccessKey", split them. Otherwise fall back to
+		// the standard AWS env vars.
+		if accessKey != "" {
+			if idx := strings.IndexByte(accessKey, ':'); idx > 0 {
+				secretKey = accessKey[idx+1:]
+				accessKey = accessKey[:idx]
+			}
+		}
+		if accessKey == "" || secretKey == "" {
+			return nil, fmt.Errorf("providers: bedrock requires both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY — set them via the api_key field as \"accessKeyID:secretAccessKey\" or via environment variables")
+		}
+		return NewBedrockProvider(region, accessKey, secretKey, cfg.Models)
 
 	// Vertex AI — Google Cloud's managed AI platform. Uses GCP service
 	// account auth (GOOGLE_APPLICATION_CREDENTIALS env var or gcloud
-	// ADC). The base URL is auto-discovered from models.dev.
-	// Model IDs use the format: "projects/{project}/locations/{location}/publishers/google/models/{model}"
+	// ADC). Reads project from GOOGLE_CLOUD_PROJECT and location from
+	// GOOGLE_CLOUD_LOCATION (default: us-central1).
+	// Uses the OpenAI-compatible endpoint at:
+	//   https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/endpoints/openapi
 	case "vertex":
-		return NewOpenAICompatProvider("vertex", "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}", cfg.APIKey, cfg.Models), nil
+		models := cfg.Models
+		if len(models) == 0 {
+			models = VertexModels()
+		}
+		location := os.Getenv("GOOGLE_CLOUD_LOCATION")
+		if location == "" {
+			location = "us-central1"
+		}
+		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
+		if project == "" {
+			return nil, fmt.Errorf("providers: vertex requires GOOGLE_CLOUD_PROJECT env var")
+		}
+		baseURL := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/endpoints/openapi",
+			location, project, location)
+		apiKey := cfg.APIKey
+		if apiKey == "" {
+			apiKey = os.Getenv("GOOGLE_API_KEY")
+		}
+		return NewOpenAICompatProvider("vertex", baseURL, apiKey, models), nil
 
 	// Azure OpenAI — Microsoft's managed OpenAI service. Uses Azure AD
-	// token auth. The base URL format is:
-	// https://{resource-name}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version=2024-02-15-preview
-	// Set AZURE_OPENAI_API_KEY or AZURE_AD_TOKEN in env.
+	// token auth or API key. The base URL format is:
+	//   https://{resource}.openai.azure.com/openai/v1
+	// where {resource} is read from AZURE_OPENAI_RESOURCE env var (required)
+	// or from the BaseURL config field. If BaseURL is set explicitly, it
+	// is used as-is (supports custom endpoints like API Management).
 	case "azure":
+		models := cfg.Models
+		if len(models) == 0 {
+			models = AzureModels()
+		}
 		baseURL := cfg.BaseURL
 		if baseURL == "" {
-			baseURL = "https://api.openai.azure.com/v1"
+			resource := os.Getenv("AZURE_OPENAI_RESOURCE")
+			if resource == "" {
+				return nil, fmt.Errorf("providers: azure requires AZURE_OPENAI_RESOURCE env var or base_url in config")
+			}
+			baseURL = fmt.Sprintf("https://%s.openai.azure.com/openai/v1", resource)
 		}
-		return NewOpenAICompatProvider("azure", baseURL, cfg.APIKey, cfg.Models), nil
+		apiKey := cfg.APIKey
+		if apiKey == "" {
+			apiKey = os.Getenv("AZURE_OPENAI_API_KEY")
+		}
+		return NewOpenAICompatProvider("azure", baseURL, apiKey, models), nil
 
 	case "copilot":
+		models := cfg.Models
+		if len(models) == 0 {
+			models = CopilotModels()
+		}
 		// GitHub Copilot — uses GitHub device flow OAuth. Set
 		// GITHUB_TOKEN or COPILOT_TOKEN in env. Auto-discovers
 		// base URL from models.dev.
-		return NewOpenAICompatProvider("copilot", "https://api.githubcopilot.com", cfg.APIKey, cfg.Models), nil
+		return NewOpenAICompatProvider("copilot", CanonicalBaseURL("copilot"), cfg.APIKey, models), nil
 
 	case "custom":
 		if cfg.BaseURL == "" {

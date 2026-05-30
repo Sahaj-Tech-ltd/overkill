@@ -2,23 +2,38 @@ package tools
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/memory"
-	"github.com/dgraph-io/badger/v4"
+	_ "github.com/lib/pq"
 )
+
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set — skipping Postgres test")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("postgres open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
 
 func newOrch(t *testing.T) *memory.Orchestrator {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := badger.Open(badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR))
+	db := openTestDB(t)
+	store, err := memory.NewPostgresStore(db)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("postgres store: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return memory.NewOrchestrator(memory.NewBadgerStore(db), nil, "")
+	return memory.NewOrchestrator(store, nil, "")
 }
 
 func TestMemoryTools_NilOrch(t *testing.T) {

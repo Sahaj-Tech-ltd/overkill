@@ -4,10 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/audit"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/automemory"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/features"
@@ -17,6 +22,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/speculation"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
@@ -46,6 +52,22 @@ type ExtensionMeta struct {
 	Description string
 }
 
+// SubagentManager is the subset of subagent.Manager that the agent needs.
+// Defined here to avoid import cycles (agent ← subagent → providers ✗).
+type SubagentManager interface {
+	ActiveCount() int
+	ActiveChildren() []SubagentChild
+}
+
+// SubagentChild is a live sub-agent handle returned by the manager.
+type SubagentChild struct {
+	ID        string
+	Goal      string
+	Model     string
+	Status    string
+	StartedAt string
+}
+
 type Agent struct {
 	mu              sync.RWMutex
 	provider        providers.Provider
@@ -62,7 +84,8 @@ type Agent struct {
 	bus             *EventBus
 	model           string
 	maxTokens       int
-	systemPrompt    string
+	systemPrompt            string
+	systemPromptOverrides   map[string]string // model ID → custom override
 	history         []providers.Message
 	maxSteps        int
 	sessionID       string
@@ -70,6 +93,10 @@ type Agent struct {
 	allowedTools    map[string]bool
 	questionFn      QuestionFunc
 	permLedger      *security.Ledger
+	// maxToolOutputChars is the safety-net truncation limit. Compressors
+	// run first; if output still exceeds this, it's truncated with a
+	// "[...truncated N chars, showing first X...]" marker. Default 8000.
+	maxToolOutputChars int
 	// privilege is the optional write-gate. Stored as atomic.Pointer so
 	// the hot read in react.go's tool dispatch path doesn't need a.mu
 	// (SetPrivilegeGate writes via Store).
@@ -103,6 +130,12 @@ type Agent struct {
 	useCompactor       atomic.Bool
 	compactionInFlight atomic.Bool
 
+	// running is true while the agent loop (Run) is executing a turn.
+	// Set at entry, cleared on exit via defer. Gateway dispatch and TUI
+	// use this to block commands that would interrupt a running agent
+	// (goal changes, steering, forks — /stop and /estop bypass).
+	running atomic.Bool
+
 	// userInputObserver, if set, is invoked once per Run with the raw user
 	// input before scanners or rewriter. Used by the frustration detector
 	// (and anything else that wants a non-blocking peek). Best-effort:
@@ -132,6 +165,36 @@ type Agent struct {
 	// Set via SetAutoMode; nil means legacy behavior.
 	autoMode *AutoMode
 
+	// seqEnabled toggles sequential multi-item processing (§8.6.1).
+	// When true, the agent decomposes user input into discrete work
+	// items and processes them one at a time via the sequential
+	// processor. Toggled by /think slash command.
+	seqEnabled bool
+	// thinkingLevel controls the model's extended thinking budget.
+	// Valid values: off, minimal, low, medium, high, x-high.
+	thinkingLevel string
+	// mode tracks the current plan/build mode. "plan" means
+	// analysis-only; "build" (default) allows execution.
+	mode string
+	// thinkConfig governs preamble streaming before tool calls.
+	// When Enabled, the agent emits a short natural-language preamble
+	// via the event callback before every tool execution.
+	thinkConfig ThinkConfig
+	// seqProcessor is the sequential multi-item processor. Lazily
+	// allocated on first use when seqEnabled is true.
+	seqProcessor *SequentialProcessor
+	// classifier is the content classifier for pre-action reflection
+	// (§8.6.2). Allocated once, reused across turns.
+	classifier *ContentClassifier
+	// toolInventory tracks available tool affordances for modality
+	// decisions. Updated when tools are registered.
+	toolInventory *ToolInventory
+
+	// queueState holds the current sequential processing queue state
+	// for the TUI Queue pane to display. Written by runSequential,
+	// read by the API handler. Protected by mu.
+	queueState *QueueState
+
 	// postWriteVerifier checks files written by tool calls for
 	// well-formedness (Batch G2). Optional; nil disables. Separate
 	// mutex from a.mu so the hot path isn't extended.
@@ -155,6 +218,11 @@ type Agent struct {
 	// Optional; nil disables. Uses a.mu since reads happen on the
 	// post-stream path that already holds the lock.
 	hallucinationScanner HallucinationScanner
+
+	// bookmarkStore persists user bookmarks for session recall (§7.4).
+	// Optional; nil disables. Wired by cmd/overkill via
+	// SetSessionBookmarkStore when a PostgreSQL connection is available.
+	bookmarkStore SessionBookmarkStore
 
 	// stopCh is closed when an external estop fires. The streaming
 	// loop selects on it alongside ctx.Done() so an estop interrupts
@@ -208,18 +276,28 @@ type Agent struct {
 	// state.
 	diagEscalator *diagnosticEscalator
 
-	// sessionCtx / sessionCancel parent every background goroutine the
+	// sessionCancel parent every background goroutine the
 	// agent spawns (auto-compaction, lifecycle workers). Shutdown()
 	// cancels sessionCtx so leaked goroutines wind down promptly. Set
 	// in New(); never replaced.
 	sessionCtx    context.Context
 	sessionCancel context.CancelFunc
 
+	// forkFn, if set, is called by Fork() to create a session branch.
+	// Wired by the cmd layer to session.PostgresStore.Clone. Nil means
+	// Fork() returns an error.
+	forkFn func(ctx context.Context, parentID, name string) (newID string, err error)
+
 	// checkpointSnapshotter, if set, is invoked automatically before
 	// destructive tool calls so the user always has a rollback target.
 	// §4.8: "AI WILL delete features, AI WILL go rogue — git is the
 	// safety net." Nil-safe.
 	checkpointSnapshotter CheckpointSnapshotter
+
+	// checkpointManager handles explicit user-facing /snapshot and
+	// /rollback commands via the gateway. Uses git under the hood.
+	// Nil-safe — when unset, slash commands return "not configured".
+	checkpointManager *CheckpointManager
 
 	// learningRecorder receives a class key on each Run() that succeeds
 	// after a prior Run() failed with the same class — the "I recovered
@@ -278,15 +356,36 @@ type Agent struct {
 	readCache *speculative.ReadCache
 
 	// extensionsManager tracks loaded extensions for prompt rendering (P2).
-	// Nil-safe — when unset, no extensions section is rendered.
+	// When nil, no extension set is available (safe default).
 	extensionsManager ExtensionsManager
+
+	// subagentManager tracks active sub-agents for the TUI subagent panel.
+	// When nil, sub-agent listing is disabled (safe default).
+	subagentManager SubagentManager
 
 	// inputClassifier, if set, is called to classify raw user input before
 	// the agent loop. Nil-safe — unset means all input is treated as NL.
 	inputClassifier func(string) InputKind
 
+	// goalStore persists standing objectives per session. When set, the
+	// active goal is injected into the system prompt every turn. Nil-safe
+	// — when unset, goal features are not available.
+	goalStore *GoalStore
+
 	// sessionMetrics accumulates per-Run stats for drift detection (P3).
 	sessionMetrics sessionMetrics
+
+	// speculation, if set, predicts the next action after a turn
+	// completes (idle-time speculative execution). See speculation.Engine.
+	speculation *speculation.Engine
+	// autoMemory, if set, extracts durable facts from the transcript
+	// on AfterTurn (port from Claude Code's extractMemories).
+	autoMemory *automemory.Extractor
+
+	// completionAuditor, if set, verifies agent output against claims
+	// after task completion (anti-lazy-LLM). Runs build, tests, git diff,
+	// and optional sub-agent semantic verification.
+	completionAuditor *audit.Auditor
 }
 
 // sessionMetrics tracks per-session stats for drift detection (P3).
@@ -298,6 +397,93 @@ type sessionMetrics struct {
 	recoveries       int
 	turns            int
 	totalTurnDuration time.Duration
+}
+
+// SetSpeculation enables idle-time speculative execution.
+func (a *Agent) SetSpeculation(e *speculation.Engine) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.speculation = e
+}
+
+// SetCompletionAuditor wires the anti-lazy-LLM completion auditor.
+// Pass nil to disable. The auditor is invoked after Run() completes
+// in auto/build mode to verify the agent actually did what it claimed.
+func (a *Agent) SetCompletionAuditor(aud *audit.Auditor) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.completionAuditor = aud
+}
+
+// RunCompletionAudit takes a pre-task snapshot and a set of claims
+// about what the agent accomplished, and verifies them against
+// the current repo state. Returns nil when no auditor is wired.
+func (a *Agent) RunCompletionAudit(ctx context.Context, pre *audit.Snapshot, claims []audit.Claim) *audit.Report {
+	a.mu.RLock()
+	auditor := a.completionAuditor
+	a.mu.RUnlock()
+	if auditor == nil {
+		return nil
+	}
+	return auditor.Audit(ctx, pre, claims)
+}
+
+// AuditAndRetry runs the completion audit and, if it fails, compacts
+// the conversation, injects the audit findings as revision context,
+// and retries agent.Run(). Returns the audit report + any retry error.
+// Max 3 retries to prevent infinite loops.
+func (a *Agent) AuditAndRetry(ctx context.Context, pre *audit.Snapshot, claims []audit.Claim, input string) (*audit.Report, error) {
+	const maxRetries = 3
+
+	report := a.RunCompletionAudit(ctx, pre, claims)
+	if report == nil || report.Passed {
+		return report, nil
+	}
+
+	// Emit event so user sees what's happening.
+	if a.eventFn != nil {
+		a.eventFn("audit", map[string]any{
+			"phase":    "retry",
+			"findings": len(report.Findings),
+			"passed":   false,
+		})
+	}
+
+	for i := 0; i < maxRetries; i++ {
+		revision := report.ToRevisionPrompt()
+		if revision == "" {
+			return report, nil
+		}
+
+		// Inject audit findings and retry.
+		retryInput := fmt.Sprintf("%s\n\n## Audit Findings (retry %d/%d)\n%s", input, i+1, maxRetries, revision)
+		if _, err := a.Run(ctx, retryInput); err != nil {
+			return report, fmt.Errorf("audit retry %d: %w", i+1, err)
+		}
+
+		// Re-audit after retry.
+		report = a.RunCompletionAudit(ctx, pre, claims)
+		if report == nil || report.Passed {
+			return report, nil
+		}
+	}
+
+	return report, fmt.Errorf("audit: failed after %d retries", maxRetries)
+}
+
+// SetAutoMemory enables post-turn memory extraction.
+func (a *Agent) SetAutoMemory(e *automemory.Extractor) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.autoMemory = e
+}
+
+// DiscardSpeculation cancels any running speculation (called when
+// the user sends a new message).
+func (a *Agent) DiscardSpeculation() {
+	if a.speculation != nil {
+		a.speculation.Discard()
+	}
 }
 
 // SessionMetrics returns a snapshot of the current session's metrics.
@@ -353,6 +539,40 @@ func (a *Agent) SetAutoMode(level string) {
 	default:
 		a.autoMode = nil
 	}
+}
+
+// SetThinkingLevel sets the extended thinking budget for the model.
+// Valid values: off, minimal, low, medium, high, x-high.
+// The value is passed through to the provider's request builder;
+// providers that don't support thinking silently ignore it.
+func (a *Agent) SetThinkingLevel(level string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.thinkingLevel = level
+}
+
+// ThinkingLevel returns the current thinking level setting.
+func (a *Agent) ThinkingLevel() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.thinkingLevel
+}
+
+// Mode returns the current plan/build mode. Defaults to "build" if unset.
+func (a *Agent) Mode() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.mode == "" {
+		return "build"
+	}
+	return a.mode
+}
+
+// SetMode sets the agent's plan/build mode.
+func (a *Agent) SetMode(m string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.mode = m
 }
 
 // AutoMode returns the current auto-mode controller, or nil if disabled.
@@ -491,6 +711,24 @@ func (a *Agent) Interrupt() {
 	}
 }
 
+// Steer queues a guidance message for mid-run injection into the
+// agent loop. The message is appended to the SteeringQueue and will
+// be drained into history between tool iterations. Returns a
+// confirmation string.
+func (a *Agent) Steer(msg string) string {
+	if a == nil {
+		return "steering not available: nil agent"
+	}
+	a.mu.RLock()
+	sq := a.steering
+	a.mu.RUnlock()
+	if sq == nil {
+		return "steering queue not available"
+	}
+	sq.Append(msg)
+	return fmt.Sprintf("steering queued: %s", msg)
+}
+
 // StopCh exposes the estop channel for the streaming loop. Receiving
 // on the returned channel signals "stop now"; the channel is closed
 // on EStop.
@@ -620,11 +858,18 @@ type Config struct {
 	Forethinker  *Forethinker
 	Steering     *SteeringQueue
 	SpecDriver   *SpecDriver
-	Model        string
-	MaxTokens    int
-	SystemPrompt string
+	Model                 string
+	MaxTokens             int
+	SystemPrompt          string
+	SystemPromptOverrides map[string]string // model ID → custom system prompt
 	MaxSteps     int
 	SessionID    string
+	// MaxToolOutputChars is the safety-net truncation limit applied to
+	// every tool output before it enters history. Compressors run first;
+	// if output still exceeds this limit, it is truncated with a
+	// "[...truncated N chars, showing first X...]" marker. Default 8000.
+	// Set to 0 to disable universal truncation.
+	MaxToolOutputChars int
 }
 
 func New(cfg Config) *Agent {
@@ -655,30 +900,48 @@ func New(cfg Config) *Agent {
 	sCtx, sCancel := context.WithCancel(context.Background())
 
 	return &Agent{
-		provider:        cfg.Provider,
-		toolRegistry:    cfg.Tools,
-		compressors:     cfg.Compressors,
-		hooks:           cfg.Hooks,
-		scanners:        cfg.Scanners,
-		tokenizer:       cfg.Tokenizer,
-		budgetEstimator: budgetEst,
-		forethinker:     forethinker,
-		steering:        cfg.Steering,
-		specDriver:      specDrv,
-		recovery:        NewErrorRecovery(nil),
-		bus:             NewEventBus(),
-		model:           cfg.Model,
-		maxTokens:       cfg.MaxTokens,
-		systemPrompt:    cfg.SystemPrompt,
-		maxSteps:        maxSteps,
-		sessionID:       cfg.SessionID,
-		history:         make([]providers.Message, 0),
-		allowedTools:    make(map[string]bool),
-		sessionCtx:      sCtx,
-		sessionCancel:   sCancel,
-		receipts:        NewReceiptChain(),
-		stopCh:          make(chan struct{}),
+		provider:           cfg.Provider,
+		toolRegistry:       cfg.Tools,
+		compressors:        cfg.Compressors,
+		hooks:              cfg.Hooks,
+		scanners:           cfg.Scanners,
+		tokenizer:          cfg.Tokenizer,
+		budgetEstimator:    budgetEst,
+		forethinker:        forethinker,
+		steering:           cfg.Steering,
+		specDriver:         specDrv,
+		recovery:           NewErrorRecovery(nil),
+		bus:                NewEventBus(),
+		model:              cfg.Model,
+		maxTokens:          cfg.MaxTokens,
+		systemPrompt:              cfg.SystemPrompt,
+		systemPromptOverrides:     cfg.SystemPromptOverrides,
+		maxSteps:           maxSteps,
+		sessionID:          cfg.SessionID,
+		maxToolOutputChars: defaultMaxToolOutput(cfg.MaxToolOutputChars),
+		history:            make([]providers.Message, 0),
+		allowedTools:       make(map[string]bool),
+		sessionCtx:         sCtx,
+		sessionCancel:      sCancel,
+		receipts:           NewReceiptChain(),
+		stopCh:             make(chan struct{}),
+		classifier:         NewContentClassifier(),
+		toolInventory:      NewToolInventory(),
 	}
+}
+
+const defaultMaxToolOutputChars = 8000
+
+// defaultMaxToolOutput returns the effective limit: 0 means disabled
+// (0 → 0), otherwise the given value or the default.
+func defaultMaxToolOutput(n int) int {
+	if n == 0 {
+		return 0 // disabled
+	}
+	if n > 0 {
+		return n
+	}
+	return defaultMaxToolOutputChars
 }
 
 // Shutdown cancels the agent's session-scoped context so background
@@ -776,6 +1039,69 @@ func (a *Agent) SetExtensionsManager(em ExtensionsManager) {
 	a.extensionsManager = em
 }
 
+// SetSubagentManager wires the sub-agent manager so the agent can list
+// active sub-agents (for the TUI subagent panel). Pass nil to disable.
+func (a *Agent) SetSubagentManager(sm SubagentManager) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.subagentManager = sm
+}
+
+// SetGoalStore wires the goal store. When set, the active goal is injected
+// into the system prompt every turn. Pass nil to disable goal features.
+func (a *Agent) SetGoalStore(gs *GoalStore) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.goalStore = gs
+}
+
+// SetGoal sets or updates the standing goal for the current session.
+func (a *Agent) SetGoal(ctx context.Context, text string) error {
+	if a.goalStore == nil {
+		return fmt.Errorf("agent: goal store not wired")
+	}
+	return a.goalStore.Set(ctx, a.sessionID, text)
+}
+
+// GetGoal returns the current goal text or empty string if none.
+func (a *Agent) GetGoal(ctx context.Context) (string, error) {
+	if a.goalStore == nil {
+		return "", fmt.Errorf("agent: goal store not wired")
+	}
+	g, err := a.goalStore.Get(ctx, a.sessionID)
+	if err != nil {
+		return "", err
+	}
+	if g == nil {
+		return "", nil
+	}
+	return g.Text, nil
+}
+
+// PauseGoal pauses the goal (sets active=false) for the current session.
+func (a *Agent) PauseGoal(ctx context.Context) error {
+	if a.goalStore == nil {
+		return fmt.Errorf("agent: goal store not wired")
+	}
+	return a.goalStore.Pause(ctx, a.sessionID)
+}
+
+// ResumeGoal resumes the goal (sets active=true) for the current session.
+func (a *Agent) ResumeGoal(ctx context.Context) error {
+	if a.goalStore == nil {
+		return fmt.Errorf("agent: goal store not wired")
+	}
+	return a.goalStore.Resume(ctx, a.sessionID)
+}
+
+// ClearGoal removes the goal for the current session.
+func (a *Agent) ClearGoal(ctx context.Context) error {
+	if a.goalStore == nil {
+		return fmt.Errorf("agent: goal store not wired")
+	}
+	return a.goalStore.Clear(ctx, a.sessionID)
+}
+
 // SetCompletionEmitter wires the completion-event emitter (§8.7.2). When set,
 // the emitter is called once at the end of every Run() with a populated
 // CompletionEvent. Pass nil to disable. costTracker is optional; pass nil if
@@ -801,11 +1127,26 @@ type RunResult struct {
 func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 	runStart := time.Now()
 
+	// Gate: if already running, reject the call (harness should have checked).
+	if a.running.Swap(true) {
+		return nil, fmt.Errorf("agent: already running — wait for current turn to finish or use /stop")
+	}
+	defer a.running.Store(false)
+
 	if obs := a.userInputObserver.Load(); obs != nil {
 		func() {
 			defer func() { _ = recover() }()
 			obs.fn(userInput)
 		}()
+	}
+
+	// §7.5 slash commands: handle /safe, /auto, /yolo, /plan, /build
+	// before entering the agent loop. Commands return an immediate response
+	// and short-circuit normal processing.
+	if cmd := ParseSlashCommand(userInput); cmd != nil {
+		if msg, handled := a.handleSlashCommand(cmd); handled {
+			return &RunResult{Response: msg, Model: a.Model()}, nil
+		}
 	}
 
 	// §7.1 per-task complexity-based timeout: bound the rest of Run()
@@ -869,6 +1210,35 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 				Model:       a.Model(),
 			}, nil
 		}
+	}
+
+	// §8.6.2 Pre-action reflection: classify content, check user model,
+	// inventory tools, decide modality. Injects a modality hint into the
+	// system prompt when relevant (e.g. "offer audio for this research").
+	a.mu.RLock()
+	reflection := a.reflectBeforeAction(userInput)
+	a.mu.RUnlock()
+
+	// §8.6.1 Sequential multi-item processing: when /think is active
+	// and input contains 2+ work items, decompose and process one at a time.
+	a.mu.RLock()
+	seq := a.seqEnabled
+	a.mu.RUnlock()
+	if seq && reflection.ShouldDecompose {
+		return a.runSequential(ctx, userInput, reflection)
+	}
+
+	// Inject modality hint into system prompt if reflection produced one.
+	if hint := reflection.ModalitySystemHint(); hint != "" {
+		a.mu.Lock()
+		prevPrompt := a.systemPrompt
+		a.systemPrompt = prevPrompt + "\n\n" + hint
+		a.mu.Unlock()
+		defer func() {
+			a.mu.Lock()
+			a.systemPrompt = prevPrompt
+			a.mu.Unlock()
+		}()
 	}
 
 	a.mu.Lock()
@@ -1167,6 +1537,77 @@ func (a *Agent) ClearHistory() {
 	a.history = make([]providers.Message, 0)
 }
 
+// PopLastExchange removes the last user→assistant exchange from history.
+// It walks backwards from the end, finds the last "user" message, and
+// truncates everything from that point onward. Returns the text of the
+// removed user message ("" if nothing was removed).
+func (a *Agent) PopLastExchange() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Walk backwards to find the last user message.
+	for i := len(a.history) - 1; i >= 0; i-- {
+		if a.history[i].Role == "user" {
+			removed := a.history[i].Content
+			a.history = a.history[:i]
+			return removed
+		}
+	}
+	return ""
+}
+
+// Undo removes the last exchange from session history. If the last message
+// is an assistant response, it removes that AND the user message before it.
+// If the last message is a lone user message (no assistant reply yet), only
+// that one is removed. Returns an error when history is too short to undo.
+func (a *Agent) Undo() (string, error) {
+	a.mu.RLock()
+	n := len(a.history)
+	a.mu.RUnlock()
+
+	if n == 0 {
+		return "", fmt.Errorf("nothing to undo — history is empty")
+	}
+	if n == 1 {
+		return "", fmt.Errorf("nothing to undo — only one message in history")
+	}
+
+	removed := a.PopLastExchange()
+	if removed == "" {
+		return "", fmt.Errorf("nothing to undo — no user message found in history")
+	}
+	return fmt.Sprintf("Undone — removed last exchange (%q)", truncateForStatus(removed)), nil
+}
+
+// Retry replays the last user message. It removes the last exchange from
+// history then re-runs the agent loop with the recovered user text, so the
+// model gets a fresh shot at the same prompt.
+func (a *Agent) Retry() (string, error) {
+	userText := a.PopLastExchange()
+	if userText == "" {
+		return "", fmt.Errorf("nothing to retry — no user message found in history")
+	}
+
+	result, err := a.Run(context.Background(), userText)
+	if err != nil {
+		return "", fmt.Errorf("retry failed: %w", err)
+	}
+	return result.Response, nil
+}
+
+// truncateForStatus truncates a string to 60 chars for status messages.
+func truncateForStatus(s string) string {
+	const max = 60
+	// Collapse newlines to spaces so a multi-line prompt doesn't break the
+	// single-line status reply.
+	flat := strings.ReplaceAll(s, "\n", " ")
+	flat = strings.Join(strings.Fields(flat), " ")
+	if len(flat) <= max {
+		return flat
+	}
+	return flat[:max] + "…"
+}
+
 func (a *Agent) buildRequest() providers.Request {
 	a.mu.RLock()
 	msgs := make([]providers.Message, len(a.history))
@@ -1177,8 +1618,8 @@ func (a *Agent) buildRequest() providers.Request {
 	// Rewriter middleware: pipe the most-recent user message through the
 	// installed rewriter (if any). Errors and panics never block — fall back
 	// to the original text. Mutations are confined to the local msgs slice
-	// and pushed back into history so the conversation reflects what the
-	// model actually saw.
+	// ONLY — we do NOT write back to a.history. Rewriting is a per-request
+	// view transformation; it must not permanently alter conversation history.
 	if rw != nil {
 		for i := len(msgs) - 1; i >= 0; i-- {
 			if msgs[i].Role != "user" {
@@ -1191,11 +1632,6 @@ func (a *Agent) buildRequest() providers.Request {
 				rewritten, err := rw.RewritePrompt(ctx, msgs[i].Content)
 				if err == nil && rewritten != "" && rewritten != msgs[i].Content {
 					msgs[i].Content = rewritten
-					a.mu.Lock()
-					if i < len(a.history) && a.history[i].Role == "user" {
-						a.history[i].Content = rewritten
-					}
-					a.mu.Unlock()
 				}
 			}()
 			break
@@ -1251,6 +1687,16 @@ func (a *Agent) buildRequest() providers.Request {
 		prompt = prompt + "\n\n" + extra
 	}
 	pcancel()
+	// Goal injection: if a goal store is wired and an active goal exists
+	// for the current session, append it to the system prompt so the model
+	// keeps the standing objective in mind every turn.
+	if a.goalStore != nil {
+		gctx, gcancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if g, err := a.goalStore.Get(gctx, a.sessionID); err == nil && g != nil && g.Active {
+			prompt = prompt + "\n\n[GOAL] " + g.Text
+		}
+		gcancel()
+	}
 	// Caveman Mode (master plan §4.4): escalate bluntness as token budget
 	// approaches the cap so the model voluntarily compresses its output.
 	prompt = a.applyCaveman(prompt)
@@ -1259,12 +1705,15 @@ func (a *Agent) buildRequest() providers.Request {
 	// LLM call. Failures fall back to the original prompt silently.
 	prompt = a.applyPromptCompression(prompt)
 
+	thinkingLevel := a.ThinkingLevel()
+
 	return providers.Request{
-		Model:        a.Model(),
-		Messages:     msgs,
-		Tools:        a.buildToolDefs(),
-		MaxTokens:    a.maxTokens,
-		SystemPrompt: prompt,
+		Model:         a.Model(),
+		Messages:      msgs,
+		Tools:         a.buildToolDefs(),
+		MaxTokens:     a.maxTokens,
+		SystemPrompt:  prompt,
+		ThinkingLevel: thinkingLevel,
 	}
 }
 
@@ -1317,10 +1766,29 @@ func (a *Agent) Model() string {
 	return a.model
 }
 
-func (a *Agent) IsBusy() bool {
+// effectiveSystemPrompt returns the system prompt to use for the current
+// model. If a model-specific override exists, it wins over the default.
+func (a *Agent) effectiveSystemPrompt() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return len(a.history) > 0
+	if a.systemPromptOverrides != nil {
+		if override, ok := a.systemPromptOverrides[a.model]; ok && override != "" {
+			return override
+		}
+	}
+	return a.systemPrompt
+}
+
+// IsBusy returns true when the agent loop is actively running or history is
+// non-empty (a turn was started). Used by gateway dispatch to guard against
+// commands that would interrupt a running agent.
+func (a *Agent) IsBusy() bool {
+	return a.running.Load()
+}
+
+// IsRunning is an alias for IsBusy — returns true when Run() is executing.
+func (a *Agent) IsRunning() bool {
+	return a.running.Load()
 }
 
 func (a *Agent) SessionID() string {
@@ -1335,6 +1803,68 @@ func (a *Agent) SetSessionID(id string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sessionID = id
+}
+
+// SetForker wires the session forking backend. Pass nil to disable.
+func (a *Agent) SetForker(fn func(ctx context.Context, parentID, name string) (string, error)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.forkFn = fn
+}
+
+// Fork creates a new session branched from the current one with an
+// optional display name. The child inherits the full message history
+// and the parent is linked via ParentID. Returns the new session ID.
+// Returns an error when no forker is configured or no session is active.
+func (a *Agent) Fork(name string) (string, error) {
+	a.mu.RLock()
+	fn := a.forkFn
+	sid := a.sessionID
+	a.mu.RUnlock()
+	if fn == nil {
+		return "", fmt.Errorf("fork: no session store configured")
+	}
+	if sid == "" {
+		return "", fmt.Errorf("fork: no active session")
+	}
+	return fn(context.Background(), sid, name)
+}
+
+// Snapshot creates a git-based filesystem checkpoint with the given name.
+// Returns the new commit hash. Requires SetCheckpointManager to have been
+// called first.
+func (a *Agent) Snapshot(name string) (string, error) {
+	a.mu.RLock()
+	cm := a.checkpointManager
+	a.mu.RUnlock()
+	if cm == nil {
+		return "", fmt.Errorf("snapshot: checkpoint manager not configured")
+	}
+	return cm.Snapshot(name)
+}
+
+// Rollback rolls back to the Nth most recent checkpoint (0 = latest).
+// Requires SetCheckpointManager to have been called first.
+func (a *Agent) Rollback(n int) (string, error) {
+	a.mu.RLock()
+	cm := a.checkpointManager
+	a.mu.RUnlock()
+	if cm == nil {
+		return "", fmt.Errorf("rollback: checkpoint manager not configured")
+	}
+	return cm.Rollback(n)
+}
+
+// Snapshots returns a human-readable listing of saved checkpoints.
+// Requires SetCheckpointManager to have been called first.
+func (a *Agent) Snapshots() (string, error) {
+	a.mu.RLock()
+	cm := a.checkpointManager
+	a.mu.RUnlock()
+	if cm == nil {
+		return "", fmt.Errorf("snapshots: checkpoint manager not configured")
+	}
+	return cm.FormatSnapshots()
 }
 
 func (a *Agent) BudgetReport() *BudgetReport {
@@ -1371,8 +1901,64 @@ func (a *Agent) BudgetReport() *BudgetReport {
 	return a.budgetEstimator.Estimate(msgs, systemPrompt, toolDefs)
 }
 
-func (a *Agent) Inject(msg providers.Message) {
+func (a *Agent) Inject(msg providers.Message) error {
+	if msg.Role == "system" {
+		return fmt.Errorf("agent: Inject rejected role=%q from untrusted caller", msg.Role)
+	}
 	a.appendMessage(msg)
+	return nil
+}
+
+// InjectSteer pushes a steered message into the agent's steering queue so it
+// arrives mid-task on the next tool-iteration drain. If no steering queue is
+// configured this is a no-op.
+func (a *Agent) InjectSteer(content, role string) {
+	a.mu.RLock()
+	sq := a.steering
+	a.mu.RUnlock()
+	if sq == nil {
+		return
+	}
+	sq.Inject(SteeredMessage{Content: content, Role: role})
+}
+
+// ExportHistory writes the current session's message history to a
+// markdown file at the given path. Creates parent directories as needed.
+// Returns the absolute path written.
+func (a *Agent) ExportHistory(path string) (string, error) {
+	a.mu.RLock()
+	history := make([]providers.Message, len(a.history))
+	copy(history, a.history)
+	a.mu.RUnlock()
+
+	if len(history) == 0 {
+		return "", fmt.Errorf("export: no messages in session")
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("export: create dir: %w", err)
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return "", fmt.Errorf("export: create file: %w", err)
+	}
+	defer f.Close()
+
+	for _, m := range history {
+		switch m.Role {
+		case "user":
+			fmt.Fprintf(f, "## User\n\n%s\n\n", m.Content)
+		case "assistant":
+			fmt.Fprintf(f, "## Assistant\n\n%s\n\n", m.Content)
+		default:
+			title := strings.ToUpper(m.Role[:1]) + m.Role[1:]
+			fmt.Fprintf(f, "## %s\n\n%s\n\n", title, m.Content)
+		}
+	}
+
+	return path, nil
 }
 
 // CompactResult summarizes the outcome of a Compact call.
@@ -1518,6 +2104,22 @@ func (a *Agent) SetContextProvider(fn func(ctx context.Context, sessionID string
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.contextProviderFn = fn
+}
+
+// SetChipManager wires a prompt.ChipManager as the agent's context provider.
+// The manager's Render method is called each turn to produce per-turn context
+// from all registered chips (directory, git branch, git diff, etc.). This
+// replaces any previously installed contextProviderFn. Pass nil to disable
+// chip-based context injection.
+func (a *Agent) SetChipManager(cm interface {
+	Render(ctx context.Context) string
+	ContextProvider() func(ctx context.Context, sessionID string) string
+}) {
+	if cm == nil {
+		a.SetContextProvider(nil)
+		return
+	}
+	a.SetContextProvider(cm.ContextProvider())
 }
 
 // SetPersonalityProvider installs a callback that returns the personality
@@ -1734,6 +2336,22 @@ func (a *Agent) appendToolResultMessage(toolCallID, toolName string, output json
 		}
 	}
 
+	// Universal safety-net truncation (master plan §4.4 / CompressorRegistry safety net).
+	// Applies AFTER per-tool compressors so even unregistered tools (or
+	// compressors that returned no savings) are bounded before entering
+	// context. The limit is a simple character count — token-precise
+	// truncation happens on the model side via maxTokens.
+	if a.maxToolOutputChars > 0 && len(content) > a.maxToolOutputChars {
+		truncated := len(content) - a.maxToolOutputChars
+		content = content[:a.maxToolOutputChars] +
+			fmt.Sprintf("\n[...truncated %d chars, showing first %d...]", truncated, a.maxToolOutputChars)
+		a.emit("tool_truncated", map[string]any{
+			"tool":          toolName,
+			"chars_dropped": truncated,
+			"chars_kept":    a.maxToolOutputChars,
+		})
+	}
+
 	a.appendMessage(providers.Message{
 		Role:       "tool",
 		Content:    content,
@@ -1925,4 +2543,172 @@ func (a *Agent) recordCorrectionIfNeeded(userInput, assistantResponse string) {
 			"session_id": a.sessionID,
 		})
 	}
+}
+
+// QueueSnapshot returns the current sequential processing queue state
+// for the TUI Queue pane. Thread-safe.
+func (a *Agent) QueueSnapshot() QueueState {
+	if a.queueState == nil {
+		return QueueState{}
+	}
+	return a.queueState.Snapshot()
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// §8.6.1–8.6.2 Sequential processing + situational reflection hooks
+// ─────────────────────────────────────────────────────────────────────
+
+// reflectBeforeAction runs the pre-action reflection pipeline (§8.6.2).
+// Classifies content, checks available tools, and returns a modality hint.
+// classifier and toolInventory are initialized in New() — no lazy init needed.
+func (a *Agent) reflectBeforeAction(input string) SituationalReflection {
+
+	user := UserModel{
+		HasADHD:     true, // TODO: read from personality engine
+		IsOnMobile:  false, // TODO: detect from gateway
+		IsLateNight: isLateNight(),
+	}
+
+	return ReflectBeforeAction(input, user, a.toolInventory)
+}
+
+// runSequential decomposes a multi-item input and processes each item
+// through the full agent loop independently (§8.6.1).
+func (a *Agent) runSequential(ctx context.Context, input string, reflection SituationalReflection) (*RunResult, error) {
+	if a.seqProcessor == nil {
+		a.seqProcessor = NewSequentialProcessor()
+	}
+
+	items := a.seqProcessor.Decomposer.Decompose(input)
+	if len(items) < 2 {
+		// Not actually multi-item — disable seq mode for this turn
+		// and fall through to normal processing.
+		a.mu.Lock()
+		a.seqEnabled = false
+		a.mu.Unlock()
+		return a.Run(ctx, input)
+	}
+
+	// Initialize queue state for TUI display.
+	if a.queueState == nil {
+		a.queueState = &QueueState{}
+	}
+	a.queueState.SetItems(items)
+	defer a.queueState.Finish()
+
+	var results []string
+	successes := 0
+	failures := 0
+
+	// Temporarily disable seq mode to prevent recursive decomposition.
+	a.mu.Lock()
+	a.seqEnabled = false
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.seqEnabled = true
+		a.mu.Unlock()
+	}()
+
+	for i := range items {
+		item := &items[i]
+		item.Status = WorkItemActive
+		item.StartedAt = time.Now()
+
+		a.queueState.UpdateItem(item.Index, "active", "", 0)
+
+		itemPrompt := fmt.Sprintf("[Item %d of %d] %s", item.Index, len(items), item.Description)
+
+		result, err := a.Run(ctx, itemPrompt)
+		item.CompletedAt = time.Now()
+		elapsed := item.CompletedAt.Sub(item.StartedAt)
+
+		if err != nil {
+			item.Status = WorkItemFailed
+			item.Error = err.Error()
+			failures++
+			a.queueState.UpdateItem(item.Index, "failed", err.Error(), elapsed)
+			results = append(results, fmt.Sprintf("❌ Item %d: %s", item.Index, err.Error()))
+		} else {
+			item.Status = WorkItemDone
+			item.Result = result.Response
+			successes++
+			a.queueState.UpdateItem(item.Index, "done", "", elapsed)
+			results = append(results, fmt.Sprintf("✅ Item %d (%s): done", item.Index, truncate(item.Description, 60)))
+		}
+	}
+
+	summary := fmt.Sprintf(
+		"🧠 **Think mode** — processed %d items: %d done, %d failed\n\n%s",
+		len(items), successes, failures,
+		joinStrings(results, "\n"),
+	)
+
+	return &RunResult{
+		Response: summary,
+		Model:    a.Model(),
+	}, nil
+}
+
+// isLateNight checks if the current local time is between 10 PM and 6 AM.
+func isLateNight() bool {
+	hour := time.Now().Hour()
+	return hour >= 22 || hour < 6
+}
+
+// joinStrings joins a slice of strings with a separator.
+func joinStrings(parts []string, sep string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	result := parts[0]
+	for i := 1; i < len(parts); i++ {
+		result += sep + parts[i]
+	}
+	return result
+}
+
+// fireAfterTurn fires registered after_turn hooks asynchronously.
+// Best-effort — panics are recovered, never blocks the agent loop.
+func (a *Agent) fireAfterTurn() {
+	// Speculation: start predicting the next action while the user
+	// hasn't typed yet. Cancelled when user sends a new message.
+	if a.speculation != nil {
+		a.speculation.Start()
+	}
+
+	// Auto-memory: extract durable facts from the conversation.
+	if a.autoMemory != nil {
+		go func() {
+			defer func() { recover() }()
+			// Build a transcript from recent history.
+			var sb strings.Builder
+			a.mu.RLock()
+			start := 0
+			if len(a.history) > 20 {
+				start = len(a.history) - 20
+			}
+			for _, msg := range a.history[start:] {
+				sb.WriteString(fmt.Sprintf("[%s] %s\n", msg.Role, msg.Content))
+			}
+			a.mu.RUnlock()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = a.autoMemory.Extract(ctx, sb.String())
+		}()
+	}
+
+	if a.hooks == nil {
+		return
+	}
+	go func() {
+		defer func() { recover() }()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = a.hooks.Fire(ctx, hooks.AfterTurn, hooks.Event{
+			Point:     hooks.AfterTurn,
+			SessionID: a.sessionID,
+		})
+	}()
 }

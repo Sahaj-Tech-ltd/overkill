@@ -447,7 +447,7 @@ func TestFormatPRD_Readable(t *testing.T) {
 		UserStories: []UserStory{
 			{Actor: "devops", Want: "faster deploys", Benefit: "shorter feedback loops"},
 		},
-		ImplDecisions: []string{"Use Go pipelines", "BadgerDB for state"},
+		ImplDecisions: []string{"Use Go pipelines", "Postgres for state"},
 		TestDecisions: []string{"Integration tests for each stage"},
 		OutOfScope:    []string{"Kubernetes integration"},
 	}
@@ -462,7 +462,7 @@ func TestFormatPRD_Readable(t *testing.T) {
 		"- As a devops, I want faster deploys, so that shorter feedback loops",
 		"## Implementation Decisions",
 		"- Use Go pipelines",
-		"- BadgerDB for state",
+		"- Postgres for state",
 		"## Test Decisions",
 		"- Integration tests for each stage",
 		"## Out of Scope",

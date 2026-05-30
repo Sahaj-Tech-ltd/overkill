@@ -32,23 +32,63 @@ import (
 type Bot struct {
 	RestAPIURL string        // e.g. "http://localhost:8080"
 	Account    string        // E.164 phone number
+	AuthToken  string        // Bearer token for signal-cli REST API auth
 	Dispatcher *gateway.Dispatcher
 	Logger     *log.Logger
 	PollEvery  time.Duration // receive poll interval; default 5s
 
 	httpClient *http.Client
 
-	// lastReceived tracks the highest timestamp we've seen to avoid
-	// dispatching duplicates across restarts within the same process.
-	lastReceived int64
-	mu           sync.Mutex
+	// seen deduplicates messages by content hash + sender, avoiding
+	// the fragility of timestamp-based dedup (out-of-order deliveries,
+	// clock skew). Eviction-capped at seenCap.
+	seenMu sync.Mutex
+	seen   map[string]time.Time
+}
+
+const (
+	// seenCap bounds the dedup map size.
+	signalSeenCap = 4096
+	// seenTTL caps how long a message hash is remembered.
+	signalSeenTTL = 10 * time.Minute
+)
+
+// alreadySeen reports whether a message with this content hash was
+// already processed. Records the hash either way.
+func (b *Bot) alreadySeen(hash string) bool {
+	b.seenMu.Lock()
+	defer b.seenMu.Unlock()
+	if b.seen == nil {
+		b.seen = make(map[string]time.Time, 64)
+	}
+	now := time.Now()
+	if ts, ok := b.seen[hash]; ok && now.Sub(ts) < signalSeenTTL {
+		return true
+	}
+	// Evict stale entries when at capacity.
+	if len(b.seen) >= signalSeenCap {
+		for k, ts := range b.seen {
+			if now.Sub(ts) > signalSeenTTL {
+				delete(b.seen, k)
+			}
+		}
+		if len(b.seen) >= signalSeenCap {
+			for k := range b.seen {
+				delete(b.seen, k)
+				break
+			}
+		}
+	}
+	b.seen[hash] = now
+	return false
 }
 
 // NewBot returns a Bot wired to the given config and dispatcher.
-func NewBot(restAPIURL, account string, d *gateway.Dispatcher) *Bot {
+func NewBot(restAPIURL, account, authToken string, d *gateway.Dispatcher) *Bot {
 	return &Bot{
 		RestAPIURL: restAPIURL,
 		Account:    account,
+		AuthToken:  authToken,
 		Dispatcher: d,
 		Logger:     log.New(io.Discard, "", 0),
 		PollEvery:  5 * time.Second,
@@ -58,6 +98,18 @@ func NewBot(restAPIURL, account string, d *gateway.Dispatcher) *Bot {
 
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "signal" }
+
+// Reconnect implements gateway.Reconnecter (B135). The poll loop in Run
+// already handles reconnection with backoff; this provides an explicit
+// hook for external health monitors.
+func (b *Bot) Reconnect(ctx context.Context) error { return nil }
+
+// setAuth sets the Authorization header if an auth token is configured.
+func (b *Bot) setAuth(req *http.Request) {
+	if b.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+b.AuthToken)
+	}
+}
 
 // Run drives the receive poll loop until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) error {
@@ -107,6 +159,7 @@ func (b *Bot) Healthy() bool {
 	if err != nil {
 		return false
 	}
+	b.setAuth(req)
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		return false
@@ -137,6 +190,7 @@ func (b *Bot) receive(ctx context.Context) ([]signalEnvelope, error) {
 	if err != nil {
 		return nil, err
 	}
+	b.setAuth(req)
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -149,7 +203,7 @@ func (b *Bot) receive(ctx context.Context) ([]signalEnvelope, error) {
 	}
 
 	var out []signalEnvelope
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&out); err != nil {
 		return nil, fmt.Errorf("signal: decoding receive: %w", err)
 	}
 	return out, nil
@@ -164,19 +218,12 @@ func (b *Bot) handle(ctx context.Context, env signalEnvelope) {
 		return
 	}
 
-	ts := dm.Timestamp
-	if ts == 0 {
-		ts = env.Envelope.Timestamp
-	}
-
-	// Deduplicate: ignore messages we've already seen.
-	b.mu.Lock()
-	if ts <= b.lastReceived {
-		b.mu.Unlock()
+	// Deduplicate by content hash (sender + text) instead of timestamp,
+	// which is fragile with out-of-order deliveries or clock skew.
+	hash := fmt.Sprintf("%s:%s:%d", env.Envelope.SourceNumber, dm.Message, dm.Timestamp)
+	if b.alreadySeen(hash) {
 		return
 	}
-	b.lastReceived = ts
-	b.mu.Unlock()
 
 	from := env.Envelope.SourceName
 	if from == "" {
@@ -223,6 +270,7 @@ func (b *Bot) send(ctx context.Context, number, message string) (string, error) 
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	b.setAuth(req)
 
 	resp, err := b.httpClient.Do(req)
 	if err != nil {

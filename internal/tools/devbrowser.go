@@ -2,9 +2,9 @@
 //
 // Four tools, deliberately narrow:
 //
-//   - browser_open(name, url)       navigate to URL, return snapshot
+//   - devbrowser_open(name, url)       navigate to URL, return snapshot
 //   - browser_snapshot(name)         re-snapshot without navigating
-//   - browser_click(name, selector)  click the matching element
+//   - devbrowser_click(name, selector)  click the matching element
 //   - browser_type(name, selector, text)  type into the matching field
 //
 // "snapshotForAI" returns a structured page (title, headings, links,
@@ -35,7 +35,7 @@ func NewDevBrowserOpenTool(m *devbrowser.Manager) *DevBrowserOpenTool {
 	return &DevBrowserOpenTool{Manager: m}
 }
 
-func (t *DevBrowserOpenTool) Name() string { return "browser_open" }
+func (t *DevBrowserOpenTool) Name() string { return "devbrowser_open" }
 
 type browserOpenInput struct {
 	Name string `json:"name"`
@@ -44,19 +44,19 @@ type browserOpenInput struct {
 
 func (t *DevBrowserOpenTool) Execute(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	if t.Manager == nil {
-		return nil, fmt.Errorf("browser_open: dev-browser not wired")
+		return nil, fmt.Errorf("devbrowser_open: dev-browser not wired")
 	}
 	var req browserOpenInput
 	if err := json.Unmarshal(in, &req); err != nil {
-		return nil, fmt.Errorf("browser_open: parse: %w", err)
+		return nil, fmt.Errorf("devbrowser_open: parse: %w", err)
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.URL = strings.TrimSpace(req.URL)
 	if req.Name == "" {
-		return nil, fmt.Errorf("browser_open: 'name' is required (label this page for future tool calls)")
+		return nil, fmt.Errorf("devbrowser_open: 'name' is required (label this page for future tool calls)")
 	}
 	if req.URL == "" {
-		return nil, fmt.Errorf("browser_open: 'url' is required")
+		return nil, fmt.Errorf("devbrowser_open: 'url' is required")
 	}
 	snap, err := t.Manager.Open(req.Name, req.URL)
 	if err != nil {
@@ -99,7 +99,7 @@ func (t *DevBrowserSnapshotTool) Execute(ctx context.Context, in json.RawMessage
 	return json.Marshal(snap)
 }
 
-// DevBrowserClickTool implements browser_click.
+// DevBrowserClickTool implements devbrowser_click.
 type DevBrowserClickTool struct {
 	Manager *devbrowser.Manager
 }
@@ -109,7 +109,7 @@ func NewDevBrowserClickTool(m *devbrowser.Manager) *DevBrowserClickTool {
 	return &DevBrowserClickTool{Manager: m}
 }
 
-func (t *DevBrowserClickTool) Name() string { return "browser_click" }
+func (t *DevBrowserClickTool) Name() string { return "devbrowser_click" }
 
 type browserClickInput struct {
 	Name     string `json:"name"`
@@ -118,17 +118,17 @@ type browserClickInput struct {
 
 func (t *DevBrowserClickTool) Execute(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	if t.Manager == nil {
-		return nil, fmt.Errorf("browser_click: dev-browser not wired")
+		return nil, fmt.Errorf("devbrowser_click: dev-browser not wired")
 	}
 	var req browserClickInput
 	if err := json.Unmarshal(in, &req); err != nil {
-		return nil, fmt.Errorf("browser_click: parse: %w", err)
+		return nil, fmt.Errorf("devbrowser_click: parse: %w", err)
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		return nil, fmt.Errorf("browser_click: 'name' is required")
+		return nil, fmt.Errorf("devbrowser_click: 'name' is required")
 	}
 	if strings.TrimSpace(req.Selector) == "" {
-		return nil, fmt.Errorf("browser_click: 'selector' is required")
+		return nil, fmt.Errorf("devbrowser_click: 'selector' is required")
 	}
 	snap, err := t.Manager.Click(req.Name, req.Selector)
 	if err != nil {

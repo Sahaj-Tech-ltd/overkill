@@ -119,10 +119,11 @@ export function CommandPalette({
   }, [query, commands]);
 
   useInput((_input, key) => {
+    if (!open) return;
     if (key.upArrow) {
       setSelectedIdx((prev) => Math.max(0, prev - 1));
     } else if (key.downArrow) {
-      setSelectedIdx((prev) => Math.min(filtered.length - 1, prev + 1));
+      setSelectedIdx((prev) => Math.min(Math.min(filtered.length - 1, 7), prev + 1));
     } else if (key.return) {
       if (filtered.length > 0 && selectedIdx < filtered.length) {
         const selected = filtered[selectedIdx];

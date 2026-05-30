@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -86,6 +87,19 @@ func discoverDir(dir, name string) (*Discovered, error) {
 		entry := pt.Entry
 		if !filepath.IsAbs(entry) {
 			entry = filepath.Join(dir, entry)
+		}
+		// B111: Validate entry path stays under the plugins root to
+		// prevent absolute paths from escaping the sandbox.
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			return nil, fmt.Errorf("plugin: resolve plugin dir: %w", err)
+		}
+		absEntry, err := filepath.Abs(entry)
+		if err != nil {
+			return nil, fmt.Errorf("plugin: resolve entry: %w", err)
+		}
+		if !strings.HasPrefix(absEntry, absDir+string(filepath.Separator)) {
+			return nil, fmt.Errorf("plugin: entry %q escapes sandbox", entry)
 		}
 		nm := pt.Name
 		if nm == "" {

@@ -304,7 +304,7 @@ func TestGenerateKnownIssues(t *testing.T) {
 }
 
 func TestGenerateArchitecture(t *testing.T) {
-	content := "# Architecture\n\n## ADR-001: Use BadgerDB"
+	content := "# Architecture\n\n## ADR-001: Use PostgreSQL"
 	dir := t.TempDir()
 	provider := providers.NewMockProvider("test", nil, mockHandler(content))
 

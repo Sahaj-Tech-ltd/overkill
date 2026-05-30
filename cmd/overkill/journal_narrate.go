@@ -3,51 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/Sahaj-Tech-ltd/overkill/deprecated/bubbletea-tui"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
-
-// writeJournalNarrative is the TUI session-end hook for §4.19. All
-// errors are logged but never surfaced — the user is on their way out,
-// they don't need to see a model timeout right then. Bounded 60s so
-// a stuck model doesn't wedge exit.
-func writeJournalNarrative(app *tui.App) {
-	if app == nil || app.Journal == nil || app.Agent == nil {
-		return
-	}
-	sid := app.Agent.SessionID()
-	if sid == "" {
-		return
-	}
-	provider, modelName := buildNarrateProvider()
-	if provider == nil {
-		return
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	jdir := filepath.Join(home, ".overkill", "journal")
-	summ := journal.NewSummarizer(app.Journal, provider, modelName)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	path, _, err := summ.NarrateSession(ctx, jdir, sid)
-	if err != nil {
-		log.Printf("journal narrate: %v", err)
-		return
-	}
-	if path != "" {
-		log.Printf("journal narrate: wrote %s", path)
-	}
-}
 
 // buildNarrateProvider resolves a provider + model from the active
 // config. Returns nil when no provider is configured — narrator

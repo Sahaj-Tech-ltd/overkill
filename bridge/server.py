@@ -50,16 +50,18 @@ class OverkillBridgeServicer(overkill_pb2_grpc.OverkillBridgeServicer):
         self, request: overkill_pb2.StoreVectorRequest, context: grpc.ServicerContext
     ) -> overkill_pb2.StoreVectorResponse:
         entry = request.entry
+        backend = request.backend if request.backend else "inmem"
         stored_id = self._memory.store(
-            entry.id, list(entry.embedding), entry.content, dict(entry.metadata)
+            entry.id, list(entry.embedding), entry.content, dict(entry.metadata), backend=backend
         )
         return overkill_pb2.StoreVectorResponse(id=stored_id, success=True)
 
     def SearchVectors(  # noqa: N802
         self, request: overkill_pb2.SearchVectorsRequest, context: grpc.ServicerContext
     ) -> overkill_pb2.SearchVectorsResponse:
+        backend = request.backend if request.backend else "inmem"
         results = self._memory.search(
-            list(request.query), request.top_k, request.threshold, dict(request.filters)
+            list(request.query), request.top_k, request.threshold, dict(request.filters), backend=backend
         )
         pb_results = [
             overkill_pb2.SearchResult(
@@ -72,7 +74,8 @@ class OverkillBridgeServicer(overkill_pb2_grpc.OverkillBridgeServicer):
     def DeleteVector(  # noqa: N802
         self, request: overkill_pb2.DeleteVectorRequest, context: grpc.ServicerContext
     ) -> overkill_pb2.DeleteVectorResponse:
-        ok = self._memory.delete(request.id)
+        backend = request.backend if request.backend else "inmem"
+        ok = self._memory.delete(request.id, backend=backend)
         return overkill_pb2.DeleteVectorResponse(success=ok)
 
     def Compact(  # noqa: N802

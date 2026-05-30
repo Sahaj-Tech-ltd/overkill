@@ -41,16 +41,23 @@ func ProviderModelsFromCatalog(cat *models.Catalog) []ProviderModels {
 	byProvider := make(map[string][]providers.Model)
 	for _, m := range all {
 		providerID := providerOf(m.ID)
+		var costIn, costOut, costCacheIn, costCacheOut float64
+		if m.Cost != nil {
+			costIn = m.Cost.Input
+			costOut = m.Cost.Output
+			costCacheIn = m.Cost.CacheRead
+			costCacheOut = m.Cost.CacheWrite
+		}
 		flat := providers.Model{
 			ID:               m.ID,
 			Name:             m.DisplayName,
 			Family:           m.Family,
 			ContextWindow:    m.ContextWindow,
 			DefaultMaxTokens: m.MaxOutputTokens,
-			CostIn:           m.Cost.Input,
-			CostOut:          m.Cost.Output,
-			CostCacheIn:      m.Cost.CacheRead,
-			CostCacheOut:     m.Cost.CacheWrite,
+			CostIn:           costIn,
+			CostOut:          costOut,
+			CostCacheIn:      costCacheIn,
+			CostCacheOut:     costCacheOut,
 			SupportsTools:    m.Capabilities.ToolCall,
 			SupportsVision:   stringSliceContains(m.Modalities.Input, "image"),
 			Reasoning:        m.Capabilities.Reasoning,
@@ -136,6 +143,9 @@ func (r *SmartRouter) ModelWithCapabilities(req models.Capabilities) (string, st
 			if m.Deprecated {
 				continue
 			}
+			if m.Cost == nil {
+				continue
+			}
 			if best == nil || m.Cost.Output < best.Cost.Output {
 				best = m
 			}
@@ -202,7 +212,7 @@ func (r *SmartRouter) FailoverInFamily(family string) []string {
 	members := r.catalog.ListFamily(family)
 	filtered := make([]*models.Model, 0, len(members))
 	for _, m := range members {
-		if m.Deprecated {
+		if m.Deprecated || m.Cost == nil {
 			continue
 		}
 		filtered = append(filtered, m)

@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -35,6 +34,11 @@ type Loader struct {
 	// OVERKILL_SKILL_ALLOW_UNKNOWN=1 if you trust it".
 	blockedMu sync.Mutex
 	blocked   []BlockedSkill
+
+	// B020: Internal context for the Watch goroutine. Closed by Close()
+	// to cleanly shut down the watcher without waiting for a parent ctx.
+	watchCtx    context.Context
+	watchCancel context.CancelFunc
 }
 
 // BlockedSkill is one skill that the safety scanner refused to
@@ -233,11 +237,26 @@ func (l *Loader) LoadFile(path string) (*Skill, error) {
 		return nil, err
 	}
 
+	// Validate at load time so malformed skills never enter the registry.
+	if errs := Validate(skill); len(errs) > 0 {
+		return nil, fmt.Errorf("skills: validation failed in %q: %v", path, errs)
+	}
+
 	skill.FilePath = path
 	skill.CreatedAt = info.ModTime().UTC()
 	skill.UpdatedAt = info.ModTime().UTC()
 
 	return skill, nil
+}
+
+// B020: Close cancels the internal watch context, allowing the Watch
+// goroutine to exit cleanly. Safe to call multiple times; safe to call
+// even if Watch was never started. After Close, subsequent Watch calls
+// will still work — they create a fresh internal context.
+func (l *Loader) Close() {
+	if l.watchCancel != nil {
+		l.watchCancel()
+	}
 }
 
 // Watch monitors bundledDir and userDir for .md skill file changes and invokes
@@ -249,6 +268,10 @@ func (l *Loader) LoadFile(path string) (*Skill, error) {
 // Errors during reload are logged via the standard log package and never
 // block the watcher loop.
 func (l *Loader) Watch(ctx interface{ Done() <-chan struct{} }, onChange func(skill Skill)) error {
+	// B020: Create internal context so Close() can shut down the
+	// watcher goroutine even if the caller's context is long-lived
+	// or nil. Combine both signals so either one stops the loop.
+	l.watchCtx, l.watchCancel = context.WithCancel(context.Background())
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("skills: creating fsnotify watcher: %w", err)
@@ -264,11 +287,15 @@ func (l *Loader) Watch(ctx interface{ Done() <-chan struct{} }, onChange func(sk
 		if _, err := os.Stat(root); err != nil {
 			return
 		}
-		_ = filepath.Walk(root, func(path string, info os.FileInfo, werr error) error {
+		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, werr error) error {
 			if werr != nil {
 				return nil
 			}
-			if info.IsDir() {
+			if d.IsDir() {
+				// Skip symlinked directories to prevent infinite loops.
+				if info, err := d.Info(); err == nil && info.Mode()&os.ModeSymlink != 0 {
+					return filepath.SkipDir
+				}
 				if aerr := w.Add(path); aerr != nil {
 					log.Printf("skills: watch add %q: %v", path, aerr)
 				}
@@ -355,6 +382,14 @@ func (l *Loader) Watch(ctx interface{ Done() <-chan struct{} }, onChange func(sk
 				}
 				mu.Unlock()
 				return
+			case <-l.watchCtx.Done():
+				// B020: Internal Close() fired — clean up like parent ctx.
+				mu.Lock()
+				for _, t := range timers {
+					t.Stop()
+				}
+				mu.Unlock()
+				return
 			case ev, ok := <-w.Events:
 				if !ok {
 					return
@@ -393,27 +428,34 @@ func (l *Loader) Watch(ctx interface{ Done() <-chan struct{} }, onChange func(sk
 var knownFields = map[string]bool{
 	"name": true, "version": true, "description": true, "author": true,
 	"category": true, "tags": true, "triggers": true, "enabled": true, "metadata": true,
+	"conditions": true,
 }
 
 func parseSkillMarkdown(data []byte) (*Skill, error) {
 	content := string(data)
 
-	if !strings.HasPrefix(content, "---") {
+	// Only treat --- delimited block as frontmatter when the
+	// opening --- is at position 0 followed by a newline.
+	// This prevents markdown tables and horizontal rules from
+	// being misinterpreted as YAML frontmatter.
+	if !strings.HasPrefix(content, "---\n") {
 		return nil, fmt.Errorf("skills: missing frontmatter markers")
 	}
 
-	rest := content[3:]
-	idx := bytes.Index([]byte(rest), []byte("\n---"))
-	if idx < 0 {
-		sepIdx := strings.Index(rest, "---")
-		if sepIdx < 0 {
+	// Look for closing \n---\n (anchored, not a mid-line match).
+	afterOpen := content[4:]
+	end := strings.Index(afterOpen, "\n---\n")
+	if end == -1 {
+		// Allow trailing \n--- at EOF.
+		if strings.HasSuffix(afterOpen, "\n---") {
+			end = len(afterOpen) - 4
+		} else {
 			return nil, fmt.Errorf("skills: missing closing frontmatter marker")
 		}
-		idx = sepIdx - 1
 	}
 
-	fmBytes := []byte(strings.TrimSpace(rest[:idx]))
-	body := strings.TrimSpace(rest[idx+4:])
+	fmBytes := []byte(strings.TrimSpace(afterOpen[:end]))
+	body := strings.TrimSpace(afterOpen[end+5:])
 
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(fmBytes, &raw); err != nil {
@@ -437,6 +479,18 @@ func parseSkillMarkdown(data []byte) (*Skill, error) {
 		if md, ok := rawMd.(map[string]interface{}); ok {
 			for k, v := range md {
 				skill.Metadata[k] = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+
+	// C14: parse conditions into the Conditions struct so
+	// MatchContext/MatchWithContext work for file-loaded skills.
+	if rawConds, ok := raw["conditions"]; ok {
+		condBytes, err := yaml.Marshal(rawConds)
+		if err == nil {
+			var conds Conditions
+			if err := yaml.Unmarshal(condBytes, &conds); err == nil {
+				skill.Conditions = conds
 			}
 		}
 	}
@@ -490,11 +544,13 @@ func sliceVal(v interface{}) []string {
 
 func isSkillFile(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
-	base := strings.ToLower(name)
+	// Any .md file or skill*.yml / skill*.yaml are potential skill files.
+	// We accept all .md files because skill directories may use
+	// SKILL.md, skill.md, or any other .md naming convention.
 	if ext == ".md" {
 		return true
 	}
-	if strings.HasPrefix(base, "skill") && (ext == ".yml" || ext == ".yaml") {
+	if strings.HasPrefix(strings.ToLower(name), "skill") && (ext == ".yml" || ext == ".yaml") {
 		return true
 	}
 	return false

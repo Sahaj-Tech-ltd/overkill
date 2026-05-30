@@ -2,9 +2,73 @@ package config
 
 import "time"
 
+// ThinkingLevel controls how much internal reasoning/thinking the model
+// exposes. Not all providers support all levels — unsupported levels
+// are silently downgraded to the nearest supported option.
+type ThinkingLevel string
+
+const (
+	ThinkingOff     ThinkingLevel = "off"
+	ThinkingMinimal ThinkingLevel = "minimal"
+	ThinkingLow     ThinkingLevel = "low"
+	ThinkingMedium  ThinkingLevel = "medium"
+	ThinkingHigh    ThinkingLevel = "high"
+	ThinkingXHigh   ThinkingLevel = "x-high"
+)
+
+// ThinkingBudgetTokens maps each ThinkingLevel to a budget_tokens value
+// for Anthropic (and any other provider that uses token-budget thinking).
+func (t ThinkingLevel) BudgetTokens() int {
+	switch t {
+	case ThinkingMinimal:
+		return 1024
+	case ThinkingLow:
+		return 2048
+	case ThinkingMedium:
+		return 4096
+	case ThinkingHigh:
+		return 8192
+	case ThinkingXHigh:
+		return 16384
+	default:
+		return 0
+	}
+}
+
+// Valid returns whether the level is a known value.
+func (t ThinkingLevel) Valid() bool {
+	switch t {
+	case ThinkingOff, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh:
+		return true
+	default:
+		return false
+	}
+}
+
+// Next returns the next level in the cycle. Wraps from x-high back to off.
+func (t ThinkingLevel) Next() ThinkingLevel {
+	switch t {
+	case ThinkingOff:
+		return ThinkingMinimal
+	case ThinkingMinimal:
+		return ThinkingLow
+	case ThinkingLow:
+		return ThinkingMedium
+	case ThinkingMedium:
+		return ThinkingHigh
+	case ThinkingHigh:
+		return ThinkingXHigh
+	case ThinkingXHigh:
+		return ThinkingOff
+	default:
+		return ThinkingOff
+	}
+}
+
 type Config struct {
 	Version     int               `toml:"version"`
 	Agent       AgentConfig       `toml:"agent"`
+	Thinking    ThinkingConfig    `toml:"thinking"`
 	Providers   []ProviderConfig  `toml:"providers"`
 	TTS         TTSConfig         `toml:"tts"`
 	Personality PersonalityConfig `toml:"personality"`
@@ -30,8 +94,18 @@ type Config struct {
 
 	// DatabaseURL is the PostgreSQL connection string for persistent stores
 	// (learning corrections, etc.). Falls back to DATABASE_URL env var.
-	// Example: "postgres://user:pass@localhost:5432/overkill?sslmode=disable"
+	// Example: "postgres://user:***@localhost:5432/overkill?sslmode=disable"
 	DatabaseURL string `toml:"database_url"`
+}
+
+// ThinkingConfig governs extended thinking / chain-of-thought visibility.
+// Providers that support thinking (Anthropic, DeepSeek R1, OpenAI o-series)
+// surface internal reasoning tokens as the agent streams.
+type ThinkingConfig struct {
+	// Level sets the thinking budget. Supported values:
+	// off, minimal, low, medium, high, x-high.
+	// Default is "off" (no thinking tokens surfaced).
+	Level ThinkingLevel `toml:"level"`
 }
 
 // OuroborosConfig governs the Ouroboros adversarial-review wall
@@ -112,13 +186,50 @@ type TelegramConfig struct {
 	NotifyChatID int64 `toml:"notify_chat_id"`
 }
 
+// TwilioConfig describes a Twilio SMS sidecar that pipes into the bridge.
+// The sidecar is a ~30-line Python/Node script that receives Twilio webhooks,
+// POSTs to /v1/in, and SSE-reads from /v1/out. This section is reference
+// config for the sidecar — Overkill itself doesn't call the Twilio API.
+type TwilioConfig struct {
+	// Enabled toggles the Twilio sidecar. When true, the bridge accepts
+	// messages from the 'sms' channel and the sidecar script should be
+	// pointed at the bridge listen address.
+	Enabled bool `toml:"enabled"`
+	// AccountSID is the Twilio account identifier.
+	AccountSID string `toml:"account_sid"`
+	// AuthToken is the Twilio API secret.
+	AuthToken string `toml:"auth_token"`
+	// FromNumber is the Twilio phone number messages are sent from.
+	FromNumber string `toml:"from_number"`
+	// WebhookPath is the public URL Twilio POSTs incoming SMS to.
+	// The sidecar listens here and relays to the bridge.
+	WebhookPath string `toml:"webhook_path"`
+}
+
+// IMessageConfig describes an iMessage sidecar that pipes into the bridge.
+// Supports BlueBubbles (self-hosted iMessage server for macOS) or any
+// iMessage relay that speaks the bridge HTTP protocol. This section is
+// reference config for the sidecar — Overkill itself doesn't call
+// BlueBubbles or Apple APIs.
+type IMessageConfig struct {
+	// Enabled toggles the iMessage sidecar.
+	Enabled bool `toml:"enabled"`
+	// ServerURL is the BlueBubbles server address (e.g. http://10.0.1.5:1234).
+	ServerURL string `toml:"server_url"`
+	// Password is the BlueBubbles server password.
+	Password string `toml:"password"`
+}
+
 // BridgeConfig governs the HTTP webhook bridge for sidecar gateways
-// (Baileys WhatsApp, discord.js, SMS relays). Listens on loopback by
-// default; expose only behind a reverse proxy if you need remote access.
+// (Baileys WhatsApp, discord.js, SMS relays, iMessage bridges).
+// Listens on loopback by default; expose only behind a reverse proxy
+// if you need remote access.
 type BridgeConfig struct {
-	Enabled bool   `toml:"enabled"`
-	Listen  string `toml:"listen"` // default 127.0.0.1:7799
-	Token   string `toml:"token"`  // shared secret; empty disables auth
+	Enabled  bool           `toml:"enabled"`
+	Listen   string         `toml:"listen"` // default 127.0.0.1:7799
+	Token    string         `toml:"token"`  // shared secret; empty disables auth
+	Twilio   TwilioConfig   `toml:"twilio"`
+	iMessage IMessageConfig `toml:"imessage"`
 }
 
 // DiscordConfig governs the optional Discord bot gateway.
@@ -190,7 +301,7 @@ type WhatsAppCloudConfig struct {
 	VerifyToken   string `toml:"verify_token"` // env: WHATSAPP_CLOUD_VERIFY_TOKEN
 	// Listen is the HTTP bind address for the webhook server. Place
 	// behind a reverse proxy that terminates HTTPS — Meta only
-	// delivers webhooks to HTTPS endpoints. Default 127.0.0.1:7798.
+	// delivers webhooks to HTTPS endpoints. Default from config.DefaultWhatsAppCloudAddr.
 	Listen string `toml:"listen"`
 }
 
@@ -200,6 +311,7 @@ type SignalConfig struct {
 	Enabled    bool   `toml:"enabled"`
 	RestAPIURL string `toml:"rest_api_url"` // default http://localhost:8080
 	Account    string `toml:"account"`      // E.164 phone number
+	AuthToken  string `toml:"auth_token"`   // Bearer token for signal-cli auth
 }
 
 // MatrixConfig governs the optional Matrix (Element, etc.) gateway via
@@ -214,17 +326,28 @@ type MatrixConfig struct {
 	Password      string `toml:"password"`       // for auto-login if no token
 }
 
+// MattermostConfig governs the optional Mattermost bot gateway.
+// Uses the Mattermost WebSocket API for real-time events and the
+// REST API for posting messages. Off by default.
+type MattermostConfig struct {
+	Enabled   bool   `toml:"enabled"`
+	ServerURL string `toml:"server_url"` // e.g. https://mattermost.example.com
+	BotToken  string `toml:"bot_token"`  // env: MATTERMOST_BOT_TOKEN
+	TeamName  string `toml:"team_name"`  // team the bot joins
+}
+
 // GatewayConfig wires all remote messaging gateways. Each sub-section is
 // independently togglable so users can run telegram alone, discord
 // alone, whatsapp alone, the bridge alone, or any combination.
 type GatewayConfig struct {
-	Telegram TelegramConfig `toml:"telegram"`
-	Discord  DiscordConfig  `toml:"discord"`
-	Slack    SlackConfig    `toml:"slack"`
-	WhatsApp WhatsAppConfig `toml:"whatsapp"`
-	Bridge   BridgeConfig   `toml:"bridge"`
-	Signal   SignalConfig   `toml:"signal"`
-	Matrix   MatrixConfig   `toml:"matrix"`
+	Telegram   TelegramConfig   `toml:"telegram"`
+	Discord    DiscordConfig    `toml:"discord"`
+	Slack      SlackConfig      `toml:"slack"`
+	WhatsApp   WhatsAppConfig   `toml:"whatsapp"`
+	Bridge     BridgeConfig     `toml:"bridge"`
+	Signal     SignalConfig     `toml:"signal"`
+	Matrix     MatrixConfig     `toml:"matrix"`
+	Mattermost MattermostConfig `toml:"mattermost"`
 }
 
 // VisionConfig governs the standalone vision describer used by remote
@@ -291,7 +414,8 @@ type ACPConfig struct {
 // UIConfig controls TUI-level cosmetics. Animations is a soft kill-switch for
 // every animated component — useful over slow SSH or in dumb terminals.
 type UIConfig struct {
-	Animations bool `toml:"animations"`
+	Animations bool   `toml:"animations"`
+	Theme      string `toml:"theme"`
 }
 
 type SkillsConfig struct {
@@ -329,11 +453,16 @@ type LSPServer struct {
 }
 
 type AgentConfig struct {
-	Name            string `toml:"name"`
-	DefaultProvider string `toml:"default_provider"`
-	DefaultModel    string `toml:"default_model"`
-	MaxTurns        int    `toml:"max_turns"`
-	SpecDriven      bool   `toml:"spec_driven"`
+	Name                     string            `toml:"name"`
+	DefaultProvider          string            `toml:"default_provider"`
+	DefaultModel             string            `toml:"default_model"`
+	MaxTurns                 int               `toml:"max_turns"`
+	SpecDriven               bool              `toml:"spec_driven"`
+	SystemPromptOverrides    map[string]string `toml:"system_prompt_overrides"`
+	// SystemPrompt is a user-editable base system prompt. When non-empty,
+	// it's prepended to the personality-generated prompt. Changing it
+	// mid-session triggers context compaction + a fresh conversation.
+	SystemPrompt string `toml:"system_prompt"`
 }
 
 type ProviderConfig struct {
@@ -397,9 +526,8 @@ type CompactionConfig struct {
 	PreserveMessages   int `toml:"preserve_messages"`
 	MaxSummaryTokens   int `toml:"max_summary_tokens"`
 	// Model overrides the model used for the summarisation LLM call.
-	// Empty falls back to DefaultCompactOptions ("gpt-4o-mini") —
-	// historically the cheap model for compaction. Setting this is
-	// what reads the previously-dead SetCompactionModel API.
+	// Empty falls back to the provider's cheapest model at runtime
+	// (via LCM compactor's pickCheapestModel).
 	Model string `toml:"model,omitempty"`
 	// UseLCM routes Agent.Compact through the LCM 3-level escalation
 	// compactor (internal/compaction). When false, falls back to the legacy
@@ -412,3 +540,14 @@ type CompactionConfig struct {
 }
 
 const CurrentVersion = 1
+
+// Network defaults — well-known ports for Overkill's sub-services.
+// Each service uses a dedicated loopback port so they can coexist without
+// port conflicts.
+const (
+	DefaultWebUIAddr         = "127.0.0.1:8420"
+	DefaultSSEDashboardAddr  = "127.0.0.1:7802"
+	DefaultSOPWebhookAddr    = "127.0.0.1:7801"
+	DefaultWhatsAppCloudAddr = "127.0.0.1:7798"
+	DefaultACPAddr           = "127.0.0.1:7777"
+)

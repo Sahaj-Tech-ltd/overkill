@@ -11,6 +11,7 @@ package personality
 
 import (
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"sync"
@@ -69,7 +70,11 @@ func (d *FrustrationDetector) Observe(input string) bool {
 	}
 	msg := fmt.Sprintf("Frustration signal: %s", reason)
 	func() {
-		defer func() { _ = recover() }()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("personality: frustration sink panic: %v", r)
+			}
+		}()
 		_ = d.sink.Create("frustration_signal", msg, d.sessionID)
 	}()
 	d.lastFiredAt = time.Now()

@@ -182,7 +182,12 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	// plugins). Scan the raw user command, not the marker-appended form.
 	if s.scanner != nil {
 		res, err := s.scanner.Scan(in.Command)
-		if err == nil && res != nil && res.Blocked {
+		if err != nil {
+			// Scanner error means we couldn't verify safety —
+			// treat as a block rather than silently allowing.
+			return nil, fmt.Errorf("shell: scanner error: %w", err)
+		}
+		if res != nil && res.Blocked {
 			reason := "blocked by command scanner"
 			if len(res.Findings) > 0 {
 				reason = res.Findings[0].Description

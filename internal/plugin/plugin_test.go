@@ -358,14 +358,14 @@ func TestAssembleSnippets(t *testing.T) {
 	got := AssembleSnippets([]ContextSnippet{
 		{Title: "a", Content: "alpha"},
 		{Title: "b", Content: "beta\n"},
-	})
+	}, 10000)
 	if got == "" {
 		t.Fatal("expected non-empty output")
 	}
 	if !contains(got, "alpha") || !contains(got, "beta") || !contains(got, "## a") || !contains(got, "## b") {
 		t.Fatalf("unexpected output:\n%s", got)
 	}
-	if AssembleSnippets(nil) != "" {
+	if AssembleSnippets(nil, 10000) != "" {
 		t.Fatal("nil input should produce empty string")
 	}
 }
@@ -801,7 +801,7 @@ func TestManagerDispatch(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestProvideAndAssembleNilManager(t *testing.T) {
-	if got := ProvideAndAssemble(context.Background(), nil, "", ""); got != "" {
+	if got := ProvideAndAssemble(context.Background(), nil, "", "", 10000); got != "" {
 		t.Fatal("expected empty for nil manager")
 	}
 }
@@ -809,7 +809,7 @@ func TestProvideAndAssembleNilManager(t *testing.T) {
 func TestAssembleSnippetsEmptyTitle(t *testing.T) {
 	got := AssembleSnippets([]ContextSnippet{
 		{Title: "", Content: "data"},
-	})
+	}, 10000)
 	if !contains(got, "(untitled)") {
 		t.Fatalf("expected (untitled), got %s", got)
 	}
@@ -986,7 +986,7 @@ func TestManagerNilSafeMethods(t *testing.T) {
 		t.Fatal("nil InvokeCommand should error")
 	}
 	m.FireEvent("e", nil) // should not panic
-	if s := ProvideAndAssemble(context.Background(), m, "", ""); s != "" {
+	if s := ProvideAndAssemble(context.Background(), m, "", "", 10000); s != "" {
 		t.Fatal("nil ProvideAndAssemble should be empty")
 	}
 }

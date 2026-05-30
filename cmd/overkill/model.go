@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 var modelCmd = &cobra.Command{
@@ -42,7 +45,27 @@ var modelSetCmd = &cobra.Command{
 	Example: "  overkill model set openai/gpt-4o\n" +
 		"  overkill model set anthropic/claude-sonnet-4-20250514",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("%sModel selection not yet implemented (requested: %s)%s\n", colorYellow, args[0], colorReset)
+		parts := strings.SplitN(args[0], "/", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("expected provider/model (e.g. openai/gpt-4o), got %q", args[0])
+		}
+		provName, modelID := parts[0], parts[1]
+
+		cfg.Agent.DefaultProvider = provName
+		cfg.Agent.DefaultModel = modelID
+
+		path := resolvedCfgPath
+		if path == "" {
+			p, err := config.ConfigPath()
+			if err != nil {
+				return err
+			}
+			path = p
+		}
+		if err := cfg.Save(path); err != nil {
+			return fmt.Errorf("save config: %w", err)
+		}
+		fmt.Printf("%s✓ default model set to %s/%s%s\n", colorGreen, provName, modelID, colorReset)
 		return nil
 	},
 }

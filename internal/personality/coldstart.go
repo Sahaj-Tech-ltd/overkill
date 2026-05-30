@@ -1,3 +1,6 @@
+// Package personality — cold-start inference: derives a user profile
+// (name, timezone, communication style, etc.) from environment signals
+// on first boot when no explicit profile exists.
 package personality
 
 import (
@@ -73,6 +76,13 @@ func (csp *ColdStartProtocol) OpeningQuestion() string {
 }
 
 func (csp *ColdStartProtocol) ProcessResponse(response string) *ColdStartProfile {
+	// Cap input at 64 KB to avoid O(n²) regex work on ~1 MB inputs
+	// that can freeze the TUI for multiple seconds.
+	const maxInput = 64 * 1024
+	if len(response) > maxInput {
+		response = response[:maxInput]
+	}
+
 	profile := &ColdStartProfile{}
 
 	wordCount := len(strings.Fields(response))
@@ -179,35 +189,43 @@ func (p *ColdStartProfile) ToRelationshipArc() map[string]string {
 func countTechnicalTerms(s string) int {
 	count := 0
 
-	backtickRe := regexp.MustCompile("`[^`]+`")
-	count += len(backtickRe.FindAllString(s, -1))
+	count += len(backtickRE.FindAllString(s, -1))
+	count += len(extRE.FindAllString(s, -1))
 
-	extRe := regexp.MustCompile(`\b\w+\.(go|py|js|ts|rs|java|rb|cpp|c|h|tsx|jsx|mod|sum)\b`)
-	count += len(extRe.FindAllString(s, -1))
-
-	dotRe := regexp.MustCompile(`\b\w+\.\w+`)
-	for _, match := range dotRe.FindAllString(s, -1) {
-		if !extRe.MatchString(match) {
+	for _, match := range dotRE.FindAllString(s, -1) {
+		if !extRE.MatchString(match) {
 			count++
 		}
 	}
 
-	underscoreRe := regexp.MustCompile(`\b\w+_\w+\b`)
-	count += len(underscoreRe.FindAllString(s, -1))
-
-	pathRe := regexp.MustCompile(`(?:^|\s)(?:\./|/\w+/|~/)\S+`)
-	count += len(pathRe.FindAllString(s, -1))
+	count += len(underscoreRE.FindAllString(s, -1))
+	count += len(pathRE.FindAllString(s, -1))
 
 	return count
 }
 
-func extractUserName(s string) string {
-	patterns := []*regexp.Regexp{
+// Package-level regexes for countTechnicalTerms — compiled once, not on every call.
+var (
+	backtickRE   = regexp.MustCompile("`[^`]+`")
+	extRE        = regexp.MustCompile(`\b\w+\.(go|py|js|ts|rs|java|rb|cpp|c|h|tsx|jsx|mod|sum)\b`)
+	dotRE        = regexp.MustCompile(`\b\w+\.\w+`)
+	underscoreRE = regexp.MustCompile(`\b\w+_\w+\b`)
+	pathRE       = regexp.MustCompile(`(?:^|\s)(?:\./|/\w+/|~/)\S+`)
+)
+
+// Package-level regexes for user/tz extraction — compiled once.
+var (
+	userNamePatterns = []*regexp.Regexp{
 		regexp.MustCompile(`(?i)I'm\s+(\w+)`),
 		regexp.MustCompile(`(?i)my name is\s+(\w+)`),
 		regexp.MustCompile(`(?i)call me\s+(\w+)`),
 	}
-	for _, re := range patterns {
+	tzRE   = regexp.MustCompile(`(?i)\b(EST|CST|MST|PST|EDT|CDT|MDT|PDT|UTC[+-]\d{1,2})\b`)
+	tzInRE = regexp.MustCompile(`(?i)(?:I'm in|I am in)\s+([A-Z]{2,5})\b`)
+)
+
+func extractUserName(s string) string {
+	for _, re := range userNamePatterns {
 		matches := re.FindStringSubmatch(s)
 		if len(matches) >= 2 {
 			return matches[1]
@@ -217,14 +235,12 @@ func extractUserName(s string) string {
 }
 
 func extractTimezone(s string) string {
-	tzRe := regexp.MustCompile(`(?i)\b(EST|CST|MST|PST|EDT|CDT|MDT|PDT|UTC[+-]\d{1,2})\b`)
-	matches := tzRe.FindStringSubmatch(s)
+	matches := tzRE.FindStringSubmatch(s)
 	if len(matches) >= 2 {
 		return matches[1]
 	}
 
-	tzInRe := regexp.MustCompile(`(?i)(?:I'm in|I am in)\s+([A-Z]{2,5})\b`)
-	matches = tzInRe.FindStringSubmatch(s)
+	matches = tzInRE.FindStringSubmatch(s)
 	if len(matches) >= 2 {
 		return matches[1]
 	}

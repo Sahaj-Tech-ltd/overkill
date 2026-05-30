@@ -1,4 +1,4 @@
-import type { JSONRPCRequest, JSONRPCResponse, StreamEvent } from "./types.ts";
+import type { JSONRPCRequest, JSONRPCResponse, StreamEvent, ForkResult } from "./types.ts";
 
 const DEFAULT_PORT = 3000;
 
@@ -10,6 +10,9 @@ function getBaseUrl(): string {
 export class BackendClient {
   private baseUrl: string;
   private requestId = 0;
+  // B019: Active stream cancellation. Set by streamCall, cleared when the
+  // stream ends. Call cancel() to abort the in-flight fetch.
+  private streamAbort: AbortController | null = null;
 
   constructor(baseUrl?: string) {
     this.baseUrl = baseUrl ?? getBaseUrl();
@@ -17,6 +20,14 @@ export class BackendClient {
 
   private nextId(): number {
     return ++this.requestId;
+  }
+
+  /** B019: Cancel the currently active streamCall. No-op when idle. */
+  cancel(): void {
+    if (this.streamAbort) {
+      this.streamAbort.abort();
+      this.streamAbort = null;
+    }
   }
 
   async call<T = unknown>(method: string, params?: unknown): Promise<T> {
@@ -104,7 +115,11 @@ export class BackendClient {
       url.searchParams.set("params", JSON.stringify(params));
     }
 
-    const res = await fetch(url.toString());
+    // B019: Wire AbortController so callers can cancel the stream.
+    const controller = new AbortController();
+    this.streamAbort = controller;
+
+    const res = await fetch(url.toString(), { signal: controller.signal });
 
     if (!res.ok) {
       throw new Error(`SSE ${res.status}: ${res.statusText}`);
@@ -165,6 +180,9 @@ export class BackendClient {
       }
     } finally {
       reader.releaseLock();
+      // B019: Clear the abort controller so cancel() is a no-op after
+      // the stream ends naturally.
+      this.streamAbort = null;
     }
   }
 
@@ -181,6 +199,26 @@ export class BackendClient {
 
   async estop(): Promise<string> {
     return this.call<string>("estop");
+  }
+
+  async undo(sessionId: string): Promise<{ status: string; removed_text: string }> {
+    return this.call<{ status: string; removed_text: string }>("agent.undo", {
+      session_id: sessionId,
+    });
+  }
+
+  async steer(sessionId: string, message: string): Promise<{ status: string }> {
+    return this.call<{ status: string }>("agent.steer", {
+      session_id: sessionId,
+      message,
+    });
+  }
+
+  async fork(sessionId: string, name?: string): Promise<ForkResult> {
+    return this.call<ForkResult>("agent.fork", {
+      session_id: sessionId,
+      name,
+    });
   }
 }
 

@@ -58,10 +58,8 @@ const alarmDispatchModelEnv = "OVERKILL_ALARM_MODEL"
 // pick the cheapest-capable model available; tests and the daemon
 // override via env when a specific catalog is configured.
 var alarmDispatchDefaults = []string{
-	"anthropic/claude-haiku-4-5",
-	"openai/gpt-4o-mini",
-	"anthropic/claude-3-5-haiku",
 	"deepseek/deepseek-chat",
+	"anthropic/claude-haiku-4-5",
 }
 
 // alarmDispatchFire returns a fire callback suitable for AlarmClock.

@@ -64,72 +64,54 @@ var AvailableProfiles = []string{"yolo", "default", "paranoid", "enterprise", "r
 func boolPtr(b bool) *bool { return &b }
 
 func applyYOLO(u *UserOverrides) {
-	u.Basic.ConfirmWrites = false
+	u.Basic.ConfirmWrites = boolPtr(false)
 	u.Basic.AutoCompactPercent = 0.5
 	u.Basic.CostCapMonthly = 0 // no cap
 
-	u.Advanced.Scanners = ScannerToggles{
-		Command:             ScannerOnOff{Enabled: false},
-		Injection:           ScannerOnOff{Enabled: false},
-		PromptInjectBrowser: ScannerOnOff{Enabled: false},
-	}
-	u.Advanced.Permissions = PermissionsUserConfig{
-		AutoApproveAll:         boolPtr(true),
-		SkipDestructiveConfirm: boolPtr(true),
-	}
+	u.Advanced.Scanners.Command = ScannerOnOff{Enabled: boolPtr(false)}
+	u.Advanced.Scanners.Injection = ScannerOnOff{Enabled: boolPtr(false)}
+	u.Advanced.Scanners.PromptInjectBrowser = ScannerOnOff{Enabled: boolPtr(false)}
+	u.Advanced.Permissions.AutoApproveAll = boolPtr(true)
+	u.Advanced.Permissions.SkipDestructiveConfirm = boolPtr(true)
 	// Hooks default-on but the user can wire their own. We don't
 	// install any sample hooks at YOLO level.
 	u.Advanced.Hooks = HooksUserConfig{}
-	u.Advanced.Telemetry = TelemetryUserConfig{
-		EventLog:       boolPtr(false),
-		FlightRecorder: boolPtr(true), // crash audit only
-		VerifyOnBoot:   boolPtr(false),
-	}
+	u.Advanced.Telemetry.EventLog = boolPtr(false)
+	u.Advanced.Telemetry.FlightRecorder = boolPtr(true) // crash audit only
+	u.Advanced.Telemetry.VerifyOnBoot = boolPtr(false)
 }
 
 func applyDefault(u *UserOverrides) {
-	u.Basic.ConfirmWrites = true
+	u.Basic.ConfirmWrites = boolPtr(true)
 	u.Basic.AutoCompactPercent = 0.5
 	u.Basic.CostCapMonthly = 0
 
-	u.Advanced.Scanners = ScannerToggles{
-		Command:             ScannerOnOff{Enabled: true},
-		Injection:           ScannerOnOff{Enabled: false},
-		PromptInjectBrowser: ScannerOnOff{Enabled: false},
-	}
-	u.Advanced.Permissions = PermissionsUserConfig{
-		AutoApproveAll:         boolPtr(false),
-		SkipDestructiveConfirm: boolPtr(false),
-	}
-	u.Advanced.Telemetry = TelemetryUserConfig{
-		EventLog:       boolPtr(true),
-		FlightRecorder: boolPtr(true),
-		VerifyOnBoot:   boolPtr(false),
-	}
+	u.Advanced.Scanners.Command = ScannerOnOff{Enabled: boolPtr(true)}
+	u.Advanced.Scanners.Injection = ScannerOnOff{Enabled: boolPtr(false)}
+	u.Advanced.Scanners.PromptInjectBrowser = ScannerOnOff{Enabled: boolPtr(false)}
+	u.Advanced.Permissions.AutoApproveAll = boolPtr(false)
+	u.Advanced.Permissions.SkipDestructiveConfirm = boolPtr(false)
+	u.Advanced.Telemetry.EventLog = boolPtr(true)
+	u.Advanced.Telemetry.FlightRecorder = boolPtr(true)
+	u.Advanced.Telemetry.VerifyOnBoot = boolPtr(false)
 }
 
 func applyParanoid(u *UserOverrides) {
-	u.Basic.ConfirmWrites = true
+	u.Basic.ConfirmWrites = boolPtr(true)
 	u.Basic.AutoCompactPercent = 0.4
 	if u.Basic.CostCapMonthly == 0 {
 		u.Basic.CostCapMonthly = 50 // sensible default cap; user can raise
 	}
 
-	u.Advanced.Scanners = ScannerToggles{
-		Command:             ScannerOnOff{Enabled: true},
-		Injection:           ScannerOnOff{Enabled: true},
-		PromptInjectBrowser: ScannerOnOff{Enabled: true},
-	}
-	u.Advanced.Permissions = PermissionsUserConfig{
-		AutoApproveAll:         boolPtr(false),
-		SkipDestructiveConfirm: boolPtr(false),
-	}
-	u.Advanced.Telemetry = TelemetryUserConfig{
-		EventLog:       boolPtr(true),
-		FlightRecorder: boolPtr(true),
-		RetentionDays:  90,
-		VerifyOnBoot:   boolPtr(true),
-	}
+	u.Advanced.Scanners.Command = ScannerOnOff{Enabled: boolPtr(true)}
+	u.Advanced.Scanners.Injection = ScannerOnOff{Enabled: boolPtr(true)}
+	u.Advanced.Scanners.PromptInjectBrowser = ScannerOnOff{Enabled: boolPtr(true)}
+	u.Advanced.Permissions.AutoApproveAll = boolPtr(false)
+	u.Advanced.Permissions.SkipDestructiveConfirm = boolPtr(false)
+	u.Advanced.Telemetry.EventLog = boolPtr(true)
+	u.Advanced.Telemetry.FlightRecorder = boolPtr(true)
+	u.Advanced.Telemetry.RetentionDays = 90
+	u.Advanced.Telemetry.VerifyOnBoot = boolPtr(true)
 	// MCP servers default-deny (no Trusted flag → mcpshield enforces).
 	// Per-server allowlists must be added explicitly.
 	for i := range u.Advanced.MCPServers {
@@ -166,33 +148,27 @@ func applyEnterprise(u *UserOverrides) {
 //     the list is intentionally empty by default so operators must
 //     consciously open access.
 func applyRemote(u *UserOverrides) {
-	u.Basic.ConfirmWrites = true
+	u.Basic.ConfirmWrites = boolPtr(true)
 	u.Basic.AutoCompactPercent = 0.5
 	u.Basic.CostCapMonthly = 0
 
-	u.Advanced.Scanners = ScannerToggles{
-		Command:             ScannerOnOff{Enabled: true},
-		Injection:           ScannerOnOff{Enabled: false},
-		PromptInjectBrowser: ScannerOnOff{Enabled: false},
+	u.Advanced.Scanners.Command = ScannerOnOff{Enabled: boolPtr(true)}
+	u.Advanced.Scanners.Injection = ScannerOnOff{Enabled: boolPtr(false)}
+	u.Advanced.Scanners.PromptInjectBrowser = ScannerOnOff{Enabled: boolPtr(false)}
+	u.Advanced.Permissions.AutoApproveAll = boolPtr(false)
+	u.Advanced.Permissions.SkipDestructiveConfirm = boolPtr(false)
+	u.Advanced.Permissions.DeniedTools = []string{
+		"pty_shell",
 	}
-	u.Advanced.Permissions = PermissionsUserConfig{
-		AutoApproveAll:         boolPtr(false),
-		SkipDestructiveConfirm: boolPtr(false),
-		DeniedTools: []string{
-			"pty_shell",
-		},
-		RequireApprovalTools: []string{
-			"shell",
-			"patch",
-			"git_push",
-			"git-push",
-		},
-		// Empty by default; operators add domains they trust.
-		AllowedWebDomains: []string{},
+	u.Advanced.Permissions.RequireApprovalTools = []string{
+		"shell",
+		"patch",
+		"git_push",
+		"git-push",
 	}
-	u.Advanced.Telemetry = TelemetryUserConfig{
-		EventLog:       boolPtr(true),
-		FlightRecorder: boolPtr(true),
-		VerifyOnBoot:   boolPtr(false),
-	}
+	// Empty by default; operators add domains they trust.
+	u.Advanced.Permissions.AllowedWebDomains = []string{}
+	u.Advanced.Telemetry.EventLog = boolPtr(true)
+	u.Advanced.Telemetry.FlightRecorder = boolPtr(true)
+	u.Advanced.Telemetry.VerifyOnBoot = boolPtr(false)
 }

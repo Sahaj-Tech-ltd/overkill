@@ -1,48 +1,32 @@
-// Package automation — alarm persistence so alarms set during a TUI
-// session survive both the TUI exiting AND the daemon restarting.
-//
-// Without persistence the killer use case dies on its own ground:
-// "wake me when this build finishes" only works if the alarm is still
-// scheduled 20 minutes later when the TUI has been closed.
-//
-// The store is intentionally separate from the AlarmClock so an
-// in-memory store can be used in tests and so a future migration to
-// SQLite or a remote store doesn't touch the clock loop.
+// Package automation — alarm persistence backed by PostgreSQL.
 package automation
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"sync"
+	"time"
 
-	"github.com/dgraph-io/badger/v4"
+	_ "github.com/lib/pq"
 )
 
-// AlarmStore is the persistence surface for alarms. Save is idempotent
-// (overwrite by ID). Load returns ALL alarms — pending and terminal —
-// so the AlarmClock can decide what to retain on reload (typically:
-// drop alarms more than 24h past their fire time to keep the store
-// from growing unbounded).
+// AlarmStore is the persistence surface for alarms.
 type AlarmStore interface {
 	Save(a *Alarm) error
 	Load() ([]*Alarm, error)
 	Delete(id string) error
 }
 
-// MemoryAlarmStore is the test/no-persistence implementation. Safe for
-// concurrent use.
+// MemoryAlarmStore is the test/no-persistence implementation.
 type MemoryAlarmStore struct {
 	mu     sync.RWMutex
 	alarms map[string]*Alarm
 }
 
-// NewMemoryAlarmStore returns an empty in-memory store.
 func NewMemoryAlarmStore() *MemoryAlarmStore {
 	return &MemoryAlarmStore{alarms: map[string]*Alarm{}}
 }
 
-// Save copies a so the caller mutating it after the Save can't corrupt
-// the store's view.
 func (s *MemoryAlarmStore) Save(a *Alarm) error {
 	if a == nil {
 		return fmt.Errorf("alarm store: nil alarm")
@@ -57,8 +41,6 @@ func (s *MemoryAlarmStore) Save(a *Alarm) error {
 	return nil
 }
 
-// Load returns alarms in deterministic order — by FireAt ascending —
-// so tests don't fight nondeterministic map iteration.
 func (s *MemoryAlarmStore) Load() ([]*Alarm, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -71,7 +53,6 @@ func (s *MemoryAlarmStore) Load() ([]*Alarm, error) {
 	return out, nil
 }
 
-// Delete removes the alarm by ID. No-op when missing.
 func (s *MemoryAlarmStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -79,91 +60,123 @@ func (s *MemoryAlarmStore) Delete(id string) error {
 	return nil
 }
 
-// BadgerAlarmStore is the production implementation. Same Badger DB as
-// SOPs — different key prefix.
-type BadgerAlarmStore struct {
-	db *badger.DB
+// PostgresAlarmStore is the production implementation.
+type PostgresAlarmStore struct {
+	db *sql.DB
 }
 
-// NewBadgerAlarmStore wires a Badger DB. The DB lifecycle is owned by
-// the caller (typically the daemon).
-func NewBadgerAlarmStore(db *badger.DB) *BadgerAlarmStore {
-	return &BadgerAlarmStore{db: db}
+// NewPostgresAlarmStore wires a *sql.DB. The DB lifecycle is owned by the caller.
+func NewPostgresAlarmStore(db *sql.DB) (*PostgresAlarmStore, error) {
+	s := &PostgresAlarmStore{db: db}
+	if err := s.migrate(); err != nil {
+		return nil, fmt.Errorf("alarm store: migrate: %w", err)
+	}
+	return s, nil
 }
 
-func alarmKey(id string) []byte { return []byte("alarm:" + id) }
+func (s *PostgresAlarmStore) migrate() error {
+	_, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS automation_alarms (
+			id          TEXT PRIMARY KEY,
+			name        TEXT NOT NULL DEFAULT '',
+			fire_at     TIMESTAMPTZ,
+			action      TEXT NOT NULL DEFAULT '',
+			prompt      TEXT NOT NULL DEFAULT '',
+			session_id  TEXT NOT NULL DEFAULT '',
+			fired       BOOLEAN NOT NULL DEFAULT false,
+			cancelled   BOOLEAN NOT NULL DEFAULT false,
+			fired_at    TIMESTAMPTZ,
+			result      TEXT NOT NULL DEFAULT '',
+			attempts    INTEGER NOT NULL DEFAULT 0,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_alarms_fire_at ON automation_alarms (fire_at)`)
+	return err
+}
 
-// Save serializes and writes the alarm under its ID. Overwrite is the
-// expected behavior so a fire callback can re-Save with Fired=true.
-func (s *BadgerAlarmStore) Save(a *Alarm) error {
+func (s *PostgresAlarmStore) Save(a *Alarm) error {
 	if a == nil {
 		return fmt.Errorf("alarm store: nil alarm")
 	}
 	if a.ID == "" {
 		return fmt.Errorf("alarm store: empty ID")
 	}
-	data, err := json.Marshal(a)
+	_, err := s.db.Exec(`
+		INSERT INTO automation_alarms (id, name, fire_at, action, prompt, session_id, fired, cancelled, fired_at, result, attempts, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+		ON CONFLICT (id) DO UPDATE SET
+			name       = EXCLUDED.name,
+			fire_at    = EXCLUDED.fire_at,
+			action     = EXCLUDED.action,
+			prompt     = EXCLUDED.prompt,
+			session_id = EXCLUDED.session_id,
+			fired      = EXCLUDED.fired,
+			cancelled  = EXCLUDED.cancelled,
+			fired_at   = EXCLUDED.fired_at,
+			result     = EXCLUDED.result,
+			attempts   = EXCLUDED.attempts
+	`, a.ID, a.Name, nullableTime(a.FireAt), a.Action, a.Prompt, a.SessionID,
+		a.Fired, a.Cancelled, nullableTime(a.FiredAt), a.Result, a.Attempts)
 	if err != nil {
-		return fmt.Errorf("alarm store: marshal %s: %w", a.ID, err)
+		return fmt.Errorf("alarm store: save %s: %w", a.ID, err)
 	}
-	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Set(alarmKey(a.ID), data)
-	})
+	return nil
 }
 
-// Load reads every persisted alarm. Iteration is bounded by the prefix
-// scan; we don't paginate because alarm counts are small (humans set
-// dozens, not millions).
-func (s *BadgerAlarmStore) Load() ([]*Alarm, error) {
-	var out []*Alarm
-	err := s.db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.Prefix = []byte("alarm:")
-		it := txn.NewIterator(opts)
-		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
-			item := it.Item()
-			err := item.Value(func(v []byte) error {
-				var a Alarm
-				if err := json.Unmarshal(v, &a); err != nil {
-					// Skip corrupt rows rather than aborting the whole
-					// load — the user's pending alarms shouldn't die
-					// because one row got mangled.
-					return nil
-				}
-				out = append(out, &a)
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+func (s *PostgresAlarmStore) Load() ([]*Alarm, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, fire_at, action, prompt, session_id, fired, cancelled, fired_at, result, attempts
+		FROM automation_alarms ORDER BY fire_at
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("alarm store: load: %w", err)
 	}
+	defer rows.Close()
+
+	var out []*Alarm
+	for rows.Next() {
+		var a Alarm
+		var fireAt, firedAt sql.NullTime
+		var attempts int
+		if err := rows.Scan(&a.ID, &a.Name, &fireAt, &a.Action, &a.Prompt, &a.SessionID,
+			&a.Fired, &a.Cancelled, &firedAt, &a.Result, &attempts); err != nil {
+			// Skip corrupt rows
+			continue
+		}
+		if fireAt.Valid {
+			a.FireAt = fireAt.Time
+		}
+		if firedAt.Valid {
+			a.FiredAt = firedAt.Time
+		}
+		a.Attempts = attempts
+		out = append(out, &a)
+	}
 	sortAlarmsByFireAt(out)
-	return out, nil
+	return out, rows.Err()
 }
 
-// Delete removes an alarm. Missing key is not an error.
-func (s *BadgerAlarmStore) Delete(id string) error {
-	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Delete(alarmKey(id))
-	})
+func (s *PostgresAlarmStore) Delete(id string) error {
+	_, err := s.db.Exec(`DELETE FROM automation_alarms WHERE id = $1`, id)
+	return err
 }
 
-// sortAlarmsByFireAt sorts in place by FireAt ascending. Centralized
-// so memory + badger stores agree on iteration order.
+// sortAlarmsByFireAt sorts in place by FireAt ascending.
 func sortAlarmsByFireAt(alarms []*Alarm) {
-	// Bubble sort is cheap when n is small (it always is here) and we
-	// avoid pulling sort.Slice's closure allocation per call. If alarm
-	// counts ever cross 100, swap to sort.Slice without changing the
-	// behavior.
 	for i := 1; i < len(alarms); i++ {
 		for j := i; j > 0 && alarms[j].FireAt.Before(alarms[j-1].FireAt); j-- {
 			alarms[j], alarms[j-1] = alarms[j-1], alarms[j]
 		}
 	}
+}
+
+func nullableTime(t time.Time) interface{} {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }

@@ -3,6 +3,7 @@ package walls
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"regexp"
 	"strings"
@@ -15,10 +16,11 @@ type ArchitectureConfig struct {
 }
 
 type ArchRule struct {
-	ID          string   `json:"id"`
-	Description string   `json:"description"`
-	Pattern     string   `json:"pattern"`
-	Severity    Severity `json:"severity"`
+	ID              string         `json:"id"`
+	Description     string         `json:"description"`
+	Pattern         string         `json:"pattern"`
+	Severity        Severity       `json:"severity"`
+	compiledPattern *regexp.Regexp // compiled once at load time
 }
 
 type ArchitectureWall struct {
@@ -35,7 +37,7 @@ func NewArchitectureWall(cfg ArchitectureConfig) *ArchitectureWall {
 }
 
 func builtinArchRules() []ArchRule {
-	return []ArchRule{
+	rules := []ArchRule{
 		{
 			ID:          "no-sync-in-async",
 			Description: "No sync endpoints in async system",
@@ -45,7 +47,7 @@ func builtinArchRules() []ArchRule {
 		{
 			ID:          "no-direct-db-access",
 			Description: "No direct DB access outside repository layer",
-			Pattern:     `badger\.Open`,
+			Pattern:     `sql\.Open`,
 			Severity:    SeverityWarning,
 		},
 		{
@@ -54,13 +56,23 @@ func builtinArchRules() []ArchRule {
 			Pattern:     `(?i)(password|secret|api_key)\s*(?::=|=|:)\s*"[^"]+"`,
 			Severity:    SeverityWarning,
 		},
+		// B136: Simplify no-bare-errors pattern. The old pattern required
+		// specific newline/whitespace between err != nil and return err,
+		// missing legitimate bare returns like:
+		//     if err != nil {
+		//         return err   (with or without whitespace)
+		//     }
 		{
 			ID:          "no-bare-errors",
 			Description: "No catch-all error handling without context wrapping",
-			Pattern:     `if err != nil \{\s*\n?\s*return err`,
+			Pattern:     `if err != nil \{\s*return err\b`,
 			Severity:    SeverityInfo,
 		},
 	}
+	for i := range rules {
+		rules[i].compiledPattern = regexp.MustCompile(rules[i].Pattern)
+	}
+	return rules
 }
 
 func (w *ArchitectureWall) LoadRules(path string) error {
@@ -96,12 +108,25 @@ func (w *ArchitectureWall) LoadRules(path string) error {
 			Severity:    severity,
 		})
 	}
-
+	// Compile patterns for all loaded rules.
+	for i := range rules {
+		if re, err := regexp.Compile(rules[i].Pattern); err == nil {
+			rules[i].compiledPattern = re
+		} else {
+			// B130: Log bad regex so operators aren't silently missing rules.
+			log.Printf("walls: architecture rule %q has invalid pattern %q: %v",
+				rules[i].ID, rules[i].Pattern, err)
+		}
+	}
 	w.archRules = append(w.archRules, rules...)
 	return nil
 }
 
 func (w *ArchitectureWall) Check(_ context.Context, files map[string]string) (*WallResult, error) {
+	// B110: When the wall is disabled, return Passed=true. This is
+	// intentional — disabled means "skip this gate, don't block".
+	// If you need strict enforcement, keep Enabled=true and adjust
+	// individual rule severities instead.
 	if !w.config.Enabled {
 		return &WallResult{
 			Wall:     WallArchitecture,
@@ -116,8 +141,8 @@ func (w *ArchitectureWall) Check(_ context.Context, files map[string]string) (*W
 
 	for filename, content := range files {
 		for _, rule := range w.archRules {
-			re, err := regexp.Compile(rule.Pattern)
-			if err != nil {
+			re := rule.compiledPattern
+			if re == nil {
 				continue
 			}
 
@@ -166,7 +191,7 @@ func isRepoFile(filename string) bool {
 	if idx := strings.LastIndex(filename, "/"); idx >= 0 {
 		base = filename[idx+1:]
 	}
-	return base == "store.go" || base == "badger.go" || strings.Contains(base, "repo")
+	return base == "store.go" || base == "postgres.go" || strings.Contains(base, "repo")
 }
 
 func truncate(s string, maxLen int) string {

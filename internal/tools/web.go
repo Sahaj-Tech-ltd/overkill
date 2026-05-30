@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,10 +42,10 @@ var privateCIDRs = func() []*net.IPNet {
 }()
 
 // hostIsPrivate returns true when the host (literal IP or DNS name)
-// resolves to any private range. DNS rebinding is partially mitigated:
-// we resolve once here and the http.Client may resolve again — for
-// stronger guarantees the caller could pin the dialer to the resolved
-// IP, but for an agent-side SSRF block this catches the common cases.
+// resolves to any private range. In the browser tool this is the
+// primary SSRF gate; in the web tool it also serves as a pre-check
+// before the pinned-dialer layer (C9) and redirect re-validation (C10)
+// provide defence-in-depth.
 func hostIsPrivate(host string) bool {
 	if host == "" {
 		return true
@@ -158,13 +159,64 @@ func (w *WebTool) Execute(ctx context.Context, input json.RawMessage) (json.RawM
 		maxSize = int64(in.MaxSize)
 	}
 
+	// C9: DNS rebinding defence — resolve DNS once and pin the dialer to
+	// the resolved IP so http.Client cannot be tricked into connecting
+	// to a different address on a second resolution.
+	host := parsed.Hostname()
+	port := parsed.Port()
+	if port == "" {
+		if parsed.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return nil, fmt.Errorf("web: cannot resolve %q: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("web: no addresses for %q", host)
+	}
+
+	// Pin transport to the first resolved IP. Preserve SNI by setting
+	// TLSClientConfig.ServerName to the original hostname so HTTPS
+	// handshakes still present the correct certificate name.
+	pinnedDialer := &net.Dialer{Timeout: 30 * time.Second}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return pinnedDialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
+		},
+		TLSClientConfig: &tls.Config{
+			ServerName: host,
+		},
+	}
+
+	// C10: redirect SSRF — validate every redirect target before
+	// following it so an attacker cannot bounce the request to a
+	// private IP via a 302.
+	perReqClient := &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("web: stopped after 10 redirects")
+			}
+			redirectHost := req.URL.Hostname()
+			if !w.allowLocal && hostIsPrivate(redirectHost) {
+				return fmt.Errorf("web: redirect to private address %q blocked", redirectHost)
+			}
+			return nil
+		},
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, in.URL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("web: %w", err)
 	}
 	req.Header.Set("User-Agent", "Overkill/1.0")
 
-	resp, err := w.client.Do(req)
+	resp, err := perReqClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("web: %w", err)
 	}

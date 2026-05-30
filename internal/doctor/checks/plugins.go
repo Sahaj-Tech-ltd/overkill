@@ -64,6 +64,10 @@ func RegisterPlugins(r *doctor.Runner, d Deps) {
 					return failf("run `overkill plugin doctor "+p.Name+"` for details",
 						"start: %v", err)
 				}
+				if ctx.Err() != nil {
+					return failf("re-run doctor with a longer timeout",
+						"context cancelled before shutdown: %v", ctx.Err())
+				}
 				_ = c.Shutdown(ctx)
 				m := c.Manifest()
 				return okf("handshake ok (%s)", fmt.Sprintf("v%s", m.Version))

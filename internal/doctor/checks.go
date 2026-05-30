@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -306,7 +307,9 @@ func checkDir(path, label string) CheckResult {
 			Message: fmt.Sprintf("doctor: %s path exists but is not a directory: %s", label, path),
 		}
 	}
-	tmpFile := filepath.Join(path, ".doctor-write-test")
+	// B055: Use PID + random suffix to avoid collisions when two
+	// doctor runs race against each other.
+	tmpFile := filepath.Join(path, probeFilename())
 	if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 		return CheckResult{
 			Status:  StatusWarn,
@@ -373,4 +376,10 @@ func checkGitInstalled() CheckResult {
 		Status:  StatusOK,
 		Message: "git is available",
 	}
+}
+
+// probeFilename returns a unique temp probe name (B055). Uses PID + random
+// suffix so concurrent doctor runs don't collide on the same filename.
+func probeFilename() string {
+	return fmt.Sprintf(".doctor-probe-%d-%x", os.Getpid(), rand.Int63())
 }

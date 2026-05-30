@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -48,6 +49,12 @@ type anthropicRequest struct {
 	MaxTokens int                `json:"max_tokens"`
 	Tools     []anthropicTool    `json:"tools,omitempty"`
 	Stream    bool               `json:"stream,omitempty"`
+	Thinking  *anthropicThinking `json:"thinking,omitempty"`
+}
+
+type anthropicThinking struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens"`
 }
 
 type anthropicTool struct {
@@ -100,10 +107,21 @@ type AnthropicProvider struct {
 	*BaseProvider
 }
 
+const (
+	// DefaultAnthropicAPIVersion is the version string sent in the
+	// anthropic-version header. Override via FactoryConfig.Headers
+	// or by setting the ANTHROPIC_VERSION env var.
+	DefaultAnthropicAPIVersion = "2023-06-01"
+)
+
 func NewAnthropicProvider(apiKey string, models []Model) *AnthropicProvider {
 	bp := NewBaseProvider("anthropic", "https://api.anthropic.com/v1", apiKey, models)
 	bp.headers["x-api-key"] = apiKey
-	bp.headers["anthropic-version"] = "2023-06-01"
+	if v := os.Getenv("ANTHROPIC_VERSION"); v != "" {
+		bp.headers["anthropic-version"] = v
+	} else {
+		bp.headers["anthropic-version"] = DefaultAnthropicAPIVersion
+	}
 	return &AnthropicProvider{BaseProvider: bp}
 }
 
@@ -175,6 +193,23 @@ func (p *AnthropicProvider) buildRequestBody(req Request, stream bool) anthropic
 				Description: t.Description,
 				InputSchema: t.Parameters,
 			})
+		}
+	}
+
+	// Thinking support: wire the thinking level as an Anthropic
+	// extended thinking block. off means no thinking block is sent.
+	if req.ThinkingLevel != "" && req.ThinkingLevel != "off" {
+		budget := thinkingBudgetTokens(req.ThinkingLevel)
+		if budget > 0 {
+			// Anthropic requires max_tokens > budget_tokens.
+			// Ensure we don't exceed the model's context window.
+			if body.MaxTokens <= budget {
+				body.MaxTokens = budget + 1024
+			}
+			body.Thinking = &anthropicThinking{
+				Type:         "enabled",
+				BudgetTokens: budget,
+			}
 		}
 	}
 
@@ -419,4 +454,24 @@ func anthropicMessages(msgs []Message) []anthropicMessage {
 	}
 
 	return result
+}
+
+// thinkingBudgetTokens maps a thinking level string to an Anthropic
+// budget_tokens value. Mirrors config.ThinkingLevel.BudgetTokens()
+// without importing config to avoid import cycles.
+func thinkingBudgetTokens(level string) int {
+	switch level {
+	case "minimal":
+		return 1024
+	case "low":
+		return 2048
+	case "medium":
+		return 4096
+	case "high":
+		return 8192
+	case "x-high":
+		return 16384
+	default:
+		return 0
+	}
 }

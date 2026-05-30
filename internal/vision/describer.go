@@ -119,7 +119,9 @@ func (d *AnthropicDescriber) Describe(ctx context.Context, images []Image, promp
 
 	httpClient := d.HTTP
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		// B022: Default to client with explicit 30s timeout instead of
+		// http.DefaultClient, which has no timeout and could hang forever.
+		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {

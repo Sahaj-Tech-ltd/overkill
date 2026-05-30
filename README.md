@@ -22,7 +22,7 @@
 
 Overkill is a terminal coding agent that lives in your shell. It streams tool calls,
 gates risky actions behind explicit approval, manages its own context with a
-compact/fork model, and keeps every session local in an embedded BadgerDB store.
+compact/fork model, and keeps every session in a Postgres store.
 It speaks to a dozen LLM providers, the Agent Communication Protocol, MCP
 servers, and the language servers you already have installed.
 
@@ -42,7 +42,11 @@ curl -fsSL https://raw.githubusercontent.com/Sahaj-Tech-ltd/overkill/main/instal
 
 The installer detects your platform, prefers `go install` when Go is on `PATH`,
 otherwise downloads a pre-built binary, drops it in `~/.local/bin/overkill`, and
-bootstraps `~/.overkill/`. See [`install.sh`](install.sh) for everything it does.
+bootstraps `~/.overkill/`.
+
+**Supported platforms:** Linux (x86_64, arm64), macOS (Apple Silicon + Intel), WSL2.
+Windows native — coming in v0.10 ([roadmap](ROADMAP.md)). For now, use WSL or
+`go install` from PowerShell.
 
 ### With Go
 
@@ -118,7 +122,7 @@ Everything below ships in the current tree. Nothing aspirational.
 ### Web UI
 - `overkill web --open` — serves a single-page browser UI on
   `127.0.0.1:8420` and opens it in the default browser.
-- Same agent backend as the TUI, same BadgerDB session store.
+- Same agent backend as the TUI, same Postgres session store.
 - LAN access: `overkill web --listen 0.0.0.0:8420`. Always keep the bearer
   token (`~/.overkill/web-token`) private — anyone with the token can drive
   the agent. The startup banner prints a URL with the token embedded as a
@@ -143,7 +147,7 @@ LSP tools (`lsp_definition`, `lsp_references`, `lsp_hover`, `lsp_symbols`),
 `delegate` to a sub-agent.
 
 ### Sessions
-- Per-folder BadgerDB store under `~/.overkill/sessions/`
+- Per-folder Postgres store under `~/.overkill/sessions/`
 - list / switch / rename / delete / new
 - Autosave each turn, fork from any past message
 
@@ -348,7 +352,7 @@ overkill plugin install https://github.com/you/your-overkill-plugin
 ## Architecture
 
 The agent loop lives in `internal/agent/` (ReAct, streaming, variants,
-forethought, recovery). Storage is BadgerDB under `~/.overkill/sessions/` keyed
+forethought, recovery). Storage is PostgreSQL under `~/.overkill/sessions/` keyed
 by working directory. Provider adapters in `internal/providers/` are gated
 behind a single `Provider` interface; the catalog is hydrated from
 `models.dev` and cached for 24 hours.

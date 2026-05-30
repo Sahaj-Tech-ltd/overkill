@@ -96,7 +96,14 @@ func (m *Manager) List() []*Flag {
 // Layering (highest precedence first):
 //  1. UserOverrides[ctx.UserID]    if entry present
 //  2. ChannelOverrides[ctx.Channel] if entry present
-//  3. Percent rollout              if Percent > 0 AND subject available
+//  3. Percent rollout              if Percent > 0 AND subject available.
+//     Subject is the primary roll-out key (e.g. a user ID). When Subject
+//     is empty, UserID is used as a fallback. When both are empty the
+//     percent check is silently skipped — no one gets the flag via
+//     percent rollout. This is intentional: a flag with Percent > 0
+//     but no identifiable user simply won't roll out to that context.
+//     Set a ChannelOverride or Default=true if you need anonymous
+//     contexts to receive the flag.
 //  4. Default
 func (m *Manager) Enabled(name string, ctx EvalContext) bool {
 	m.mu.RLock()

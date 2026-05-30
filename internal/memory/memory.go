@@ -30,6 +30,7 @@ type Query struct {
 	Content      string       `json:"content"`
 	Types        []MemoryType `json:"types,omitempty"`
 	Tags         []string     `json:"tags,omitempty"`
+	SessionID    string       `json:"session_id,omitempty"`
 	Limit        int          `json:"limit"`
 	MinRelevance float64      `json:"min_relevance"`
 }

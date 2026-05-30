@@ -46,6 +46,24 @@ func (bp *BaseProvider) Models() []Model {
 	return bp.models
 }
 
+// SetCustomHeaders merges the given headers into the provider's
+// per-request header map. Existing keys are overwritten.
+// Restricted headers (Authorization, X-Api-Key, Content-Type) are
+// ignored to prevent credential replacement or content-type breakage.
+func (bp *BaseProvider) SetCustomHeaders(h map[string]string) {
+	restricted := map[string]bool{
+		"Authorization": true,
+		"X-Api-Key":     true,
+		"Content-Type":  true,
+	}
+	for k, v := range h {
+		if restricted[http.CanonicalHeaderKey(k)] {
+			continue
+		}
+		bp.headers[k] = v
+	}
+}
+
 func (bp *BaseProvider) doRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
 	var bodyReader io.Reader
 	if body != nil {

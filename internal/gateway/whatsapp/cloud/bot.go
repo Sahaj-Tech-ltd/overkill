@@ -79,6 +79,10 @@ type Bot struct {
 	Dispatcher *gateway.Dispatcher
 	Logger     *log.Logger
 
+	// httpClient is a dedicated HTTP client with a 30s timeout for
+	// Graph API calls, avoiding the unbounded http.DefaultClient.
+	httpClient *http.Client
+
 	server *http.Server
 
 	// Health state
@@ -102,6 +106,11 @@ type Bot struct {
 	// at seenIDsCap and lazily expired by timestamp.
 	seenMu  sync.Mutex
 	seenIDs map[string]time.Time
+
+	// runCtx carries the Run context for dispatching, so in-flight
+	// handlers survive only as long as the bot is alive.
+	runCtx   context.Context
+	runCtxMu sync.Mutex
 }
 
 const (
@@ -168,6 +177,7 @@ func NewBot(phoneNumberID, accessToken, appSecret, verifyToken, listen string, a
 		AllowedFrom:   allow,
 		Dispatcher:    d,
 		Logger:        log.New(io.Discard, "", 0),
+		httpClient:    &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -183,6 +193,10 @@ func (b *Bot) backoff() time.Duration {
 	attempt := b.backoffAttempt
 	b.backoffAttempt++
 	b.backoffMu.Unlock()
+	// Cap attempt to prevent integer overflow in math.Pow.
+	if attempt > 30 {
+		attempt = 30
+	}
 	d := time.Duration(math.Pow(2, float64(attempt))) * time.Second
 	if d > 30*time.Second {
 		d = 30 * time.Second
@@ -233,6 +247,10 @@ func (b *Bot) Notify(ctx context.Context, to, text string) error {
 // cancelled. On listen failures (port in use, network down) the
 // server retries with exponential backoff. Returns ctx.Err() on cancel.
 func (b *Bot) Run(ctx context.Context) error {
+	b.runCtxMu.Lock()
+	b.runCtx = ctx
+	b.runCtxMu.Unlock()
+
 	if err := b.validate(); err != nil {
 		return err
 	}
@@ -417,7 +435,13 @@ func (b *Bot) processMessage(msg cloudMessage, env cloudValue) {
 	}
 
 	reply := &cloudReply{bot: b, to: from}
-	go b.Dispatcher.Handle(context.Background(), in, reply)
+	b.runCtxMu.Lock()
+	dispatchCtx := b.runCtx
+	b.runCtxMu.Unlock()
+	if dispatchCtx == nil {
+		dispatchCtx = context.Background()
+	}
+	go b.Dispatcher.Handle(dispatchCtx, in, reply)
 }
 
 // fetchMedia is the two-step download: GET the media metadata to get
@@ -430,7 +454,11 @@ func (b *Bot) fetchMedia(mediaID string) (gateway.InboundImage, error) {
 	metaURL := b.graphURL() + "/" + mediaID
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, metaURL, nil)
 	req.Header.Set("Authorization", "Bearer "+b.AccessToken)
-	resp, err := http.DefaultClient.Do(req)
+	httpCl := b.httpClient
+	if httpCl == nil {
+		httpCl = &http.Client{Timeout: 30 * time.Second}
+	}
+	resp, err := httpCl.Do(req)
 	if err != nil {
 		return gateway.InboundImage{}, fmt.Errorf("metadata: %w", err)
 	}
@@ -452,7 +480,7 @@ func (b *Bot) fetchMedia(mediaID string) (gateway.InboundImage, error) {
 	// Step 2: the bytes.
 	req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, meta.URL, nil)
 	req2.Header.Set("Authorization", "Bearer "+b.AccessToken)
-	resp2, err := http.DefaultClient.Do(req2)
+	resp2, err := httpCl.Do(req2)
 	if err != nil {
 		return gateway.InboundImage{}, fmt.Errorf("download: %w", err)
 	}
@@ -503,12 +531,22 @@ func (b *Bot) sendMessage(ctx context.Context, to, text string) error {
 		"type":              "text",
 		"text":              map[string]string{"body": text},
 	}
-	data, _ := json.Marshal(body)
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("send: marshal: %w", err)
+	}
 	url := b.graphURL() + "/" + b.PhoneNumberID + "/messages"
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("send: new request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+b.AccessToken)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	client := b.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send: %w", err)
 	}

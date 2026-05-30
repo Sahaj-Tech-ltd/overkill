@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
 )
 
 // JSON-RPC 2.0 envelope types.
@@ -73,6 +74,13 @@ type AbortParams struct {
 	SessionID string `json:"session_id"`
 }
 
+// SteerParams is the payload for agent.steer RPC calls.
+type SteerParams struct {
+	SessionID string `json:"session_id"`
+	Message   string `json:"message"`
+	Role      string `json:"role,omitempty"`
+}
+
 // --- session ---
 
 type SessionInfo struct {
@@ -84,6 +92,19 @@ type SessionInfo struct {
 	Model     string    `json:"model"`
 	Provider  string    `json:"provider"`
 	Status    string    `json:"status"`
+	ParentID  string    `json:"parent_id,omitempty"`
+	Children  []string  `json:"children,omitempty"`
+}
+
+// ForkParams is the payload for agent.fork RPC calls.
+type ForkParams struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name,omitempty"`
+}
+
+// ForkResult is returned by agent.fork.
+type ForkResult struct {
+	Session SessionInfo `json:"session"`
 }
 
 type SessionListResult struct {
@@ -108,9 +129,15 @@ type SessionDeleteParams struct {
 // --- config ---
 
 type ConfigGetResult struct {
-	Version int                    `json:"version"`
-	Agent   map[string]interface{} `json:"agent"`
-	UI      map[string]interface{} `json:"ui"`
+	Version      int                    `json:"version"`
+	Agent        map[string]interface{} `json:"agent"`
+	UI           map[string]interface{} `json:"ui"`
+	Thinking     map[string]interface{} `json:"thinking,omitempty"`
+	SystemPrompt string                 `json:"system_prompt,omitempty"`
+	Security     map[string]interface{} `json:"security,omitempty"`
+	Session      map[string]interface{} `json:"session,omitempty"`
+	Cost         map[string]interface{} `json:"cost,omitempty"`
+	Compaction   map[string]interface{} `json:"compaction,omitempty"`
 }
 
 type ConfigUpdateParams struct {
@@ -225,4 +252,43 @@ type GatewayTestResult struct {
 type HealthResult struct {
 	Status  string `json:"status"`
 	Version int    `json:"version"`
+}
+
+// --- wizard.catalog ---
+
+type WizardCatalogResult struct {
+	Providers   []config.WizardOption `json:"providers"`
+	Gateways    []config.WizardOption `json:"gateways"`
+	TTS         []config.WizardOption `json:"tts"`
+	Databases   []config.WizardOption `json:"databases"`
+	Recommended config.QuickSetup     `json:"recommended"`
+}
+
+// --- wizard.quick-setup ---
+
+type WizardQuickSetupParams struct {
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Gateway  string `json:"gateway,omitempty"`
+	TTS      string `json:"tts,omitempty"`
+	Database string `json:"database,omitempty"`
+}
+
+type WizardQuickSetupResult struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// --- session.usage ---
+
+// SessionUsageParams is the payload for session.usage RPC calls.
+type SessionUsageParams struct {
+	SessionID string `json:"session_id,omitempty"`
+	Scope     string `json:"scope,omitempty"` // "session" (default), "daily", "all"
+}
+
+// SessionUsageResult is returned by session.usage.
+type SessionUsageResult struct {
+	Report *cost.UsageReport `json:"report"`
+	Daily  *cost.CostSummary `json:"daily,omitempty"` // populated when scope=daily
 }

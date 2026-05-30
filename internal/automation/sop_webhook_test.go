@@ -10,7 +10,7 @@ import (
 )
 
 // memorySOPStore is a tiny in-test implementation of SOPStore. The
-// production code uses BadgerSOPStore; tests don't need Badger.
+// production code uses PostgresSOPStore; tests don't need Postgres.
 type memorySOPStore struct {
 	sops map[string]SOP
 }

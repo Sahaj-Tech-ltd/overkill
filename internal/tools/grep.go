@@ -63,6 +63,7 @@ func (g *GrepTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 	}
 
 	var matches []grepMatch
+	exceeded := false
 	err = filepath.WalkDir(g.rootDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -70,6 +71,10 @@ func (g *GrepTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+
+		if exceeded {
+			return filepath.SkipAll
 		}
 
 		rel, relErr := filepath.Rel(g.rootDir, path)
@@ -109,6 +114,7 @@ func (g *GrepTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {
 			if len(matches) >= maxResults {
+				exceeded = true
 				break
 			}
 			if re.MatchString(line) {

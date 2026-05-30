@@ -13,13 +13,14 @@ type Provider interface {
 }
 
 type Request struct {
-	Model        string
-	Messages     []Message
-	Tools        []Tool
-	MaxTokens    int
-	Temperature  float64
-	SystemPrompt string
-	Metadata     map[string]any
+	Model         string
+	Messages      []Message
+	Tools         []Tool
+	MaxTokens     int
+	Temperature   float64
+	SystemPrompt  string
+	ThinkingLevel string // off|minimal|low|medium|high|x-high — passed through from config
+	Metadata      map[string]any
 }
 
 type Message struct {

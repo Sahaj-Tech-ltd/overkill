@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
@@ -77,6 +78,15 @@ func WireAgent(ctx context.Context, bus *Bus, agent Agent, userYAMLPath string, 
 				return
 			case ev, ok := <-ch:
 				if !ok {
+					return
+				}
+				// B124: after the 200ms debounce fires, some editors
+				// (especially those that write to a temp file then
+				// rename) may still be flushing. A 1s grace period
+				// avoids partial reads.
+				select {
+				case <-time.After(200 * time.Millisecond):
+				case <-ctx.Done():
 					return
 				}
 				if ev.Kind == EventRemoved {

@@ -2,22 +2,30 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Text } from "ink";
 import type { BackendClient } from "../../backend/client.ts";
 import type { SubagentInfo } from "../../backend/types.ts";
+import { useTheme } from "../../hooks/use-theme.ts";
+import type { Theme } from "../../themes/definitions.ts";
 
 interface SubagentPanelProps {
   backend: BackendClient;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  running: "green",
-  completed: "grey",
-  failed: "red",
-};
+function getStatusColor(status: string, theme: Theme): string {
+  switch (status) {
+    case "running": return theme.success;
+    case "completed": return theme.muted;
+    case "failed": return theme.error;
+    default: return theme.text;
+  }
+}
 
-const STATUS_ICONS: Record<string, string> = {
-  running: "●",
-  completed: "✓",
-  failed: "✕",
-};
+function getStatusIcon(status: string): string {
+  switch (status) {
+    case "running": return "●";
+    case "completed": return "✓";
+    case "failed": return "✕";
+    default: return "?";
+  }
+}
 
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -45,6 +53,7 @@ function formatTime(iso: string): string {
 export function SubagentPanel({
   backend,
 }: SubagentPanelProps): React.JSX.Element {
+  const { theme } = useTheme();
   const [subagents, setSubagents] = useState<SubagentInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,8 +133,8 @@ export function SubagentPanel({
 
       {/* Subagent list */}
       {subagents.map((agent) => {
-        const color = STATUS_COLORS[agent.status] ?? "white";
-        const icon = STATUS_ICONS[agent.status] ?? "?";
+        const color = getStatusColor(agent.status, theme);
+        const icon = getStatusIcon(agent.status);
 
         return (
           <Box key={agent.id} paddingX={2} flexDirection="column">

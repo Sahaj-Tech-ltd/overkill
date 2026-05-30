@@ -1,3 +1,6 @@
+// Package personality — failure tracking and proactive transparency
+// warnings. Accumulates per-(task,model) failure counts and surfaces
+// rate-limited heads-up before retrying known-bad paths.
 package personality
 
 import (

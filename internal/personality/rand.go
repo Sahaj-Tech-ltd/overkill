@@ -1,17 +1,21 @@
+// Package personality — local random helpers.
+// Go 1.20+ auto-seeds the global rand source; no init needed.
 package personality
 
 import (
-	"math/rand"
-	"time"
+	"crypto/rand"
+	"math/big"
 )
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
+// localRand returns a secure random integer in [0, n).
 func localRand(n int) int {
 	if n <= 0 {
 		return 0
 	}
-	return rand.Intn(n)
+	bigN := big.NewInt(int64(n))
+	val, err := rand.Int(rand.Reader, bigN)
+	if err != nil {
+		return 0
+	}
+	return int(val.Int64())
 }

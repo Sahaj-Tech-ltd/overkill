@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 // StashEntry is one saved prompt.
@@ -79,6 +81,9 @@ func (s *StashStore) List() ([]StashEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	if entries == nil {
+		entries = []StashEntry{}
+	}
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].SavedAt.After(entries[j].SavedAt)
 	})
@@ -142,9 +147,5 @@ func (s *StashStore) writeLocked(entries []StashEntry) error {
 	if err != nil {
 		return fmt.Errorf("stash: marshal: %w", err)
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return fmt.Errorf("stash: write: %w", err)
-	}
-	return os.Rename(tmp, s.path)
+	return atomicfile.WriteFile(s.path, b, 0o644)
 }

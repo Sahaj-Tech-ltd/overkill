@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/acp"
 )
@@ -32,7 +33,11 @@ func (t *ACPSendTool) Execute(ctx context.Context, input json.RawMessage) (json.
 		return nil, fmt.Errorf("acp_send: agent_url and content required")
 	}
 	c := acp.NewClient(in.AgentURL, in.Token)
-	ch, err := c.Send(ctx, in.Content)
+	// Enforce a 30-second deadline on the SSE stream to prevent
+	// indefinite blocking when the remote agent hangs.
+	sseCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	ch, err := c.Send(sseCtx, in.Content)
 	if err != nil {
 		return nil, fmt.Errorf("acp_send: %w", err)
 	}

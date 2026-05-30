@@ -98,14 +98,14 @@ func NewCommandScanner(opts ...CommandScannerOption) *CommandScanner {
 		patterns: []denyPattern{
 			{
 				id:          "rm_rf_root",
-				regex:       regexp.MustCompile(`(?i)rm\s+-rf\s+/`),
-				description: "recursive force delete root",
+				regex:       regexp.MustCompile(`(?i)rm\s+-rf\s+(/|\.|\*|~|\$HOME|\$\{)`),
+				description: "recursive force delete (root/home/current dir)",
 				level:       ThreatCritical,
 				confidence:  0.95,
 			},
 			{
 				id:          "fork_bomb",
-				regex:       regexp.MustCompile(`\(\)\{\s*:\|\:&\s*\}`),
+				regex:       regexp.MustCompile(`\(\s*\)\s*\{\s*:\|:&\s*\}`),
 				description: "fork bomb",
 				level:       ThreatCritical,
 				confidence:  0.95,

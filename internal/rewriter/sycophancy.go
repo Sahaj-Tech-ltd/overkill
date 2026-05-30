@@ -138,6 +138,12 @@ func (s *SycophancyReducer) Strip(response string) string {
 
 	result = strings.TrimSpace(result)
 
+	// After stripping sycophantic prefixes the remaining text may start
+	// lowercase (B104). Capitalize the first letter so output reads cleanly.
+	if len(result) > 0 && result[0] >= 'a' && result[0] <= 'z' {
+		result = strings.ToUpper(result[:1]) + result[1:]
+	}
+
 	return result
 }
 

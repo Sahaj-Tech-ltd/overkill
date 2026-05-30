@@ -2,11 +2,13 @@ package walls
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
+	_ "github.com/lib/pq"
 )
 
 func TestRegressionBank_RecordValidation(t *testing.T) {
@@ -116,14 +118,20 @@ func TestRegressionBank_Delete(t *testing.T) {
 	}
 }
 
-func TestBadgerRegressionStore_Roundtrip(t *testing.T) {
-	dir := t.TempDir()
-	db, err := badger.Open(badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR))
+func TestPostgresRegressionStore_Roundtrip(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set — skipping Postgres regression store test")
+	}
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		t.Fatalf("badger open: %v", err)
+		t.Fatalf("postgres open: %v", err)
 	}
 	defer db.Close()
-	store := NewBadgerRegressionStore(db)
+	store, err := NewPostgresRegressionStore(db)
+	if err != nil {
+		t.Fatalf("postgres store: %v", err)
+	}
 	b := NewRegressionBank(store, nil)
 	rec, err := b.Record(&Regression{Title: "persist", TestCmd: "true"})
 	if err != nil {

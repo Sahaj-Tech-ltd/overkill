@@ -2,6 +2,7 @@ package skills
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -189,7 +190,8 @@ func (r *Registry) MatchWithContext(input string, ctx MatchContext) []*Skill {
 	var result []*Skill
 
 	for trigger, names := range r.index {
-		if !strings.Contains(lower, trigger) {
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(trigger) + `\b`)
+		if !re.MatchString(lower) {
 			continue
 		}
 		for _, name := range names {
@@ -199,6 +201,9 @@ func (r *Registry) MatchWithContext(input string, ctx MatchContext) []*Skill {
 			}
 			skill, ok := r.skills[key]
 			if !ok {
+				continue
+			}
+			if !skill.Enabled {
 				continue
 			}
 			if !skill.Conditions.matches(ctx) {

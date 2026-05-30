@@ -30,6 +30,7 @@ package compaction
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -120,15 +121,15 @@ func (o *ImportanceOptions) now() time.Time {
 
 func (o *ImportanceOptions) weights() (recency, reuse, cost float64) {
 	recency = o.RecencyWeight
-	if recency <= 0 {
+	if recency <= 0 || recency != recency || recency > 1e9 {
 		recency = 1.0
 	}
 	reuse = o.ReuseWeight
-	if reuse <= 0 {
+	if reuse <= 0 || reuse != reuse || reuse > 1e9 {
 		reuse = 0.7
 	}
 	cost = o.CostWeight
-	if cost <= 0 {
+	if cost <= 0 || cost != cost || cost > 1e9 {
 		cost = 0.5
 	}
 	return
@@ -187,11 +188,14 @@ func Score(seg *Segment, opts ImportanceOptions) float64 {
 // eviction order. Pinned segments land at the end (highest score).
 // Stable sort preserves caller-supplied order for ties.
 func Rank(segments []*Segment, opts ImportanceOptions) []*Segment {
-	out := make([]*Segment, len(segments))
-	copy(out, segments)
-	scores := make([]float64, len(out))
-	for i, s := range out {
-		scores[i] = Score(s, opts)
+	out := make([]*Segment, 0, len(segments))
+	scores := make([]float64, 0, len(segments))
+	for _, s := range segments {
+		if s == nil {
+			continue
+		}
+		out = append(out, s)
+		scores = append(scores, Score(s, opts))
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return scores[i] < scores[j]
@@ -224,7 +228,9 @@ func Compact(segments []*Segment, target EvictionTarget, opts ImportanceOptions)
 	}
 	totalTokens := 0
 	for _, s := range segments {
-		totalTokens += s.estimatedTokens()
+		if s != nil {
+			totalTokens += s.estimatedTokens()
+		}
 	}
 	if totalTokens <= target.MaxTokens {
 		return segments, nil
@@ -309,12 +315,21 @@ func HierarchicalCompact(
 		if strings.TrimSpace(summary) == "" {
 			continue
 		}
-		if werr := writer.WriteSummary(ctx, s, summary); werr != nil {
-			// Best-effort — record first error but keep going.
-			if err == nil {
-				err = werr
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					if err == nil {
+						err = fmt.Errorf("compaction: writer panic: %v", r)
+					}
+				}
+			}()
+			if werr := writer.WriteSummary(ctx, s, summary); werr != nil {
+				// Best-effort — record first error but keep going.
+				if err == nil {
+					err = werr
+				}
 			}
-		}
+		}()
 	}
 	return keep, evict, err
 }

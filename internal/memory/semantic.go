@@ -4,7 +4,7 @@
 // thin wrapper around bridge.Client) so that Remember computes an embedding
 // and stores a vector, and SemanticRecall searches by query embedding with
 // optional rerank. When no client is wired, the Orchestrator degrades to
-// substring recall via the Badger store — semantic features are best-effort.
+// substring recall via the Postgres store — semantic features are best-effort.
 package memory
 
 import (
@@ -89,6 +89,9 @@ func (o *Orchestrator) RememberSemantic(ctx context.Context, content string, mem
 	}
 	if _, err := o.embed.StoreVector(ctx, m.ID, emb, content, meta); err != nil {
 		m.Metadata["vector_error"] = err.Error()
+		// Update the relational store with the error so callers can
+		// detect the divergence between relational and vector stores.
+		_ = o.store.Store(ctx, m)
 	}
 	return m, nil
 }

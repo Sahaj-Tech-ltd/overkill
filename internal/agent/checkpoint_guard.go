@@ -27,6 +27,15 @@ func (a *Agent) SetCheckpointSnapshotter(s CheckpointSnapshotter) {
 	a.mu.Unlock()
 }
 
+// SetCheckpointManager wires the git-based checkpoint manager for
+// user-facing /snapshot, /rollback, and /snapshots slash commands.
+// Pass nil to disable.
+func (a *Agent) SetCheckpointManager(cm *CheckpointManager) {
+	a.mu.Lock()
+	a.checkpointManager = cm
+	a.mu.Unlock()
+}
+
 // preToolCheckpoint snapshots affected paths before a destructive tool
 // fires. No-op when no snapshotter is wired, when the tool isn't
 // destructive, or when no affected paths can be inferred. The error is
@@ -36,8 +45,20 @@ func (a *Agent) SetCheckpointSnapshotter(s CheckpointSnapshotter) {
 func (a *Agent) preToolCheckpoint(toolName, args string) (string, error) {
 	a.mu.RLock()
 	snap := a.checkpointSnapshotter
+	cm := a.checkpointManager
 	sid := a.sessionID
 	a.mu.RUnlock()
+
+	// Auto-snapshot via the git-based checkpoint manager when the tool
+	// is risky. This is fire-and-forget — errors are returned so the
+	// caller can log them, but the tool call proceeds regardless.
+	if cm != nil && IsRisky(toolName) {
+		// Synchronous snapshot: the checkpoint must capture state BEFORE
+		// the tool modifies files. The prior async goroutine raced with
+		// tool execution and could snapshot after changes landed.
+		_, _ = cm.Snapshot("auto-before-" + toolName)
+	}
+
 	if snap == nil {
 		return "", nil
 	}

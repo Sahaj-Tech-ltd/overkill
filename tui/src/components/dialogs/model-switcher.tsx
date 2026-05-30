@@ -13,6 +13,70 @@ interface ModelSwitcherProps {
   onSelect: (provider: string, model: ModelInfo) => void;
 }
 
+/** Input handler that only mounts when the dialog is open. */
+function ModelSwitcherInput({
+  providers,
+  selectedProviderIdx,
+  setSelectedProviderIdx,
+  selectedModelIdx,
+  setSelectedModelIdx,
+  focusPanel,
+  setFocusPanel,
+  onSelect,
+  onClose,
+}: {
+  providers: ProviderInfo[];
+  selectedProviderIdx: number;
+  setSelectedProviderIdx: (n: number) => void;
+  selectedModelIdx: number;
+  setSelectedModelIdx: (n: number) => void;
+  focusPanel: "providers" | "models";
+  setFocusPanel: (p: "providers" | "models") => void;
+  onSelect: (provider: string, model: ModelInfo) => void;
+  onClose: () => void;
+}) {
+  const currentProviderData = providers[selectedProviderIdx];
+  const models = currentProviderData?.models ?? [];
+
+  useInput((_input, key) => {
+    if (key.tab) {
+      setFocusPanel(focusPanel === "providers" ? "models" : "providers");
+    } else if (key.leftArrow) {
+      setFocusPanel("providers");
+    } else if (key.rightArrow) {
+      setFocusPanel("models");
+    } else if (key.upArrow) {
+      if (focusPanel === "providers") {
+        const next = Math.max(0, selectedProviderIdx - 1);
+        setSelectedProviderIdx(next);
+        setSelectedModelIdx(0);
+      } else {
+        setSelectedModelIdx(Math.max(0, selectedModelIdx - 1));
+      }
+    } else if (key.downArrow) {
+      if (focusPanel === "providers") {
+        const next = Math.min(providers.length - 1, selectedProviderIdx + 1);
+        setSelectedProviderIdx(next);
+        setSelectedModelIdx(0);
+      } else {
+        setSelectedModelIdx(Math.min(models.length - 1, selectedModelIdx + 1));
+      }
+    } else if (key.return) {
+      if (
+        focusPanel === "models" &&
+        currentProviderData &&
+        models[selectedModelIdx]
+      ) {
+        onSelect(currentProviderData.name, models[selectedModelIdx]);
+        onClose();
+      } else {
+        setFocusPanel("models");
+      }
+    }
+  });
+  return null;
+}
+
 export function ModelSwitcher({
   open,
   onClose,
@@ -65,49 +129,6 @@ export function ModelSwitcher({
   const currentProviderData = providers[selectedProviderIdx];
   const models = currentProviderData?.models ?? [];
 
-  useInput((_input, key) => {
-    if (!open) return;
-
-    if (key.tab) {
-      setFocusPanel((prev) => (prev === "providers" ? "models" : "providers"));
-    } else if (key.leftArrow) {
-      setFocusPanel("providers");
-    } else if (key.rightArrow) {
-      setFocusPanel("models");
-    } else if (key.upArrow) {
-      if (focusPanel === "providers") {
-        setSelectedProviderIdx((prev) => {
-          const next = Math.max(0, prev - 1);
-          setSelectedModelIdx(0);
-          return next;
-        });
-      } else {
-        setSelectedModelIdx((prev) => Math.max(0, prev - 1));
-      }
-    } else if (key.downArrow) {
-      if (focusPanel === "providers") {
-        setSelectedProviderIdx((prev) => {
-          const next = Math.min(providers.length - 1, prev + 1);
-          setSelectedModelIdx(0);
-          return next;
-        });
-      } else {
-        setSelectedModelIdx((prev) => Math.min(models.length - 1, prev + 1));
-      }
-    } else if (key.return) {
-      if (
-        focusPanel === "models" &&
-        currentProviderData &&
-        models[selectedModelIdx]
-      ) {
-        onSelect(currentProviderData.name, models[selectedModelIdx]);
-        onClose();
-      } else {
-        setFocusPanel("models");
-      }
-    }
-  });
-
   if (!open) return null;
 
   const isActive = (provider: string, modelId: string) =>
@@ -115,6 +136,17 @@ export function ModelSwitcher({
 
   return (
     <DialogContainer open={open} onClose={onClose} title="Switch Model">
+      <ModelSwitcherInput
+        providers={providers}
+        selectedProviderIdx={selectedProviderIdx}
+        setSelectedProviderIdx={setSelectedProviderIdx}
+        selectedModelIdx={selectedModelIdx}
+        setSelectedModelIdx={setSelectedModelIdx}
+        focusPanel={focusPanel}
+        setFocusPanel={setFocusPanel}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
       {loading && (
         <Box paddingX={1} paddingY={1}>
           <Text color="yellow">Loading providers...</Text>

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 // providerEndpoint maps provider type → a HEAD/GET-able URL that confirms
@@ -32,7 +33,7 @@ func providerEndpoint(p struct {
 	case "ollama":
 		base := p.BaseURL
 		if base == "" {
-			base = "http://localhost:11434"
+			base = providers.CanonicalBaseURL("ollama")
 		}
 		return base + "/api/tags", "", ""
 	case "custom":
@@ -46,6 +47,11 @@ func providerEndpoint(p struct {
 
 // RegisterProviders adds one parallel reachability check per configured
 // provider. Each runs under its own 5s context budget (default).
+//
+// WARNING: These checks issue live HTTP requests using real API keys.
+// While they only hit free model-list endpoints (/v1/models etc.), some
+// pay-per-request providers may still count these toward rate limits.
+// To skip provider checks, run with --skip-provider-check.
 func RegisterProviders(r *doctor.Runner, d Deps) {
 	if d.Cfg == nil {
 		return

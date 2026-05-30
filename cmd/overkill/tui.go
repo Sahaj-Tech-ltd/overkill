@@ -1,5 +1,4 @@
 package main
-
 import (
 	"context"
 	"fmt"
@@ -11,21 +10,25 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Sahaj-Tech-ltd/overkill/deprecated/bubbletea-tui"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/acp"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/api"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/db"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/multimodal"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
+	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
 	termpkg "github.com/Sahaj-Tech-ltd/overkill/internal/term"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	imagegen "github.com/Sahaj-Tech-ltd/overkill/internal/tools/imagegen"
 	messaging "github.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging"
 	ttspkg "github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/walls"
+
 	"github.com/spf13/cobra"
 )
-
 var tuiCmd = &cobra.Command{
 	Use:   "tui",
 	Short: "Launch the Ink terminal UI",
@@ -36,34 +39,10 @@ func init() {
 	rootCmd.AddCommand(tuiCmd)
 }
 
-// runTUI is the default command (just running `overkill` with no args).
-// Now launches the Ink TUI.
-func runTUI(cmd *cobra.Command, args []string) error {
-	return runInkTUI(cmd, args)
-}
-
-// buildTUIApp was the old Bubble Tea app builder. Returns nil — these features
-// (ACP, gateway, Slack, web) need Ink equivalents built later.
-func buildTUIApp() *tui.App {
-	return nil
-}
-
-// acpAgentAdapter satisfies acp.Sender for the deprecated Bubble Tea TUI.
-type acpAgentAdapter struct {
-	a interface{}
-}
-
-func (a *acpAgentAdapter) StreamACP(ctx context.Context, userInput string) (<-chan acp.AgentEvent, error) {
-	return nil, fmt.Errorf("ACP not available: Bubble Tea TUI deprecated")
-}
-func (a *acpAgentAdapter) Model() string     { return "" }
-func (a *acpAgentAdapter) SessionID() string { return "" }
-
 // runInkTUI starts the JSON-RPC API server on a random port, then launches
-// the Ink TUI frontend. The old Bubble Tea TUI lives in deprecated/bubbletea-tui/.
+// the Ink TUI frontend.
 func runInkTUI(cmd *cobra.Command, args []string) error {
 	// P1: term background probe — detect dark/light mode before launching TUI.
-	// Best-effort probe; falls back silently on error.
 	if dark, err := termProbeBackground(); err == nil {
 		if dark {
 			os.Setenv("OVERKILL_THEME", "dark")
@@ -82,35 +61,79 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 		loadedCfg = config.Default()
 	}
 
-	// Use BadgerDB in ~/.overkill/sessions/
-	sstore, err := session.NewBadgerStore(filepath.Join(os.Getenv("HOME"), ".overkill", "sessions"))
-	if err != nil {
-		return fmt.Errorf("session store: %w", err)
-	}
-	defer sstore.Close()
-
-	reg := tools.NewRegistry()
-	reg.Register(ttspkg.New(loadedCfg.TTS))
-	reg.Register(messaging.New(loadedCfg.Gateways))
-	reg.Register(imagegen.New(loadedCfg.ImageGen))
-
-	// Wire the learning-from-corrections store (§6.5). The API server
-	// passes it to every agent it creates so the TUI loop benefits from
-	// past user corrections.
+	// Resolve database connection string.
 	connString := loadedCfg.DatabaseURL
 	if connString == "" {
 		connString = os.Getenv("DATABASE_URL")
 	}
-	var learningStore *learning.Store
-	if connString != "" {
-		if ls, err := learning.NewStore(connString, 1000); err == nil {
-			learningStore = ls
-			defer ls.Close()
-		}
+
+	// Open Postgres for session and learning stores via internal/db.
+	database, err := db.Open(connString)
+	if err != nil {
+		return fmt.Errorf("db: %w", err)
 	}
+	defer database.Close()
+
+	if err := db.Migrate(database); err != nil {
+		return fmt.Errorf("db migrate: %w", err)
+	}
+
+	// Session store (Postgres).
+	sstore := session.NewPostgresStore(database)
+
+	cwd, _ := os.Getwd()
+	// Wire sub-agent system: router, registry, manager.
+	subagentInfra := setupSubagentSystem(loadedCfg)
+
+	reg := tools.NewDefaultRegistry(tools.FactoryDeps{
+		CWD: cwd,
+		ExtraTools: []tools.Tool{
+			ttspkg.New(loadedCfg.TTS),
+			messaging.New(loadedCfg.Gateways),
+			imagegen.New(loadedCfg.ImageGen),
+		},
+		SubagentManager: subagentInfra.Manager,
+		// PCA-9: RegressionBank — persisted behavioral regression tests.
+		// Falls back to in-memory store if Postgres setup fails.
+		RegressionBank: func() *walls.RegressionBank {
+			if store, err := walls.NewPostgresRegressionStore(database); err == nil {
+				return walls.NewRegressionBank(store, nil)
+			}
+			return walls.NewRegressionBank(walls.NewMemRegressionStore(), nil)
+		}(),
+		// PCA-10: MultimodalRegistry — file content extraction (PDF, DOCX, audio, images).
+		MultimodalRegistry: multimodal.DefaultRegistry(nil),
+	})
+
+	// Learning-from-corrections store (§6.5).
+	var learningStore *learning.Store
+	if ls, err := learning.NewStore(connString, 1000); err == nil {
+		learningStore = ls
+		defer ls.Close()
+	}
+
+	// Memo the Elephant — thinking indicator phrase engine.
+	memoEngine := personality.NewMemoEngine(database)
 
 	// P2: speculative read cache for the TUI path.
 	readCache := speculative.NewReadCache(speculative.Options{})
+
+	// Best-effort sync manager — only when the user enabled it in config.
+	// Mirrors the CLI path in run.go.
+	var syncMgr *syncpkg.Manager
+	if loadedCfg != nil && loadedCfg.Sync.AutoPush && loadedCfg.Sync.Backend != "" {
+		if be, berr := syncpkg.NewBackend(loadedCfg.Sync); berr == nil && be != nil {
+			syncMgr = syncpkg.NewManager(sstore, be)
+		}
+	}
+
+	// Cost tracker — powers session.usage RPC and the /usage command.
+	var costTracker cost.Tracker
+	if ct, cerr := cost.NewPostgresTracker(database, loadedCfg.Cost); cerr == nil {
+		costTracker = ct
+	} else {
+		log.Printf("cost tracker init failed: %v (usage tracking disabled)", cerr)
+	}
 
 	apiServer := api.NewServer(api.ServerConfig{
 		Config:            loadedCfg,
@@ -120,6 +143,11 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 		FeatureManager:    featureMgr,
 		ExtensionsManager: extensionsMgr,
 		ReadCache:         readCache,
+		MemoEngine:        memoEngine,
+		SyncManager:       syncMgr,
+		HotReloadBus:      hotReloadBus,
+		SubagentManager:   &subagentManagerAdapter{mgr: subagentInfra.Manager},
+		CostTracker:       costTracker,
 	})
 
 	// Start API server in background.
@@ -131,12 +159,25 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 		errCh <- apiServer.Start(ctx)
 	}()
 
-	// Wait for the server to bind a port.
-	time.Sleep(300 * time.Millisecond)
+	// Wait for the server to bind a port using a ready-channel retry loop
+	// instead of a fixed sleep which races on slow systems.
+	apiReadyCh := make(chan string, 1)
+	go func() {
+		for i := 0; i < 50; i++ { // 50 * 10ms = 500ms max wait
+			addr := apiServer.Addr()
+			if addr != "" && addr != "http://localhost:0" {
+				apiReadyCh <- addr
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
 
-	apiAddr := apiServer.Addr()
-	if apiAddr == "http://localhost:0" {
-		return fmt.Errorf("API server failed to bind a port")
+	var apiAddr string
+	select {
+	case apiAddr = <-apiReadyCh:
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("API server failed to bind a port within timeout")
 	}
 	log.Printf("API ready at %s", apiAddr)
 
@@ -202,7 +243,6 @@ func findRepoRoot() (string, error) {
 }
 
 // termProbeBackground queries the terminal for its background color.
-// Returns (dark, nil), (light, nil), or (_, error) on timeout/no tty.
 func termProbeBackground() (bool, error) {
 	return termpkg.QueryBackground(200 * time.Millisecond)
 }

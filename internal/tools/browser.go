@@ -94,6 +94,15 @@ func (p BrowserHostPolicy) CheckURL(rawURL string) error {
 		}
 		return fmt.Errorf("browser: host %q not in allowlist", host)
 	}
+
+	// C8: DNS-based SSRF check — resolve the hostname and verify no
+	// resolved IP falls within a private range. This catches cloud
+	// metadata hostnames (e.g. metadata.google.internal → 169.254.169.254)
+	// that bypass the string-based blocklist above.
+	if hostIsPrivate(host) {
+		return fmt.Errorf("browser: host %q resolves to a private/internal address", host)
+	}
+
 	return nil
 }
 
@@ -214,7 +223,9 @@ func (t *BrowserScreenshotTool) Execute(ctx context.Context, in json.RawMessage)
 		Height   int    `json:"height"`
 		Selector string `json:"selector"`
 	}
-	_ = json.Unmarshal(in, &args)
+	if err := json.Unmarshal(in, &args); err != nil {
+		return nil, fmt.Errorf("browser_screenshot: %w", err)
+	}
 	b, err := t.ensureOpen(ctx)
 	if err != nil {
 		return nil, err
@@ -252,7 +263,9 @@ func (t *BrowserTextTool) Execute(ctx context.Context, in json.RawMessage) (json
 	var args struct {
 		Selector string `json:"selector"`
 	}
-	_ = json.Unmarshal(in, &args)
+	if err := json.Unmarshal(in, &args); err != nil {
+		return nil, fmt.Errorf("browser_text: %w", err)
+	}
 	b, err := t.ensureOpen(ctx)
 	if err != nil {
 		return nil, err

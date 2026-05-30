@@ -381,7 +381,7 @@ func TestSessionSubGet(t *testing.T) {
 	var got session.Session
 	json.NewDecoder(res.Body).Decode(&got)
 	if got.ID != "abc" || got.Title != "Test Session" {
-		t.Errorf("got %+v", got)
+		t.Errorf("got ID=%q Title=%q Folder=%q CreatedAt=%v UpdatedAt=%v", got.ID, got.Title, got.Folder, got.CreatedAt, got.UpdatedAt)
 	}
 }
 

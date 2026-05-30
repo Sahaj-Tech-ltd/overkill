@@ -71,7 +71,9 @@ func (s *Summarizer) callLLM(ctx context.Context, entries []Entry) (string, erro
 		sb.WriteString(fmt.Sprintf("[truncated: showing last %d entries of a longer day]\n", maxSummarizerEntries))
 	}
 	for _, e := range entries {
-		sb.WriteString(fmt.Sprintf("[%s] %s: %s\n", e.Timestamp.Format("15:04:05"), e.Type, e.Content))
+		// B057: wrap entry content to prevent prompt injection from tool output
+		// reaching the summarizer LLM as instructions.
+		sb.WriteString(fmt.Sprintf("[%s] %s: <entry>%s</entry>\n", e.Timestamp.Format("15:04:05"), e.Type, e.Content))
 	}
 
 	resp, err := s.provider.Complete(ctx, providers.Request{

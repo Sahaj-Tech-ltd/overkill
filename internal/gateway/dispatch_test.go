@@ -42,6 +42,27 @@ func (f *fakeAgent) Stream(_ context.Context, in string) (<-chan agent.StreamEve
 }
 func (f *fakeAgent) EStop()     { f.mu.Lock(); defer f.mu.Unlock(); f.sessionID = "" }
 func (f *fakeAgent) Interrupt() {}
+func (f *fakeAgent) SetQuestionFunc(agent.QuestionFunc) {}
+func (f *fakeAgent) Undo() (string, error)              { return "undone", nil }
+func (f *fakeAgent) Retry() (string, error)             { return "retried", nil }
+func (f *fakeAgent) Steer(msg string) string            { return "steering queued: " + msg }
+func (f *fakeAgent) Fork(name string) (string, error)   { return "fork-" + name, nil }
+func (f *fakeAgent) Snapshot(name string) (string, error) { return "snap-" + name, nil }
+func (f *fakeAgent) Rollback(n int) (string, error)       { return "rolled back", nil }
+func (f *fakeAgent) Snapshots() (string, error)           { return "1 checkpoint(s)", nil }
+func (f *fakeAgent) SetGoal(_ context.Context, text string) error  { return nil }
+func (f *fakeAgent) GetGoal(_ context.Context) (string, error)     { return "", nil }
+func (f *fakeAgent) PauseGoal(_ context.Context) error             { return nil }
+func (f *fakeAgent) ResumeGoal(_ context.Context) error            { return nil }
+func (f *fakeAgent) ClearGoal(_ context.Context) error             { return nil }
+func (f *fakeAgent) Compact(_ context.Context) (*agent.CompactResult, error) {
+	return &agent.CompactResult{TokensBefore: 100, TokensAfter: 50, Summary: "compacted"}, nil
+}
+func (f *fakeAgent) ExportHistory(path string) (string, error)     { return path, nil }
+func (f *fakeAgent) SetThinkingLevel(level string)                  {}
+func (f *fakeAgent) ThinkingLevel() string                          { return "off" }
+func (f *fakeAgent) Mode() string                                   { return "build" }
+func (f *fakeAgent) IsBusy() bool                                   { return false }
 
 type capturedFrame struct {
 	kind string
@@ -128,7 +149,7 @@ func TestDispatch_FollowTUIRoutesToLiveSession(t *testing.T) {
 		{Type: agent.EventToken, Content: "ok"},
 	}}
 	r, _ := NewSessionRouter("")
-	_ = r.Follow("42", "tui")
+	_ = r.Follow("telegram", "42", "tui")
 	d := NewDispatcher(a, r)
 	d.UpdateEvery = 5 * time.Millisecond
 

@@ -58,6 +58,10 @@ type Backend interface {
 	// List returns the full inventory the backend knows about. Order
 	// is unimportant — Manager sorts the merged view.
 	List() ([]Extension, error)
+	// Get returns a single extension by ID, or ErrNotFound. Added
+	// in B138 to let Manager.Get do O(1) lookups instead of O(n)
+	// scanning List() results.
+	Get(id string) (*Extension, error)
 	// Enable / Disable toggle an extension by its (Kind, ID). When the
 	// backend doesn't support runtime toggling (e.g. hooks are
 	// directory-based), it returns ErrUnsupported. Callers surface
@@ -129,9 +133,9 @@ func (m *Manager) List() ([]Extension, error) {
 	return all, firstErr
 }
 
-// Get returns the matching extension by (Kind, ID). The first backend
-// whose List contains the ID wins. Returns ErrNotFound when no backend
-// matches.
+// Get returns the matching extension by (Kind, ID). When the backend
+// implements Backend.Get, we use the O(1) lookup. Otherwise we fall
+// back to scanning List() results (B138).
 func (m *Manager) Get(kind Kind, id string) (*Extension, error) {
 	m.mu.RLock()
 	b, ok := m.backends[kind]
@@ -139,6 +143,12 @@ func (m *Manager) Get(kind Kind, id string) (*Extension, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
+	// Prefer O(1) Get if the backend supports it.
+	if ext, err := b.Get(id); err == nil {
+		return ext, nil
+	}
+	// Fall back to O(n) List scan for backends that haven't
+	// implemented Get yet.
 	entries, err := b.List()
 	if err != nil {
 		return nil, err

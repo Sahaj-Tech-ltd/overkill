@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 )
@@ -82,7 +83,10 @@ func (d *DelegateTool) executeContract(ctx context.Context, c *subagent.Contract
 		return errorJSON(err.Error()), nil
 	}
 	if !wait {
-		out, _ := json.Marshal(map[string]any{"id": id, "status": "spawned"})
+		out, err := json.Marshal(map[string]any{"id": id, "status": "spawned"})
+		if err != nil {
+			return nil, fmt.Errorf("delegate_task: marshal: %w", err)
+		}
 		return out, nil
 	}
 	rep, err := d.manager.AutonomousWait(ctx, id)
@@ -96,21 +100,28 @@ func (d *DelegateTool) executeContract(ctx context.Context, c *subagent.Contract
 	return out, nil
 }
 
-// executeSingle spawns a single GenericTask and returns the marshalled Result.
+// executeSingle spawns a task after attempting decomposition. If the goal
+// contains multiple independent items (separated by "- ", "1. ", "also", etc.),
+// the Decomposer splits them into parallel sub-agents automatically.
 func (d *DelegateTool) executeSingle(ctx context.Context, goal, contextStr string) (json.RawMessage, error) {
-	task := subagent.GenericTask{
-		GoalStr:    goal,
-		ContextStr: contextStr,
-	}
-
-	result, err := d.manager.Spawn(ctx, task)
+	results, err := d.manager.SpawnDecomposed(ctx, goal, contextStr)
 	if err != nil {
 		return nil, err
 	}
 
-	out, err := json.Marshal(result)
+	// Single result? Return it directly. Multiple? Return array.
+	if len(results) == 1 {
+		out, err := json.Marshal(results[0])
+		if err != nil {
+			return nil, fmt.Errorf("delegate_task: marshal result: %w", err)
+		}
+		return out, nil
+	}
+
+	wrapper := map[string]any{"results": results}
+	out, err := json.Marshal(wrapper)
 	if err != nil {
-		return nil, fmt.Errorf("delegate_task: marshal result: %w", err)
+		return nil, fmt.Errorf("delegate_task: marshal results: %w", err)
 	}
 	return out, nil
 }
@@ -126,7 +137,7 @@ func (d *DelegateTool) executeBatch(ctx context.Context, tasks []delegateSubTask
 		}
 	}
 
-	results, err := d.manager.SpawnBatch(ctx, genericTasks)
+	results, err := d.manager.SpawnBatchAutoSplit(ctx, genericTasks)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +152,9 @@ func (d *DelegateTool) executeBatch(ctx context.Context, tasks []delegateSubTask
 
 // errorJSON returns a JSON object {"error": msg}.
 func errorJSON(msg string) json.RawMessage {
-	b, _ := json.Marshal(map[string]string{"error": msg})
-	return b
+	// json.Marshal on map[string]string is infallible in practice,
+	// but we escape the message directly to avoid the panic code path.
+	escaped := strings.ReplaceAll(msg, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	return json.RawMessage(fmt.Sprintf(`{"error":"%s"}`, escaped))
 }

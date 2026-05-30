@@ -17,8 +17,15 @@ type Hub struct {
 }
 
 // NewHub returns a Hub with logging defaulted to discard.
+// Nil channels are filtered out.
 func NewHub(channels ...Channel) *Hub {
-	return &Hub{Channels: channels, Logger: log.New(io.Discard, "", 0)}
+	filtered := make([]Channel, 0, len(channels))
+	for _, c := range channels {
+		if c != nil {
+			filtered = append(filtered, c)
+		}
+	}
+	return &Hub{Channels: filtered, Logger: log.New(io.Discard, "", 0)}
 }
 
 // Add appends a channel to the hub. Must be called before Run.
@@ -75,18 +82,19 @@ func (h *Hub) superviseChannel(ctx context.Context, c Channel) {
 			h.Logger.Printf("hub: %s exited: %v — restarting in %s", c.Name(), err, backoff)
 		} else {
 			h.Logger.Printf("hub: %s exited cleanly — restarting in %s", c.Name(), backoff)
+			backoff = hubInitialBackoff // reset after successful run
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
 		}
-		// Exponential up to cap. Reset on a successful run is handled
-		// implicitly: most channels stay running until ctx cancels, so
-		// the only path that hits the wait is the failure path.
-		backoff *= 2
-		if backoff > hubMaxBackoff {
-			backoff = hubMaxBackoff
+		// Exponential up to cap.
+		if err != nil {
+			backoff *= 2
+			if backoff > hubMaxBackoff {
+				backoff = hubMaxBackoff
+			}
 		}
 	}
 }

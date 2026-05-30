@@ -12,19 +12,27 @@ export function useBackend(): UseBackendResult {
   const backendRef = useRef(createClient());
   const [connected, setConnected] = useState<ConnectionState>("connecting");
   const [error, setError] = useState<string | null>(null);
+  // B018: Use ref for connected state so the interval doesn't recreate
+  // on every state change — the interval closure reads the ref, not the
+  // reactive state binding.
+  const connectedRef = useRef(connected);
+  const setConnectedSync = (v: ConnectionState) => {
+    connectedRef.current = v;
+    setConnected(v);
+  };
 
   const tryConnect = useCallback(async () => {
     const client = backendRef.current;
-    setConnected("connecting");
+    setConnectedSync("connecting");
     setError(null);
     try {
       const ok = await client.health();
-      setConnected(ok ? "connected" : "disconnected");
+      setConnectedSync(ok ? "connected" : "disconnected");
       if (!ok) {
         setError("Health check failed");
       }
     } catch (err) {
-      setConnected("disconnected");
+      setConnectedSync("disconnected");
       setError((err as Error).message);
     }
   }, []);
@@ -33,13 +41,13 @@ export function useBackend(): UseBackendResult {
     void tryConnect();
 
     const interval = setInterval(() => {
-      if (connected !== "connected") {
+      if (connectedRef.current !== "connected") {
         void tryConnect();
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [tryConnect, connected]);
+  }, [tryConnect]); // B018: connected removed — interval reads connectedRef instead.
 
   return {
     backend: backendRef.current,

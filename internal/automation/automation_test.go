@@ -2,15 +2,58 @@ package automation
 
 import (
 	"context"
+	"database/sql"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	_ "github.com/lib/pq"
 )
+
+func openAutomationDB(t *testing.T) *sql.DB {
+	t.Helper()
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		connStr = os.Getenv("PG_TEST_URL")
+	}
+	if connStr == "" {
+		connStr = "postgres://postgres:***@localhost:5432/overkill_test?sslmode=disable"
+	}
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		t.Skipf("skipping: cannot open postgres: %v", err)
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		t.Skipf("skipping: cannot ping postgres: %v (set PG_TEST_URL or DATABASE_URL)", err)
+	}
+	// Create tables needed for automation tests.
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS automation_sops (
+		id TEXT PRIMARY KEY, name TEXT, mode TEXT, steps JSONB, status TEXT,
+		created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+	)`)
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS automation_routines (
+		id TEXT PRIMARY KEY, name TEXT, trigger TEXT, action TEXT,
+		cooldown_ns BIGINT, enabled BOOLEAN, fire_count INTEGER,
+		last_fired TIMESTAMPTZ
+	)`)
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS automation_alarms (
+		id TEXT PRIMARY KEY, name TEXT, action TEXT, schedule TEXT,
+		enabled BOOLEAN, created_at TIMESTAMPTZ DEFAULT NOW()
+	)`)
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM automation_sops")
+		db.Exec("DELETE FROM automation_routines")
+		db.Exec("DELETE FROM automation_alarms")
+		db.Close()
+	})
+	return db
+}
 
 func newTestSOP(id string, steps []Step, mode SOPMode) *SOP {
 	return &SOP{
@@ -453,17 +496,11 @@ func TestAlarmClock_Pending(t *testing.T) {
 	assert.Equal(t, "a1", pending[1].ID)
 }
 
-func TestBadgerSOPStore_SaveLoad(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir).
-		WithNumVersionsToKeep(1).
-		WithLoggingLevel(badger.ERROR)
+func TestPostgresSOPStore_SaveLoad(t *testing.T) {
+	db := openAutomationDB(t)
 
-	db, err := badger.Open(opts)
+	store, err := NewPostgresSOPStore(db)
 	require.NoError(t, err)
-	defer db.Close()
-
-	store := NewBadgerSOPStore(db)
 
 	sop := &SOP{
 		ID:     "sop-1",
@@ -483,17 +520,11 @@ func TestBadgerSOPStore_SaveLoad(t *testing.T) {
 	assert.Len(t, sops[0].Steps, 1)
 }
 
-func TestBadgerSOPStore_Delete(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir).
-		WithNumVersionsToKeep(1).
-		WithLoggingLevel(badger.ERROR)
+func TestPostgresSOPStore_Delete(t *testing.T) {
+	db := openAutomationDB(t)
 
-	db, err := badger.Open(opts)
+	store, err := NewPostgresSOPStore(db)
 	require.NoError(t, err)
-	defer db.Close()
-
-	store := NewBadgerSOPStore(db)
 
 	sop := &SOP{ID: "sop-del", Name: "delete me", Status: SOPStatusActive}
 	require.NoError(t, store.SaveSOP(sop))

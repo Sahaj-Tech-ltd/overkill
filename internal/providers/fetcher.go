@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 	toml "github.com/pelletier/go-toml/v2"
 )
 
@@ -41,9 +42,9 @@ var providerEndpoints = map[string]providerEndpoint{
 	"deepseek":    {modelsPath: "/models", authStyle: "bearer"},
 	"openrouter":  {modelsPath: "/models", authStyle: "bearer"},
 	"ollama":      {modelsPath: "/api/tags", authStyle: "none"},
-	"groq":        {modelsPath: "/openai/v1/models", authStyle: "bearer"},
-	"xai":         {modelsPath: "/v1/models", authStyle: "bearer"},
-	"mistral":     {modelsPath: "/v1/models", authStyle: "bearer"},
+	"groq":        {modelsPath: "/models", authStyle: "bearer"},
+	"xai":         {modelsPath: "/models", authStyle: "bearer"},
+	"mistral":     {modelsPath: "/models", authStyle: "bearer"},
 	"together-ai": {modelsPath: "/api/v1/models", authStyle: "bearer"},
 	"perplexity":  {modelsPath: "/v1/models", authStyle: "bearer"},
 }
@@ -56,32 +57,7 @@ func getEndpoint(providerType string) providerEndpoint {
 }
 
 func DefaultBaseURL(providerType string) string {
-	switch providerType {
-	case "openai":
-		return "https://api.openai.com/v1"
-	case "anthropic":
-		return "https://api.anthropic.com/v1"
-	case "gemini":
-		return "https://generativelanguage.googleapis.com/v1beta"
-	case "deepseek":
-		return "https://api.deepseek.com/v1"
-	case "openrouter":
-		return "https://openrouter.ai/api/v1"
-	case "ollama":
-		return "http://localhost:11434"
-	case "groq":
-		return "https://api.groq.com"
-	case "xai":
-		return "https://api.x.ai"
-	case "mistral":
-		return "https://api.mistral.ai"
-	case "together-ai":
-		return "https://api.together.xyz"
-	case "perplexity":
-		return "https://api.perplexity.ai"
-	default:
-		return ""
-	}
+	return CanonicalBaseURL(providerType)
 }
 
 type listModelsResponse struct {
@@ -113,7 +89,7 @@ var nonChatKeywords = []string{"instruct", "embedding", "tts", "whisper", "dall-
 func (f *HTTPModelFetcher) Fetch(ctx context.Context, providerType, apiKey, baseURL string) ([]Model, error) {
 	models, err := f.fetch(ctx, providerType, apiKey, baseURL)
 	if err != nil {
-		return f.fallback(providerType), nil
+		return nil, fmt.Errorf("providers: fetch models for %s: %w", providerType, err)
 	}
 	return models, nil
 }
@@ -318,7 +294,7 @@ func (f *HTTPModelFetcher) FetchAndPersist(ctx context.Context, providerName, pr
 			return nil, 0, fmt.Errorf("providers: marshal model %s: %w", m.ID, merr)
 		}
 
-		if wErr := os.WriteFile(modelFile, tomlData, 0o644); wErr != nil {
+		if wErr := atomicfile.WriteFile(modelFile, tomlData, 0o644); wErr != nil {
 			return nil, 0, fmt.Errorf("providers: write model %s: %w", m.ID, wErr)
 		}
 	}
@@ -335,7 +311,7 @@ func (f *HTTPModelFetcher) FetchAndPersist(ctx context.Context, providerName, pr
 	if err != nil {
 		return nil, 0, fmt.Errorf("providers: marshal provider: %w", err)
 	}
-	if err := os.WriteFile(providerFile, pData, 0o644); err != nil {
+	if err := atomicfile.WriteFile(providerFile, pData, 0o644); err != nil {
 		return nil, 0, fmt.Errorf("providers: write provider: %w", err)
 	}
 

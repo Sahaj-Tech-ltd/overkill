@@ -32,6 +32,15 @@ type Bot struct {
 	Logger     *log.Logger
 
 	sm *socketmode.Client
+
+	// apiSem limits concurrent outbound API calls (PostMessage / UpdateMessage)
+	// to avoid triggering Slack's tier-2 rate limit bursts.
+	apiSem chan struct{}
+
+	// runCtx carries the Run context for dispatching, so in-flight
+	// handlers survive only as long as the bot is alive.
+	runCtx   context.Context
+	runCtxMu sync.Mutex
 }
 
 // NewBot returns a Bot wired to bot token + app token + dispatcher.
@@ -46,14 +55,23 @@ func NewBot(botToken, appToken string, d *gateway.Dispatcher, allowedUsers []str
 		Dispatcher: d,
 		Allowed:    allow,
 		Logger:     log.New(io.Discard, "", 0),
+		apiSem:     make(chan struct{}, 3), // max 3 concurrent outbound API calls
 	}
 }
 
 // Name implements gateway.Channel.
 func (b *Bot) Name() string { return "slack" }
 
+// Reconnect implements gateway.Reconnecter (B135). Socket Mode's
+// WebSocket auto-reconnects; this is a stub for health monitors.
+func (b *Bot) Reconnect(ctx context.Context) error { return nil }
+
 // Run connects via Socket Mode and blocks until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) error {
+	b.runCtxMu.Lock()
+	b.runCtx = ctx
+	b.runCtxMu.Unlock()
+
 	b.sm = socketmode.New(b.Client)
 
 	go func() {
@@ -81,14 +99,33 @@ func (b *Bot) handleSocketEvent(ctx context.Context, evt socketmode.Event) {
 		if !ok {
 			return
 		}
-		b.sm.Ack(*evt.Request)
+		// evt.Request may be nil for non-actionable events —
+		// only Ack when the request envelope is populated.
+		if evt.Request != nil {
+			b.sm.Ack(*evt.Request)
+		}
 
 		switch inner := apiEvt.InnerEvent.Data.(type) {
 		case *slackevents.MessageEvent:
 			b.onMessage(ctx, inner, apiEvt)
+		case *slackevents.AppMentionEvent:
+			// B134: Handle legacy bot app_mention events. These arrive
+			// via the Events API (not Socket Mode) when the bot is
+			// mentioned in a channel. Convert to a MessageEvent shape
+			// so onMessage can process it without special casing.
+			msg := &slackevents.MessageEvent{
+				User:    inner.User,
+				Text:    inner.Text,
+				Channel: inner.Channel,
+				TimeStamp: inner.TimeStamp,
+			}
+			b.onMessage(ctx, msg, apiEvt)
 		}
 	default:
-		b.sm.Ack(*evt.Request)
+		// evt.Request may be nil for lifecycle events.
+		if evt.Request != nil {
+			b.sm.Ack(*evt.Request)
+		}
 	}
 }
 
@@ -102,10 +139,12 @@ func (b *Bot) onMessage(ctx context.Context, msg *slackevents.MessageEvent, apiE
 		return
 	}
 
-	// Strip bot @mention from beginning of message
+	// Strip bot @mention from beginning of message.
+	// B133: Use ">" instead of "> " so no-space mentions
+	// like "<@U123>please help" are also stripped.
 	if strings.HasPrefix(text, "<@") {
-		if idx := strings.Index(text, "> "); idx > 0 {
-			text = text[idx+2:]
+		if idx := strings.Index(text, ">"); idx > 0 {
+			text = strings.TrimSpace(text[idx+1:])
 		}
 	}
 
@@ -120,26 +159,55 @@ func (b *Bot) onMessage(ctx context.Context, msg *slackevents.MessageEvent, apiE
 	in := gateway.Inbound{
 		Channel:  "slack",
 		ChatKey:  chatKey,
+		Thread:   msg.ThreadTimeStamp,
 		From:     from,
 		Text:     text,
 		IsDirect: isDirect,
 	}
 
-	reply := &slackReply{client: b.Client, channel: msg.Channel}
-	go b.Dispatcher.Handle(context.Background(), in, reply)
+	reply := &slackReply{bot: b, client: b.Client, channel: msg.Channel, threadTS: msg.ThreadTimeStamp}
+	b.runCtxMu.Lock()
+	dispatchCtx := b.runCtx
+	b.runCtxMu.Unlock()
+	if dispatchCtx == nil {
+		dispatchCtx = context.Background()
+	}
+	go b.Dispatcher.Handle(dispatchCtx, in, reply)
 }
 
 // slackReply implements gateway.Reply via Slack Web API.
 type slackReply struct {
+	bot     *Bot
 	client  *slack.Client
 	channel string
+	// threadTS, when non-empty, makes PostInitial reply in-thread
+	// instead of posting to the channel root.
+	threadTS string
 
 	mu sync.Mutex
 	ts string // message timestamp for edits
 }
 
+func (r *slackReply) acquire() {
+	if r.bot != nil && r.bot.apiSem != nil {
+		r.bot.apiSem <- struct{}{}
+	}
+}
+
+func (r *slackReply) release() {
+	if r.bot != nil && r.bot.apiSem != nil {
+		<-r.bot.apiSem
+	}
+}
+
 func (r *slackReply) PostInitial(ctx context.Context, _ gateway.Inbound, text string) (string, error) {
-	_, ts, err := r.client.PostMessageContext(ctx, r.channel, slack.MsgOptionText(text, false))
+	r.acquire()
+	defer r.release()
+	opts := []slack.MsgOption{slack.MsgOptionText(text, false)}
+	if r.threadTS != "" {
+		opts = append(opts, slack.MsgOptionTS(r.threadTS))
+	}
+	_, ts, err := r.client.PostMessageContext(ctx, r.channel, opts...)
 	if err != nil {
 		return "", err
 	}
@@ -150,6 +218,8 @@ func (r *slackReply) PostInitial(ctx context.Context, _ gateway.Inbound, text st
 }
 
 func (r *slackReply) Update(ctx context.Context, handle, text string) error {
+	r.acquire()
+	defer r.release()
 	if text == "" {
 		text = "⏳ thinking…"
 	}
@@ -162,6 +232,8 @@ func (r *slackReply) Final(ctx context.Context, handle, text string) error {
 }
 
 func (r *slackReply) Error(ctx context.Context, _ string, err error) error {
+	r.acquire()
+	defer r.release()
 	_, _, postErr := r.client.PostMessageContext(ctx, r.channel, slack.MsgOptionText("⚠️ "+err.Error(), false))
 	return postErr
 }

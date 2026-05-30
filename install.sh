@@ -42,7 +42,9 @@ detect_platform() {
         Linux)  os=linux ;;
         Darwin) os=darwin ;;
         MINGW*|MSYS*|CYGWIN*)
-            die "Windows is not supported by this installer. Use WSL, or build from source: 'go install ${GO_PKG}@latest'."
+            die "Native Windows detected. Use the PowerShell installer instead:
+  irm https://raw.githubusercontent.com/Sahaj-Tech-ltd/overkill/main/install.ps1 | iex
+Or use WSL with this installer, or build from source: 'go install ${GO_PKG}@latest'."
             ;;
         *) die "unsupported OS: $uname_s" ;;
     esac

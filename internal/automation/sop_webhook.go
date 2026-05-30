@@ -21,9 +21,12 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // SOPWebhookServer wraps an SOPEngine with an HTTP trigger surface.
@@ -56,7 +59,7 @@ func (s *SOPWebhookServer) Run(ctx context.Context) error {
 
 	addr := s.Listen
 	if addr == "" {
-		addr = "127.0.0.1:7801"
+		addr = config.DefaultSOPWebhookAddr
 	}
 	s.server = &http.Server{
 		Addr:              addr,
@@ -152,9 +155,7 @@ func (s *SOPWebhookServer) handleTrigger(w http.ResponseWriter, r *http.Request)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer cancel()
 			if err := s.Engine.Execute(ctx, id); err != nil {
-				// Errors land on the SOP status itself; no extra
-				// logging here keeps the webhook layer thin.
-				_ = err
+				log.Printf("sop_webhook: execute %q failed: %v", id, err)
 			}
 		}()
 		w.WriteHeader(http.StatusAccepted)

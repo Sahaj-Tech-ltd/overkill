@@ -94,7 +94,9 @@ func (t *PlaybookRankTool) Execute(_ context.Context, in json.RawMessage) (json.
 	}
 	var req playbookRankInput
 	if len(in) > 0 {
-		_ = json.Unmarshal(in, &req)
+		if err := json.Unmarshal(in, &req); err != nil {
+			return nil, fmt.Errorf("playbook_rank: %w", err)
+		}
 	}
 	if req.TopK <= 0 {
 		req.TopK = 5

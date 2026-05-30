@@ -2,25 +2,29 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
+	_ "github.com/lib/pq"
 )
 
-func openTestDB(t *testing.T) *badger.DB {
+func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true).WithLoggingLevel(badger.ERROR))
+	connStr := os.Getenv("PG_TEST_URL"); if connStr == "" { connStr = os.Getenv("DATABASE_URL") }
+	if connStr == "" { t.Skip("skipping: set PG_TEST_URL or DATABASE_URL") }
+	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		t.Fatalf("open in-memory badger: %v", err)
+		t.Fatalf("open postgres: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
 func TestJobStore_CreateGet_roundtrip(t *testing.T) {
-	store := NewJobStore(openTestDB(t))
+	store, _ := NewJobStore(openTestDB(t))
 	ctx := context.Background()
 
 	// Arrange
@@ -51,7 +55,7 @@ func TestJobStore_CreateGet_roundtrip(t *testing.T) {
 }
 
 func TestJobStore_Create_requiresID(t *testing.T) {
-	store := NewJobStore(openTestDB(t))
+	store, _ := NewJobStore(openTestDB(t))
 	job := Job{Intent: "no id"}
 	if err := store.Create(context.Background(), job); err == nil {
 		t.Error("expected error for job with empty ID")
@@ -59,7 +63,7 @@ func TestJobStore_Create_requiresID(t *testing.T) {
 }
 
 func TestJobStore_Get_notFound(t *testing.T) {
-	store := NewJobStore(openTestDB(t))
+	store, _ := NewJobStore(openTestDB(t))
 	_, err := store.Get(context.Background(), "nonexistent")
 	if err == nil {
 		t.Error("expected error for missing job")
@@ -67,7 +71,7 @@ func TestJobStore_Get_notFound(t *testing.T) {
 }
 
 func TestWorker_submit_transitions_running_then_completed(t *testing.T) {
-	store := NewJobStore(openTestDB(t))
+	store, _ := NewJobStore(openTestDB(t))
 	ctx := context.Background()
 
 	done := make(chan struct{})
@@ -114,7 +118,7 @@ func TestWorker_submit_transitions_running_then_completed(t *testing.T) {
 }
 
 func TestWorker_failed_job_records_error(t *testing.T) {
-	store := NewJobStore(openTestDB(t))
+	store, _ := NewJobStore(openTestDB(t))
 	ctx := context.Background()
 
 	done := make(chan struct{})
@@ -148,7 +152,7 @@ func TestWorker_failed_job_records_error(t *testing.T) {
 }
 
 func TestJobStore_Cancel_queued_succeeds(t *testing.T) {
-	store := NewJobStore(openTestDB(t))
+	store, _ := NewJobStore(openTestDB(t))
 	ctx := context.Background()
 
 	// Arrange
@@ -169,7 +173,7 @@ func TestJobStore_Cancel_queued_succeeds(t *testing.T) {
 }
 
 func TestJobStore_Cancel_completed_returns_error(t *testing.T) {
-	store := NewJobStore(openTestDB(t))
+	store, _ := NewJobStore(openTestDB(t))
 	ctx := context.Background()
 
 	// Arrange: create and manually mark completed
@@ -187,7 +191,7 @@ func TestJobStore_Cancel_completed_returns_error(t *testing.T) {
 }
 
 func TestJobStore_Cancel_failed_returns_error(t *testing.T) {
-	store := NewJobStore(openTestDB(t))
+	store, _ := NewJobStore(openTestDB(t))
 	ctx := context.Background()
 
 	job := NewJob("failed job", "", "", "default")
@@ -200,7 +204,7 @@ func TestJobStore_Cancel_failed_returns_error(t *testing.T) {
 }
 
 func TestJobStore_List_sorted_descending(t *testing.T) {
-	store := NewJobStore(openTestDB(t))
+	store, _ := NewJobStore(openTestDB(t))
 	ctx := context.Background()
 
 	// Arrange: three jobs created with deliberate time gaps

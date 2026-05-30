@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 // DeviceFlow is the state returned by StartDeviceFlow. The TUI shows
@@ -294,7 +295,10 @@ func SaveToken(tok *Token) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, tok.Provider+".json")
+	path, err := security.SafePath(dir, tok.Provider+".json")
+	if err != nil {
+		return fmt.Errorf("auth: save token: %w", err)
+	}
 	data, err := json.MarshalIndent(tok, "", "  ")
 	if err != nil {
 		return err
@@ -309,7 +313,10 @@ func LoadToken(provider string) (*Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, provider+".json")
+	path, err := security.SafePath(dir, provider+".json")
+	if err != nil {
+		return nil, fmt.Errorf("auth: load token: %w", err)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -330,7 +337,10 @@ func DeleteToken(provider string) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, provider+".json")
+	path, err := security.SafePath(dir, provider+".json")
+	if err != nil {
+		return fmt.Errorf("auth: delete token: %w", err)
+	}
 	err = os.Remove(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err

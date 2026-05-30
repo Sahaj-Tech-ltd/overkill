@@ -125,9 +125,9 @@ func (PatchCompressor) Compress(output json.RawMessage) (json.RawMessage, int, e
 	if e, ok := generic["error"].(string); ok && e != "" {
 		return output, 0, nil
 	}
-	// Drop heavy "diff" / "before" / "after" payloads.
+	// Drop heavy "result" / "patch" payloads (PatchOutput fields: path, hunks_applied, result).
 	dropped := false
-	for _, k := range []string{"diff", "before", "after", "patch"} {
+	for _, k := range []string{"result", "patch"} {
 		if v, ok := generic[k].(string); ok && len(v) > 1024 {
 			generic[k] = fmt.Sprintf("[truncated %d chars]", len(v))
 			dropped = true

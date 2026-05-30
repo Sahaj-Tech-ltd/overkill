@@ -14,15 +14,19 @@
 //   - TimelineFlight → chronological context around an anchor entry
 //   - GetFlight      → full Entry on demand
 //
-// Implementation: linear scan over raw/ JSONL files. Fine for typical
-// journal sizes; FTS / vector index ships later when needed.
+// Implementation: streaming scan over raw/ JSONL files. Entries are
+// never fully materialized — we stream with bufio.Scanner and
+// early-terminate when enough results are found.
 package journal
 
 import (
+	"bufio"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // FlightIndexHit is one row in the compact search index. Title is the
@@ -45,7 +49,9 @@ type FlightSearchOptions struct {
 }
 
 // SearchFlight returns matching raw-journal entries as a compact index,
-// newest first. Best-effort over per-file read failures.
+// newest first. Streams JSONL files in reverse-chronological order and
+// early-terminates after hitting the limit — entries are never fully
+// materialized.
 func (r *FlightRecorder) SearchFlight(opts FlightSearchOptions) ([]FlightIndexHit, error) {
 	limit := opts.Limit
 	if limit <= 0 {
@@ -53,16 +59,53 @@ func (r *FlightRecorder) SearchFlight(opts FlightSearchOptions) ([]FlightIndexHi
 	}
 	queryLower := strings.ToLower(opts.Query)
 
-	entries, err := r.scanRaw()
+	// Get sorted file list (reverse chronological — newest first).
+	files, err := r.listRawFilesDesc()
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Timestamp.After(entries[j].Timestamp)
-	})
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	hits := make([]FlightIndexHit, 0, limit)
-	for _, e := range entries {
+	for _, fname := range files {
+		path := filepath.Join(r.dir, "raw", fname)
+		fileHits, stopped := r.scanFileForSearch(path, opts, queryLower, limit-len(hits))
+		hits = append(hits, fileHits...)
+		if stopped || len(hits) >= limit {
+			return hits, nil
+		}
+	}
+	return hits, nil
+}
+
+// scanFileForSearch scans a single JSONL file, collecting up to maxHits
+// matches. Returns (hits, stopped) — stopped is true when the file had
+// enough matches to reach the limit.
+func (r *FlightRecorder) scanFileForSearch(path string, opts FlightSearchOptions, queryLower string, maxHits int) ([]FlightIndexHit, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	hits := make([]FlightIndexHit, 0, maxHits)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var e Entry
+		if err := json.Unmarshal(line, &e); err != nil {
+			continue
+		}
 		if opts.Type != "" && e.Type != opts.Type {
 			continue
 		}
@@ -79,16 +122,17 @@ func (r *FlightRecorder) SearchFlight(opts FlightSearchOptions) ([]FlightIndexHi
 			Title:     flightTitlePreview(e.Content),
 			SessionID: e.SessionID,
 		})
-		if len(hits) >= limit {
-			break
+		if len(hits) >= maxHits {
+			return hits, true
 		}
 	}
-	return hits, nil
+	return hits, false
 }
 
 // TimelineFlight returns `depth` entries before AND after the anchor,
 // in chronological order. The anchor is included as the middle entry.
-// Useful for "what was happening around <event>".
+// Uses binary-search over date-named files: first finds the anchor
+// timestamp, then only reads files in the surrounding time window.
 func (r *FlightRecorder) TimelineFlight(anchorID string, depth int) ([]Entry, error) {
 	if anchorID == "" {
 		return nil, nil
@@ -96,10 +140,42 @@ func (r *FlightRecorder) TimelineFlight(anchorID string, depth int) ([]Entry, er
 	if depth <= 0 {
 		depth = 5
 	}
-	entries, err := r.scanRaw()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Find anchor entry's timestamp by streaming files.
+	anchorTS, err := r.findEntryTimestampLocked(anchorID)
+	if err != nil || anchorTS.IsZero() {
+		return nil, nil
+	}
+
+	// Read entries within a time window around the anchor.
+	// Add generous padding (±2 * depth hours or at least ±24 hours).
+	padHours := time.Duration(depth*2) * time.Hour
+	if padHours < 24*time.Hour {
+		padHours = 24 * time.Hour
+	}
+	windowStart := anchorTS.Add(-padHours)
+	windowEnd := anchorTS.Add(padHours)
+
+	files, err := r.listRawFilesAsc()
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
+
+	var entries []Entry
+	for _, fname := range files {
+		// Check if file is within the time window (rough filter by filename).
+		path := filepath.Join(r.dir, "raw", fname)
+		fileEntries := r.scanFileEntriesInWindow(path, windowStart, windowEnd)
+		entries = append(entries, fileEntries...)
+	}
+
+	// Sort chronologically and extract the window around the anchor.
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Timestamp.Before(entries[j].Timestamp)
 	})
@@ -125,37 +201,143 @@ func (r *FlightRecorder) TimelineFlight(anchorID string, depth int) ([]Entry, er
 	return entries[lo:hi], nil
 }
 
+// findEntryTimestampLocked streams JSONL files until it finds the entry
+// with the given ID, then returns its timestamp. Caller must hold r.mu.
+func (r *FlightRecorder) findEntryTimestampLocked(id string) (time.Time, error) {
+	files, err := r.listRawFilesAsc()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	for _, fname := range files {
+		path := filepath.Join(r.dir, "raw", fname)
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if len(line) == 0 {
+				continue
+			}
+			var e Entry
+			if err := json.Unmarshal(line, &e); err != nil {
+				continue
+			}
+			if e.ID == id {
+				f.Close()
+				return e.Timestamp, nil
+			}
+		}
+		f.Close()
+	}
+	return time.Time{}, nil
+}
+
+// scanFileEntriesInWindow reads entries from a JSONL file and returns
+// those whose timestamps fall within [start, end].
+func (r *FlightRecorder) scanFileEntriesInWindow(path string, start, end time.Time) []Entry {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var entries []Entry
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var e Entry
+		if err := json.Unmarshal(line, &e); err != nil {
+			continue
+		}
+		if e.Timestamp.Before(start) || e.Timestamp.After(end) {
+			continue
+		}
+		entries = append(entries, e)
+	}
+	return entries
+}
+
 // GetFlight returns the raw-journal entry with the matching ID, or
-// (nil, nil) when not found.
+// (nil, nil) when not found. Streams files until the ID is found.
 func (r *FlightRecorder) GetFlight(id string) (*Entry, error) {
 	if id == "" {
 		return nil, nil
 	}
-	entries, err := r.scanRaw()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	ts, err := r.findEntryTimestampLocked(id)
+	if err != nil || ts.IsZero() {
+		return nil, nil
+	}
+
+	// Now find the full entry around that timestamp.
+	pad := 1 * time.Hour // ±1 hour around anchor timestamp
+	windowStart := ts.Add(-pad)
+	windowEnd := ts.Add(pad)
+
+	files, err := r.listRawFilesAsc()
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	for _, e := range entries {
-		if e.ID == id {
-			cp := e
-			return &cp, nil
+
+	for _, fname := range files {
+		path := filepath.Join(r.dir, "raw", fname)
+		entries := r.scanFileEntriesInWindow(path, windowStart, windowEnd)
+		for i := range entries {
+			if entries[i].ID == id {
+				cp := entries[i]
+				return &cp, nil
+			}
 		}
 	}
 	return nil, nil
 }
 
-// scanRaw reads every JSONL file under raw/. Wraps readFiltered with a
-// no-op filter to share the per-file read logic.
-func (r *FlightRecorder) scanRaw() ([]Entry, error) {
-	all, err := r.readFiltered(func(Entry) bool { return true })
+// listRawFilesAsc returns raw/ JSONL filenames sorted oldest-first.
+func (r *FlightRecorder) listRawFilesAsc() ([]string, error) {
+	rawDir := filepath.Join(r.dir, "raw")
+	dirEntries, err := os.ReadDir(rawDir)
 	if err != nil {
-		// Fresh-install case: raw/ doesn't exist yet → return empty.
-		if _, statErr := os.Stat(filepath.Join(r.dir, "raw")); statErr != nil && os.IsNotExist(statErr) {
-			return nil, nil
-		}
 		return nil, err
 	}
-	return all, nil
+	var files []string
+	for _, de := range dirEntries {
+		if de.IsDir() || !strings.HasSuffix(de.Name(), ".jsonl") {
+			continue
+		}
+		files = append(files, de.Name())
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+// listRawFilesDesc returns raw/ JSONL filenames sorted newest-first.
+func (r *FlightRecorder) listRawFilesDesc() ([]string, error) {
+	files, err := r.listRawFilesAsc()
+	if err != nil {
+		return nil, err
+	}
+	// Reverse.
+	for i, j := 0, len(files)-1; i < j; i, j = i+1, j-1 {
+		files[i], files[j] = files[j], files[i]
+	}
+	return files, nil
 }
 
 func flightTitlePreview(s string) string {

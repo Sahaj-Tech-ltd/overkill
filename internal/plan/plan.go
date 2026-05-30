@@ -77,8 +77,8 @@ func (s *Store) path() string {
 // the snapshot is missing/corrupt). Missing-file is the legal
 // "no active plan" state — returns (nil, nil).
 func (s *Store) Load() (*Plan, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	data, err := os.ReadFile(s.path())
 	if err != nil {
 		if os.IsNotExist(err) {

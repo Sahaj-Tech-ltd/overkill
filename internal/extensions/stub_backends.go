@@ -12,35 +12,27 @@
 // (last-wins semantics).
 package extensions
 
-// PluginsStubBackend reserves the plugins slot until the plugin registry
-// gains a runtime-toggle surface. Plugin lifecycle today is config-driven
-// (~/.overkill/config.toml [plugins] table + filesystem scan), so
-// runtime Enable/Disable returns ErrUnsupported.
+var _ Backend = PluginsStubBackend{}
+var _ Backend = HooksStubBackend{}
+var _ Backend = MCPStubBackend{}
+
 type PluginsStubBackend struct{}
+func (PluginsStubBackend) Kind() Kind                         { return KindPlugin }
+func (PluginsStubBackend) List() ([]Extension, error)         { return nil, nil }
+func (PluginsStubBackend) Get(id string) (*Extension, error)  { return nil, ErrNotFound }
+func (PluginsStubBackend) Enable(id string) error             { return ErrUnsupported }
+func (PluginsStubBackend) Disable(id string) error            { return ErrUnsupported }
 
-func (PluginsStubBackend) Kind() Kind                 { return KindPlugin }
-func (PluginsStubBackend) List() ([]Extension, error) { return nil, nil }
-func (PluginsStubBackend) Enable(id string) error     { _ = id; return ErrUnsupported }
-func (PluginsStubBackend) Disable(id string) error    { _ = id; return ErrUnsupported }
-
-// HooksStubBackend reserves the hooks slot. Hooks today are loaded from
-// ~/.overkill/hooks/<point>/*.sh — runtime toggling means removing the
-// file, not flipping an in-memory flag. Surfacing as ErrUnsupported is
-// the right answer until a hooks Enable/Disable verb exists.
 type HooksStubBackend struct{}
+func (HooksStubBackend) Kind() Kind                          { return KindHook }
+func (HooksStubBackend) List() ([]Extension, error)          { return nil, nil }
+func (HooksStubBackend) Get(id string) (*Extension, error)   { return nil, ErrNotFound }
+func (HooksStubBackend) Enable(id string) error              { return ErrUnsupported }
+func (HooksStubBackend) Disable(id string) error             { return ErrUnsupported }
 
-func (HooksStubBackend) Kind() Kind                 { return KindHook }
-func (HooksStubBackend) List() ([]Extension, error) { return nil, nil }
-func (HooksStubBackend) Enable(id string) error     { _ = id; return ErrUnsupported }
-func (HooksStubBackend) Disable(id string) error    { _ = id; return ErrUnsupported }
-
-// MCPStubBackend reserves the MCP slot. MCP servers come and go on
-// their own lifecycle (started by config, managed by internal/mcp).
-// Manager Enable/Disable returns ErrUnsupported; use `overkill mcp`
-// commands for direct control.
 type MCPStubBackend struct{}
-
-func (MCPStubBackend) Kind() Kind                 { return KindMCP }
-func (MCPStubBackend) List() ([]Extension, error) { return nil, nil }
-func (MCPStubBackend) Enable(id string) error     { _ = id; return ErrUnsupported }
-func (MCPStubBackend) Disable(id string) error    { _ = id; return ErrUnsupported }
+func (MCPStubBackend) Kind() Kind                            { return KindMCP }
+func (MCPStubBackend) List() ([]Extension, error)            { return nil, nil }
+func (MCPStubBackend) Get(id string) (*Extension, error)     { return nil, ErrNotFound }
+func (MCPStubBackend) Enable(id string) error                { return ErrUnsupported }
+func (MCPStubBackend) Disable(id string) error               { return ErrUnsupported }

@@ -1,6 +1,8 @@
 package session
 
 import (
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,6 +11,7 @@ import (
 )
 
 type Session struct {
+	mu         sync.Mutex          `json:"-"`
 	ID         string              `json:"id"`
 	Title      string              `json:"title"`
 	Folder     string              `json:"folder"`
@@ -47,6 +50,40 @@ func NewSession(folder string) *Session {
 		Status:    "active",
 		Metadata:  make(map[string]string),
 	}
+}
+
+// AutoTitle sets Title from the first user message, truncated to 72
+// characters. Only sets when Title is empty — no overwrites.
+func (s *Session) AutoTitle(firstMsg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Title != "" || firstMsg == "" {
+		return
+	}
+	// Trim to 72 chars at rune boundary, break at word boundary.
+	// Use rune slicing to avoid splitting multi-byte UTF-8 sequences,
+	// then byte-cap so the total with "..." stays ≤75 bytes.
+	msg := strings.TrimSpace(firstMsg)
+	runes := []rune(msg)
+	const maxRunes = 72
+	if len(runes) > maxRunes {
+		// Take up to maxRunes runes, then shrink further if byte
+		// length (with "...") would exceed 75.
+		runes = runes[:maxRunes]
+		msg = string(runes)
+		// byte-cap: walk runes backward until len(msg)+3 ≤ 75
+		for len(msg)+3 > 75 && len(runes) > 0 {
+			runes = runes[:len(runes)-1]
+			msg = string(runes)
+		}
+		if lastSpace := strings.LastIndexByte(msg, ' '); lastSpace > 40 {
+			msg = msg[:lastSpace]
+		}
+		msg += "..."
+	} else {
+		msg = string(runes)
+	}
+	s.Title = msg
 }
 
 func (s *Session) IsSubSession() bool {

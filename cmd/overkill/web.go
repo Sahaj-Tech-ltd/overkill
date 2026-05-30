@@ -2,21 +2,24 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/db"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/web"
 )
 
@@ -39,130 +42,146 @@ in that case make absolutely sure you keep the bearer token private.`,
 }
 
 func runWeb(cmd *cobra.Command, args []string) error {
-	app := buildTUIApp()
-	var sender web.AgentSender
-	if app != nil && app.Agent != nil {
-		sender = &webAgentAdapter{a: app.Agent}
+	loadedCfg := cfg
+	if loadedCfg == nil {
+		loadedCfg = config.Default()
 	}
 
-	token := webToken
-	if token == "" && !webNoAuth {
-		t, err := loadOrCreateWebToken()
-		if err != nil {
-			return err
+	// Resolve database connection string.
+	connString := loadedCfg.DatabaseURL
+	if connString == "" {
+		connString = os.Getenv("DATABASE_URL")
+	}
+	if connString == "" {
+		return fmt.Errorf("DATABASE_URL required for Postgres backend — set it in ~/.overkill/config.toml or the environment")
+	}
+
+	// Open Postgres and run migrations via internal/db.
+	database, err := db.Open(connString)
+	if err != nil {
+		return fmt.Errorf("db open: %w", err)
+	}
+	defer database.Close()
+
+	if err := db.Migrate(database); err != nil {
+		return fmt.Errorf("db migrate: %w", err)
+	}
+
+	// Session store (Postgres).
+	sstore := session.NewPostgresStore(database)
+
+	// Resolve provider / model from config (same logic as run.go).
+	providerCfg, modelName := resolveProvider()
+	if providerCfg == nil {
+		return fmt.Errorf("no provider configured — run 'overkill config init' first")
+	}
+
+	apiKey := providerCfg.APIKey
+	if apiKey == "" {
+		apiKey = os.Getenv(providerEnvVar(providerCfg.Name))
+	}
+
+	provider, err := providers.NewProvider(providers.FactoryConfig{
+		Name:    providerCfg.Name,
+		Type:    providerCfg.Type,
+		APIKey:  apiKey,
+		BaseURL: providerCfg.BaseURL,
+		Headers: providerCfg.Headers,
+	})
+	if err != nil {
+		return fmt.Errorf("creating provider: %w", err)
+	}
+
+	// Build tool registry from the shared factory.
+	// Core tools (shell, fs, git, grep, web, patch, pty, etc.) are always
+	// registered; infra tools (browser, LSP, memory, etc.) are skipped because
+	// their deps are nil in the web context.
+	cwd, _ := os.Getwd()
+	toolReg := tools.NewDefaultRegistry(tools.FactoryDeps{
+		CWD: cwd,
+	})
+
+	// Build the agent.
+	a := agent.New(agent.Config{
+		Provider:     provider,
+		Tools:        toolReg,
+		Tokenizer:    tokenizer.NewEstimator(),
+		Model:        modelName,
+		MaxTokens:    200000,
+		SystemPrompt: buildSystemPrompt(loadedCfg),
+		MaxSteps:     30,
+		Scanners: []security.Scanner{
+			security.NewCommandScanner(
+				security.WithProjectPath(cwd),
+				security.WithExtraDenyPatterns(loadedCfg.Security.DenyPatterns),
+				security.WithForbiddenPaths(loadedCfg.Security.ForbiddenPaths),
+				security.WithMaxCommandLen(loadedCfg.Security.MaxCommandLen),
+			),
+			security.NewInjectionScanner(),
+		},
+	})
+
+	// Fetch the models.dev catalog for the model picker.
+	catalog, _ := providers.FetchCatalog(cmd.Context())
+
+	// Resolve bearer token.
+	tok := webToken
+	if tok == "" {
+		tok = os.Getenv("OVERKILL_WEB_TOKEN")
+	}
+	if tok == "" {
+		// Read from ~/.overkill/web-token if it exists.
+		if homeDir, herr := config.ConfigDir(); herr == nil {
+			if b, rerr := os.ReadFile(homeDir + "/web-token"); rerr == nil && len(b) > 0 {
+				tok = string(b)
+				if tok[len(tok)-1] == '\n' {
+					tok = tok[:len(tok)-1]
+				}
+			}
 		}
-		token = t
 	}
 
-	// --no-auth is only safe with a localhost listen.
-	if webNoAuth && !isLocalhostListen(webListen) {
-		return fmt.Errorf("--no-auth requires a localhost listen address (got %q)", webListen)
-	}
-
-	provName := ""
-	if cfg != nil {
-		if pc, _ := resolveProvider(); pc != nil {
-			provName = pc.Name
-		}
-	}
-
-	// Best-effort catalog load — do not block startup if the network is down.
-	var catalog *providers.Catalog
-	if cat, err := providers.FetchCatalog(context.Background()); err == nil {
-		catalog = cat
-	}
-
+	// Build and start the web server.
 	srv := web.NewServer(web.Config{
 		Addr:     webListen,
-		Token:    token,
+		Token:    tok,
 		NoAuth:   webNoAuth,
-		Agent:    sender,
-		Store:    app.Store,
+		Agent:    a,
+		Store:    sstore,
 		Catalog:  catalog,
-		Provider: provName,
+		Provider: providerCfg.Name,
 		Version:  Version,
 	})
+
 	if err := srv.Start(); err != nil {
-		return err
+		return fmt.Errorf("web server: %w", err)
 	}
 
-	url := fmt.Sprintf("http://%s/", srv.Addr())
-	if token != "" {
-		url = fmt.Sprintf("http://%s/?t=%s", srv.Addr(), token)
-	}
-	fmt.Printf("overkill web listening on %s\n", srv.Addr())
-	if token != "" {
-		fmt.Printf("token: %s\n", token)
-	} else {
-		fmt.Println("auth: disabled (--no-auth)")
-	}
-	fmt.Printf("open:  %s\n", url)
+	log.Printf("Overkill web UI listening on http://%s", srv.Addr())
 
+	// Auto-open the browser if requested.
 	if webOpen {
-		_ = openBrowser(url)
+		openURL("http://" + srv.Addr())
 	}
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
-	ctx, cancel := context.WithCancel(context.Background())
+	// Wait for SIGINT/SIGTERM.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-sigCh
+	log.Printf("Received %v, shutting down...", sig)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		return fmt.Errorf("shutdown: %w", err)
+	}
+	return nil
 }
 
-func loadOrCreateWebToken() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	path := filepath.Join(home, ".overkill", "web-token")
-	if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
-		return strings.TrimSpace(string(data)), nil
-	}
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	tk := hex.EncodeToString(b)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, []byte(tk), 0o600); err != nil {
-		return "", err
-	}
-	return tk, nil
+func openURL(rawURL string) {
+	// Best-effort browser open — don't fail the command if it doesn't work.
+	_ = exec.Command("xdg-open", rawURL).Start()
 }
-
-func isLocalhostListen(addr string) bool {
-	if addr == "" {
-		return true
-	}
-	return strings.HasPrefix(addr, "127.") || strings.HasPrefix(addr, "localhost:") || strings.HasPrefix(addr, "[::1]:")
-}
-
-func openBrowser(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	return cmd.Start()
-}
-
-// webAgentAdapter trims *agent.Agent down to web.AgentSender. Lives here so
-// the web package never imports internal/agent anywhere it doesn't have to.
-type webAgentAdapter struct{ a *agent.Agent }
-
-func (x *webAgentAdapter) Stream(ctx context.Context, in string) (<-chan agent.StreamEvent, error) {
-	return x.a.Stream(ctx, in)
-}
-func (x *webAgentAdapter) Model() string          { return x.a.Model() }
-func (x *webAgentAdapter) SessionID() string      { return x.a.SessionID() }
-func (x *webAgentAdapter) SetSessionID(id string) { x.a.SetSessionID(id) }
 
 func init() {
 	webCmd.Flags().StringVar(&webListen, "listen", "127.0.0.1:8420", "bind address")

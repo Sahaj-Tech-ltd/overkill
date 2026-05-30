@@ -126,8 +126,9 @@ var writeLikeTools = map[string]bool{
 }
 
 // shellWriteRe matches the leading verb of a shell command that suggests a
-// write. Mirrors the heuristic used by the security scanner.
-var shellWriteRe = regexp.MustCompile(`^\s*(rm|mv|cp|mkdir|touch|tee|chmod|chown|sed\s+-i|>{1,2}\s*\S+|cat\s*>{1,2})`)
+// write or destructive operation. Mirrors the heuristic used by the security scanner.
+// D-3: Added ln, dd, truncate, rename, unlink, rsync to close scope enforcement gaps.
+var shellWriteRe = regexp.MustCompile(`^\s*(rm|mv|cp|mkdir|touch|tee|chmod|chown|sed\s+-i|>{1,2}\s*\S+|cat\s*>{1,2}|ln(\s+-s)?|dd(\s+if=)?|truncate|rename|unlink|rsync(\s+.*--delete)?)`)
 
 // ToolWithPath is a small interface that, if implemented by a Tool, lets the
 // enforcer skip the JSON-decode dance and ask the tool directly which path

@@ -188,33 +188,26 @@ func TestFetchFallback(t *testing.T) {
 
 	fetcher := NewModelFetcher()
 
-	models, err := fetcher.Fetch(context.Background(), "openai", "key", server.URL)
-	require.NoError(t, err)
-	assert.Equal(t, OpenAIModels(), models)
+	_, err := fetcher.Fetch(context.Background(), "openai", "key", server.URL)
+	require.Error(t, err) // H14: Fetch now returns error on server failure instead of silent fallback
 
-	models, err = fetcher.Fetch(context.Background(), "anthropic", "key", server.URL)
-	require.NoError(t, err)
-	assert.Equal(t, AnthropicModels(), models)
+	_, err = fetcher.Fetch(context.Background(), "anthropic", "key", server.URL)
+	require.Error(t, err)
 
-	models, err = fetcher.Fetch(context.Background(), "gemini", "key", server.URL)
-	require.NoError(t, err)
-	assert.Equal(t, GeminiModels(), models)
+	_, err = fetcher.Fetch(context.Background(), "gemini", "key", server.URL)
+	require.Error(t, err)
 
-	models, err = fetcher.Fetch(context.Background(), "deepseek", "key", server.URL)
-	require.NoError(t, err)
-	assert.Equal(t, DeepSeekModels(), models)
+	_, err = fetcher.Fetch(context.Background(), "deepseek", "key", server.URL)
+	require.Error(t, err)
 
-	models, err = fetcher.Fetch(context.Background(), "ollama", "key", server.URL)
-	require.NoError(t, err)
-	assert.Equal(t, OllamaModels(), models)
+	_, err = fetcher.Fetch(context.Background(), "ollama", "key", server.URL)
+	require.Error(t, err)
 
-	models, err = fetcher.Fetch(context.Background(), "openrouter", "key", server.URL)
-	require.NoError(t, err)
-	assert.Equal(t, OpenRouterModels(), models)
+	_, err = fetcher.Fetch(context.Background(), "openrouter", "key", server.URL)
+	require.Error(t, err)
 
-	models, err = fetcher.Fetch(context.Background(), "custom", "key", server.URL)
-	require.NoError(t, err)
-	assert.Equal(t, OpenAIModels(), models)
+	_, err = fetcher.Fetch(context.Background(), "custom", "key", server.URL)
+	require.Error(t, err)
 }
 
 func TestFetchFilterNonChatModels(t *testing.T) {
@@ -261,9 +254,8 @@ func TestFetchInvalidJSON(t *testing.T) {
 
 	fetcher := NewModelFetcher()
 	models, err := fetcher.Fetch(context.Background(), "openai", "key", server.URL)
-	require.NoError(t, err)
-	// Should fall back to hardcoded models
-	assert.Equal(t, OpenAIModels(), models)
+	require.Error(t, err) // H14: Fetch now returns error on invalid JSON instead of silently falling back
+	assert.Nil(t, models)
 }
 
 func TestFetchEmptyResponse(t *testing.T) {

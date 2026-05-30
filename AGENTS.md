@@ -30,7 +30,7 @@ internal/           Private packages (not importable externally)
   security/         Prompt injection detection, command scanning, path blocking
   compaction/       LCM-inspired context compaction (dual-state memory)
   routing/          Complexity-based model routing + pricing-aware fallback
-  session/          Per-folder sessions backed by BadgerDB
+  session/          Per-folder sessions backed by Postgres
   tools/            Built-in tools: shell, fs, grep, git, web
   providers/        LLM adapters: OpenAI, Anthropic, Gemini, Ollama, etc
   tokenizer/        Token counting and estimation
@@ -54,7 +54,7 @@ pkg/
 bridge/             Python bridge via gRPC
   embeddings/       Embedding generation
   reranking/        Result reranking
-  memory/           Vector memory backends (BadgerDB default, Qdrant optional)
+  memory/           Vector memory backends (Postgres default, Qdrant optional)
   compaction/       LLM-based compaction via cheap model
   proto/            gRPC proto definitions
 skills/             Bundled skills (SKILL.md format)
@@ -91,7 +91,7 @@ type Store interface {
 
 ## Storage
 
-All local storage uses **BadgerDB** (pure Go, no CGo). No SQLite, no Postgres.
+All local storage uses **PostgreSQL**. No SQLite, no embedded KV stores (exception: WhatsApp/whatsmeow requires SQLite via `modernc.org/sqlite` — third-party library requirement, not first-party storage).
 
 ## Config
 

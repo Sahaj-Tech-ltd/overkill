@@ -29,7 +29,7 @@ func NewSecretScanner() *SecretScanner {
 				level:       ThreatHigh,
 			},
 			{
-				regex:       regexp.MustCompile(`gh[ps]_[A-Za-z0-9_]{36,}`),
+				regex:       regexp.MustCompile(`(?i)gh[ps]_[A-Za-z0-9_]{36,}`),
 				redactLabel: "GITHUB_TOKEN",
 				description: "GitHub token",
 				confidence:  0.95,
@@ -99,27 +99,40 @@ func (s *SecretScanner) Scan(input string) (*ScanResult, error) {
 	sanitized := input
 	maxLevel := ThreatNone
 
-	for _, p := range s.patterns {
-		locs := p.regex.FindAllStringIndex(input, -1)
-		for _, loc := range locs {
-			match := input[loc[0]:loc[1]]
-			confidence := p.confidence
-			level := p.level
+	// RT-SEC-8 + RT-SEC-10: Normalize input for scanning — strip
+	// whitespace and delimiters so split/space-embedded keys are
+	// still caught. The original input is used for redaction.
+	normalized := whitespaceStripped(input)
 
-			findings = append(findings, Finding{
-				Type:        "secret_exposure",
-				Level:       level,
-				Description: p.description,
-				Match:       match,
-				Confidence:  confidence,
-			})
+	// Scan BOTH original and normalized to catch every variant.
+	inputs := []string{input}
+	if normalized != input {
+		inputs = append(inputs, normalized)
+	}
 
-			if level > maxLevel {
-				maxLevel = level
+	for _, scanInput := range inputs {
+		for _, p := range s.patterns {
+			locs := p.regex.FindAllStringIndex(scanInput, -1)
+			for _, loc := range locs {
+				match := scanInput[loc[0]:loc[1]]
+				confidence := p.confidence
+				level := p.level
+
+				findings = append(findings, Finding{
+					Type:        "secret_exposure",
+					Level:       level,
+					Description: p.description,
+					Match:       match,
+					Confidence:  confidence,
+				})
+
+				if level > maxLevel {
+					maxLevel = level
+				}
+
+				redacted := fmt.Sprintf("[REDACTED: %s]", p.redactLabel)
+				sanitized = strings.ReplaceAll(sanitized, match, redacted)
 			}
-
-			redacted := fmt.Sprintf("[REDACTED: %s]", p.redactLabel)
-			sanitized = strings.ReplaceAll(sanitized, match, redacted)
 		}
 	}
 
@@ -131,4 +144,16 @@ func (s *SecretScanner) Scan(input string) (*ScanResult, error) {
 		Blocked:   blocked,
 		Sanitized: sanitized,
 	}, nil
+}
+
+// whitespaceStripped returns s with all whitespace (spaces, tabs,
+// newlines) and dashes removed. Used for secret scanning to catch
+// keys split across lines or embedded with formatting characters.
+func whitespaceStripped(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '-' {
+			return -1
+		}
+		return r
+	}, s)
 }

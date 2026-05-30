@@ -40,7 +40,7 @@ type Model struct {
 	ContextWindow   int          `toml:"context_window" json:"context_window"`
 	MaxOutputTokens int          `toml:"max_output_tokens" json:"max_output_tokens,omitempty"`
 	Capabilities    Capabilities `toml:"capabilities" json:"capabilities"`
-	Cost            Cost         `toml:"cost" json:"cost"`
+	Cost            *Cost        `toml:"cost" json:"cost"`
 	Modalities      Modalities   `toml:"modalities" json:"modalities"`
 	Extends         *Extends     `toml:"extends" json:"extends,omitempty"`
 	Deprecated      bool         `toml:"deprecated" json:"deprecated,omitempty"`
@@ -176,6 +176,9 @@ func (c *Catalog) CheapestInFamily(family string) (*Model, error) {
 		if m.Deprecated {
 			continue
 		}
+		if m.Cost == nil {
+			continue
+		}
 		if best == nil || m.Cost.Output < best.Cost.Output {
 			best = m
 		}
@@ -282,6 +285,8 @@ func parseModelFile(root, path string) (*Model, error) {
 
 // mergeExtends copies missing fields from base into m. Caller-declared
 // fields on m win — extends is inheritance, not replacement.
+// Cost uses pointer semantics: nil means inherit from base, non-nil
+// means the child explicitly declared a [cost] section (even if values are zero).
 func mergeExtends(m, base *Model) {
 	if m.Family == "" {
 		m.Family = base.Family
@@ -304,31 +309,12 @@ func mergeExtends(m, base *Model) {
 	m.Capabilities.Temperature = m.Capabilities.Temperature || base.Capabilities.Temperature
 	m.Capabilities.Attachment = m.Capabilities.Attachment || base.Capabilities.Attachment
 	m.Capabilities.OpenWeights = m.Capabilities.OpenWeights || base.Capabilities.OpenWeights
-	// Cost: caller-declared values stick; missing zeros inherit.
-	if m.Cost.Input == 0 {
-		m.Cost.Input = base.Cost.Input
-	}
-	if m.Cost.Output == 0 {
-		m.Cost.Output = base.Cost.Output
-	}
-	if m.Cost.CacheRead == 0 {
-		m.Cost.CacheRead = base.Cost.CacheRead
-	}
-	if m.Cost.CacheWrite == 0 {
-		m.Cost.CacheWrite = base.Cost.CacheWrite
-	}
-	if m.Cost.AudioIn == 0 {
-		m.Cost.AudioIn = base.Cost.AudioIn
-	}
-	if m.Cost.AudioOut == 0 {
-		m.Cost.AudioOut = base.Cost.AudioOut
-	}
-	if m.Cost.Reasoning == 0 {
-		m.Cost.Reasoning = base.Cost.Reasoning
-	}
-	if m.Cost.TieredOver200K == nil && base.Cost.TieredOver200K != nil {
-		t := *base.Cost.TieredOver200K
-		m.Cost.TieredOver200K = &t
+	// Cost: nil means inherit. Non-nil child cost is used as-is (even zeros).
+	if m.Cost == nil {
+		if base.Cost != nil {
+			cp := *base.Cost
+			m.Cost = &cp
+		}
 	}
 	if len(m.Modalities.Input) == 0 {
 		m.Modalities.Input = append(m.Modalities.Input, base.Modalities.Input...)
@@ -347,7 +333,7 @@ func validate(m *Model) error {
 	if m.ContextWindow <= 0 {
 		return fmt.Errorf("context_window must be > 0")
 	}
-	if m.Cost.Input < 0 || m.Cost.Output < 0 {
+	if m.Cost == nil || m.Cost.Input < 0 || m.Cost.Output < 0 {
 		return fmt.Errorf("cost cannot be negative")
 	}
 	return nil

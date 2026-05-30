@@ -47,11 +47,12 @@ func (e ContextExport) ToJSON() (string, error) {
 }
 
 // FilterSecrets returns a copy of the ContextExport with secrets redacted
-// from all string fields within the ExportContext. The top-level fields
-// (SessionID, Goal, OverkillVersion) are not filtered.
+// from all string fields, including top-level Goal and SessionID.
 func (e ContextExport) FilterSecrets() ContextExport {
 	cp := e // value copy
 
+	cp.SessionID = redactSecrets(cp.SessionID)
+	cp.Goal = redactSecrets(cp.Goal)
 	cp.Context.RecentChanges = redactSecrets(cp.Context.RecentChanges)
 	cp.Context.ProjectStructure = redactSecrets(cp.Context.ProjectStructure)
 	cp.Context.Constraints = redactSecrets(cp.Context.Constraints)

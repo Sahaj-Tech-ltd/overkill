@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/walls"
@@ -38,6 +39,12 @@ func (t *RegressionRecordTool) Execute(ctx context.Context, in json.RawMessage) 
 	if err := json.Unmarshal(in, &req); err != nil {
 		return nil, fmt.Errorf("regression_record: %w", err)
 	}
+	// Validate TestCmd early — block dangerous shell metacharacters before
+	// they hit the bank. The bank also validates, but defense-in-depth is
+	// warranted for a tool surface reachable from LLM tool calls.
+	if strings.ContainsAny(req.TestCmd, ";&|`$(){}[]") {
+		return errorJSON("regression_record: test_cmd contains dangerous characters"), nil
+	}
 	rec, err := t.bank.Record(&walls.Regression{
 		Title:     req.Title,
 		Symptom:   req.Symptom,
@@ -48,7 +55,10 @@ func (t *RegressionRecordTool) Execute(ctx context.Context, in json.RawMessage) 
 	if err != nil {
 		return errorJSON(err.Error()), nil
 	}
-	out, _ := json.Marshal(map[string]any{"id": rec.ID, "created_at": rec.CreatedAt})
+	out, err := json.Marshal(map[string]any{"id": rec.ID, "created_at": rec.CreatedAt})
+	if err != nil {
+		return nil, fmt.Errorf("regression_record: marshal: %w", err)
+	}
 	return out, nil
 }
 
@@ -71,7 +81,10 @@ func (t *RegressionListTool) Execute(ctx context.Context, _ json.RawMessage) (js
 	if err != nil {
 		return errorJSON(err.Error()), nil
 	}
-	out, _ := json.Marshal(map[string]any{"regressions": list, "count": len(list)})
+	out, err := json.Marshal(map[string]any{"regressions": list, "count": len(list)})
+	if err != nil {
+		return nil, fmt.Errorf("regression_list: marshal: %w", err)
+	}
 	return out, nil
 }
 
@@ -95,7 +108,9 @@ func (t *RegressionVerifyTool) Execute(ctx context.Context, in json.RawMessage) 
 		return errorJSON("regression bank not configured"), nil
 	}
 	var req regressionVerifyInput
-	_ = json.Unmarshal(in, &req)
+	if err := json.Unmarshal(in, &req); err != nil {
+		return nil, fmt.Errorf("regression_verify: %w", err)
+	}
 	timeout := time.Duration(req.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
@@ -110,11 +125,14 @@ func (t *RegressionVerifyTool) Execute(ctx context.Context, in json.RawMessage) 
 			failed++
 		}
 	}
-	out, _ := json.Marshal(map[string]any{
+	out, err := json.Marshal(map[string]any{
 		"results":     results,
 		"total":       len(results),
 		"failed":      failed,
 		"all_passing": failed == 0,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("regression_verify: marshal: %w", err)
+	}
 	return out, nil
 }

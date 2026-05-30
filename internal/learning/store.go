@@ -107,9 +107,18 @@ func (s *Store) Save(c *Correction) error {
 	return nil
 }
 
+// escapeLike escapes SQL LIKE wildcard characters % and _ in the
+// provided string so they are treated as literals.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 // FindCorrections returns up to topK corrections matching the query.
 // Matches are found via LIKE on the context and wrong columns against
 // each token in the query, ordered by timestamp DESC (most recent first).
+// Query tokens are escaped to prevent % and _ being treated as wildcards.
 func (s *Store) FindCorrections(query string, topK int) ([]*Correction, error) {
 	if topK <= 0 {
 		topK = 3
@@ -127,8 +136,8 @@ func (s *Store) FindCorrections(query string, topK int) ([]*Correction, error) {
 	var conditions []string
 	var args []any
 	for i, tok := range queryTokens {
-		pattern := "%" + tok + "%"
-		conditions = append(conditions, fmt.Sprintf("(context LIKE $%d OR wrong LIKE $%d)", i*2+1, i*2+2))
+		pattern := "%" + escapeLike(tok) + "%"
+		conditions = append(conditions, fmt.Sprintf("(context LIKE $%d ESCAPE '\\' OR wrong LIKE $%d ESCAPE '\\')", i*2+1, i*2+2))
 		args = append(args, pattern, pattern)
 	}
 

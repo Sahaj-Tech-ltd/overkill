@@ -251,6 +251,12 @@ func (c *Client) Close() error {
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 	}
+	if c.stdout != nil {
+		_ = c.stdout.Close()
+	}
+	if c.stderr != nil {
+		_ = c.stderr.Close()
+	}
 	if c.cmd != nil && c.cmd.Process != nil {
 		_ = c.cmd.Process.Kill()
 		_, _ = c.cmd.Process.Wait()

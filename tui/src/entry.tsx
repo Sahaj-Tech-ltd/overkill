@@ -3,6 +3,7 @@ import { render } from "ink";
 import { App } from "./app.tsx";
 import { BootAnimation } from "./components/boot-animation.tsx";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
+import { MouseProvider, ScrollHandlerProvider } from "./hooks/use-mouse.tsx";
 
 function Root(): React.JSX.Element {
   const [booted, setBooted] = useState(false);
@@ -13,7 +14,11 @@ function Root(): React.JSX.Element {
 
   return (
     <ErrorBoundary>
-      {!booted ? <BootAnimation onComplete={handleBootComplete} /> : <App />}
+      <MouseProvider enabled>
+        <ScrollHandlerProvider>
+          {!booted ? <BootAnimation onComplete={handleBootComplete} /> : <App />}
+        </ScrollHandlerProvider>
+      </MouseProvider>
     </ErrorBoundary>
   );
 }

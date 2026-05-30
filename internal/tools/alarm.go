@@ -6,10 +6,10 @@
 //     daemon binary itself — used by SOP steps, future autonomous
 //     scheduling, etc.)
 //   - A daemon RPC client (when registered inside the TUI — alarm_set
-//     dials the daemon socket, daemon owns the Badger DB)
+//     dials the daemon socket, daemon owns the Postgres DB)
 //
-// Badger is single-process, so the TUI cannot open the alarm store
-// directly while the daemon is running. The split through AlarmGateway
+// The TUI accesses alarms through the daemon socket rather than
+// opening a direct DB connection. The split through AlarmGateway
 // keeps that constraint honest without duplicating the tool logic.
 package tools
 

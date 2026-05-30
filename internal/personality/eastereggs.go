@@ -1,7 +1,10 @@
+// Package personality — easter eggs: cooking mode, movie quotes,
+// and plan/checklist tracking.
 package personality
 
 import (
 	"math/rand"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -678,16 +681,5 @@ func (ps *PlanState) ParseChecklist(content string) {
 }
 
 func itoa(n int) string {
-	if n < 0 {
-		return "0"
-	}
-	if n == 0 {
-		return "0"
-	}
-	digits := make([]byte, 0, 10)
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return strconv.Itoa(n)
 }

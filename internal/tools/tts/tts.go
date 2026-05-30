@@ -19,7 +19,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
@@ -133,16 +132,17 @@ func (t *Tool) speakKittenTTS(ctx context.Context, text string) (json.RawMessage
 	wavPath := tmpPath("overkill-tts", ".wav")
 	oggPath := tmpPath("overkill-tts", ".ogg")
 
-	// Escape text for Python — replace single quotes and newlines
-	escaped := strings.ReplaceAll(text, "\\", "\\\\")
-	escaped = strings.ReplaceAll(escaped, "'", "\\'")
-	escaped = strings.ReplaceAll(escaped, "\n", " ")
-	escaped = strings.ReplaceAll(escaped, "\r", "")
+	// Write text to temp file to avoid Python injection via string interpolation
+	textPath := tmpPath("overkill-tts-text", ".txt")
+	if err := os.WriteFile(textPath, []byte(text), 0600); err != nil {
+		return nil, fmt.Errorf("tts.speak: failed to write text file: %w", err)
+	}
+	defer os.Remove(textPath)
 
-	// Run Python KittenTTS generation
+	// Run Python KittenTTS generation (reads text from file, not string interpolation)
 	pythonCmd := fmt.Sprintf(
-		"from kittentts import TTS; import numpy as np; import soundfile as sf; tts=TTS(); audio=tts.generate('%s'); sf.write('%s', audio, 24000)",
-		escaped, wavPath,
+		"from kittentts import TTS; import numpy as np; import soundfile as sf; tts=TTS(); text=open('%s', 'r').read(); audio=tts.generate(text); sf.write('%s', audio, 24000)",
+		textPath, wavPath,
 	)
 	cmd := exec.CommandContext(ctx, "python3", "-c", pythonCmd)
 	var stderr bytes.Buffer

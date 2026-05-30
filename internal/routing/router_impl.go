@@ -53,7 +53,7 @@ func (r *SmartRouter) Route(ctx context.Context, req RouteRequest) (*RouteResult
 	// request that needed tools picked from the cheapest model list,
 	// missed it on the tools filter, then silently fell back to
 	// defaultModel even when capability-matched candidates existed.
-	chosenID, chosenProvider, err := r.modelForComplexityWithCaps(score.Level, needsVision, needsTools)
+	chosenID, _, err := r.modelForComplexityWithCaps(score.Level, needsVision, needsTools)
 	if err != nil {
 		if r.defaultModel != "" {
 			return r.defaultResult(score), nil
@@ -62,7 +62,6 @@ func (r *SmartRouter) Route(ctx context.Context, req RouteRequest) (*RouteResult
 	}
 
 	chosenCandidate := findCandidate(candidates, chosenID)
-	_ = chosenProvider
 	if chosenCandidate == nil {
 		if r.defaultModel != "" {
 			return r.defaultResult(score), nil
@@ -158,6 +157,30 @@ func (r *SmartRouter) collectCandidates(needsVision, needsTools bool) []modelCan
 		}
 	}
 	return candidates
+}
+
+// CheapestModel returns the single cheapest model matching the given
+// capability requirements. Used by the built-in agent system to assign
+// cost-appropriate models: Explore/Plan get the cheapest reader, Verify
+// gets the cheapest tool-capable model, General-purpose inherits.
+func (r *SmartRouter) CheapestModel(needsVision, needsTools bool) (modelID, provider string) {
+	candidates := r.collectCandidates(needsVision, needsTools)
+	if len(candidates) == 0 {
+		// Capability fallback: if no model matches, try without tools.
+		if needsTools {
+			candidates = r.collectCandidates(needsVision, false)
+		}
+		if len(candidates) == 0 {
+			return r.defaultModel, ""
+		}
+	}
+	// Sort by cost ascending, pick cheapest.
+	sort.Slice(candidates, func(i, j int) bool {
+		ci := candidates[i].model.CostIn + candidates[i].model.CostOut
+		cj := candidates[j].model.CostIn + candidates[j].model.CostOut
+		return ci < cj
+	})
+	return candidates[0].model.ID, candidates[0].provider
 }
 
 func (r *SmartRouter) allSortedModels(needsVision bool) []modelCandidate {

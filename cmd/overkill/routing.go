@@ -19,6 +19,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/models"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/routing"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 )
 
 // buildSmartRouter assembles the router from whichever catalog source
@@ -93,4 +94,36 @@ func modalitiesContain(in []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// taskRouterAdapter wraps *routing.SmartRouter to satisfy subagent.TaskRouter
+// so sub-agents get complexity-based, cost-aware model selection.
+type taskRouterAdapter struct {
+	router *routing.SmartRouter
+}
+
+// newTaskRouterAdapter returns a TaskRouter or nil when r is nil.
+func newTaskRouterAdapter(r *routing.SmartRouter) subagent.TaskRouter {
+	if r == nil {
+		return nil
+	}
+	return &taskRouterAdapter{router: r}
+}
+
+func (a *taskRouterAdapter) RouteTask(ctx context.Context, goal, contextStr string) (string, string, bool) {
+	userInput := goal
+	if contextStr != "" {
+		userInput = goal + "\n" + contextStr
+	}
+	req := routing.RouteRequest{
+		UserInput:       userInput,
+		EstimatedTokens: (len(goal) + len(contextStr)) * 4 / 3,
+	}
+	// Sub-agents always need tools — they call tools to do work.
+	req.RequiredCapabilities = []string{"tools"}
+	res, err := a.router.Route(ctx, req)
+	if err != nil || res == nil {
+		return "", "", false
+	}
+	return res.ModelID, res.Provider, true
 }

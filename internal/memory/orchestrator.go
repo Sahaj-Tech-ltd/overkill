@@ -28,6 +28,9 @@ func NewOrchestrator(store Store, provider providers.Provider, model string) *Or
 }
 
 func (o *Orchestrator) Remember(ctx context.Context, content string, memoryType MemoryType, tags []string, sessionID string) error {
+	if o.store == nil {
+		return nil
+	}
 	m := &Memory{
 		Type:      memoryType,
 		Content:   content,
@@ -45,6 +48,9 @@ func (o *Orchestrator) Remember(ctx context.Context, content string, memoryType 
 }
 
 func (o *Orchestrator) Recall(ctx context.Context, query string, limit int) (*SearchResult, error) {
+	if o.store == nil {
+		return &SearchResult{}, nil
+	}
 	q := Query{
 		Content: query,
 		Limit:   limit,

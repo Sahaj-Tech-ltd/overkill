@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -125,4 +126,44 @@ func (sq *SteeringQueue) Clear() {
 	sq.mu.Lock()
 	defer sq.mu.Unlock()
 	sq.queue = make([]SteeredMessage, 0)
+}
+
+// Append adds a simple string steering message to the queue.
+// The message is stored with Role="system" and Priority=0.
+func (sq *SteeringQueue) Append(msg string) {
+	sq.Inject(SteeredMessage{Content: msg, Role: "system"})
+}
+
+// Drain returns the oldest message as a plain string (FIFO) and
+// removes it from the queue. Returns empty string if the queue
+// is empty.
+func (sq *SteeringQueue) Drain() string {
+	sq.mu.Lock()
+	defer sq.mu.Unlock()
+	if len(sq.queue) == 0 {
+		return ""
+	}
+	result := sq.queue[0]
+	sq.queue = sq.queue[1:]
+	return result.Content
+}
+
+// DrainAll returns all queued messages combined into a single
+// newline-separated string, then empties the queue. Returns
+// empty string if the queue is empty.
+func (sq *SteeringQueue) DrainAll() string {
+	sq.mu.Lock()
+	defer sq.mu.Unlock()
+	if len(sq.queue) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, m := range sq.queue {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(m.Content)
+	}
+	sq.queue = make([]SteeredMessage, 0)
+	return b.String()
 }

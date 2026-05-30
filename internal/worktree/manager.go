@@ -262,6 +262,11 @@ func sanitizeBranch(taskID string) string {
 	if s == "" {
 		return "task"
 	}
+	// B056: Git branch names have a 250-byte practical limit; truncate to
+	// 200 chars for safety (leaves room for prefix/suffix in callers).
+	if len(s) > 200 {
+		s = s[:200]
+	}
 	return s
 }
 

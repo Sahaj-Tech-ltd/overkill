@@ -38,6 +38,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/google/uuid"
 )
 
@@ -121,7 +122,10 @@ func (s *SegmentStore) Get(id string) (*Segment, error) {
 func (s *SegmentStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path := filepath.Join(s.dir, id+".json")
+	path, err := security.SafePath(s.dir, id+".json")
+	if err != nil {
+		return fmt.Errorf("segments: delete: %w", err)
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("segments: delete: %w", err)
 	}
@@ -352,10 +356,30 @@ func (s *SegmentStore) LoadFiles(id string) ([]string, error) {
 	if root == "" {
 		return nil, errors.New("segments: no root dir set (segment or store)")
 	}
+	// Validate segment's RootDir stays within the store's defaultRoot.
+	if s.defaultRoot != "" && root != s.defaultRoot {
+		absDefault, _ := filepath.Abs(s.defaultRoot)
+		absRoot, _ := filepath.Abs(root)
+		absDefault = filepath.Clean(absDefault)
+		absRoot = filepath.Clean(absRoot)
+		if !strings.HasPrefix(absRoot, absDefault+string(filepath.Separator)) && absRoot != absDefault {
+			return nil, fmt.Errorf("segments: RootDir %q is outside defaultRoot %q", root, s.defaultRoot)
+		}
+	}
 	seen := map[string]bool{}
 	var paths []string
 	var totalBytes int64
+	// Resolve root to absolute and clean it for containment checks.
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("segments: resolve root: %w", err)
+	}
+	absRoot = filepath.Clean(absRoot)
 	for _, glob := range seg.Globs {
+		// Reject glob patterns that attempt directory traversal.
+		if strings.Contains(glob, "..") {
+			return nil, fmt.Errorf("segments: glob %q contains path traversal", glob)
+		}
 		matches, err := expandGlob(root, glob)
 		if err != nil {
 			return nil, fmt.Errorf("segments: glob %q: %w", glob, err)
@@ -363,6 +387,14 @@ func (s *SegmentStore) LoadFiles(id string) ([]string, error) {
 		for _, m := range matches {
 			if seen[m] {
 				continue
+			}
+			// Validate resolved path is within root.
+			absM, err := filepath.Abs(m)
+			if err != nil {
+				continue
+			}
+			if !strings.HasPrefix(filepath.Clean(absM), absRoot+string(filepath.Separator)) && filepath.Clean(absM) != absRoot {
+				return nil, fmt.Errorf("segments: glob %q resolved path %q outside root %q", glob, m, root)
 			}
 			seen[m] = true
 			if info, err := os.Stat(m); err == nil && !info.IsDir() {
@@ -426,7 +458,10 @@ func (s *SegmentStore) saveLocked(seg *Segment) error {
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return fmt.Errorf("segments: mkdir: %w", err)
 	}
-	path := filepath.Join(s.dir, seg.ID+".json")
+	path, err := security.SafePath(s.dir, seg.ID+".json")
+	if err != nil {
+		return fmt.Errorf("segments: save: %w", err)
+	}
 	tmp := path + ".tmp"
 	data, err := json.MarshalIndent(seg, "", "  ")
 	if err != nil {
@@ -446,7 +481,10 @@ func (s *SegmentStore) loadLocked(id string) (*Segment, error) {
 	if id == "" {
 		return nil, errors.New("segments: empty id")
 	}
-	path := filepath.Join(s.dir, id+".json")
+	path, err := security.SafePath(s.dir, id+".json")
+	if err != nil {
+		return nil, fmt.Errorf("segments: %w", err)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

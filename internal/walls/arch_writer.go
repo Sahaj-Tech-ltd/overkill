@@ -130,7 +130,7 @@ func renderArchFromScan(projectRoot string) (string, error) {
 	b.WriteString("- **Edge** — CLI / TUI / gateways. User-facing surface.\n")
 	b.WriteString("- **Orchestration** — agent loop, sub-agents, hooks.\n")
 	b.WriteString("- **Domain** — providers, memory, skills, walls. The product logic.\n")
-	b.WriteString("- **Infrastructure** — BadgerDB, bridge, journal. Persistence + IPC.\n\n")
+	b.WriteString("- **Infrastructure** — PostgreSQL, bridge, journal. Persistence + IPC.\n\n")
 
 	b.WriteString("## Invariants\n\n")
 	b.WriteString("_Things that MUST hold across changes. Document each with a one-line test._\n\n")

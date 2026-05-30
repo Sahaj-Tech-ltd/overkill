@@ -2,13 +2,13 @@ package checks
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/bridge"
@@ -42,7 +42,7 @@ func RegisterFilesystem(r *doctor.Runner, d Deps) {
 					return failf("chmod or chown "+dir.path+" so the current user owns it",
 						"mkdir: %v", err)
 				}
-				probe := filepath.Join(dir.path, ".doctor-write-probe")
+				probe := filepath.Join(dir.path, probeFilename())
 				if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
 					return failf("chmod u+w "+dir.path,
 						"write probe: %v", err)
@@ -83,17 +83,8 @@ func RegisterDisk(r *doctor.Runner, d Deps) {
 	})
 }
 
-// diskFree returns (free, total) bytes for the filesystem holding path. We
-// keep the syscall in this file so the rest of the package stays unix-clean.
-func diskFree(path string) (uint64, uint64, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(path, &stat); err != nil {
-		return 0, 0, err
-	}
-	free := stat.Bavail * uint64(stat.Bsize)
-	total := stat.Blocks * uint64(stat.Bsize)
-	return free, total, nil
-}
+// diskFree returns (free, total) bytes for the filesystem holding path.
+// Implementation differs by platform — see system_disk_unix.go and system_disk_windows.go.
 
 // RegisterBridge opens the Python bridge (when OVERKILL_BRIDGE_ADDR is set)
 // and issues a Ping RPC. Skips silently when the bridge isn't configured —
@@ -208,8 +199,7 @@ func RegisterVersion(r *doctor.Runner, d Deps) {
 				return info("HTTP %d from github releases", resp.StatusCode)
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-			// Cheap tag scrape: avoid a JSON dep to keep this self-contained.
-			tag := extractTag(string(body))
+			tag := extractTag(body)
 			if tag == "" {
 				return info("could not parse release JSON")
 			}
@@ -218,19 +208,15 @@ func RegisterVersion(r *doctor.Runner, d Deps) {
 	})
 }
 
-// extractTag pulls the first "tag_name":"vX.Y.Z" value from the GitHub
-// response without importing encoding/json — we deliberately keep this check
-// dependency-free so it can never break the rest of the doctor.
-func extractTag(body string) string {
-	const key = `"tag_name":"`
-	i := strings.Index(body, key)
-	if i < 0 {
+// extractTag pulls the "tag_name" field from a GitHub releases API response
+// using encoding/json for reliable parsing.
+func extractTag(data []byte) string {
+	type githubRelease struct {
+		TagName string `json:"tag_name"`
+	}
+	var rel githubRelease
+	if err := json.Unmarshal(data, &rel); err != nil {
 		return ""
 	}
-	rest := body[i+len(key):]
-	j := strings.Index(rest, `"`)
-	if j < 0 {
-		return ""
-	}
-	return rest[:j]
+	return rel.TagName
 }

@@ -130,16 +130,23 @@ func (p *Policy) CheckCall(serverName, toolName string, paths []string, argSize 
 	if !ok {
 		return Decision{Reason: fmt.Sprintf("mcpshield: no capability declared for server %q", serverName)}
 	}
-	if !c.Trusted && len(c.AllowedTools) > 0 {
-		found := false
-		for _, t := range c.AllowedTools {
-			if t == toolName {
-				found = true
-				break
-			}
+	// When Trusted, bypass the unknown-tool check. Path and byte limits still apply.
+	if !c.Trusted {
+		// Empty AllowedTools on a non-trusted server = deny all tools.
+		if len(c.AllowedTools) == 0 {
+			return Decision{Reason: fmt.Sprintf("mcpshield: no tools allowed for non-trusted server %q", serverName)}
 		}
-		if !found {
-			return Decision{Reason: fmt.Sprintf("mcpshield: tool %q not in allow-list for %q", toolName, serverName)}
+		if len(c.AllowedTools) > 0 {
+			found := false
+			for _, t := range c.AllowedTools {
+				if t == toolName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return Decision{Reason: fmt.Sprintf("mcpshield: tool %q not in allow-list for %q", toolName, serverName)}
+			}
 		}
 	}
 	if c.MaxBytesPerCall > 0 && argSize > c.MaxBytesPerCall {

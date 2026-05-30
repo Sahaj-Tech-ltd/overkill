@@ -7,7 +7,9 @@ package checks
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
@@ -40,14 +42,13 @@ func DefaultDeps(cfg *config.Config, configDir string) Deps {
 func RegisterAll(r *doctor.Runner, d Deps) {
 	RegisterConfig(r, d)
 	RegisterProviders(r, d)
-	RegisterStorage(r, d)
 	RegisterCatalog(r, d)
 	RegisterMCP(r, d)
 	RegisterLSP(r, d)
 	RegisterPlugins(r, d)
 	RegisterSync(r, d)
 	RegisterACP(r, d)
-	RegisterDB(r, d) // §4.20 — BadgerDB corruption check
+	RegisterDB(r, d) // §4.20 — DB check
 	RegisterTokenizer(r, d)
 	RegisterTools(r, d)
 	RegisterHooks(r, d)
@@ -87,4 +88,10 @@ func skip(reason string) doctor.Result {
 // tighter inner timeouts.
 func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, d)
+}
+
+// probeFilename returns a unique temp probe name (B055). Uses PID + random
+// suffix so concurrent doctor runs don't collide on the same filename.
+func probeFilename() string {
+	return fmt.Sprintf(".doctor-probe-%d-%x", os.Getpid(), rand.Int63())
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/rs/zerolog/log"
 
@@ -19,17 +20,33 @@ func Default() *Config {
 	}
 	dataDir := ""
 	if homeDir != "" {
-		dataDir = filepath.Join(homeDir, ".overkill", "data")
+		if runtime.GOOS == "windows" {
+			localAppData := os.Getenv("LOCALAPPDATA")
+			if localAppData != "" {
+				dataDir = filepath.Join(localAppData, "overkill", "data")
+			} else {
+				dataDir = filepath.Join(homeDir, ".overkill", "data")
+			}
+		} else {
+			dataDir = filepath.Join(homeDir, ".overkill", "data")
+		}
 	}
+
+	// Pick up DATABASE_URL from env as a reasonable default.
+	// The user can override by setting database_url in config.toml.
+	dbURL := os.Getenv("DATABASE_URL")
 
 	return &Config{
 		Version: CurrentVersion,
 		Agent: AgentConfig{
-			Name:            "Overkill",
-			DefaultProvider: "openai",
-			DefaultModel:    "gpt-4o",
-			MaxTurns:        0,
-			SpecDriven:      false,
+			Name:      "Overkill",
+			MaxTurns:  0,
+			SpecDriven: false,
+			// DefaultProvider and DefaultModel are intentionally blank.
+			// The runtime resolves providers via the Providers list or
+			// env-var auto-detection (OPENAI_API_KEY, etc.). Hardcoding
+			// "openai"/"gpt-4o" here bakes a provider the user may not
+			// have set up into their config file.
 		},
 		Providers: []ProviderConfig{},
 		Personality: PersonalityConfig{
@@ -64,6 +81,7 @@ func Default() *Config {
 		UI: UIConfig{
 			Animations: true,
 		},
+		DatabaseURL: dbURL,
 	}
 }
 
@@ -78,8 +96,7 @@ func Load(path string) (*Config, error) {
 			}
 			return cfg, nil
 		}
-		log.Warn().Err(err).Str("path", path).Msg("failed to read config file, using defaults")
-		return Default(), nil
+		return nil, fmt.Errorf("config: failed to read config file %s: %w", path, err)
 	}
 
 	var cfg Config
@@ -91,6 +108,12 @@ func Load(path string) (*Config, error) {
 	// Apply env var fallbacks for any unset fields.
 	if cfg.DatabaseURL == "" {
 		cfg.DatabaseURL = os.Getenv("DATABASE_URL")
+	}
+
+	// Auto-migrate the config so version bumps apply defaults and
+	// save the migrated file back to disk for next boot.
+	if _, _, err := cfg.Migrate(); err != nil {
+		log.Warn().Err(err).Msg("config: migration warning (using loaded config as-is)")
 	}
 
 	return &cfg, nil
@@ -115,12 +138,38 @@ func (c *Config) Save(path string) error {
 }
 
 func ConfigDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("config: getting home directory: %w", err)
+	// OVERKILL_HOME overrides the default config path.
+	// Critical for restricted environments (containers, sub-agents, systemd)
+	// where os.UserHomeDir() may be wrong or unavailable.
+	if envDir := os.Getenv("OVERKILL_HOME"); envDir != "" {
+		dir := filepath.Clean(envDir)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", fmt.Errorf("config: creating OVERKILL_HOME dir %s: %w", dir, err)
+		}
+		return dir, nil
 	}
 
-	dir := filepath.Join(homeDir, ".overkill")
+	var dir string
+	if runtime.GOOS == "windows" {
+		// Windows: use %LOCALAPPDATA%\overkill (non-roaming, machine-local)
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData == "" {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("config: getting home directory: %w (set OVERKILL_HOME to override)", err)
+			}
+			dir = filepath.Join(homeDir, ".overkill")
+		} else {
+			dir = filepath.Join(localAppData, "overkill")
+		}
+	} else {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("config: getting home directory: %w (set OVERKILL_HOME to override)", err)
+		}
+		dir = filepath.Join(homeDir, ".overkill")
+	}
+
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("config: creating config directory %s: %w", dir, err)
 	}
@@ -135,4 +184,18 @@ func ConfigPath() (string, error) {
 	}
 
 	return filepath.Join(dir, "config.toml"), nil
+}
+
+// ThemesDir returns the path to the user's custom theme directory
+// (~/.overkill/themes), creating it if it doesn't exist.
+func ThemesDir() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	themesDir := filepath.Join(dir, "themes")
+	if err := os.MkdirAll(themesDir, 0o755); err != nil {
+		return "", fmt.Errorf("config: creating themes directory %s: %w", themesDir, err)
+	}
+	return themesDir, nil
 }

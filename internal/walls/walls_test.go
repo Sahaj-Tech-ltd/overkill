@@ -184,8 +184,8 @@ func TestArchitecture_LoadRules(t *testing.T) {
 func TestArchitecture_DBAccessInRepoFile(t *testing.T) {
 	w := NewArchitectureWall(ArchitectureConfig{Enabled: true})
 	res, err := w.Check(context.Background(), map[string]string{
-		"store.go":   "badger.Open(\"/tmp/db\")",
-		"handler.go": "badger.Open(\"/tmp/db2\")",
+		"store.go":   "sql.Open(\"postgres\", \"...\")",
+		"handler.go": "sql.Open(\"postgres\", \"...\")",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -306,6 +306,9 @@ func TestBasic(t *testing.T) {
 func TestTestQuality_AnalyzeTestQuality(t *testing.T) {
 	w := NewTestQualityWall(TestQualityConfig{Enabled: true})
 
+	code := `package foo
+func DoThing() error { return nil }`
+
 	tests := `package foo_test
 func TestOne(t *testing.T) {
 	t.Run("empty input", func(t *testing.T) {})
@@ -318,7 +321,7 @@ func TestTwo(t *testing.T) {
 func TestThree(t *testing.T) {}
 `
 
-	a := w.AnalyzeTestQuality(tests)
+	a := w.AnalyzeTestQuality(code, tests)
 
 	if a.TestCount != 3 {
 		t.Errorf("expected 3 tests, got %d", a.TestCount)

@@ -20,12 +20,15 @@ package journal
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 )
 
 // DashboardServer is the SSE endpoint hub. Subscribers register via
@@ -38,6 +41,7 @@ type DashboardServer struct {
 
 	mu          sync.RWMutex
 	subscribers map[chan dashboardEvent]struct{}
+	closed      bool // set when Run shuts down; broadcasts become no-ops
 
 	server *http.Server
 }
@@ -67,7 +71,7 @@ func (d *DashboardServer) Run(ctx context.Context) error {
 
 	addr := d.Listen
 	if addr == "" {
-		addr = "127.0.0.1:7802"
+		addr = config.DefaultSSEDashboardAddr
 	}
 	d.server = &http.Server{
 		Addr:              addr,
@@ -82,8 +86,10 @@ func (d *DashboardServer) Run(ctx context.Context) error {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = d.server.Shutdown(shutCtx)
-		// Close all subscriber channels so handlers exit.
+		// Mark closed first so in-flight broadcasts become no-ops,
+		// then close all subscriber channels under lock.
 		d.mu.Lock()
+		d.closed = true
 		for ch := range d.subscribers {
 			close(ch)
 		}
@@ -112,6 +118,10 @@ func (d *DashboardServer) BroadcastAlert(alert *Alert) {
 
 func (d *DashboardServer) broadcast(ev dashboardEvent) {
 	d.mu.RLock()
+	if d.closed {
+		d.mu.RUnlock()
+		return // server is shutting down, don't send to closing channels
+	}
 	defer d.mu.RUnlock()
 	for ch := range d.subscribers {
 		select {
@@ -125,13 +135,15 @@ func (d *DashboardServer) broadcast(ev dashboardEvent) {
 }
 
 // authorized checks the bearer token (or accepts everything when
-// no token is configured).
+// no token is configured). Uses constant-time comparison to avoid
+// timing side-channel attacks on the bearer token.
 func (d *DashboardServer) authorized(r *http.Request) bool {
 	if d.Token == "" {
 		return true
 	}
 	h := r.Header.Get("Authorization")
-	return strings.TrimPrefix(h, "Bearer ") == d.Token
+	presented := strings.TrimPrefix(h, "Bearer ")
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(d.Token)) == 1
 }
 
 // handleEvents is the SSE endpoint. Clients see Content-Type

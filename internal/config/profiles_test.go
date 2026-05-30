@@ -18,19 +18,19 @@ func TestApplyProfile_remote_fields(t *testing.T) {
 	})
 
 	t.Run("confirm writes enabled", func(t *testing.T) {
-		if !u.Basic.ConfirmWrites {
+		if u.Basic.ConfirmWrites == nil || !*u.Basic.ConfirmWrites {
 			t.Error("ConfirmWrites = false, want true")
 		}
 	})
 
 	t.Run("command scanner on", func(t *testing.T) {
-		if !u.Advanced.Scanners.Command.Enabled {
+		if u.Advanced.Scanners.Command.Enabled == nil || !*u.Advanced.Scanners.Command.Enabled {
 			t.Error("Scanners.Command.Enabled = false, want true")
 		}
 	})
 
 	t.Run("injection scanner off", func(t *testing.T) {
-		if u.Advanced.Scanners.Injection.Enabled {
+		if u.Advanced.Scanners.Injection.Enabled != nil && *u.Advanced.Scanners.Injection.Enabled {
 			t.Error("Scanners.Injection.Enabled = true, want false")
 		}
 	})

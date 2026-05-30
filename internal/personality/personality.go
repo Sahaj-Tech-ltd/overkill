@@ -1,3 +1,6 @@
+// Package personality — personality engine orchestrator.
+// Wires together all subsystems: level system, greeting/error/success
+// injectors, identity, relationship, fun facts, easter eggs, and more.
 package personality
 
 import (
@@ -332,5 +335,3 @@ func dramaticObservation() string {
 	r := localRand(len(observations))
 	return observations[r]
 }
-
-// test

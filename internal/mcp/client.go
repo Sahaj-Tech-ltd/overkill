@@ -61,6 +61,13 @@ type Client struct {
 // NewClient prepares a client; call Start to spawn the subprocess and run
 // the JSON-RPC handshake.
 func NewClient(name, command string, args []string, env map[string]string) *Client {
+	// Validate that command resolves to an executable. exec.LookPath
+	// checks PATH for bare names and verifies filesystem existence for
+	// absolute/relative paths. A bad command is stored as lastErr so
+	// Start() can surface the failure cleanly (B107).
+	if _, err := exec.LookPath(command); err != nil {
+		return &Client{name: name, lastErr: fmt.Errorf("mcp: command %q not found: %w", command, err)}
+	}
 	cmd := exec.Command(command, args...)
 	if len(env) > 0 {
 		envv := os.Environ()
@@ -78,6 +85,12 @@ func (c *Client) Name() string { return c.name }
 // Start launches the subprocess, runs the MCP handshake, and caches the
 // tool list. Returns once the server has been initialized.
 func (c *Client) Start(ctx context.Context) error {
+	if c.cmd == nil {
+		if c.lastErr != nil {
+			return c.lastErr
+		}
+		return fmt.Errorf("mcp: no command configured for %s", c.name)
+	}
 	stdin, err := c.cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("mcp: stdin: %w", err)
@@ -124,10 +137,16 @@ func (c *Client) Start(ctx context.Context) error {
 	}
 	if _, err := c.conn.Call(ctx, "initialize", initParams); err != nil {
 		c.setError(err)
+		if c.cmd != nil && c.cmd.Process != nil {
+			_ = c.cmd.Process.Kill()
+		}
 		return fmt.Errorf("mcp: initialize %s: %w", c.name, err)
 	}
 	if err := c.conn.Notify("notifications/initialized", map[string]any{}); err != nil {
 		c.setError(err)
+		if c.cmd != nil && c.cmd.Process != nil {
+			_ = c.cmd.Process.Kill()
+		}
 		return fmt.Errorf("mcp: initialized notification %s: %w", c.name, err)
 	}
 	tools, err := c.ListTools(ctx)

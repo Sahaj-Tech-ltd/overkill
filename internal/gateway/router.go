@@ -71,7 +71,7 @@ func (r *SessionRouter) Resolve(channel, chatKey, thread, liveTUISession string)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := bindKey(channel, chatKey, thread)
-	if target, ok := r.data.Follows[chatKey]; ok {
+	if target, ok := r.data.Follows[followKey(channel, chatKey)]; ok {
 		if target == "tui" && liveTUISession != "" {
 			return liveTUISession, true
 		}
@@ -89,6 +89,7 @@ func (r *SessionRouter) Resolve(channel, chatKey, thread, liveTUISession string)
 // Touch is called on every turn to bump Updated for /sessions ordering.
 func (r *SessionRouter) Bind(channel, chatKey, thread, sessionID string) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	k := bindKey(channel, chatKey, thread)
 	now := time.Now().UTC()
 	b := r.data.Bindings[k]
@@ -99,48 +100,45 @@ func (r *SessionRouter) Bind(channel, chatKey, thread, sessionID string) error {
 	b.Channel = channel
 	b.Updated = now
 	r.data.Bindings[k] = b
-	snap := r.snapshotLocked()
-	r.mu.Unlock()
-	return r.persist(snap)
+	return r.persistLocked()
 }
 
 // Touch bumps Updated so /sessions can sort by recency. No-op if
 // unbound.
 func (r *SessionRouter) Touch(channel, chatKey, thread string) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	k := bindKey(channel, chatKey, thread)
 	if b, ok := r.data.Bindings[k]; ok {
 		b.Updated = time.Now().UTC()
 		r.data.Bindings[k] = b
-		snap := r.snapshotLocked()
-		r.mu.Unlock()
-		_ = r.persist(snap)
-		return
+		_ = r.persistLocked()
 	}
-	r.mu.Unlock()
 }
 
 // Follow puts the chat into follow mode. target = "tui" mirrors the
 // live TUI session id; any other non-empty value pins to that session.
-// Empty target clears follow mode.
-func (r *SessionRouter) Follow(chatKey, target string) error {
+// Empty target clears follow mode. The channel prefix on the key
+// prevents different channels (WhatsApp vs Discord) sharing the same
+// chatKey from colliding on follow state.
+func (r *SessionRouter) Follow(channel, chatKey, target string) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	fk := followKey(channel, chatKey)
 	if target == "" {
-		delete(r.data.Follows, chatKey)
+		delete(r.data.Follows, fk)
 	} else {
-		r.data.Follows[chatKey] = target
+		r.data.Follows[fk] = target
 	}
-	snap := r.snapshotLocked()
-	r.mu.Unlock()
-	return r.persist(snap)
+	return r.persistLocked()
 }
 
 // FollowTarget returns the current follow target for the chat ("",
 // "tui", or a session id).
-func (r *SessionRouter) FollowTarget(chatKey string) string {
+func (r *SessionRouter) FollowTarget(channel, chatKey string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.data.Follows[chatKey]
+	return r.data.Follows[followKey(channel, chatKey)]
 }
 
 // RecentEntry is one row in the /sessions list.
@@ -180,7 +178,11 @@ func (r *SessionRouter) Recent(limit int) []RecentEntry {
 func NewSessionID(prefix string) string {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+		// Crypto rand failed; combine time with an extra random suffix
+		// so session IDs are not guessable via time-based probing.
+		fallback := make([]byte, 4)
+		_, _ = rand.Read(fallback)
+		return fmt.Sprintf("%s-%d-%x", prefix, time.Now().UnixNano(), fallback)
 	}
 	return prefix + "-" + hex.EncodeToString(b)
 }
@@ -215,6 +217,33 @@ func (r *SessionRouter) persist(snap routerFile) error {
 		return err
 	}
 	return os.Rename(tmp, r.path)
+}
+
+// persistLocked persists the current in-memory state. Must be called
+// with r.mu already held (unlike persist which snapshots separately).
+func (r *SessionRouter) persistLocked() error {
+	if r.path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+		return err
+	}
+	buf, err := json.MarshalIndent(r.data, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := r.path + ".tmp"
+	if err := os.WriteFile(tmp, buf, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, r.path)
+}
+
+// followKey returns a namespaced key for the Follows map so that
+// different channels (e.g. WhatsApp and Discord) sharing the same
+// chatKey don't collide on follow state.
+func followKey(channel, chatKey string) string {
+	return channel + ":" + chatKey
 }
 
 // Keys are channel\x00chatKey\x00thread. Channel/chat/thread are user

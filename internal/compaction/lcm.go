@@ -74,6 +74,10 @@ func (c *LCMCompactor) Compact(ctx context.Context, messages []providers.Message
 		splitIdx = 0
 	}
 
+	// B066: walk backwards to find a safe boundary so we don't orphan
+	// a tool result from its preceding assistant tool_call.
+	splitIdx = findSafeSplit(messages, splitIdx)
+
 	toCompact := messages[:splitIdx]
 	preserved := messages[splitIdx:]
 
@@ -162,10 +166,11 @@ func (c *LCMCompactor) tryLevel2(ctx context.Context, messages []providers.Messa
 }
 
 func (c *LCMCompactor) callLLM(ctx context.Context, prompt, model string) (string, error) {
-	// Fall back to the historical default if the caller passed an empty
-	// model — keeps old direct-call sites working until they migrate.
 	if model == "" {
-		model = "gpt-4o-mini"
+		model = c.pickCheapestModel()
+	}
+	if model == "" {
+		return "", fmt.Errorf("compaction: no model available — provider has no models listed and no CompactionModel configured")
 	}
 	resp, err := c.provider.Complete(ctx, providers.Request{
 		Model:    model,
@@ -175,6 +180,22 @@ func (c *LCMCompactor) callLLM(ctx context.Context, prompt, model string) (strin
 		return "", fmt.Errorf("compaction: LLM call failed: %w", err)
 	}
 	return resp.Content, nil
+}
+
+// pickCheapestModel returns the ID of the cheapest model (by output cost)
+// from the provider's model list. Returns empty string if no models.
+func (c *LCMCompactor) pickCheapestModel() string {
+	models := c.provider.Models()
+	if len(models) == 0 {
+		return ""
+	}
+	best := models[0]
+	for i := 1; i < len(models); i++ {
+		if models[i].CostOut < best.CostOut {
+			best = models[i]
+		}
+	}
+	return best.ID
 }
 
 func (c *LCMCompactor) level3Truncate(messages []providers.Message, targetTokens int) string {
@@ -191,15 +212,61 @@ func (c *LCMCompactor) level3Truncate(messages []providers.Message, targetTokens
 	headSize := charBudget / 2
 	tailSize := charBudget / 2
 
-	head := allContent
-	if len(head) > headSize {
-		head = head[:headSize]
+	// B067 + B089: use rune slicing for UTF-8 safety and clamp
+	// head/tail so they never overlap.
+	runes := []rune(allContent)
+
+	// Head: take at most headSize runes from the start, but limited
+	// by total length to avoid pulling from the tail.
+	actualHead := min(headSize, len(runes))
+	head := string(runes[:actualHead])
+
+	// Tail: start offset so head+tail don't overlap.
+	tailStart := len(runes) - min(tailSize, len(runes)-actualHead)
+	if tailStart < actualHead {
+		tailStart = actualHead
+	}
+	tail := string(runes[tailStart:])
+
+	if tail != "" {
+		return fmt.Sprintf("[Context summary truncated. Key info: %s\n\nLast known state: %s]", head, tail)
+	}
+	return fmt.Sprintf("[Context summary truncated. Key info: %s]", head)
+}
+
+// findSafeSplit walks backwards from splitIdx to find a boundary that
+// won't orphan a tool result from its preceding assistant tool_call.
+// Safe boundaries are: before a user message, after a complete
+// tool-call/result cycle, or index 0.
+func findSafeSplit(messages []providers.Message, splitIdx int) int {
+	if splitIdx <= 0 {
+		return 0
+	}
+	if splitIdx >= len(messages) {
+		return len(messages) // boundary at end, tail is empty, always safe
 	}
 
-	tail := allContent
-	if len(tail) > tailSize {
-		tail = tail[len(tail)-tailSize:]
+	// Walk backwards from splitIdx. The only unsafe position is when
+	// the first message in the tail is a "tool" (result) whose
+	// preceding assistant (with tool_calls) sits in the head.
+	for splitIdx > 0 && messages[splitIdx].Role == "tool" {
+		// Move the tool result into the head side.
+		splitIdx--
+		// Now walk back through the owning assistant (and any sibling
+		// tool results) so the entire tool-call/result cycle stays
+		// together.
+		for splitIdx > 0 {
+			if messages[splitIdx].Role == "assistant" && len(messages[splitIdx].ToolCalls) > 0 {
+				splitIdx-- // move the assistant into head
+				break
+			}
+			if messages[splitIdx].Role == "tool" {
+				splitIdx-- // sibling tool result, keep walking
+				continue
+			}
+			// Hit a user/assistant-without-toolcalls — stop.
+			break
+		}
 	}
-
-	return fmt.Sprintf("[Context summary truncated. Key info: %s\n\nLast known state: %s]", head, tail)
+	return splitIdx
 }

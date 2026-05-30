@@ -135,7 +135,8 @@ func (r *FlightRecorder) readFilteredLocked(filter func(Entry) bool) ([]Entry, e
 		path := filepath.Join(rawDir, entry.Name())
 		fileEntries, err := readFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("journal: reading file %s: %w", entry.Name(), err)
+			log.Printf("journal: skipping unreadable file %s: %v", entry.Name(), err)
+			continue
 		}
 		for _, e := range fileEntries {
 			if filter(e) {
@@ -160,7 +161,7 @@ func readFile(path string) ([]Entry, error) {
 	var entries []Entry
 	var skipped int
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {

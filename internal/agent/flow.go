@@ -11,7 +11,7 @@
 // were in the step loop, and a small reason payload for the user.
 //
 // State corruption is treated as a hard abort: a malformed JSON blob
-// in BadgerDB shouldn't trigger an infinite retry loop. The resume
+// in the session store shouldn't trigger an infinite retry loop. The resume
 // path inspects the blob and either resumes cleanly or reports
 // "checkpoint corrupted, won't retry" to the alarm dispatcher.
 package agent

@@ -6,8 +6,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 )
+
+// TaskRouter picks a model for a sub-agent task. Satisfied by
+// *routing.SmartRouter via a thin adapter at the wiring site.
+// Lives here (not in routing) to avoid import cycles:
+//
+//	agent → subagent → routing → agent  ✗
+type TaskRouter interface {
+	RouteTask(ctx context.Context, goal, contextStr string) (modelID, provider string, ok bool)
+}
 
 // Config controls the limits and behaviour of a Manager.
 type Config struct {
@@ -15,6 +25,12 @@ type Config struct {
 	MaxChildren  int
 	ChildTimeout time.Duration
 	CurrentDepth int // internal depth counter
+
+	// MaxTasksPerChild is the soft limit on how many tasks can be
+	// dispatched in a single SpawnBatch call. When the input exceeds
+	// this, SpawnBatchAutoSplit automatically splits into sequential
+	// batches. Defaults to MaxChildren when unset (0).
+	MaxTasksPerChild int
 }
 
 // ChildRef is a live handle to a spawned sub-agent.
@@ -46,6 +62,14 @@ type Manager struct {
 	// nil the contract path on delegate_task returns an error.
 	driverFactory func(*Contract) (StepDriver, error)
 
+	// router, when set, picks the cheapest capable model per sub-agent task.
+	// Falls back to the main model when nil or on routing failure.
+	router TaskRouter
+
+	// registry, when set, provides file-based agent discovery and
+	// auto-selection via SelectBest. Set via SetRegistry at boot.
+	registry *AgentRegistry
+
 	// failureSink, when set, is invoked when a contract terminates in any
 	// non-completed state. Used by cmd/overkill to push delegation_failure
 	// alerts into the journal AlertStore. Best-effort: fired in a goroutine.
@@ -64,6 +88,23 @@ type HandoffFailureSink interface {
 func (m *Manager) SetFailureSink(s HandoffFailureSink) {
 	m.mu.Lock()
 	m.failureSink = s
+	m.mu.Unlock()
+}
+
+// SetRouter wires a task-level model router. Pass nil to clear.
+func (m *Manager) SetRouter(r TaskRouter) {
+	m.mu.Lock()
+	m.router = r
+	m.mu.Unlock()
+}
+
+// SetRegistry wires an agent registry for file-based agent discovery
+// and auto-selection. Pass nil to clear.
+func (m *Manager) SetRegistry(r *AgentRegistry) {
+	// Store for use by Spawn and delegate_task tool.
+	// The registry is consulted when no explicit agent name is provided.
+	m.mu.Lock()
+	m.registry = r
 	m.mu.Unlock()
 }
 
@@ -151,8 +192,13 @@ func (m *Manager) SpawnContract(ctx context.Context, contract *Contract, driver 
 		return "", fmt.Errorf("subagent: contract %q already registered", contract.ID)
 	}
 	if len(m.autonomous) >= m.cfg.MaxChildren {
-		m.mu.Unlock()
-		return "", fmt.Errorf("subagent: too many autonomous children (%d/%d)", len(m.autonomous), m.cfg.MaxChildren)
+		// C2 fix: only count RUNNING children against capacity.
+		// Completed children are evicted after a 1-hour grace window
+		// but must not block new spawns during that window.
+		if m.runningAutonomousCount() >= m.cfg.MaxChildren {
+			m.mu.Unlock()
+			return "", fmt.Errorf("subagent: too many autonomous children (%d/%d)", m.runningAutonomousCount(), m.cfg.MaxChildren)
+		}
 	}
 
 	cctx, cancel := context.WithCancel(ctx)
@@ -178,6 +224,27 @@ func (m *Manager) SpawnContract(ctx context.Context, contract *Contract, driver 
 	m.mu.Unlock()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				m.mu.Lock()
+				entry.report = &FinalReport{
+					ContractID: contract.ID,
+					Status:     "failed",
+					Reason:     fmt.Sprintf("subagent panicked: %v", r),
+				}
+				entry.runErr = fmt.Errorf("subagent panicked: %v", r)
+				sink := m.failureSink
+				m.mu.Unlock()
+				close(entry.done)
+				if sink != nil {
+					go func() {
+						defer func() { _ = recover() }()
+						sink.OnDelegationFailure(contract.ParentSession, contract, entry.report, entry.runErr)
+					}()
+				}
+				return
+			}
+		}()
 		rep, err := r.Run(cctx)
 		m.mu.Lock()
 		entry.report = rep
@@ -185,6 +252,18 @@ func (m *Manager) SpawnContract(ctx context.Context, contract *Contract, driver 
 		sink := m.failureSink
 		m.mu.Unlock()
 		close(entry.done)
+
+		// Track cost for autonomous children — convert FinalReport tokens
+		// into a Result for the CostRollup (H-25 fix).
+		if rep != nil && rep.TokensUsed > 0 {
+			costResult := &Result{
+				Status:    rep.Status,
+				TokensIn:  int64(rep.TokensUsed / 2),
+				TokensOut: int64(rep.TokensUsed / 2),
+				CostUSD:   estimateCostUSD("", int64(rep.TokensUsed/2), int64(rep.TokensUsed/2)),
+			}
+			m.costTracker.AddChild(costResult)
+		}
 		// Evict the entry after a 1h grace window so callers still
 		// have time to fetch AutonomousReport, but the map doesn't
 		// grow forever. Without this, every long-running deployment
@@ -290,8 +369,13 @@ func (m *Manager) AutonomousList() []string {
 	return out
 }
 
-// Spawn runs a single child task subject to depth and capacity limits.
+// CostSummary returns a snapshot of the aggregated child costs.
 func (m *Manager) Spawn(ctx context.Context, task Task) (*Result, error) {
+	// 0. Nil guard — prevent nil pointer dereference on task.Validate().
+	if task == nil {
+		return nil, fmt.Errorf("subagent: task is nil")
+	}
+
 	// 1. Validate the task.
 	if err := task.Validate(); err != nil {
 		return nil, fmt.Errorf("validation: %w", err)
@@ -310,7 +394,7 @@ func (m *Manager) Spawn(ctx context.Context, task Task) (*Result, error) {
 	}
 
 	// 4. Register child.
-	childID := fmt.Sprintf("child-%d", time.Now().UnixNano())
+	childID := fmt.Sprintf("child-%s", uuid.New().String())
 	childCtx, cancel := context.WithTimeout(ctx, m.cfg.ChildTimeout)
 
 	ref := &ChildRef{
@@ -326,16 +410,50 @@ func (m *Manager) Spawn(ctx context.Context, task Task) (*Result, error) {
 	m.children[childID] = ref
 	m.mu.Unlock()
 
-	// 5. Run the worker (lock released).
-	w := NewWorker(WorkerConfig{
-		Goal:      task.Goal(),
-		Context:   task.Context(),
-		MaxSteps:  task.MaxIterations(),
-		Timeout:   m.cfg.ChildTimeout,
-		TaskIndex: 0,
-	})
+	// 5. Run the worker — route through SmartRouter for model selection,
+	// then try real LLM, fall back to stub.
 
-	result, _ := w.Run(childCtx)
+	// Pick model via SmartRouter (complexity-based, cost-aware).
+	model := task.Model()
+	provider := ""
+	m.mu.RLock()
+	router := m.router
+	m.mu.RUnlock()
+	if router != nil && model == "" {
+		// Only route when the task didn't pin a specific model.
+		if mid, prov, ok := router.RouteTask(childCtx, task.Goal(), task.Context()); ok {
+			model = mid
+			provider = prov
+		}
+	}
+
+	var result *Result
+
+	rw, err := NewRealWorker(RealWorkerConfig{
+		Goal:     task.Goal(),
+		Context:  task.Context(),
+		MaxSteps: task.MaxIterations(),
+		Timeout:  m.cfg.ChildTimeout,
+		Model:    model,
+		Provider: provider,
+		TaskIndex: 0, // single spawn, always index 0
+	})
+	if err == nil {
+		result, err = rw.Run(childCtx)
+		if err != nil {
+			result = &Result{Status: "error", Summary: "Worker error: " + err.Error(), Error: err.Error(), ExitReason: "worker_error"}
+		}
+	} else {
+		// Fall back to stub worker when XIAOMI_API_KEY not set.
+		w := NewWorker(WorkerConfig{
+			Goal:      task.Goal(),
+			Context:   task.Context(),
+			MaxSteps:  task.MaxIterations(),
+			Timeout:   m.cfg.ChildTimeout,
+			TaskIndex: 0,
+		})
+		result, _ = w.Run(childCtx)
+	}
 	cancel()
 
 	// 6. Unregister child.
@@ -377,16 +495,68 @@ func (m *Manager) SpawnBatch(ctx context.Context, tasks []Task) ([]*Result, erro
 	for i, t := range tasks {
 		i, t := i, t // capture loop variables
 
+		// Register child under capacity lock.
+		childID := fmt.Sprintf("child-batch-%s-%d", uuid.New().String(), i)
+		m.mu.Lock()
+		ref := &ChildRef{
+			ID:        childID,
+			Goal:      t.Goal(),
+			Model:     t.Model(),
+			Status:    "running",
+			StartedAt: time.Now(),
+			Depth:     m.cfg.CurrentDepth + 1,
+			Role:      RoleWorker,
+		}
+		m.children[childID] = ref
+		m.mu.Unlock()
+
 		g.Go(func() error {
-			w := NewWorker(WorkerConfig{
-				Goal:      t.Goal(),
-				Context:   t.Context(),
-				MaxSteps:  t.MaxIterations(),
-				Timeout:   m.cfg.ChildTimeout,
+			defer func() {
+				m.mu.Lock()
+				delete(m.children, childID)
+				m.mu.Unlock()
+			}()
+
+			// Route through SmartRouter for model selection.
+			model := t.Model()
+			provider := ""
+			m.mu.RLock()
+			router := m.router
+			m.mu.RUnlock()
+			if router != nil && model == "" {
+				if mid, prov, ok := router.RouteTask(gctx, t.Goal(), t.Context()); ok {
+					model = mid
+					provider = prov
+				}
+			}
+
+			// Try real LLM first, fall back to stub.
+			var res *Result
+			rw, rwErr := NewRealWorker(RealWorkerConfig{
+				Goal:     t.Goal(),
+				Context:  t.Context(),
+				MaxSteps: t.MaxIterations(),
+				Timeout:  m.cfg.ChildTimeout,
+				Model:    model,
+				Provider: provider,
 				TaskIndex: i,
 			})
-
-			res, _ := w.Run(gctx)
+			if rwErr == nil {
+				res, rwErr = rw.Run(gctx)
+				if rwErr != nil {
+					res = &Result{Status: "error", Error: rwErr.Error(), ExitReason: "worker_error"}
+				}
+			} else {
+				// Fall back to stub worker when no API key available.
+				w := NewWorker(WorkerConfig{
+					Goal:      t.Goal(),
+					Context:   t.Context(),
+					MaxSteps:  t.MaxIterations(),
+					Timeout:   m.cfg.ChildTimeout,
+					TaskIndex: i,
+				})
+				res, _ = w.Run(gctx)
+			}
 			results[i] = res
 			return nil
 		})
@@ -405,11 +575,26 @@ func (m *Manager) SpawnBatch(ctx context.Context, tasks []Task) ([]*Result, erro
 	return results, nil
 }
 
-// ActiveCount returns the number of currently running children.
+// ActiveCount returns the number of currently running children (Spawn path).
 func (m *Manager) ActiveCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.children)
+}
+
+// runningAutonomousCount returns the number of autonomous children that are
+// still running (not yet completed). Used for capacity checks (C2 fix).
+func (m *Manager) runningAutonomousCount() int {
+	count := 0
+	for _, entry := range m.autonomous {
+		select {
+		case <-entry.done:
+			// Already completed — don't count against capacity.
+		default:
+			count++
+		}
+	}
+	return count
 }
 
 // CostSummary returns a snapshot of the aggregated child costs.
@@ -432,4 +617,72 @@ func (m *Manager) ActiveChildren() []ChildRef {
 		out = append(out, *c)
 	}
 	return out
+}
+
+// batchSize returns the effective per-batch task limit.
+func (m *Manager) batchSize() int {
+	if m.cfg.MaxTasksPerChild > 0 {
+		return m.cfg.MaxTasksPerChild
+	}
+	if m.cfg.MaxChildren > 0 {
+		return m.cfg.MaxChildren
+	}
+	return 4
+}
+
+// SpawnBatchAutoSplit is like SpawnBatch but automatically splits oversized
+// task lists into sequential batches. When len(tasks) > batchSize(), tasks are
+// sliced into batches of batchSize(), each run via SpawnBatch in order, and
+// results are concatenated. This prevents single sub-agents from hitting
+// max_iterations when the parent dumps 9+ tasks on them.
+func (m *Manager) SpawnBatchAutoSplit(ctx context.Context, tasks []Task) ([]*Result, error) {
+	bs := m.batchSize()
+	if len(tasks) <= bs {
+		return m.SpawnBatch(ctx, tasks)
+	}
+
+	var all []*Result
+	for start := 0; start < len(tasks); start += bs {
+		end := min(start+bs, len(tasks))
+		batch := tasks[start:end]
+		results, err := m.SpawnBatch(ctx, batch)
+		if err != nil {
+			return all, fmt.Errorf("batch [%d-%d]: %w", start+1, end, err)
+		}
+		all = append(all, results...)
+	}
+	return all, nil
+}
+
+// SpawnDecomposed handles a single goal string that may contain multiple
+// independent items. It decomposes the goal via Decomposer — if 2+ items
+// are found, they're dispatched as parallel sub-agents through
+// SpawnBatchAutoSplit. If only one item (or decomposition fails), it falls
+// back to a normal single-task Spawn.
+//
+// This is the smart delegation path: instead of dumping "fix X in package A,
+// also wire Y in package B, and refactor Z" onto one overwhelmed sub-agent,
+// the Decomposer splits it into 3 discrete tasks that run in parallel.
+func (m *Manager) SpawnDecomposed(ctx context.Context, goal, contextStr string) ([]*Result, error) {
+	dc := NewDecomposer()
+	items := dc.Decompose(goal)
+
+	if len(items) < 2 {
+		// Single item — fall back to normal spawn.
+		task := GenericTask{GoalStr: goal, ContextStr: contextStr}
+		result, err := m.Spawn(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		return []*Result{result}, nil
+	}
+
+	tasks := make([]Task, len(items))
+	for i, desc := range items {
+		tasks[i] = GenericTask{
+			GoalStr:    desc,
+			ContextStr: contextStr,
+		}
+	}
+	return m.SpawnBatchAutoSplit(ctx, tasks)
 }

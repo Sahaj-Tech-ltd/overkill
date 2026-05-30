@@ -1,15 +1,32 @@
 package cron
 
 import (
+	"database/sql"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func openTestPG(t *testing.T) (*sql.DB, func()) {
+	t.Helper()
+	connStr := os.Getenv("PG_TEST_URL")
+	if connStr == "" {
+		connStr = os.Getenv("DATABASE_URL")
+	}
+	if connStr == "" {
+		t.Skip("skipping: set PG_TEST_URL or DATABASE_URL for postgres tests")
+	}
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err)
+	require.NoError(t, db.Ping())
+	return db, func() { db.Close() }
+}
 
 func TestParseCron_EveryMinute(t *testing.T) {
 	expr, err := ParseCron("* * * * *")
@@ -306,15 +323,12 @@ func TestScheduler_RetryOnFailure(t *testing.T) {
 	assert.True(t, fc > 2)
 }
 
-func TestBadgerJobStore_SaveLoad(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir)
-	opts.Logger = nil
-	db, err := badger.Open(opts)
-	require.NoError(t, err)
-	defer db.Close()
+func TestPostgresJobStore_SaveLoad(t *testing.T) {
+	db, cleanup := openTestPG(t)
+	defer cleanup()
 
-	store := NewBadgerJobStore(db)
+	store, err := NewPostgresJobStore(db)
+	require.NoError(t, err)
 
 	job := &Job{
 		ID:        "test-job-1",
@@ -337,15 +351,12 @@ func TestBadgerJobStore_SaveLoad(t *testing.T) {
 	assert.Equal(t, job.Command, jobs[0].Command)
 }
 
-func TestBadgerJobStore_Delete(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir)
-	opts.Logger = nil
-	db, err := badger.Open(opts)
-	require.NoError(t, err)
-	defer db.Close()
+func TestPostgresJobStore_Delete(t *testing.T) {
+	db, cleanup := openTestPG(t)
+	defer cleanup()
 
-	store := NewBadgerJobStore(db)
+	store, err := NewPostgresJobStore(db)
+	require.NoError(t, err)
 
 	job := &Job{
 		ID:       "delete-me",
@@ -362,15 +373,12 @@ func TestBadgerJobStore_Delete(t *testing.T) {
 	assert.Empty(t, jobs)
 }
 
-func TestBadgerJobStore_LoadEmpty(t *testing.T) {
-	dir := t.TempDir()
-	opts := badger.DefaultOptions(dir)
-	opts.Logger = nil
-	db, err := badger.Open(opts)
-	require.NoError(t, err)
-	defer db.Close()
+func TestPostgresJobStore_LoadEmpty(t *testing.T) {
+	db, cleanup := openTestPG(t)
+	defer cleanup()
 
-	store := NewBadgerJobStore(db)
+	store, err := NewPostgresJobStore(db)
+	require.NoError(t, err)
 
 	jobs, err := store.LoadJobs()
 	require.NoError(t, err)

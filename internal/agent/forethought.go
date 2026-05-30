@@ -46,10 +46,15 @@ var commandBuiltinPattern = regexp.MustCompile(`^(sudo|do|if|then|else|fi|while|
 
 func isProtectedPath(p string) bool {
 	for _, pp := range protectedPaths {
-		if strings.HasPrefix(p, pp) || strings.Contains(p, pp) {
+		// Path prefix match: path starts with the protected entry.
+		if strings.HasPrefix(p, pp) {
 			return true
 		}
-		if pp == p {
+		// Path component match: the protected entry appears as a
+		// full path component (preceded by "/"). This prevents
+		// substring false positives like "my.github/workflows/"
+		// matching the ".github/" protected entry.
+		if strings.Contains(p, "/"+pp) {
 			return true
 		}
 	}

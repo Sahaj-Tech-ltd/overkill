@@ -140,12 +140,15 @@ func (t *VisionDescribeTool) Execute(ctx context.Context, in json.RawMessage) (j
 	if err != nil {
 		return errorJSON(fmt.Sprintf("vision_describe: %v", err)), nil
 	}
-	out, _ := json.Marshal(map[string]any{
+	out, err := json.Marshal(map[string]any{
 		"source":      source,
 		"mime":        mime,
 		"bytes":       len(png),
 		"description": strings.TrimSpace(desc),
 	})
+	if err != nil {
+		return nil, fmt.Errorf("vision_describe: marshal: %w", err)
+	}
 	return out, nil
 }
 

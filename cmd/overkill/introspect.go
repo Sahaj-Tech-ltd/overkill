@@ -101,7 +101,11 @@ regenerate everything.`,
 
 		cheapestModel := pickCheapestModel(p)
 		if cheapestModel == "" {
-			cheapestModel = "gpt-4o-mini"
+			cheapestModel = cfg.Agent.DefaultModel
+		}
+		if cheapestModel == "" {
+			fmt.Fprintln(os.Stderr, "introspect: no model configured — set a model with 'overkill model set'")
+			return nil
 		}
 
 		inspector := introspection.NewIntrospector(introDir, p, cheapestModel)

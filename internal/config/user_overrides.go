@@ -53,10 +53,10 @@ type BasicSettings struct {
 	ContextBudget      float64         `yaml:"context_budget,omitempty"` // 0.0-1.0 fraction of the model's window
 	Tools              map[string]bool `yaml:"tools,omitempty"`          // name → enabled
 	Theme              string          `yaml:"theme,omitempty"`
-	VimMode            bool            `yaml:"vim_mode,omitempty"`
+	VimMode            *bool           `yaml:"vim_mode,omitempty"`
 	CostCapMonthly     float64         `yaml:"cost_cap_monthly,omitempty"` // USD; 0 = no cap (just track)
 	AutoCompactPercent float64         `yaml:"auto_compact_percent,omitempty"`
-	ConfirmWrites      bool            `yaml:"confirm_writes,omitempty"`
+	ConfirmWrites      *bool           `yaml:"confirm_writes,omitempty"`
 }
 
 // AdvancedSettings — everything else. Nil sub-sections mean "use default."
@@ -103,7 +103,7 @@ type ScannerToggles struct {
 }
 
 type ScannerOnOff struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enabled"`
 }
 
 type CompactionUserConfig struct {

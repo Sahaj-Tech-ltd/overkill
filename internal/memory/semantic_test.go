@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/dgraph-io/badger/v4"
 )
 
 type fakeEmbed struct {
@@ -56,13 +54,12 @@ func (f *fakeEmbed) DeleteVector(ctx context.Context, id string) (bool, error) {
 
 func newOrchWithStore(t *testing.T) *Orchestrator {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := badger.Open(badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR))
+	db := openTestDB(t)
+	store, err := NewPostgresStore(db)
 	if err != nil {
-		t.Fatalf("badger open: %v", err)
+		t.Fatalf("NewPostgresStore: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	store := NewBadgerStore(db)
+	t.Cleanup(func() { store.Close() })
 	return NewOrchestrator(store, nil, "")
 }
 

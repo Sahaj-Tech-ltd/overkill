@@ -63,8 +63,14 @@ var dangerousOps = map[string]bool{
 	"mkfs":                true,
 	"dd if=":              true,
 	":(){ :|:& };:":       true, // fork bomb
-	"curl.*|.*sh":         true, // pipe to shell
-	"wget.*|.*sh":         true,
+}
+
+// dangerousRes holds compiled regex patterns for detecting dangerous
+// shell operations (pipe-to-shell, raw device writes, etc.).
+var dangerousRes = []*regexp.Regexp{
+	regexp.MustCompile(`curl\s+.*\|\s*(ba)?sh`),
+	regexp.MustCompile(`wget\s+.*\|\s*(ba)?sh`),
+	regexp.MustCompile(`>\s*/dev/sd[a-z]`),
 }
 
 // IsDangerousTool checks a command string against the dangerous pattern list.
@@ -76,11 +82,6 @@ func IsDangerousTool(command string) bool {
 		}
 	}
 	// Also match regex patterns
-	dangerousRes := []*regexp.Regexp{
-		regexp.MustCompile(`curl\s+.*\|\s*(ba)?sh`),
-		regexp.MustCompile(`wget\s+.*\|\s*(ba)?sh`),
-		regexp.MustCompile(`>\s*/dev/sd[a-z]`),
-	}
 	for _, re := range dangerousRes {
 		if re.MatchString(cmd) {
 			return true
@@ -139,6 +140,19 @@ type AutoMode struct {
 	Questions     []string // batched clarifying questions
 	QuestionsDone bool
 	ContextBudget int // token budget for auto-compress
+
+	// SelfEval ties Reflector + ErrorRecovery + ConfidenceAssessment into
+	// the L4 closed-loop self-revision pattern (§7.4). When non-nil and
+	// Level == AutonomyAuto, each phase is run through the self-evaluate
+	// loop instead of single-shot execution. Nil degrades to legacy
+	// single-shot behavior with no auto-revision.
+	SelfEval *SelfEvaluateLoop
+
+	// CompletionFn, if set, fires when all plan phases complete (success
+	// or failure). The caller can use this to notify the user via their
+	// connected gateway (Telegram, Discord, etc.). Best-effort: panics
+	// recovered, never blocks phase execution.
+	CompletionFn func(result *SelfEvalResult)
 }
 
 // NewAutoMode creates an auto-mode controller from config settings.
@@ -298,6 +312,43 @@ func (am *AutoMode) HasFailed() bool {
 		}
 	}
 	return false
+}
+
+// ShouldSelfEvaluate reports whether this AutoMode configuration should
+// use the L4 self-evaluate loop. True when SelfEval is wired AND level
+// is AutonomyAuto (fully autonomous).
+func (am *AutoMode) ShouldSelfEvaluate() bool {
+	return am != nil && am.SelfEval != nil && am.Level == AutonomyAuto
+}
+
+// SetSelfEval wires the self-evaluate loop. Pass nil to disable.
+func (am *AutoMode) SetSelfEval(sel *SelfEvaluateLoop) {
+	if am == nil {
+		return
+	}
+	am.SelfEval = sel
+}
+
+// SetCompletionFn wires a callback that fires when all phases complete.
+// Pass nil to disable. The callback receives the final SelfEvalResult.
+func (am *AutoMode) SetCompletionFn(fn func(result *SelfEvalResult)) {
+	if am == nil {
+		return
+	}
+	am.CompletionFn = fn
+}
+
+// FireCompletion calls the completion callback if all phases are done.
+// Best-effort: panics are recovered, nil fn is a no-op.
+func (am *AutoMode) FireCompletion(result *SelfEvalResult) {
+	if am == nil || am.CompletionFn == nil {
+		return
+	}
+	if !am.IsComplete() && !am.HasFailed() {
+		return
+	}
+	defer func() { _ = recover() }()
+	am.CompletionFn(result)
 }
 
 // Progress returns a formatted progress string.

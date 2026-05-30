@@ -1,29 +1,21 @@
 // Package automation — routine persistence (§7.1 Layer 4).
 //
 // Mirrors the AlarmStore shape: a small Save/Load/Delete interface
-// with a MemoryRoutineStore for tests and a BadgerRoutineStore for
-// the daemon. Same Badger DB as alarms + SOPs, different key prefix.
-//
-// Why persist: routines are user-defined automation rules ("when
-// build_success fires, notify Slack"). Losing them across a daemon
-// restart turns the feature into a parlor trick. Persisting also
-// captures LastFired / FireCount so cooldowns survive reboots —
-// otherwise restarting the daemon would let an event re-fire a
-// routine that was still in its cooldown window.
+// with a MemoryRoutineStore for tests and a PostgresRoutineStore for
+// the daemon. Same *sql.DB as alarms + SOPs, different table.
 package automation
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
-	"github.com/dgraph-io/badger/v4"
+	_ "github.com/lib/pq"
 )
 
-// RoutineStore is the minimal surface the engine uses. Concrete
-// implementations must be concurrent-safe — the engine calls Save
-// from inside its own mutex.
+// RoutineStore is the minimal surface the engine uses.
 type RoutineStore interface {
 	Save(r *Routine) error
 	Load() ([]*Routine, error)
@@ -73,73 +65,97 @@ func (s *MemoryRoutineStore) Delete(id string) error {
 	return nil
 }
 
-// BadgerRoutineStore persists routines under the "routine:" prefix
-// of the same Badger DB the daemon uses for alarms + SOPs. DB
-// lifecycle is owned by the caller.
-type BadgerRoutineStore struct {
-	db *badger.DB
+// PostgresRoutineStore persists routines in PostgreSQL.
+type PostgresRoutineStore struct {
+	db *sql.DB
 }
 
-func NewBadgerRoutineStore(db *badger.DB) *BadgerRoutineStore {
-	return &BadgerRoutineStore{db: db}
+func NewPostgresRoutineStore(db *sql.DB) (*PostgresRoutineStore, error) {
+	s := &PostgresRoutineStore{db: db}
+	if err := s.migrate(); err != nil {
+		return nil, fmt.Errorf("routine store: migrate: %w", err)
+	}
+	return s, nil
 }
 
-func routineKey(id string) []byte { return []byte("routine:" + id) }
+func (s *PostgresRoutineStore) migrate() error {
+	_, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS automation_routines (
+			id         TEXT PRIMARY KEY,
+			name       TEXT NOT NULL DEFAULT '',
+			trigger    TEXT NOT NULL DEFAULT '',
+			action     TEXT NOT NULL DEFAULT '',
+			cooldown_ns BIGINT NOT NULL DEFAULT 0,
+			enabled    BOOLEAN NOT NULL DEFAULT true,
+			last_fired TIMESTAMPTZ,
+			fire_count INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)
+	`)
+	return err
+}
 
-func (s *BadgerRoutineStore) Save(r *Routine) error {
+func (s *PostgresRoutineStore) Save(r *Routine) error {
 	if r == nil {
 		return fmt.Errorf("routine store: nil routine")
 	}
 	if r.ID == "" {
 		return fmt.Errorf("routine store: empty ID")
 	}
-	data, err := json.Marshal(r)
+	_, err := s.db.Exec(`
+		INSERT INTO automation_routines (id, name, trigger, action, cooldown_ns, enabled, last_fired, fire_count, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+		ON CONFLICT (id) DO UPDATE SET
+			name        = EXCLUDED.name,
+			trigger     = EXCLUDED.trigger,
+			action      = EXCLUDED.action,
+			cooldown_ns = EXCLUDED.cooldown_ns,
+			enabled     = EXCLUDED.enabled,
+			last_fired  = EXCLUDED.last_fired,
+			fire_count  = EXCLUDED.fire_count
+	`, r.ID, r.Name, r.Trigger, r.Action, int64(r.Cooldown), r.Enabled,
+		nullableTime(r.LastFired), r.FireCount)
 	if err != nil {
-		return fmt.Errorf("routine store: marshal %s: %w", r.ID, err)
+		return fmt.Errorf("routine store: save %s: %w", r.ID, err)
 	}
-	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Set(routineKey(r.ID), data)
-	})
+	return nil
 }
 
-func (s *BadgerRoutineStore) Load() ([]*Routine, error) {
-	var out []*Routine
-	err := s.db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.Prefix = []byte("routine:")
-		it := txn.NewIterator(opts)
-		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
-			item := it.Item()
-			err := item.Value(func(v []byte) error {
-				var r Routine
-				if err := json.Unmarshal(v, &r); err != nil {
-					return fmt.Errorf("routine store: parse %s: %w", item.Key(), err)
-				}
-				out = append(out, &r)
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+func (s *PostgresRoutineStore) Load() ([]*Routine, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, trigger, action, cooldown_ns, enabled, last_fired, fire_count
+		FROM automation_routines ORDER BY id
+	`)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
+	var out []*Routine
+	for rows.Next() {
+		var r Routine
+		var cooldownNs int64
+		var lastFired sql.NullTime
+		if err := rows.Scan(&r.ID, &r.Name, &r.Trigger, &r.Action, &cooldownNs,
+			&r.Enabled, &lastFired, &r.FireCount); err != nil {
+			return nil, fmt.Errorf("routine store: parse: %w", err)
+		}
+		r.Cooldown = time.Duration(cooldownNs)
+		if lastFired.Valid {
+			r.LastFired = lastFired.Time
+		}
+		out = append(out, &r)
+	}
 	sortRoutinesByID(out)
-	return out, nil
+	return out, rows.Err()
 }
 
-func (s *BadgerRoutineStore) Delete(id string) error {
-	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Delete(routineKey(id))
-	})
+func (s *PostgresRoutineStore) Delete(id string) error {
+	_, err := s.db.Exec(`DELETE FROM automation_routines WHERE id = $1`, id)
+	return err
 }
 
-// sortRoutinesByID is a deterministic ordering so the CLI and
-// boot-replay always see routines in the same order.
+// sortRoutinesByID is a deterministic ordering.
 func sortRoutinesByID(rs []*Routine) {
 	sort.Slice(rs, func(i, j int) bool { return rs[i].ID < rs[j].ID })
 }

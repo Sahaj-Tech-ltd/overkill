@@ -78,10 +78,10 @@ advanced:
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if !out.Advanced.Scanners.Command.Enabled {
+	if out.Advanced.Scanners.Command.Enabled == nil || !*out.Advanced.Scanners.Command.Enabled {
 		t.Error("enforced layer should force command scanner on")
 	}
-	if !out.Advanced.Scanners.Injection.Enabled {
+	if out.Advanced.Scanners.Injection.Enabled == nil || !*out.Advanced.Scanners.Injection.Enabled {
 		t.Error("enforced layer should force injection scanner on")
 	}
 }

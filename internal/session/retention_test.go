@@ -7,10 +7,7 @@ import (
 )
 
 func TestEnforceMax_NoCap(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("store: %v", err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	for i := 0; i < 5; i++ {
 		_ = store.Create(context.Background(), NewSession("/tmp"))
@@ -25,10 +22,7 @@ func TestEnforceMax_NoCap(t *testing.T) {
 }
 
 func TestEnforceMax_PrunesOldest(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("store: %v", err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	now := time.Now().UTC()
 	for i := 0; i < 6; i++ {
@@ -55,10 +49,7 @@ func TestEnforceMax_PrunesOldest(t *testing.T) {
 }
 
 func TestEnforceMax_SkipsSubSessions(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("store: %v", err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := NewSession("/tmp")
 	_ = store.Create(context.Background(), parent)

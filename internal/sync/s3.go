@@ -64,11 +64,10 @@ func (s *S3Backend) blobKey(id string) string { return s.key(id + ".json.gz") }
 func (s *S3Backend) metaKey(id string) string { return s.key(id + ".meta.json") }
 
 func (s *S3Backend) Push(ctx context.Context, id string, data []byte, meta SessionMeta) error {
-	r := bytes.NewReader(data)
-	if _, err := s.cli.PutObject(ctx, s.bucket, s.blobKey(id), r, int64(len(data)),
-		minio.PutObjectOptions{ContentType: "application/octet-stream"}); err != nil {
-		return fmt.Errorf("sync/s3: put blob: %w", err)
-	}
+	// Write metadata FIRST. If the process crashes after writing metadata
+	// but before the blob, the metadata is a harmless orphan — it won't
+	// cause incorrect state. The reverse order (blob first) is dangerous
+	// because a blob-without-metadata is silently undiscoverable.
 	mb, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("sync/s3: marshal meta: %w", err)
@@ -76,6 +75,11 @@ func (s *S3Backend) Push(ctx context.Context, id string, data []byte, meta Sessi
 	if _, err := s.cli.PutObject(ctx, s.bucket, s.metaKey(id), bytes.NewReader(mb), int64(len(mb)),
 		minio.PutObjectOptions{ContentType: "application/json"}); err != nil {
 		return fmt.Errorf("sync/s3: put meta: %w", err)
+	}
+	r := bytes.NewReader(data)
+	if _, err := s.cli.PutObject(ctx, s.bucket, s.blobKey(id), r, int64(len(data)),
+		minio.PutObjectOptions{ContentType: "application/octet-stream"}); err != nil {
+		return fmt.Errorf("sync/s3: put blob: %w", err)
 	}
 	return nil
 }
@@ -139,7 +143,13 @@ func (s *S3Backend) List(ctx context.Context) ([]SessionMeta, error) {
 }
 
 func (s *S3Backend) Delete(ctx context.Context, id string) error {
-	_ = s.cli.RemoveObject(ctx, s.bucket, s.blobKey(id), minio.RemoveObjectOptions{})
-	_ = s.cli.RemoveObject(ctx, s.bucket, s.metaKey(id), minio.RemoveObjectOptions{})
+	bErr := s.cli.RemoveObject(ctx, s.bucket, s.blobKey(id), minio.RemoveObjectOptions{})
+	mErr := s.cli.RemoveObject(ctx, s.bucket, s.metaKey(id), minio.RemoveObjectOptions{})
+	if bErr != nil {
+		return fmt.Errorf("sync/s3: delete blob: %w", bErr)
+	}
+	if mErr != nil {
+		return fmt.Errorf("sync/s3: delete meta: %w", mErr)
+	}
 	return nil
 }

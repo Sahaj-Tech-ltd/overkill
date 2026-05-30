@@ -93,7 +93,10 @@ func (t *BrowserDevTool) Execute(ctx context.Context, in json.RawMessage) (json.
 		// Process never started (binary unusable, ctx cancelled).
 		return errorJSON(fmt.Sprintf("browser_dev: %v", runErr)), nil
 	}
-	raw, _ := json.Marshal(out)
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("browser_dev: marshal: %w", err)
+	}
 	return raw, nil
 }
 

@@ -63,7 +63,7 @@ func NewObservation(obsType ObservationType, title, narrative, sessionID string)
 func (o *Observation) ComputeHash() string {
 	raw := o.SessionID + o.Title + o.Narrative
 	h := sha256.Sum256([]byte(raw))
-	return fmt.Sprintf("%x", h)[:16]
+	return fmt.Sprintf("%x", h)
 }
 
 func (o *Observation) Index() ObservationIndex {
@@ -83,6 +83,11 @@ type ObservationStore struct {
 	// first use; populated lazily from disk on the first Store call.
 	// Reset to nil by callers who externally truncate the store.
 	hashSet map[string]struct{}
+	// index is an in-memory map[ID]*Observation populated lazily on
+	// first read and kept in sync by Store. Eliminates the O(N) disk
+	// scan on every Get/List/Timeline call.
+	index          map[string]*Observation
+	indexPopulated bool
 }
 
 func NewObservationStore(dir string) *ObservationStore {
@@ -98,18 +103,11 @@ func (s *ObservationStore) Store(obs *Observation) error {
 		return fmt.Errorf("journal: creating observations dir: %w", err)
 	}
 
-	// Populate the hash cache on first Store. Subsequent calls hit
-	// the O(1) map instead of re-reading the full corpus on every
-	// Store — the old loop was O(N²) over a session and dominated
-	// the journal hot path on busy days.
-	if s.hashSet == nil {
-		existing, err := s.readAllLocked()
-		if err != nil {
-			return fmt.Errorf("journal: checking duplicates: %w", err)
-		}
-		s.hashSet = make(map[string]struct{}, len(existing))
-		for _, e := range existing {
-			s.hashSet[e.ContentHash] = struct{}{}
+	// Populate the hash cache and index on first Store. Subsequent
+	// calls hit the O(1) map instead of re-reading the full corpus.
+	if !s.indexPopulated {
+		if err := s.populateIndexLocked(); err != nil {
+			return fmt.Errorf("journal: building index: %w", err)
 		}
 	}
 	if _, dup := s.hashSet[obs.ContentHash]; dup {
@@ -134,6 +132,7 @@ func (s *ObservationStore) Store(obs *Observation) error {
 		return fmt.Errorf("journal: writing observation: %w", err)
 	}
 	s.hashSet[obs.ContentHash] = struct{}{}
+	s.index[obs.ID] = obs
 
 	return nil
 }
@@ -142,15 +141,12 @@ func (s *ObservationStore) Get(id string) (*Observation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	observations, err := s.readAllLocked()
-	if err != nil {
+	if err := s.ensureIndexLocked(); err != nil {
 		return nil, err
 	}
 
-	for i := range observations {
-		if observations[i].ID == id {
-			return &observations[i], nil
-		}
+	if obs, ok := s.index[id]; ok {
+		return obs, nil
 	}
 
 	return nil, fmt.Errorf("journal: observation %s not found", id)
@@ -160,30 +156,38 @@ func (s *ObservationStore) List(obsType ObservationType, limit int) []Observatio
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	observations, err := s.readAllLocked()
-	if err != nil {
+	if err := s.ensureIndexLocked(); err != nil {
 		return nil
 	}
 
-	sort.Slice(observations, func(i, j int) bool {
-		return observations[i].Timestamp.After(observations[j].Timestamp)
+	// Collect matching observations from the index.
+	type indexed struct {
+		idx ObservationIndex
+		ts  time.Time
+	}
+	var candidates []indexed
+	for _, o := range s.index {
+		if obsType != "" && o.Type != obsType {
+			continue
+		}
+		candidates = append(candidates, indexed{idx: o.Index(), ts: o.Timestamp})
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].ts.After(candidates[j].ts)
 	})
 
 	if limit <= 0 {
 		limit = 50
 	}
-
-	var result []ObservationIndex
-	for _, o := range observations {
-		if obsType != "" && o.Type != obsType {
-			continue
-		}
-		result = append(result, o.Index())
-		if len(result) >= limit {
-			break
-		}
+	if limit > len(candidates) {
+		limit = len(candidates)
 	}
 
+	result := make([]ObservationIndex, limit)
+	for i := 0; i < limit; i++ {
+		result[i] = candidates[i].idx
+	}
 	return result
 }
 
@@ -191,17 +195,21 @@ func (s *ObservationStore) Timeline(anchorID string, depth int) []Observation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	observations, err := s.readAllLocked()
-	if err != nil {
+	if err := s.ensureIndexLocked(); err != nil {
 		return nil
 	}
 
-	sort.Slice(observations, func(i, j int) bool {
-		return observations[i].Timestamp.Before(observations[j].Timestamp)
+	// Collect all observations sorted by timestamp.
+	all := make([]*Observation, 0, len(s.index))
+	for _, o := range s.index {
+		all = append(all, o)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].Timestamp.Before(all[j].Timestamp)
 	})
 
 	anchorIdx := -1
-	for i, o := range observations {
+	for i, o := range all {
 		if o.ID == anchorID {
 			anchorIdx = i
 			break
@@ -218,11 +226,41 @@ func (s *ObservationStore) Timeline(anchorID string, depth int) []Observation {
 	}
 
 	end := anchorIdx + depth + 1
-	if end > len(observations) {
-		end = len(observations)
+	if end > len(all) {
+		end = len(all)
 	}
 
-	return observations[start:end]
+	result := make([]Observation, end-start)
+	for i := range result {
+		result[i] = *all[start+i]
+	}
+	return result
+}
+
+// ensureIndexLocked populates the index lazily if not already done.
+// Caller must hold s.mu.
+func (s *ObservationStore) ensureIndexLocked() error {
+	if s.indexPopulated {
+		return nil
+	}
+	return s.populateIndexLocked()
+}
+
+// populateIndexLocked reads all observation files and builds the
+// in-memory index and hashSet. Caller must hold s.mu.
+func (s *ObservationStore) populateIndexLocked() error {
+	all, err := s.readAllLocked()
+	if err != nil {
+		return err
+	}
+	s.hashSet = make(map[string]struct{}, len(all))
+	s.index = make(map[string]*Observation, len(all))
+	for i := range all {
+		s.hashSet[all[i].ContentHash] = struct{}{}
+		s.index[all[i].ID] = &all[i]
+	}
+	s.indexPopulated = true
+	return nil
 }
 
 func (s *ObservationStore) readAllLocked() ([]Observation, error) {

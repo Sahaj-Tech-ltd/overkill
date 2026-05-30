@@ -37,6 +37,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 	"github.com/google/uuid"
 )
 
@@ -173,11 +174,11 @@ func (s *Store) LinkCommit(id, sha string) (*Task, error) {
 
 // AppendNote attaches a one-line update to the task's Notes field.
 // Multiple notes are separated by " | " so the field stays a single
-// JSON string (no schema churn). Trimmed; empty input is a no-op.
+// JSON string (no schema churn). Returns an error for empty input (B116).
 func (s *Store) AppendNote(id, note string) (*Task, error) {
 	note = strings.TrimSpace(note)
 	if note == "" {
-		return nil, nil
+		return nil, fmt.Errorf("tasks: note must be non-empty")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -283,17 +284,12 @@ func (s *Store) saveLocked(t *Task) error {
 		return fmt.Errorf("tasks: mkdir: %w", err)
 	}
 	path := filepath.Join(s.dir, t.ID+".json")
-	tmp := path + ".tmp"
 	data, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
 		return fmt.Errorf("tasks: marshal: %w", err)
 	}
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("tasks: write tmp: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("tasks: rename: %w", err)
+	if err := atomicfile.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("tasks: write: %w", err)
 	}
 	return nil
 }

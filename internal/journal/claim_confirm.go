@@ -78,14 +78,18 @@ type QueueJob struct {
 // arbitrated by the file-rename atomicity: a Claim that loses the
 // rename race wins nothing, the other worker has the job.
 type CompressionQueue struct {
-	dir string
-	mu  sync.Mutex
+	dir  string
+	mu   sync.Mutex
+	jobs map[string]*QueueJob // in-memory cache keyed by job ID
 }
 
 // NewCompressionQueue wires the queue to a directory. Files land
 // at <dir>/<job-id>.json. Lazy-created on first Enqueue.
 func NewCompressionQueue(dir string) *CompressionQueue {
-	return &CompressionQueue{dir: dir}
+	return &CompressionQueue{
+		dir:  dir,
+		jobs: make(map[string]*QueueJob),
+	}
 }
 
 // Enqueue creates a new pending job for the observation. Idempotent
@@ -270,22 +274,28 @@ func (q *CompressionQueue) PendingCount() (int, error) {
 }
 
 func (q *CompressionQueue) listLocked() ([]QueueJob, error) {
-	entries, err := os.ReadDir(q.dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("queue: readdir: %w", err)
-	}
-	out := make([]QueueJob, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
-		}
-		j, err := q.loadLocked(jobIDFromFilename(e.Name()))
+	// If cache is empty, populate from disk once.
+	if len(q.jobs) == 0 {
+		entries, err := os.ReadDir(q.dir)
 		if err != nil {
-			continue // corrupt file — skip rather than fail the whole list
+			if os.IsNotExist(err) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("queue: readdir: %w", err)
 		}
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+				continue
+			}
+			j, err := q.loadLocked(jobIDFromFilename(e.Name()))
+			if err != nil {
+				continue
+			}
+			q.jobs[j.ID] = j
+		}
+	}
+	out := make([]QueueJob, 0, len(q.jobs))
+	for _, j := range q.jobs {
 		out = append(out, *j)
 	}
 	return out, nil
@@ -324,6 +334,8 @@ func (q *CompressionQueue) saveLocked(j *QueueJob) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("queue: rename: %w", err)
 	}
+	// Update in-memory cache.
+	q.jobs[j.ID] = j
 	return nil
 }
 

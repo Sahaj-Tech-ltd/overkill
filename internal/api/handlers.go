@@ -8,15 +8,25 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/compaction"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
 	eventsinks "github.com/Sahaj-Tech-ltd/overkill/internal/events/sinks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/extensions"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/hotreload"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/input"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/prompt"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/prompt/chips"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/rewriter"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 )
@@ -47,13 +57,27 @@ func (s *Server) handleAgentSend(ctx context.Context, params []byte) (interface{
 		return nil, rpcErr
 	}
 
-	result, err := a.Run(ctx, p.Message)
+	// Discard any idle-time speculation — user is now actively engaging.
+	a.DiscardSpeculation()
+
+	// Enforce a 5-minute execution timeout to prevent runaway agent loops.
+	runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	result, err := a.Run(runCtx, p.Message)
 	if err != nil {
 		return nil, &RPCError{Code: InternalError, Message: err.Error()}
 	}
 
 	// Persist session state (message count, model, cost).
 	s.saveSessionState(ctx, sessionID, a)
+
+	// P3: credit assignment — fold per-turn actions into the in-memory
+	// analyzer so the TUI can surface lift/frequency stats (§8.6 Wave 4).
+	s.recordCreditTurn(a, s.cfg.Agent.DefaultProvider, s.cfg.Agent.DefaultModel)
+
+	// Mirror CLI path: optional non-blocking sync push after each turn.
+	s.maybeAutoPush(sessionID)
 
 	return &SendMessageResult{
 		Response:    result.Response,
@@ -104,8 +128,36 @@ func (s *Server) handleAgentAbort(_ context.Context, params []byte) (interface{}
 	return map[string]string{"status": "aborted"}, nil
 }
 
+// handleAgentUndo removes the last user→assistant exchange from the agent's
+// history. Used by the TUI command palette Undo command.
+func (s *Server) handleAgentUndo(_ context.Context, params []byte) (interface{}, *RPCError) {
+	var p AbortParams
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.SessionID == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "session_id is required"}
+	}
+
+	s.mu.RLock()
+	a, ok := s.agents[p.SessionID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, &RPCError{Code: InvalidParams, Message: "no active agent for session"}
+	}
+
+	removed := a.PopLastExchange()
+	return map[string]interface{}{
+		"status":       "undone",
+		"removed_text": removed,
+	}, nil
+}
+
 // handleSessionList returns all sessions from the store.
 func (s *Server) handleSessionList(ctx context.Context, _ []byte) (interface{}, *RPCError) {
+	if s.sessionStore == nil {
+		return &SessionListResult{Sessions: []SessionInfo{}}, nil
+	}
 	sessions, err := s.sessionStore.List(ctx, session.ListOptions{})
 	if err != nil {
 		return nil, &RPCError{Code: InternalError, Message: err.Error()}
@@ -178,13 +230,52 @@ func (s *Server) handleSessionDelete(ctx context.Context, params []byte) (interf
 	return map[string]string{"status": "deleted"}, nil
 }
 
+// handleAgentFork creates a new session branched from an existing session.
+// It forks the parent's message history at the current turn and creates a
+// child session the user can explore independently.
+func (s *Server) handleAgentFork(ctx context.Context, params []byte) (interface{}, *RPCError) {
+	var p ForkParams
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.SessionID == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "session_id is required"}
+	}
+
+	brancher, ok := s.sessionStore.(session.Brancher)
+	if !ok {
+		return nil, &RPCError{Code: InternalError, Message: "session store does not support branching"}
+	}
+
+	// Load parent to find the current turn count.
+	parent, err := s.sessionStore.Load(ctx, p.SessionID)
+	if err != nil {
+		return nil, &RPCError{Code: InternalError, Message: fmt.Sprintf("load parent: %v", err)}
+	}
+	if parent == nil {
+		return nil, &RPCError{Code: InvalidParams, Message: "session not found"}
+	}
+
+	child, err := brancher.Branch(ctx, p.SessionID, parent.TurnCount)
+	if err != nil {
+		return nil, &RPCError{Code: InternalError, Message: fmt.Sprintf("fork: %v", err)}
+	}
+
+	// Override the auto-generated title if the caller supplied a name.
+	if p.Name != "" {
+		child.Title = p.Name
+		_ = s.sessionStore.Save(ctx, child)
+	}
+
+	return &ForkResult{Session: toSessionInfo(child)}, nil
+}
+
 // handleConfigGet returns the current configuration.
 func (s *Server) handleConfigGet(_ context.Context, _ []byte) (interface{}, *RPCError) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	agentInfo := map[string]interface{}{
-		"name":             s.cfg.Agent.Name,
 		"default_provider": s.cfg.Agent.DefaultProvider,
 		"default_model":    s.cfg.Agent.DefaultModel,
 		"max_turns":        s.cfg.Agent.MaxTurns,
@@ -192,12 +283,39 @@ func (s *Server) handleConfigGet(_ context.Context, _ []byte) (interface{}, *RPC
 	}
 	uiInfo := map[string]interface{}{
 		"animations": s.cfg.UI.Animations,
+		"theme":      s.cfg.UI.Theme,
 	}
-	return &ConfigGetResult{
-		Version: s.cfg.Version,
-		Agent:   agentInfo,
-		UI:      uiInfo,
-	}, nil
+	thinkingInfo := map[string]interface{}{
+		"level":         string(s.cfg.Thinking.Level),
+		"budget_tokens": s.cfg.Thinking.Level.BudgetTokens(),
+	}
+	result := &ConfigGetResult{
+		Version:      s.cfg.Version,
+		Agent:        agentInfo,
+		UI:           uiInfo,
+		Thinking:     thinkingInfo,
+		SystemPrompt: s.cfg.Agent.SystemPrompt,
+	}
+	if s.cfg.Security.AutonomyLevel != "" {
+		result.Security = map[string]interface{}{
+			"autonomy_level":  s.cfg.Security.AutonomyLevel,
+			"sandbox_enabled": s.cfg.Security.SandboxEnabled,
+		}
+	}
+	result.Session = map[string]interface{}{
+		"auto_title": s.cfg.Session.AutoTitle,
+	}
+	if s.cfg.Cost.DailyLimitUSD > 0 {
+		result.Cost = map[string]interface{}{
+			"daily_limit": s.cfg.Cost.DailyLimitUSD,
+		}
+	}
+	if s.cfg.Compaction.SoftTriggerPercent > 0 {
+		result.Compaction = map[string]interface{}{
+			"threshold": s.cfg.Compaction.HardTriggerPercent,
+		}
+	}
+	return result, nil
 }
 
 // handleConfigUpdate patches the current configuration and persists it.
@@ -229,6 +347,62 @@ func (s *Server) handleConfigUpdate(ctx context.Context, params []byte) (interfa
 		if v, exists := agentPatch["spec_driven"]; exists {
 			if b, ok := v.(bool); ok {
 				s.cfg.Agent.SpecDriven = b
+			}
+		}
+	}
+	if uiPatch, ok := p.Patch["ui"].(map[string]interface{}); ok {
+		if v, exists := uiPatch["animations"]; exists {
+			if b, ok := v.(bool); ok {
+				s.cfg.UI.Animations = b
+			}
+		}
+		if v, exists := uiPatch["theme"]; exists {
+			if str, ok := v.(string); ok {
+				s.cfg.UI.Theme = str
+			}
+		}
+	}
+	if secPatch, ok := p.Patch["security"].(map[string]interface{}); ok {
+		if v, exists := secPatch["autonomy_level"]; exists {
+			if str, ok := v.(string); ok {
+				s.cfg.Security.AutonomyLevel = str
+			}
+		}
+		if v, exists := secPatch["sandbox_enabled"]; exists {
+			if b, ok := v.(bool); ok {
+				s.cfg.Security.SandboxEnabled = b
+			}
+		}
+	}
+	if sessPatch, ok := p.Patch["session"].(map[string]interface{}); ok {
+		if v, exists := sessPatch["auto_title"]; exists {
+			if b, ok := v.(bool); ok {
+				s.cfg.Session.AutoTitle = b
+			}
+		}
+	}
+	if thinkingPatch, ok := p.Patch["thinking"].(map[string]interface{}); ok {
+		if v, exists := thinkingPatch["level"]; exists {
+			if str, ok := v.(string); ok {
+				tl := config.ThinkingLevel(str)
+				if tl.Valid() {
+					s.cfg.Thinking.Level = tl
+					// Apply to all active agents immediately.
+					for _, a := range s.agents {
+						a.SetThinkingLevel(str)
+					}
+				}
+			}
+		}
+	}
+	if v, exists := p.Patch["system_prompt"].(string); exists {
+		if v != s.cfg.Agent.SystemPrompt {
+			s.cfg.Agent.SystemPrompt = v
+			// System prompt changed — clear history on all active sessions.
+			// The next turn will pick up the new system prompt.
+			for sid, a := range s.agents {
+				a.ClearHistory()
+				log.Printf("api: system prompt changed — cleared history for session %s", sid)
 			}
 		}
 	}
@@ -381,9 +555,21 @@ func (s *Server) handleConfigCreate(_ context.Context, params []byte) (interface
 }
 
 // handleAgentSubagents returns the list of currently active subagents.
-// Stubbed: returns an empty list until the agent tracks subagent state.
 func (s *Server) handleAgentSubagents(_ context.Context, _ []byte) (interface{}, *RPCError) {
-	return &SubagentListResult{Subagents: []SubagentInfo{}}, nil
+	if s.subagentManager == nil {
+		return &SubagentListResult{Subagents: []SubagentInfo{}}, nil
+	}
+	children := s.subagentManager.ActiveChildren()
+	infos := make([]SubagentInfo, 0, len(children))
+	for _, c := range children {
+		infos = append(infos, SubagentInfo{
+			Name:      c.Goal,
+			Status:    c.Status,
+			Model:     c.Model,
+			ElapsedMs: 0, // can't easily compute here
+		})
+	}
+	return &SubagentListResult{Subagents: infos}, nil
 }
 
 // handleGatewayTest tests a gateway token by making a lightweight API call.
@@ -430,10 +616,17 @@ func (s *Server) testDiscord(ctx context.Context, token string) (*GatewayTestRes
 		return &GatewayTestResult{OK: false, Error: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}, nil
 	}
 
+	// Read body once, then unmarshal from bytes (B121: avoid double-read
+	// that would cause json.Decoder to fail on an empty stream).
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return &GatewayTestResult{OK: false, Error: fmt.Sprintf("failed to read response: %v", err)}, nil
+	}
+
 	var user struct {
 		Username string `json:"username"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+	if err := json.Unmarshal(bodyBytes, &user); err != nil {
 		return &GatewayTestResult{OK: false, Error: fmt.Sprintf("failed to parse response: %v", err)}, nil
 	}
 
@@ -502,6 +695,284 @@ func (s *Server) testSlack(ctx context.Context, token string) (*GatewayTestResul
 	return &GatewayTestResult{OK: true, User: result.User}, nil
 }
 
+// handleAgentSteer injects a guidance message into a running agent's steering
+// queue. The message arrives mid-task on the next tool-iteration drain, allowing
+// the user to redirect the agent without stopping it.
+func (s *Server) handleAgentSteer(_ context.Context, params []byte) (interface{}, *RPCError) {
+	var p SteerParams
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.SessionID == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if p.Message == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "message is required"}
+	}
+
+	s.mu.RLock()
+	a, ok := s.agents[p.SessionID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, &RPCError{Code: InvalidParams, Message: "no active agent for session"}
+	}
+
+	role := p.Role
+	if role == "" {
+		role = "user"
+	}
+	a.InjectSteer(p.Message, role)
+	return map[string]string{"status": "steered"}, nil
+}
+
+// handleSelfEvalStatus returns the current self-evaluate loop state for the
+// active agent session. Used by the TUI self-eval pane for real-time display.
+func (s *Server) handleSelfEvalStatus(_ context.Context, params []byte) (interface{}, *RPCError) {
+	type SelfEvalStatusResult struct {
+		SessionID      string  `json:"session_id"`
+		Active         bool    `json:"active"`
+		Phase          string  `json:"phase"`
+		Status         string  `json:"status"`
+		Confidence     float64 `json:"confidence"`
+		Iteration      int     `json:"iteration"`
+		MaxIterations  int     `json:"max_iterations"`
+		RedTeamPassed  bool    `json:"red_team_passed"`
+		RedTeamTotal   int     `json:"red_team_total"`
+		RedTeamFailed  int     `json:"red_team_failed"`
+		ReflectionNote string  `json:"reflection_note"`
+		StartedAt      string  `json:"started_at"`
+		Message        string  `json:"message"`
+	}
+
+	// For now, return a placeholder — the TUI pane handles this gracefully.
+	// The real data comes from wiring the agent's loop state into the server.
+	return &SelfEvalStatusResult{
+		Active:  false,
+		Status:  "idle",
+		Message: "Self-evaluation not active. Use /auto or /build to start.",
+	}, nil
+}
+
+// handleTestResults returns the latest red-team test results for the active
+// agent session. Used by the TUI test pane.
+func (s *Server) handleTestResults(_ context.Context, params []byte) (interface{}, *RPCError) {
+	type TestEntryResult struct {
+		Name     string `json:"name"`
+		File     string `json:"file"`
+		Passed   bool   `json:"passed"`
+		Duration string `json:"duration"`
+		Category string `json:"category"`
+		Error    string `json:"error,omitempty"`
+	}
+
+	type TestResultsResult struct {
+		SessionID string            `json:"session_id"`
+		Total     int               `json:"total"`
+		Passed    int               `json:"passed"`
+		Failed    int               `json:"failed"`
+		Running   bool              `json:"running"`
+		PassRate  float64           `json:"pass_rate"`
+		Tests     []TestEntryResult `json:"tests"`
+		Message   string            `json:"message"`
+	}
+
+	// Placeholder — the TUI pane handles this gracefully.
+	return &TestResultsResult{
+		Running: false,
+		Message: "No active test run. Tests run during self-evaluate loop in auto/build mode.",
+	}, nil
+}
+
+// handleSequentialQueue returns the current sequential processing queue state
+// for the TUI Queue pane (§8.6.1).
+func (s *Server) handleSequentialQueue(_ context.Context, params []byte) (interface{}, *RPCError) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, a := range s.agents {
+		if snap := a.QueueSnapshot(); snap.Total > 0 || snap.Active {
+			type queueItem struct {
+				Index       int    `json:"index"`
+				Description string `json:"description"`
+				Status      string `json:"status"`
+				Error       string `json:"error,omitempty"`
+				ElapsedMs   int64  `json:"elapsed_ms"`
+			}
+			type queueStatus struct {
+				Active bool        `json:"active"`
+				Total  int         `json:"total"`
+				Done   int         `json:"done"`
+				Failed int         `json:"failed"`
+				Items  []queueItem `json:"items"`
+			}
+			items := make([]queueItem, len(snap.Items))
+			for i, item := range snap.Items {
+				items[i] = queueItem{
+					Index:       item.Index,
+					Description: item.Description,
+					Status:      item.Status,
+					Error:       item.Error,
+					ElapsedMs:   item.ElapsedMs,
+				}
+			}
+			return &queueStatus{
+				Active: snap.Active,
+				Total:  snap.Total,
+				Done:   snap.Done,
+				Failed: snap.Failed,
+				Items:  items,
+			}, nil
+		}
+	}
+	return map[string]interface{}{
+		"active": false,
+		"total":  0,
+		"done":   0,
+		"failed": 0,
+		"items":  []interface{}{},
+	}, nil
+}
+
+// wireQuestionFunc sets up the agent's QuestionFunc to bridge to the TUI
+// clarify dialog. When the agent calls AskQuestion(), it blocks until the
+// user answers via the TUI and the answer is sent back through agent.answer.
+func (s *Server) wireQuestionFunc(a *agent.Agent, sessionID string) {
+	a.SetQuestionFunc(func(ctx context.Context, q agent.Question) agent.Answer {
+		answerCh := make(chan agent.Answer, 1)
+
+		// Store the question for polling.
+		s.pendingQuestionMu.Lock()
+		s.pendingQuestionData[sessionID] = &q
+		s.pendingQuestionMu.Unlock()
+
+		s.mu.Lock()
+		s.pendingQuestions[sessionID] = answerCh
+		s.mu.Unlock()
+
+		defer func() {
+			s.mu.Lock()
+			delete(s.pendingQuestions, sessionID)
+			s.mu.Unlock()
+			s.pendingQuestionMu.Lock()
+			delete(s.pendingQuestionData, sessionID)
+			s.pendingQuestionMu.Unlock()
+		}()
+
+		select {
+		case answer := <-answerCh:
+			return answer
+		case <-ctx.Done():
+			return agent.Answer{Cancel: true}
+		}
+	})
+}
+
+// handleClarifyPoll returns any pending clarify question for a session.
+// Polled by the TUI every 500ms.
+func (s *Server) handleClarifyPoll(_ context.Context, params []byte) (interface{}, *RPCError) {
+	var p struct {
+		SessionID string `json:"session_id"`
+	}
+	if params != nil {
+		json.Unmarshal(params, &p)
+	}
+
+	// Return the first pending question found.
+	s.pendingQuestionMu.RLock()
+	defer s.pendingQuestionMu.RUnlock()
+
+	for sid, q := range s.pendingQuestionData {
+		if p.SessionID == "" || sid == p.SessionID {
+			type clarifyResult struct {
+				SessionID string   `json:"session_id"`
+				Question  string   `json:"question"`
+				Choices   []string `json:"choices"`
+			}
+			return &clarifyResult{
+				SessionID: sid,
+				Question:  q.Prompt,
+				Choices:   q.Choices,
+			}, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// handleSessionUsage returns token/cost usage for a session, today, or all time.
+// Scope: "session" (default, requires session_id), "daily", or "all".
+func (s *Server) handleSessionUsage(ctx context.Context, params []byte) (interface{}, *RPCError) {
+	if s.costTracker == nil {
+		return nil, &RPCError{Code: MethodNotFound, Message: "usage tracking not wired — configure [cost] in your config"}
+	}
+	var p SessionUsageParams
+	if len(params) > 0 {
+		if err := unmarshalParams(params, &p); err != nil {
+			return nil, err
+		}
+	}
+	scope := p.Scope
+	if scope == "" {
+		scope = "session"
+	}
+	switch scope {
+	case "daily":
+		daily, err := s.costTracker.DailyCost(ctx)
+		if err != nil {
+			return nil, &RPCError{Code: InternalError, Message: err.Error()}
+		}
+		return &SessionUsageResult{Daily: &daily}, nil
+	case "all":
+		report, err := s.costTracker.Usage(ctx, cost.UsageOptions{})
+		if err != nil {
+			return nil, &RPCError{Code: InternalError, Message: err.Error()}
+		}
+		return &SessionUsageResult{Report: report}, nil
+	default: // "session"
+		sessionID := p.SessionID
+		if sessionID == "" {
+			return nil, &RPCError{Code: InvalidParams, Message: "session_id required for session scope"}
+		}
+		report, err := s.costTracker.Usage(ctx, cost.UsageOptions{SessionID: sessionID})
+		if err != nil {
+			return nil, &RPCError{Code: InternalError, Message: err.Error()}
+		}
+		return &SessionUsageResult{Report: report}, nil
+	}
+}
+
+// handleAgentAnswer receives the user's answer to a clarify question and
+// unblocks the waiting QuestionFunc.
+func (s *Server) handleAgentAnswer(_ context.Context, params []byte) (interface{}, *RPCError) {
+	var p struct {
+		SessionID string `json:"session_id"`
+		Text      string `json:"text"`
+		Index     int    `json:"index"`
+	}
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.SessionID == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "session_id is required"}
+	}
+
+	s.mu.RLock()
+	ch, ok := s.pendingQuestions[p.SessionID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, &RPCError{Code: InvalidParams, Message: "no pending question for session"}
+	}
+
+	// B044: Use select to avoid blocking forever if the reader has
+	// abandoned the channel. A 1s timeout is generous for an in-process
+	// channel — if the receiver isn't ready by then, it never will be.
+	select {
+	case ch <- agent.Answer{Text: p.Text, Index: p.Index}:
+	case <-time.After(1 * time.Second):
+		return nil, &RPCError{Code: InternalError, Message: "answer channel stalled"}
+	}
+	return map[string]string{"status": "answered"}, nil
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -526,6 +997,8 @@ func toSessionInfo(s *session.Session) SessionInfo {
 		Model:     s.Model,
 		Provider:  s.Provider,
 		Status:    s.Status,
+		ParentID:  s.ParentID,
+		Children:  s.Children,
 	}
 }
 
@@ -656,7 +1129,28 @@ func (s *Server) createAgent(ctx context.Context, sessionID string) (*agent.Agen
 		Model:     model,
 		Tools:     s.toolRegistry,
 		SessionID: sessionID,
+		Hooks:     hooks.NewRegistry(),
+		Scanners: []security.Scanner{
+			security.NewCommandScanner(
+				security.WithExtraDenyPatterns(s.cfg.Security.DenyPatterns),
+				security.WithForbiddenPaths(s.cfg.Security.ForbiddenPaths),
+				security.WithMaxCommandLen(s.cfg.Security.MaxCommandLen),
+			),
+			security.NewInjectionScanner(),
+		},
 	})
+
+	// Wire context chips: directory, git branch, git diff.
+	cm := prompt.NewChipManager()
+	cm.Register(chips.NewDirectoryChip())
+	cm.Register(chips.NewGitBranchChip())
+	cm.Register(chips.NewGitDiffChip())
+	a.SetChipManager(cm)
+
+	// Wire the QuestionFunc so the agent can ask the user questions
+	// via the TUI clarify dialog (§8.6).
+	s.wireQuestionFunc(a, sessionID)
+
 	// Wire the learning store if configured (§6.5).
 	if s.learningStore != nil {
 		a.SetLearningStore(s.learningStore)
@@ -690,6 +1184,42 @@ func (s *Server) createAgent(ctx context.Context, sessionID string) (*agent.Agen
 	// P2: extensions manager.
 	if s.extensionsMgr != nil {
 		a.SetExtensionsManager(wrapExtensions(s.extensionsMgr))
+	}
+
+	// Wire sub-agent manager so the agent and TUI can track active sub-agents.
+	if s.subagentManager != nil {
+		a.SetSubagentManager(s.subagentManager)
+	}
+
+	// Bonus: hotreload — wire config file watcher into the agent so
+	// user.yaml changes (model, persona) are live-applied at turn
+	// boundaries. Mirrors the CLI path in cmd/overkill/run.go.
+	if s.hotReloadBus != nil {
+		homeDir, _ := config.ConfigDir()
+		if homeDir != "" {
+			userYAML := filepath.Join(homeDir, "user.yaml")
+			if _, err := hotreload.WireAgent(context.Background(), s.hotReloadBus, a, userYAML, hotreload.DiscardReporter()); err != nil {
+				log.Printf("hotreload: wire agent: %v", err)
+			}
+		}
+	}
+
+	// PCA-5: Hydrate the thinking level from persisted config so the
+	// user's preference is active immediately on agent creation — not
+	// just after they manually toggle in the current session.
+	a.SetThinkingLevel(string(s.cfg.Thinking.Level))
+
+	// PCA-7: Prompt rewriter middleware ($4.10). When enabled the agent
+	// pipes every user message through the rewriter — stripping
+	// sycophancy, catching anti-patterns, and optionally expanding
+	// ambiguous/complex prompts via LLM.
+	if s.cfg.Rewriter.Enabled {
+		rwModel := s.cfg.Rewriter.Model
+		if rwModel == "" {
+			rwModel = model
+		}
+		rw := rewriter.NewLLMRewriter(prov, rwModel)
+		a.SetRewriter(rw)
 	}
 
 	return a, nil
@@ -743,4 +1273,261 @@ func (e *extensionsAdapter) ListEnabled() []agent.ExtensionMeta {
 		}
 	}
 	return out
+}
+
+// handleConfigTheme gets or sets the current theme.
+// GET (no params) → returns the current theme name.
+// SET (params.theme) → updates the theme and persists.
+func (s *Server) handleConfigTheme(_ context.Context, params []byte) (interface{}, *RPCError) {
+	var p struct {
+		Theme string `json:"theme"`
+	}
+	// If params is empty or null, return current theme (GET).
+	if len(params) == 0 || string(params) == "null" {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		return map[string]string{"theme": s.cfg.UI.Theme}, nil
+	}
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.Theme == "" {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		return map[string]string{"theme": s.cfg.UI.Theme}, nil
+	}
+	// Validate theme name.
+	validThemes := map[string]bool{
+		"dark": true, "light": true, "cyberpunk": true, "ocean": true,
+		"catppuccin-mocha": true,
+	}
+	// Also accept any custom theme installed in ~/.overkill/themes/.
+	if dir, err := config.ThemesDir(); err == nil {
+		if entries, readErr := os.ReadDir(dir); readErr == nil {
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".toml") {
+					name := strings.TrimSuffix(e.Name(), ".toml")
+					if name != "" {
+						validThemes[name] = true
+					}
+				}
+			}
+		}
+	}
+	if !validThemes[p.Theme] {
+		return nil, &RPCError{Code: InvalidParams, Message: fmt.Sprintf("unknown theme: %q", p.Theme)}
+	}
+	s.mu.Lock()
+	s.cfg.UI.Theme = p.Theme
+	s.mu.Unlock()
+	// Persist to disk.
+	cfgPath, err := config.ConfigPath()
+	if err == nil {
+		_ = s.cfg.Save(cfgPath)
+	}
+	return map[string]string{"theme": p.Theme}, nil
+}
+
+// handleThinkingSetLevel sets the extended thinking level for all active agents
+// and persists the choice to config. Valid levels: off, minimal, low, medium, high, x-high.
+func (s *Server) handleThinkingSetLevel(_ context.Context, params []byte) (interface{}, *RPCError) {
+	var p struct {
+		Level string `json:"level"`
+	}
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	tl := config.ThinkingLevel(p.Level)
+	if !tl.Valid() {
+		return nil, &RPCError{Code: InvalidParams, Message: fmt.Sprintf("invalid thinking level: %q (use off|minimal|low|medium|high|x-high)", p.Level)}
+	}
+
+	// Persist to config.
+	s.mu.Lock()
+	s.cfg.Thinking.Level = tl
+	s.mu.Unlock()
+
+	cfgPath, err := config.ConfigPath()
+	if err == nil {
+		_ = s.cfg.Save(cfgPath)
+	}
+
+	// Apply to all active agents.
+	s.mu.RLock()
+	for _, a := range s.agents {
+		a.SetThinkingLevel(p.Level)
+	}
+	s.mu.RUnlock()
+
+	return map[string]string{"level": p.Level}, nil
+}
+
+// handleModeSet toggles between plan mode and build mode.
+// Plan mode: agent plans/analyzes only, no write execution.
+// Build mode: full execution enabled (default).
+func (s *Server) handleModeSet(_ context.Context, params []byte) (interface{}, *RPCError) {
+	var p struct {
+		Mode string `json:"mode"` // "plan" or "build"
+	}
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.Mode != "plan" && p.Mode != "build" {
+		return nil, &RPCError{Code: InvalidParams, Message: "mode must be 'plan' or 'build'"}
+	}
+
+	s.mu.Lock()
+	s.currentMode = p.Mode
+	// Propagate to all active agents so gateways can check mode.
+	for _, a := range s.agents {
+		a.SetMode(p.Mode)
+	}
+	s.mu.Unlock()
+
+	return map[string]string{"mode": p.Mode}, nil
+}
+
+// handleModelsSelect updates the agent's model for a given session.
+// Called by the TUI model switcher (models.select).
+func (s *Server) handleModelsSelect(ctx context.Context, params []byte) (interface{}, *RPCError) {
+	var p struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+	}
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.Provider == "" && p.Model == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "provider or model is required"}
+	}
+
+	// Store model selection in config for persistence across sessions.
+	s.mu.Lock()
+	if p.Provider != "" {
+		s.cfg.Agent.DefaultProvider = p.Provider
+	}
+	if p.Model != "" {
+		s.cfg.Agent.DefaultModel = p.Model
+	}
+	s.mu.Unlock()
+
+	// Persist to config file.
+	cfgPath, err := config.ConfigPath()
+	if err == nil {
+		_ = s.cfg.Save(cfgPath)
+	}
+
+	return map[string]interface{}{
+		"status":   "ok",
+		"provider": s.cfg.Agent.DefaultProvider,
+		"model":    s.cfg.Agent.DefaultModel,
+	}, nil
+}
+
+// handleSessionLoad loads a session by ID and returns its info.
+// Called by the TUI session manager when a user selects a session.
+func (s *Server) handleSessionLoad(ctx context.Context, params []byte) (interface{}, *RPCError) {
+	var p struct {
+		ID string `json:"id"`
+	}
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.ID == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "id is required"}
+	}
+
+	sess, err := s.sessionStore.Load(ctx, p.ID)
+	if err != nil {
+		return nil, &RPCError{Code: InternalError, Message: fmt.Sprintf("failed to load session: %v", err)}
+	}
+	if sess == nil {
+		return nil, &RPCError{Code: InvalidParams, Message: "session not found"}
+	}
+
+	return &SessionInfo{
+		ID:        sess.ID,
+		Title:     sess.Title,
+		Folder:    sess.Folder,
+		CreatedAt: sess.CreatedAt,
+		UpdatedAt: sess.UpdatedAt,
+		Model:     sess.Model,
+		Provider:  sess.Provider,
+		Status:    sess.Status,
+		ParentID:  sess.ParentID,
+		Children:  sess.Children,
+	}, nil
+}
+
+// handleAPIGoal returns goal data for the dashboard.
+// GET /api/goal
+func (s *Server) handleAPIGoal(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Collect goal data from any active agent's goal store.
+	var goalText string
+	var status string = "active"
+
+	s.mu.RLock()
+	for _, a := range s.agents {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		g, err := a.GetGoal(ctx)
+		cancel()
+		if err == nil && g != "" {
+			goalText = g
+			break
+		}
+	}
+	s.mu.RUnlock()
+
+	if goalText == "" {
+		status = "inactive"
+		goalText = "no active goal — use /goal set <objective> to create one"
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"objective":    goalText,
+		"status":       status,
+		"token_budget": nil,
+		"tokens_used":  0,
+		"time_used_s":  0,
+	})
+}
+
+// handleAPIPlan returns plan data for the dashboard.
+// GET /api/plan
+func (s *Server) handleAPIPlan(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	plan := map[string]interface{}{
+		"title": "Active Plan",
+		"items": []map[string]interface{}{},
+	}
+
+	// Try to get plan info from an active agent.
+	s.mu.RLock()
+	for _, a := range s.agents {
+		if am := a.AutoMode(); am != nil && am.Plan != nil {
+			plan["title"] = am.Plan.Title
+			items := make([]map[string]interface{}, 0, len(am.Plan.Phases))
+			for _, ph := range am.Plan.Phases {
+				itemStatus := "pending"
+				if ph.Status == agent.PhaseDone {
+					itemStatus = "done"
+				} else if ph.Status == agent.PhaseRunning {
+					itemStatus = "in_progress"
+				}
+				items = append(items, map[string]interface{}{
+					"id":     fmt.Sprintf("%d", ph.Index),
+					"text":   ph.Description,
+					"status": itemStatus,
+				})
+			}
+			plan["items"] = items
+			break
+		}
+	}
+	s.mu.RUnlock()
+
+	json.NewEncoder(w).Encode(plan)
 }

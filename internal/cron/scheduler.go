@@ -29,6 +29,11 @@ type Scheduler struct {
 	store    JobStore
 	onFire   func(job *Job) error
 	tick     time.Duration
+	running  bool // guarded by mu; prevents double-Start panics
+	stopped  bool // guarded by mu; prevents double-Stop panics
+	// inflight tracks job IDs currently executing in onFire so
+	// tickJobs doesn't double-fire a slow callback.
+	inflight map[string]bool
 	// tzCache memoises time.LoadLocation results so tickJobs doesn't
 	// pay the parse + zoneinfo lookup on every fire decision. The
 	// tzdata file is parsed once per zone name encountered.
@@ -79,6 +84,7 @@ func NewScheduler(cfg Config) (*Scheduler, error) {
 		store:    cfg.Store,
 		onFire:   cfg.OnFire,
 		tick:     time.Second,
+		inflight: make(map[string]bool),
 	}
 
 	if s.store != nil {
@@ -96,13 +102,29 @@ func NewScheduler(cfg Config) (*Scheduler, error) {
 }
 
 func (s *Scheduler) Start() {
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return
+	}
+	s.running = true
+	s.stopped = false
+	// Re-arm channels in case this is a Start-after-Stop.
+	s.stop = make(chan struct{})
+	s.done = make(chan struct{})
+	s.mu.Unlock()
+
 	go s.run()
 }
 
 func (s *Scheduler) run() {
 	defer close(s.done)
 
-	ticker := time.NewTicker(s.tick)
+	tick := s.tick
+	if tick <= 0 {
+		tick = time.Second
+	}
+	ticker := time.NewTicker(tick)
 	defer ticker.Stop()
 
 	for {
@@ -143,6 +165,16 @@ func (s *Scheduler) tickJobs(now time.Time) {
 			continue
 		}
 
+		// Inflight dedup: skip jobs already executing in a slow onFire
+		// callback. Without this guard, a callback that runs longer than
+		// the tick interval would be double-fired by subsequent ticks.
+		s.mu.RLock()
+		inFlight := s.inflight[sn.job.ID]
+		s.mu.RUnlock()
+		if inFlight {
+			continue
+		}
+
 		loc := s.location
 		if sn.timezone != "" {
 			if jl, err := s.loadLocation(sn.timezone); err == nil {
@@ -158,7 +190,13 @@ func (s *Scheduler) tickJobs(now time.Time) {
 		// past due, then advance NextRun. Catch-up semantics, never
 		// re-fire skipped intermediate times.
 		if !now.Before(nextInLoc) {
+			s.mu.Lock()
+			s.inflight[sn.job.ID] = true
+			s.mu.Unlock()
 			s.fireJob(sn.job)
+			s.mu.Lock()
+			delete(s.inflight, sn.job.ID)
+			s.mu.Unlock()
 		}
 	}
 }
@@ -170,7 +208,7 @@ func (s *Scheduler) fireJob(j *Job) {
 	s.mu.Unlock()
 
 	if s.onFire != nil {
-		if err := s.onFire(j); err != nil {
+		if err := safeFire(s.onFire, j); err != nil {
 			s.mu.Lock()
 			j.FailureCount++
 			if j.FailureCount > j.MaxRetries {
@@ -190,6 +228,16 @@ func (s *Scheduler) fireJob(j *Job) {
 			}
 			s.mu.Unlock()
 		}
+	} else {
+		// onFire is nil — still need to advance NextRun to avoid infinite hot loop.
+		s.mu.Lock()
+		next, err := s.NextRunTime(j)
+		if err != nil {
+			j.Status = StatusFailed
+		} else {
+			j.NextRun = next
+		}
+		s.mu.Unlock()
 	}
 
 	// Snapshot the store ref under the lock, then release BEFORE
@@ -217,8 +265,18 @@ func retryBackoff(failures int) time.Duration {
 }
 
 func (s *Scheduler) Stop() {
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return
+	}
+	s.stopped = true
+	s.mu.Unlock()
 	close(s.stop)
 	<-s.done
+	s.mu.Lock()
+	s.running = false
+	s.mu.Unlock()
 }
 
 func (s *Scheduler) AddJob(job *Job) error {
@@ -253,6 +311,10 @@ func (s *Scheduler) AddJob(job *Job) error {
 	job.NextRun = next
 
 	s.mu.Lock()
+	if _, exists := s.jobs[job.ID]; exists {
+		s.mu.Unlock()
+		return fmt.Errorf("cron: job %q already exists", job.ID)
+	}
 	s.jobs[job.ID] = job
 	s.mu.Unlock()
 
@@ -370,6 +432,18 @@ func (s *Scheduler) NextRunTime(job *Job) (time.Time, error) {
 
 	now := time.Now().In(loc)
 	return expr.Next(now), nil
+}
+
+// safeFire wraps the user-supplied onFire callback with panic recovery.
+// Without this, a panic in the callback would crash the tick goroutine
+// and prevent done from closing, causing Stop() to deadlock forever.
+func safeFire(fn func(job *Job) error, job *Job) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("cron: onFire panicked: %v", r)
+		}
+	}()
+	return fn(job)
 }
 
 func jobKey(id string) []byte {

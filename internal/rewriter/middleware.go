@@ -30,6 +30,8 @@ type Middleware struct {
 func NewMiddleware() *Middleware {
 	m := &Middleware{
 		stripPatterns: []*regexp.Regexp{
+			// B105: Matches "please" only at word boundaries. Note: this may
+			// match hyphenated words like "please-help" due to \b at hyphen.
 			regexp.MustCompile(`(?i)\bplease\b\s*`),
 			regexp.MustCompile(`(?i)\bcould you\b\s*`),
 			regexp.MustCompile(`(?i)\bwould you mind\b\s*`),

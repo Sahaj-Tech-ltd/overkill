@@ -45,6 +45,7 @@ The line in the sand. Public beta, polished onboarding, real docs.
 | **docs.overkill.dev** — mdBook, searchable, every command documented | June 10 | docs team |
 | **Task dashboard** — web UI at `~/.overkill/dashboard/` showing active sessions, cron jobs, sub-agent status, cost breakdown | June 14 | @harsh |
 | **Bug bash** — close all HIGH severity items from `butterbugs.md` | June 10 | core |
+| **Windows native support** — PowerShell installer, pre-built `.exe`, TUI tested on Windows Terminal, path handling (`~/AppData/Local/overkill` for config, forward-slash normalization) | June 12 | infra |
 | **Homebrew tap + npm global install** — reach non-Go users | June 14 | infra |
 | **Beta release cut** — `v0.10.0-beta` tag, signed binaries, release notes | June 16 | release |
 | **Community Discord** — #help, #showcase, #skills channels | June 16 | community |

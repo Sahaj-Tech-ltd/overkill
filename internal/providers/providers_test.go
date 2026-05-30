@@ -77,7 +77,7 @@ func TestRetry_RetryableError(t *testing.T) {
 		return false
 	}
 
-	resp, err := withRetry(fn, isRetryable, retryConfig{baseDelay: time.Millisecond})
+	resp, err := withRetry(context.Background(), fn, isRetryable, retryConfig{baseDelay: time.Millisecond})
 	require.NoError(t, err)
 	assert.Equal(t, "resp-ok", resp.ID)
 	assert.Equal(t, 4, callCount)
@@ -113,7 +113,7 @@ func TestRetry_MaxRetries(t *testing.T) {
 
 	isRetryable := func(err error) bool { return true }
 
-	resp, err := withRetry(fn, isRetryable, retryConfig{baseDelay: time.Millisecond})
+	resp, err := withRetry(context.Background(), fn, isRetryable, retryConfig{baseDelay: time.Millisecond})
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Equal(t, maxRetries, callCount)
@@ -133,7 +133,7 @@ func TestRetry_HonorRetryAfter(t *testing.T) {
 
 	isRetryable := func(err error) bool { return true }
 
-	resp, err := withRetry(fn, isRetryable, retryConfig{baseDelay: time.Millisecond})
+	resp, err := withRetry(context.Background(), fn, isRetryable, retryConfig{baseDelay: time.Millisecond})
 	require.NoError(t, err)
 	assert.Equal(t, "resp-ok", resp.ID)
 
@@ -208,7 +208,7 @@ func TestRetryStream_RetryableError(t *testing.T) {
 		return false
 	}
 
-	ch, err := withRetryStream(fn, isRetryable, retryConfig{baseDelay: time.Millisecond})
+	ch, err := withRetryStream(context.Background(), fn, isRetryable, retryConfig{baseDelay: time.Millisecond})
 	require.NoError(t, err)
 
 	for range ch {

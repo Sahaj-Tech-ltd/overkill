@@ -40,6 +40,14 @@ type Job struct {
 	MaxRetries     int               `json:"max_retries"`
 	CreatedAt      time.Time         `json:"created_at"`
 	Metadata       map[string]string `json:"metadata"`
+	// DeliveryTarget restricts delivery of cron output to a specific
+	// gateway channel. Valid values: "telegram", "slack", "discord",
+	// "" (default — dispatch to the cron channel only).
+	DeliveryTarget string `json:"delivery_target"`
+	// NotifyGateway, when true, dispatches cron output through the
+	// gateway dispatcher so the agent processes it as an inbound
+	// message. When false, output goes to shell only (legacy).
+	NotifyGateway bool `json:"notify_gateway"`
 }
 
 var (

@@ -1,5 +1,13 @@
 package subagent
 
+// B141: This package imports internal/personality and internal/providers.
+// Be aware of import cycle risk — personality and providers must NOT
+// import subagent. The current dependency direction is safe (subagent
+// depends on them) but any future change that makes personality or
+// providers depend on subagent will create a cycle that breaks the build.
+// If that happens, refactor the shared types into a separate package
+// (e.g. internal/subagent/types).
+
 import (
 	"encoding/json"
 	"errors"

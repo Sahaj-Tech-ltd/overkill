@@ -134,10 +134,13 @@ func mergeBasic(dst *BasicSettings, src BasicSettings) {
 	if src.Theme != "" {
 		dst.Theme = src.Theme
 	}
-	// VimMode and ConfirmWrites are plain bools — explicit toggle in
-	// the UI; replacement semantics. Same for CostCapMonthly / pct.
-	dst.VimMode = src.VimMode
-	dst.ConfirmWrites = src.ConfirmWrites
+	// VimMode and ConfirmWrites are *bool — only override when explicitly set (non-nil).
+	if src.VimMode != nil {
+		dst.VimMode = src.VimMode
+	}
+	if src.ConfirmWrites != nil {
+		dst.ConfirmWrites = src.ConfirmWrites
+	}
 	if src.CostCapMonthly != 0 {
 		dst.CostCapMonthly = src.CostCapMonthly
 	}
@@ -173,12 +176,18 @@ func mergeAdvanced(dst *AdvancedSettings, src AdvancedSettings) {
 }
 
 func mergeScanners(dst *ScannerToggles, src ScannerToggles) {
-	// Explicit replacement — Settings UI always renders a toggle, so
-	// "absent" means "use the parent layer's value." If the parent
-	// layer set Enabled=true and the next layer wants false, the
-	// user MUST write Enabled=false explicitly. With plain-bool YAML
-	// that's `enabled: false`, which yaml.Unmarshal honours.
-	*dst = src
+	// Per-field merge — only override when explicitly set (non-nil).
+	// This prevents a layer that doesn't set scanners from zeroing out
+	// a lower-priority layer's scanner configuration.
+	if src.Command.Enabled != nil {
+		dst.Command.Enabled = src.Command.Enabled
+	}
+	if src.Injection.Enabled != nil {
+		dst.Injection.Enabled = src.Injection.Enabled
+	}
+	if src.PromptInjectBrowser.Enabled != nil {
+		dst.PromptInjectBrowser.Enabled = src.PromptInjectBrowser.Enabled
+	}
 }
 
 func mergeCompaction(dst *CompactionUserConfig, src CompactionUserConfig) {

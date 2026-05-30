@@ -247,7 +247,21 @@ func matchPathOrGlob(pattern, path string) bool {
 type AcceptanceRunner func(ctx context.Context, cmd string, timeout time.Duration, workdir string) (exitCode int, stdout, stderr string, err error)
 
 // DefaultAcceptanceRunner runs the command with `sh -c` in workdir.
+//
+// WARNING: This executes arbitrary shell commands from AcceptanceCheck.Cmd,
+// which may be LLM-generated or user-authored. Callers should prefer
+// ScannedAcceptanceRunner with a command scanner to block known-dangerous
+// patterns. This raw runner is provided for cases where no scanner is
+// configured.
 func DefaultAcceptanceRunner(ctx context.Context, cmd string, timeout time.Duration, workdir string) (int, string, string, error) {
+	if cmd == "" {
+		return -1, "", "", errors.New("acceptance: empty command")
+	}
+	// Reject commands containing shell metacharacters that suggest
+	// injection attempts (command chaining, subshells, etc.).
+	if containsShellMetachar(cmd) {
+		return -1, "", "", fmt.Errorf("acceptance: command contains potentially dangerous shell metacharacters: %q", cmd)
+	}
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
@@ -269,6 +283,33 @@ func DefaultAcceptanceRunner(ctx context.Context, cmd string, timeout time.Durat
 		return -1, so.String(), se.String(), runErr
 	}
 	return exit, so.String(), se.String(), nil
+}
+
+// AcceptanceScanner is a minimal command-scanning interface. Accept any
+// implementation that has a Scan method returning a blocked boolean and
+// error — no import dependency on internal/security required.
+type AcceptanceScanner interface {
+	Scan(cmd string) (blocked bool, err error)
+}
+
+// ScannedAcceptanceRunner wraps DefaultAcceptanceRunner with a command
+// scanner. When scanner is nil, it delegates to DefaultAcceptanceRunner
+// directly. When a scanner is provided, commands are checked before
+// execution and blocked if the scanner returns blocked=true (B108).
+func ScannedAcceptanceRunner(scanner AcceptanceScanner) AcceptanceRunner {
+	if scanner == nil {
+		return DefaultAcceptanceRunner
+	}
+	return func(ctx context.Context, cmd string, timeout time.Duration, workdir string) (int, string, string, error) {
+		blocked, err := scanner.Scan(cmd)
+		if err != nil {
+			return -1, "", "", fmt.Errorf("acceptance: scanner error: %w", err)
+		}
+		if blocked {
+			return -1, "", "", fmt.Errorf("acceptance: command blocked by scanner: %s", cmd)
+		}
+		return DefaultAcceptanceRunner(ctx, cmd, timeout, workdir)
+	}
 }
 
 // RunAcceptance executes every acceptance check against workdir and reports
@@ -312,4 +353,19 @@ func (c *Contract) RunAcceptance(ctx context.Context, workdir string, runner Acc
 		out = append(out, r)
 	}
 	return out
+}
+
+// containsShellMetachar checks a command string for common shell injection
+// patterns: command chaining (&&, ||, ;, |), subshells ($(), ``), redirection
+// quirks, and newline injection. This is a pragmatic first line of defence,
+// not a complete shell parser. Commands that need these characters should
+// use an explicit shell script or be rewritten as individual argv elements.
+func containsShellMetachar(cmd string) bool {
+	for _, r := range cmd {
+		switch r {
+		case '&', '|', ';', '$', '`', '\n', '\r':
+			return true
+		}
+	}
+	return false
 }

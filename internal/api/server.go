@@ -15,11 +15,16 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/credit"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/extensions"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/features"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/hotreload"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
+	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
 )
@@ -43,6 +48,42 @@ type Server struct {
 	extensionsMgr *extensions.Manager
 	// readCache is the speculative read cache (P2).
 	readCache *speculative.ReadCache
+	// pendingQuestions maps session ID → channel that receives the user's
+	// answer. Set by the agent's QuestionFunc, resolved by handleAgentAnswer.
+	pendingQuestions map[string]chan agent.Answer
+	// pendingQuestionData stores the question itself for polling.
+	pendingQuestionMu   sync.RWMutex
+	pendingQuestionData map[string]*agent.Question // session → question
+
+	// Memo the Elephant — thinking indicator phrase engine.
+	memoEngine *personality.MemoEngine
+
+	// creditAnalyzer folds per-turn session records for retrospective
+	// lift/frequency analytics (§8.6 Wave 4). In-memory — the TUI server
+	// doesn't persist credit state across restarts.
+	creditAnalyzer *credit.Analyzer
+
+	// syncMgr, when set, enables auto-push of session state after each
+	// successful turn via sync.AutoPushIfEnabled. Nil-safe — when unset
+	// or Sync.AutoPush is false, auto-push is a no-op.
+	syncMgr *syncpkg.Manager
+
+	// hotReloadBus, when set, is wired into every agent created by the
+	// server so user.yaml changes are live-applied at turn boundaries.
+	// Bonus: mirrors the CLI path's hotreload wiring.
+	hotReloadBus *hotreload.Bus
+
+	// subagentManager tracks active sub-agents for the TUI subagent panel.
+	subagentManager agent.SubagentManager
+
+	// currentMode is the session-level plan/build mode. "plan" means
+	// the agent plans/analyzes only without executing writes; "build"
+	// means full execution is enabled. Default "" means build.
+	currentMode string // "plan" or "" (build)
+
+	// costTracker, when set, powers the session.usage RPC endpoint.
+	// Nil disables the endpoint (returns a helpful error).
+	costTracker cost.Tracker
 }
 
 // Addr returns the address the server is listening on.
@@ -63,6 +104,22 @@ type ServerConfig struct {
 	ExtensionsManager *extensions.Manager
 	// ReadCache is the speculative read cache (P2). Optional.
 	ReadCache *speculative.ReadCache
+	// MemoEngine powers the Memo elephant thinking indicator. Optional.
+	// If nil, memo RPC endpoints return a static fallback.
+	MemoEngine *personality.MemoEngine
+	// SyncManager enables auto-push of session state after each turn.
+	// Optional — when nil or cfg.Sync.AutoPush is false, auto-push is a no-op.
+	SyncManager *syncpkg.Manager
+	// HotReloadBus, when set, is wired into every agent created by the
+	// server so user.yaml changes are live-applied. Optional.
+	HotReloadBus *hotreload.Bus
+	// SubagentManager, when set, enables sub-agent tracking in the API
+	// and TUI subagent panel. Optional — nil-safe.
+	SubagentManager agent.SubagentManager
+
+	// CostTracker, when set, powers the session.usage RPC endpoint.
+	// Optional — nil disables the endpoint.
+	CostTracker cost.Tracker
 }
 
 // NewServer creates a new API server. Call Start to begin listening.
@@ -88,7 +145,15 @@ func NewServer(sc ServerConfig) *Server {
 		learningStore: sc.LearningStore,
 		featureMgr:    sc.FeatureManager,
 		extensionsMgr: sc.ExtensionsManager,
-		readCache:     sc.ReadCache,
+		readCache:          sc.ReadCache,
+		pendingQuestions:   make(map[string]chan agent.Answer),
+		pendingQuestionData: make(map[string]*agent.Question),
+		memoEngine:         sc.MemoEngine,
+		creditAnalyzer:     credit.NewAnalyzer(),
+		syncMgr:            sc.SyncManager,
+		hotReloadBus:       sc.HotReloadBus,
+		subagentManager:    sc.SubagentManager,
+		costTracker:        sc.CostTracker,
 	}
 }
 
@@ -101,6 +166,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/sse", s.withMiddleware(s.handleSSE))
 	mux.HandleFunc("/stream", s.withMiddleware(s.handleStream))
 	mux.HandleFunc("/health", s.withMiddleware(s.handleHealth))
+	mux.HandleFunc("/api/goal", s.withMiddleware(s.handleAPIGoal))
+	mux.HandleFunc("/api/plan", s.withMiddleware(s.handleAPIPlan))
 
 	ln, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -164,7 +231,8 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	bodyReader := http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB
+	if err := json.NewDecoder(bodyReader).Decode(&req); err != nil {
 		writeRPCResponse(w, Response{
 			JSONRPC: "2.0",
 			Error:   &RPCError{Code: ParseError, Message: errorString(ParseError)},
@@ -193,6 +261,9 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	case "agent.abort":
 		result, rpcErr := s.handleAgentAbort(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
+	case "agent.undo":
+		result, rpcErr := s.handleAgentUndo(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
 	case "estop":
 		result, rpcErr := s.handleEStop(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
@@ -204,6 +275,18 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		resp.Result, resp.Error = result, rpcErr
 	case "session.delete":
 		result, rpcErr := s.handleSessionDelete(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "agent.fork":
+		result, rpcErr := s.handleAgentFork(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "session.fork":
+		result, rpcErr := s.handleAgentFork(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "models.select":
+		result, rpcErr := s.handleModelsSelect(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "session.load":
+		result, rpcErr := s.handleSessionLoad(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
 	case "config.get":
 		result, rpcErr := s.handleConfigGet(ctx, req.Params)
@@ -226,11 +309,53 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	case "config.create":
 		result, rpcErr := s.handleConfigCreate(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
+	case "config.theme":
+		result, rpcErr := s.handleConfigTheme(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
 	case "agent.subagents":
 		result, rpcErr := s.handleAgentSubagents(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
 	case "gateway.test":
 		result, rpcErr := s.handleGatewayTest(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "wizard.catalog":
+		result, rpcErr := s.handleWizardCatalog(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "wizard.quick-setup":
+		result, rpcErr := s.handleWizardQuickSetup(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "self.eval.status":
+		result, rpcErr := s.handleSelfEvalStatus(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "tests.results":
+		result, rpcErr := s.handleTestResults(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "sequential.queue":
+		result, rpcErr := s.handleSequentialQueue(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "clarify.poll":
+		result, rpcErr := s.handleClarifyPoll(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "agent.answer":
+		result, rpcErr := s.handleAgentAnswer(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "agent.steer":
+		result, rpcErr := s.handleAgentSteer(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "memo.phrase":
+		result, rpcErr := s.handleMemoPhrase(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "memo.learn":
+		result, rpcErr := s.handleMemoLearn(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "thinking.set_level":
+		result, rpcErr := s.handleThinkingSetLevel(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "mode.set":
+		result, rpcErr := s.handleModeSet(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "session.usage":
+		result, rpcErr := s.handleSessionUsage(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
 	default:
 		resp.Error = &RPCError{Code: MethodNotFound, Message: fmt.Sprintf("unknown method: %s", req.Method)}
@@ -277,8 +402,20 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	s.consumeStreamEvents(ctx, w, flusher, events)
 
+	// Drain the events channel with a short timeout so the agent
+	// goroutine that may still be writing to it doesn't leak.
+	// Without this, a slow SSE consumer disconnect could leave the
+	// agent goroutine blocked on send forever.
+	s.drainChannel(events)
+
 	// Persist after stream completes.
 	s.saveSessionState(ctx, sessionID, a)
+
+	// P3: credit assignment after SSE stream completes.
+	s.recordCreditTurn(a, s.cfg.Agent.DefaultProvider, s.cfg.Agent.DefaultModel)
+
+	// Mirror CLI path: optional non-blocking sync push.
+	s.maybeAutoPush(sessionID)
 }
 
 // handleStream is the plan-aligned SSE endpoint at GET /stream.
@@ -348,8 +485,18 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	s.consumeStreamEvents(ctx, w, flusher, events)
 
+	// Drain the events channel with a short timeout so the agent
+	// goroutine that may still be writing to it doesn't leak.
+	s.drainChannel(events)
+
 	// Persist after stream completes.
 	s.saveSessionState(ctx, sessionID, a)
+
+	// P3: credit assignment after SSE stream completes.
+	s.recordCreditTurn(a, s.cfg.Agent.DefaultProvider, s.cfg.Agent.DefaultModel)
+
+	// Mirror CLI path: optional non-blocking sync push.
+	s.maybeAutoPush(sessionID)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -378,6 +525,23 @@ func (s *Server) consumeStreamEvents(ctx context.Context, w http.ResponseWriter,
 				return
 			}
 			s.writeSSEEvent(w, flusher, evt)
+		}
+	}
+}
+
+// drainChannel reads and discards any remaining events from the channel
+// with a short timeout. This unblocks the agent goroutine that may still
+// be trying to send on the channel after the SSE consumer has disconnected.
+func (s *Server) drainChannel(events <-chan agent.StreamEvent) {
+	timeout := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case <-timeout:
+			return
+		case _, ok := <-events:
+			if !ok {
+				return
+			}
 		}
 	}
 }
@@ -520,6 +684,7 @@ func (s *Server) getOrCreateAgent(ctx context.Context, sessionID string) (*agent
 
 // saveSessionState persists the current agent state into the session store.
 // Best-effort — failures are logged but not returned.
+// PCA-1: Also auto-titles the session on first turn using GenerateTitle.
 func (s *Server) saveSessionState(ctx context.Context, sessionID string, a *agent.Agent) {
 	sess, err := s.sessionStore.Load(ctx, sessionID)
 	if err != nil {
@@ -527,7 +692,60 @@ func (s *Server) saveSessionState(ctx context.Context, sessionID string, a *agen
 	}
 	sess.Model = a.Model()
 	sess.TurnCount = len(a.History())
+
+	// Auto-title on first substantive turn (title is empty, history has content).
+	if sess.Title == "" && sess.TurnCount > 0 {
+		if title, titleErr := a.GenerateTitle(ctx); titleErr == nil && title != "" {
+			sess.Title = title
+		}
+	}
+
 	_ = s.sessionStore.Save(ctx, sess)
+}
+
+// recordCreditTurn folds per-turn credit actions into the in-memory analyzer.
+// Mirrors the CLI path's finalizeSession credit folding (cmd/overkill/run.go)
+// but fires after every turn instead of only at session exit. Best-effort:
+// panics are recovered, errors are silent.
+func (s *Server) recordCreditTurn(a *agent.Agent, providerName, modelName string) {
+	if s.creditAnalyzer == nil {
+		return
+	}
+	toolCalls, errs, recovs, turns, _ := a.SessionMetrics()
+	actions := make([]credit.Action, 0)
+	if toolCalls > 0 {
+		actions = append(actions, credit.Action{Tag: "tool_call", Category: "tool"})
+	}
+	if errs > 0 {
+		actions = append(actions, credit.Action{Tag: "error", Category: "error"})
+	}
+	if recovs > 0 {
+		actions = append(actions, credit.Action{Tag: "recovery", Category: "recovery"})
+	}
+	outcome := credit.OutcomeUnknown
+	if turns >= 3 {
+		if errs > 0 && recovs == 0 {
+			outcome = credit.OutcomeFailure
+		} else if errs == 0 || recovs > 0 {
+			outcome = credit.OutcomeSuccess
+		}
+	}
+	_ = turns // used for outcome gating
+	s.creditAnalyzer.Fold(credit.SessionRecord{
+		SessionID: a.SessionID(),
+		Outcome:   outcome,
+		Actions:   actions,
+		Tags:      []string{providerName, modelName},
+	})
+}
+
+// maybeAutoPush fires a non-blocking sync push for the given session when
+// both the sync manager and config opt in. Mirrors run.go's per-turn
+// sync.AutoPushIfEnabled call.
+func (s *Server) maybeAutoPush(sessionID string) {
+	syncpkg.AutoPushIfEnabled(s.cfg, s.syncMgr, sessionID, func(err error) {
+		log.Printf("sync auto-push failed for session %s: %v", sessionID, err)
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -535,7 +753,7 @@ func (s *Server) saveSessionState(ctx context.Context, sessionID string, a *agen
 // ---------------------------------------------------------------------------
 
 func (s *Server) withMiddleware(fn http.HandlerFunc) http.HandlerFunc {
-	return withCORS(withPanicRecovery(withRequestLog(fn)))
+	return withCORS(withAPIAuth(withPanicRecovery(withRequestLog(fn))))
 }
 
 // ---------------------------------------------------------------------------
@@ -545,4 +763,76 @@ func (s *Server) withMiddleware(fn http.HandlerFunc) http.HandlerFunc {
 func writeRPCResponse(w http.ResponseWriter, resp Response) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// ---------------------------------------------------------------------------
+// Memo the Elephant — thinking indicator RPC handlers
+// ---------------------------------------------------------------------------
+
+// memoPhraseParams is the input for memo.phrase.
+type memoPhraseParams struct {
+	Input  string `json:"input"`
+	Action string `json:"action"` // optional: tool call action name
+}
+
+// memoLearnParams is the input for memo.learn (self-improvement).
+type memoLearnParams struct {
+	Patterns []string `json:"patterns"`
+	Phrases  []string `json:"phrases"`
+	Category string   `json:"category"`
+}
+
+func (s *Server) handleMemoPhrase(_ context.Context, params json.RawMessage) (interface{}, *RPCError) {
+	var p memoPhraseParams
+	if len(params) > 0 {
+		json.Unmarshal(params, &p)
+	}
+
+	// Fallback when no engine is wired.
+	if s.memoEngine == nil {
+		defaults := personality.DefaultMemoDefaults()
+		return map[string]interface{}{
+			"phrase":   defaults[0],
+			"category": "default",
+		}, nil
+	}
+
+	if p.Action != "" {
+		r := s.memoEngine.ActionMatch(p.Action)
+		return map[string]interface{}{
+			"phrase":   r.Phrase,
+			"category": r.Category,
+		}, nil
+	}
+
+	if p.Input != "" {
+		r := s.memoEngine.Match(p.Input)
+		return map[string]interface{}{
+			"phrase":   r.Phrase,
+			"category": r.Category,
+		}, nil
+	}
+
+	// No input — return all available phrases for the TUI side.
+	return s.memoEngine.AllPhrases(), nil
+}
+
+func (s *Server) handleMemoLearn(ctx context.Context, params json.RawMessage) (interface{}, *RPCError) {
+	if s.memoEngine == nil {
+		return nil, &RPCError{Code: InvalidRequest, Message: "memo engine not configured"}
+	}
+
+	var p memoLearnParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &RPCError{Code: InvalidParams, Message: err.Error()}
+	}
+
+	if err := s.memoEngine.Learn(ctx, p.Patterns, p.Phrases, p.Category); err != nil {
+		return nil, &RPCError{Code: InternalError, Message: err.Error()}
+	}
+
+	return map[string]interface{}{
+		"learned": true,
+		"count":   len(s.memoEngine.Rules()),
+	}, nil
 }

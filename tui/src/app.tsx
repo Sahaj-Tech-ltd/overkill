@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useApp } from "ink";
 import { execSync } from "node:child_process";
 import { useBackend } from "./hooks/use-backend.ts";
 import { useChat } from "./hooks/use-chat.ts";
 import { useDialogs } from "./hooks/use-dialogs.ts";
+import { useClarifyPoll } from "./hooks/use-clarify-poll.ts";
 import { useSidebar } from "./hooks/use-sidebar.ts";
 import { useTheme } from "./hooks/use-theme.ts";
 import { useToast } from "./hooks/use-toast.ts";
@@ -13,12 +14,28 @@ import { CommandPalette } from "./components/dialogs/command-palette.tsx";
 import { ModelSwitcher } from "./components/dialogs/model-switcher.tsx";
 import { SessionManager } from "./components/dialogs/session-manager.tsx";
 import { HelpDialog } from "./components/dialogs/help-dialog.tsx";
+import { ClarifyDialog } from "./components/dialogs/clarify-dialog.tsx";
 import { ToastContainer } from "./components/toast.tsx";
 import { Sidebar } from "./components/sidebar/sidebar.tsx";
+import { SteerDialog } from "./components/dialogs/steer-dialog.tsx";
+import { SettingsPanel } from "./components/settings/SettingsPanel.tsx";
+import { DashboardCard } from "./components/dashboard/DashboardCard.tsx";
 import { SessionPanel } from "./components/sidebar/session-panel.tsx";
 import { SubagentPanel } from "./components/sidebar/subagent-panel.tsx";
+import { SelfEvalPanel } from "./components/sidebar/self-eval-panel.tsx";
+import { TestPanel } from "./components/sidebar/test-panel.tsx";
+import { WizardPanel } from "./components/sidebar/wizard-panel.tsx";
+import { QueuePanel } from "./components/sidebar/queue-panel.tsx";
+import { TodoPanel } from "./components/sidebar/todo-panel.tsx";
+import { SkillsPanel } from "./components/sidebar/skills-panel.tsx";
 import { Wizard } from "./components/onboarding/wizard.tsx";
-import type { ModelInfo, SessionInfo } from "./backend/types.ts";
+import {
+  KeybindingProvider,
+  useKeybindings,
+} from "./context/KeybindingContext.tsx";
+import { allCommands } from "./commands/builtin.ts";
+import type { CommandContext } from "./commands/registry.ts";
+import type { ModelInfo, SessionInfo, FileChange } from "./backend/types.ts";
 
 function useGitBranch(): string | undefined {
   const [branch, setBranch] = useState<string | undefined>();
@@ -54,8 +71,8 @@ function useConfigExists(backend: ReturnType<typeof useBackend>["backend"]): {
           setExists(result.exists);
         }
       })
-      .catch(() => {
-        // If the API fails, assume config exists (don't block the app)
+      .catch((err) => {
+        console.error("config.exists check failed:", err);
         if (!cancelled) {
           setExists(true);
         }
@@ -78,114 +95,114 @@ export function App(): React.JSX.Element {
   const { exists: configExists, loading: configLoading } =
     useConfigExists(backend);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
+  const [thinkingLevel, setThinkingLevel] = useState<string>("off");
+  const [agentMode, setAgentMode] = useState<"plan" | "build">("build");
+  const { show: showToast } = useToast();
   const {
     messages,
     sendMessage,
     clearChat,
+    undoLastExchange,
+    retryLastMessage,
     isLoading,
     model,
     provider,
     streamingText,
     queuedMessages,
     statusPhase,
+    sessionId,
+    lastUserMessage,
+    thinkingElapsed,
+    turnDuration,
+    totalSessionTime,
+    fileChanges,
+    scrollOffset,
+    setScrollOffset,
   } = useChat(backend);
-  const { openDialog, open, close } = useDialogs();
+  const { openDialog, open, close, clarifyRequest, clarifyOpen, clarifyCallback, dismissClarify, showClarify } = useDialogs();
+  useClarifyPoll(backend, showClarify, clarifyOpen);
   const { visible: sidebarVisible, activeTab, toggle, setTab } = useSidebar();
   const { exit } = useApp();
-  const { theme } = useTheme();
+  const { theme, themeName, setTheme } = useTheme();
   const { toasts } = useToast();
   const gitBranch = useGitBranch();
 
   const handleModelSelect = (provider: string, model: ModelInfo) => {
-    void provider;
-    void model;
+    backend
+      .call("models.select", { provider, model: model.id })
+      .then(() => {
+        showToast(`Model: ${model.name}`, "success");
+      })
+      .catch((err: unknown) => {
+        showToast(`Failed: ${(err as Error).message}`, "error");
+      });
   };
 
   const handleSessionSelect = (session: SessionInfo) => {
-    void session;
-  };
-
-  const handleSidebarSessionSelect = (session: SessionInfo) => {
-    handleSessionSelect(session);
+    backend
+      .call("session.load", { id: session.id })
+      .then(() => {
+        showToast(`Session: ${session.name || session.folder}`, "success");
+      })
+      .catch((err: unknown) => {
+        showToast(`Failed: ${(err as Error).message}`, "error");
+      });
   };
 
   const handleOnboardingComplete = () => {
     setOnboardingComplete(true);
   };
 
-  const commands = useMemo(
-    () => [
-      {
-        id: "switch-model",
-        title: "Switch Model",
-        description: "Change the active AI model",
-        keybind: "",
-        action: () => open("model-switcher"),
-      },
-      {
-        id: "new-session",
-        title: "New Session",
-        description: "Create a new chat session",
-        keybind: "",
-        action: () => open("session-manager"),
-      },
-      {
-        id: "switch-session",
-        title: "Switch Session",
-        description: "Switch to a different session",
-        keybind: "",
-        action: () => open("session-manager"),
-      },
-      {
-        id: "settings",
-        title: "Settings",
-        description: "Open settings",
-        keybind: "",
-        action: () => {},
-      },
-      {
-        id: "help",
-        title: "Keyboard Shortcuts",
-        description: "Show all keyboard shortcuts",
-        keybind: "Ctrl+?",
-        action: () => open("help"),
-      },
-      {
-        id: "quit",
-        title: "Quit",
-        description: "Exit Overkill",
-        keybind: "Ctrl+C",
-        action: () => exit(),
-      },
-      {
-        id: "estop",
-        title: "Emergency Stop",
-        description: "Halt all running agent loops immediately",
-        keybind: "",
-        action: () => {
-          if (backend.estop) {
-            backend.estop();
-          }
-          exit();
-        },
-      },
-    ],
-    [open, exit],
-  );
+  // Build the command list from the registry, capturing current app state.
+  const commandCtx: CommandContext = {
+    open,
+    close,
+    exit,
+    toggleSidebar: toggle,
+    undoLastExchange,
+    retryLastMessage,
+    backend,
+    sessionId,
+    themeName,
+    setTheme,
+  };
+  const commands = useMemo(() => allCommands(commandCtx), [commandCtx]);
 
   const isDialogOpen = openDialog !== null;
 
-  useInput((input, key) => {
-    if (key.ctrl && input === "k" && !isDialogOpen) {
-      open("command-palette");
-    }
-    if (key.ctrl && input === "b") {
-      toggle();
-    }
-    if (key.ctrl && input === "c") {
-      exit();
-    }
-  });
+  useKeybindings(
+    {
+      "global:commandPalette": () => {
+        if (!isDialogOpen) open("command-palette");
+      },
+      "global:settings": () => {
+        if (isDialogOpen) close();
+        else open("settings");
+      },
+      "global:toggleSidebar": () => toggle(),
+      "global:dashboard": () => {
+        if (isDialogOpen && openDialog !== "dashboard") close();
+        else if (openDialog === "dashboard") close();
+        else open("dashboard");
+      },
+      "global:quit": () => exit(),
+      "global:cycleThinking": () => {
+        const levels = ["off", "minimal", "low", "medium", "high", "x-high"];
+        const idx = levels.indexOf(thinkingLevel);
+        const next = levels[(idx + 1) % levels.length]!;
+        setThinkingLevel(next);
+        backend.call("thinking.set_level", { level: next }).catch((err: unknown) => { console.error("thinking.set_level failed:", err); });
+        showToast(`Thinking: ${next}`, "info");
+      },
+      "global:toggleMode": () => {
+        const next = agentMode === "plan" ? "build" : "plan";
+        setAgentMode(next);
+        backend.call("mode.set", { mode: next }).catch((err: unknown) => { console.error("mode.set failed:", err); });
+        showToast(`Mode: ${next}`, next === "plan" ? "warning" : "success");
+      },
+    },
+    { context: "App", isActive: true },
+  );
 
   // Show loading while checking config
   if (configLoading) {
@@ -212,8 +229,10 @@ export function App(): React.JSX.Element {
   }
 
   return (
+    <KeybindingProvider>
     <Box flexDirection="column" width="100%" height="100%">
-      <Box flexDirection="row" flexGrow={1} width="100%">
+      {/* Main area: Chat + Sidebar */}
+      <Box flexDirection="row" flexGrow={1} width="100%" overflow="hidden">
         <ChatView
           messages={messages}
           sendMessage={sendMessage}
@@ -224,42 +243,38 @@ export function App(): React.JSX.Element {
           provider={provider}
           onOpenPalette={() => open("command-palette")}
           isDialogOpen={isDialogOpen}
+          userMessage={lastUserMessage}
+          statusPhase={statusPhase}
+          thinkingElapsed={thinkingElapsed}
+          theme={theme}
+          scrollOffset={scrollOffset}
+          onScrollChange={setScrollOffset}
+          fileChanges={fileChanges}
         />
         <Sidebar
-          visible={sidebarVisible}
-          activeTab={activeTab}
-          onTabChange={setTab}
+          title={sessionId || "Overkill"}
+          directory={process.cwd()}
+          branch={gitBranch}
+          files={fileChanges.map((fc: {path: string; added: number; removed: number}) => ({
+            file: fc.path.split("/").pop() ?? fc.path,
+            additions: fc.added,
+            deletions: fc.removed,
+          }))}
+          version="v3"
         >
-          {activeTab === "sessions" && (
-            <SessionPanel
-              backend={backend}
-              onSessionSelect={handleSidebarSessionSelect}
-            />
-          )}
-          {activeTab === "tools" && (
-            <Box paddingX={1}>
-              <Text dimColor>No tool calls yet</Text>
-            </Box>
-          )}
-          {activeTab === "files" && (
-            <Box paddingX={1}>
-              <Text dimColor>No files modified</Text>
-            </Box>
-          )}
-          {activeTab === "agents" && (
-            <SubagentPanel backend={backend} />
-          )}
+          <TodoPanel active={sidebarVisible} />
+          <SkillsPanel active={sidebarVisible} />
         </Sidebar>
       </Box>
+
+      {/* Bottom status bar — matches OpenCode footer */}
       <StatusBar
-        connectionState={connected}
+        directory={process.cwd()}
+        branch={gitBranch}
+        connected={connected}
         theme={theme}
-        model={model}
-        provider={provider}
-        queuedMessages={queuedMessages}
-        gitBranch={gitBranch}
-        statusPhase={statusPhase}
       />
+    </Box>
 
       {/* Toast notifications */}
       <ToastContainer toasts={toasts} />
@@ -283,7 +298,43 @@ export function App(): React.JSX.Element {
         onSessionSelect={handleSessionSelect}
       />
       <HelpDialog open={openDialog === "help"} onClose={close} />
-    </Box>
+      <SteerDialog
+        open={openDialog === "steer"}
+        onClose={close}
+        onSubmit={(msg) => {
+          backend.steer(sessionId, msg).catch((err: unknown) => { console.error("steer failed:", err); });
+        }}
+      />
+      <SettingsPanel
+        open={openDialog === "settings"}
+        onClose={close}
+        backend={backend}
+      />
+      <DashboardCard open={openDialog === "dashboard"} onClose={close} />
+      <ClarifyDialog
+        open={clarifyOpen}
+        request={clarifyRequest}
+        onAnswer={(answer, index) => {
+          if (clarifyCallback) {
+            clarifyCallback(answer, index);
+          }
+          dismissClarify();
+        }}
+        onCancel={() => {
+          // Send a cancel signal to unblock the agent.
+          if (clarifyCallback) {
+            clarifyCallback("", -1);
+          }
+          dismissClarify();
+          // Also send the cancel via RPC so the agent doesn't wait for timeout.
+          backend.call("agent.answer", {
+            session_id: "",
+            text: "",
+            index: -1,
+          }).catch((err: unknown) => { console.error("agent.answer cancel failed:", err); });
+        }}
+      />
+    </KeybindingProvider>
   );
 }
 

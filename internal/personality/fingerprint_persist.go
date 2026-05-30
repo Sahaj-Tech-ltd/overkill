@@ -1,3 +1,5 @@
+// Package personality — fingerprint state persistence (disk save/load +
+// boot-time change detection).
 package personality
 
 import (

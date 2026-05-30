@@ -10,6 +10,7 @@ type HookPoint string
 const (
 	BeforeToolCall   HookPoint = "before_tool_call"
 	AfterToolCall    HookPoint = "after_tool_call"
+	AfterTurn        HookPoint = "after_turn"
 	OnSessionStart   HookPoint = "on_session_start"
 	OnSessionEnd     HookPoint = "on_session_end"
 	OnError          HookPoint = "on_error"

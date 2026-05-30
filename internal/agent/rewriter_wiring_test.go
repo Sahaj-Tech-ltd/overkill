@@ -43,10 +43,12 @@ func TestAgent_Rewriter_AppliedWhenSet(t *testing.T) {
 		t.Fatal("expected rewriter to be invoked")
 	}
 
-	// Verify history was updated.
+	// H1: Rewriter now gets a defensive copy — history is preserved.
+	// The rewritten content is used in the API request, not stored back.
+	// Verify the rewriter was called (already checked above).
 	hist := a.History()
-	if len(hist) == 0 || hist[len(hist)-1].Content != "REWRITTEN" {
-		t.Errorf("expected history to contain rewritten content, got %v", hist)
+	if len(hist) == 0 || hist[len(hist)-1].Content != "original prompt" {
+		t.Errorf("expected history to preserve original content, got %v", hist)
 	}
 }
 

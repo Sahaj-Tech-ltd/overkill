@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -59,14 +58,18 @@ func runEstop(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Phase 1: SIGTERM all.
+	// Phase 1: Interrupt all.
 	for _, pid := range pids {
-		if err := syscall.Kill(pid, syscall.SIGTERM); err == nil {
-			fmt.Printf("%s→ SIGTERM %d%s\n", colorYellow, pid, colorReset)
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			continue
+		}
+		if err := proc.Signal(os.Interrupt); err == nil {
+			fmt.Printf("%s→ interrupt %d%s\n", colorYellow, pid, colorReset)
 		}
 	}
 
-	// Phase 2: wait up to 3s, escalate to SIGKILL on survivors.
+	// Phase 2: wait up to 3s, escalate to Kill on survivors.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		alive := false
@@ -85,8 +88,11 @@ func runEstop(cmd *cobra.Command, args []string) error {
 
 	for _, pid := range pids {
 		if pidIsRunning(pid) {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
-			fmt.Printf("%s→ SIGKILL %d (did not exit on SIGTERM)%s\n", colorYellow, pid, colorReset)
+			proc, _ := os.FindProcess(pid)
+			if proc != nil {
+				_ = proc.Kill()
+			}
+			fmt.Printf("%s→ kill %d (did not exit on interrupt)%s\n", colorYellow, pid, colorReset)
 		}
 	}
 	return nil

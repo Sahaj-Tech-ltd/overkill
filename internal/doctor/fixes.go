@@ -52,6 +52,14 @@ func fixConfigParseable(configDir string) CheckResult {
 			Message: "config file is already parseable",
 		}
 	}
+	// Back up the original config before replacing it
+	bakPath := path + ".bak"
+	if bakErr := os.WriteFile(bakPath, data, 0o644); bakErr != nil {
+		return CheckResult{
+			Status:  StatusFail,
+			Message: fmt.Sprintf("doctor: cannot back up config before reset: %v", bakErr),
+		}
+	}
 	defaultCfg := config.Default()
 	if err := defaultCfg.Save(path); err != nil {
 		return CheckResult{
@@ -61,9 +69,9 @@ func fixConfigParseable(configDir string) CheckResult {
 	}
 	return CheckResult{
 		Status:     StatusFixed,
-		Message:    "reset corrupt config to defaults",
+		Message:    fmt.Sprintf("reset corrupt config to defaults (backup saved to %s)", bakPath),
 		Fixed:      true,
-		FixApplied: "replaced unparseable config with default config",
+		FixApplied: "replaced unparseable config with default config (original backed up to config.toml.bak)",
 	}
 }
 

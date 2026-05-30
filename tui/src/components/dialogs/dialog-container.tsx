@@ -11,6 +11,16 @@ interface DialogContainerProps {
 const MIN_WIDTH = 40;
 const HORIZONTAL_MARGIN = 4;
 
+/** Input handler that only mounts when the dialog is open. */
+function DialogInputHandler({ onClose }: { onClose: () => void }) {
+  useInput((_input, key) => {
+    if (key.escape) {
+      onClose();
+    }
+  });
+  return null;
+}
+
 export function DialogContainer({
   open,
   onClose,
@@ -20,12 +30,6 @@ export function DialogContainer({
   const { stdout } = useStdout();
   const termWidth = stdout.columns ?? 80;
   const termHeight = stdout.rows ?? 24;
-
-  useInput((_input, key) => {
-    if (key.escape) {
-      onClose();
-    }
-  });
 
   if (!open) return null;
 
@@ -53,6 +57,7 @@ export function DialogContainer({
       width={termWidth}
       height={termHeight}
     >
+      <DialogInputHandler onClose={onClose} />
       {/* Backdrop rows above */}
       {Array.from({ length: topPad }).map((_, i) => (
         <Box key={`top-${i}`} width="100%">

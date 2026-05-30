@@ -6,14 +6,16 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 type ExportRitual struct {
-	store      *BadgerStore
+	store      Store
 	exportPath string
 }
 
-func NewExportRitual(store *BadgerStore, exportPath string) *ExportRitual {
+func NewExportRitual(store Store, exportPath string) *ExportRitual {
 	return &ExportRitual{
 		store:      store,
 		exportPath: exportPath,
@@ -61,7 +63,7 @@ func (er *ExportRitual) Export(ctx context.Context) error {
 		}
 	}
 
-	if err := os.WriteFile(er.exportPath, []byte(b.String()), 0o644); err != nil {
+	if err := atomicfile.WriteFile(er.exportPath, []byte(b.String()), 0o644); err != nil {
 		return fmt.Errorf("export: writing file: %w", err)
 	}
 

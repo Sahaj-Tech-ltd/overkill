@@ -1,6 +1,6 @@
 // Package daemon implements the job queue for overkill's daemon mode (§8.7.3).
 //
-// Jobs arrive via the ACP /v1/jobs endpoint and are persisted in BadgerDB so
+// Jobs arrive via the ACP /v1/jobs endpoint and are persisted in PostgreSQL so
 // the queue survives restarts. A Worker pool picks them up, calls a pluggable
 // RunFunc, and transitions the job through the state machine:
 //
@@ -13,15 +13,17 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/google/uuid"
+
+	_ "github.com/lib/pq"
 )
 
 // JobStatus is the current lifecycle state of a Job.
@@ -55,34 +57,44 @@ type Job struct {
 	Error     string    `json:"error,omitempty"`
 }
 
-func jobKey(id string) []byte {
-	return []byte("job:" + id)
-}
-
-// JobStore persists jobs to BadgerDB.
+// JobStore persists jobs to PostgreSQL.
 type JobStore struct {
-	db *badger.DB
+	db *sql.DB
 }
 
-// NewJobStore opens (or creates) the BadgerDB at dir and returns a JobStore.
-// Pass an in-memory DB for tests: badger.Open(badger.DefaultOptions("").WithInMemory(true)).
-func NewJobStore(db *badger.DB) *JobStore {
-	return &JobStore{db: db}
-}
-
-// OpenJobStore opens a BadgerDB at dir and wraps it in a JobStore.
-func OpenJobStore(dir string) (*JobStore, error) {
-	db, err := badger.Open(badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR))
-	if err != nil {
-		return nil, fmt.Errorf("daemon: open job store: %w", err)
+// NewJobStore wraps a *sql.DB. Caller owns DB lifecycle.
+func NewJobStore(db *sql.DB) (*JobStore, error) {
+	s := &JobStore{db: db}
+	if err := s.migrate(); err != nil {
+		return nil, fmt.Errorf("daemon: migrate: %w", err)
 	}
-	return NewJobStore(db), nil
+	return s, nil
 }
 
-// Close releases the underlying BadgerDB handle.
-func (s *JobStore) Close() error {
-	return s.db.Close()
+func (s *JobStore) migrate() error {
+	_, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS daemon_jobs (
+			id          TEXT PRIMARY KEY,
+			session_id  TEXT NOT NULL DEFAULT '',
+			intent      TEXT NOT NULL DEFAULT '',
+			status      TEXT NOT NULL DEFAULT 'queued',
+			channel     TEXT NOT NULL DEFAULT '',
+			chat_key    TEXT NOT NULL DEFAULT '',
+			profile     TEXT NOT NULL DEFAULT '',
+			error_msg   TEXT NOT NULL DEFAULT '',
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_daemon_jobs_status ON daemon_jobs (status)`)
+	return err
 }
+
+// Close is a no-op; the caller owns the DB lifecycle.
+func (s *JobStore) Close() error { return nil }
 
 // Create persists a new Job. The job must have a non-empty ID; callers
 // should set it with uuid.New().String() before calling Create.
@@ -90,76 +102,64 @@ func (s *JobStore) Create(ctx context.Context, job Job) error {
 	if job.ID == "" {
 		return errors.New("daemon: job id required")
 	}
-	return s.put(job)
+	return s.put(ctx, job)
 }
 
-// Get retrieves a Job by ID. Returns an error wrapping badger.ErrKeyNotFound
-// if the job does not exist.
+// Get retrieves a Job by ID.
 func (s *JobStore) Get(ctx context.Context, id string) (*Job, error) {
-	var job Job
-	err := s.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(jobKey(id))
-		if err != nil {
-			return err
-		}
-		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &job)
-		})
-	})
+	var j Job
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, session_id, intent, status, channel, chat_key, profile, error_msg, created_at, updated_at
+		FROM daemon_jobs WHERE id = $1
+	`, id).Scan(&j.ID, &j.SessionID, &j.Intent, &j.Status, &j.Channel, &j.ChatKey, &j.Profile, &j.Error, &j.CreatedAt, &j.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("daemon: job %q not found", id)
+	}
 	if err != nil {
-		if errors.Is(err, badger.ErrKeyNotFound) {
-			return nil, fmt.Errorf("daemon: job %q not found", id)
-		}
 		return nil, fmt.Errorf("daemon: get job: %w", err)
 	}
-	return &job, nil
+	return &j, nil
 }
 
-// UpdateStatus transitions a job to status. errMsg is stored in Job.Error
-// when status is JobFailed; it is ignored otherwise.
+// UpdateStatus transitions a job to status.
 func (s *JobStore) UpdateStatus(ctx context.Context, id string, status JobStatus, errMsg string) error {
-	job, err := s.Get(ctx, id)
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE daemon_jobs SET status = $1, error_msg = $2, updated_at = $3 WHERE id = $4
+	`, string(status), errMsg, now, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("daemon: update status: %w", err)
 	}
-	job.Status = status
-	job.UpdatedAt = time.Now().UTC()
-	if status == JobFailed {
-		job.Error = errMsg
-	}
-	return s.put(*job)
+	return nil
 }
 
 // List returns all jobs sorted by CreatedAt descending (newest first).
 func (s *JobStore) List(ctx context.Context) ([]Job, error) {
-	var jobs []Job
-	err := s.db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.Prefix = []byte("job:")
-		it := txn.NewIterator(opts)
-		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
-			var j Job
-			if err := it.Item().Value(func(val []byte) error {
-				return json.Unmarshal(val, &j)
-			}); err != nil {
-				continue
-			}
-			jobs = append(jobs, j)
-		}
-		return nil
-	})
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, session_id, intent, status, channel, chat_key, profile, error_msg, created_at, updated_at
+		FROM daemon_jobs ORDER BY created_at DESC
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("daemon: list jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var j Job
+		if err := rows.Scan(&j.ID, &j.SessionID, &j.Intent, &j.Status, &j.Channel, &j.ChatKey, &j.Profile, &j.Error, &j.CreatedAt, &j.UpdatedAt); err != nil {
+			log.Printf("daemon: scan job row: %v", err)
+			continue
+		}
+		jobs = append(jobs, j)
 	}
 	sort.Slice(jobs, func(i, k int) bool {
 		return jobs[i].CreatedAt.After(jobs[k].CreatedAt)
 	})
-	return jobs, nil
+	return jobs, rows.Err()
 }
 
-// Cancel transitions a job to JobCancelled. Returns an error if the job is
-// already in a terminal state.
+// Cancel transitions a job to JobCancelled.
 func (s *JobStore) Cancel(ctx context.Context, id string) error {
 	job, err := s.Get(ctx, id)
 	if err != nil {
@@ -168,19 +168,29 @@ func (s *JobStore) Cancel(ctx context.Context, id string) error {
 	if isTerminal(job.Status) {
 		return fmt.Errorf("daemon: job %q is already %s", id, job.Status)
 	}
-	job.Status = JobCancelled
-	job.UpdatedAt = time.Now().UTC()
-	return s.put(*job)
+	return s.UpdateStatus(ctx, id, JobCancelled, "")
 }
 
-func (s *JobStore) put(job Job) error {
-	data, err := json.Marshal(job)
+func (s *JobStore) put(ctx context.Context, job Job) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO daemon_jobs (id, session_id, intent, status, channel, chat_key, profile, error_msg, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (id) DO UPDATE SET
+			session_id  = EXCLUDED.session_id,
+			intent      = EXCLUDED.intent,
+			status      = EXCLUDED.status,
+			channel     = EXCLUDED.channel,
+			chat_key    = EXCLUDED.chat_key,
+			profile     = EXCLUDED.profile,
+			error_msg   = EXCLUDED.error_msg,
+			updated_at  = EXCLUDED.updated_at
+	`,
+		job.ID, job.SessionID, job.Intent, string(job.Status), job.Channel,
+		job.ChatKey, job.Profile, job.Error, job.CreatedAt, job.UpdatedAt)
 	if err != nil {
-		return fmt.Errorf("daemon: marshal job: %w", err)
+		return fmt.Errorf("daemon: put job: %w", err)
 	}
-	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Set(jobKey(job.ID), data)
-	})
+	return nil
 }
 
 // RunFunc is the callback invoked by a Worker for each job it picks up.
@@ -195,6 +205,7 @@ type Worker struct {
 	mu     sync.Mutex
 	queue  chan Job
 	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // NewWorker creates a Worker with concurrency limited to n parallel jobs.
@@ -211,23 +222,22 @@ func NewWorker(store *JobStore, run RunFunc, n int) *Worker {
 	return w
 }
 
-// Start launches the background dispatch loop. Stop via the returned cancel or
-// by cancelling the parent context.
+// Start launches the background dispatch loop.
 func (w *Worker) Start(ctx context.Context) {
 	ctx, w.cancel = context.WithCancel(ctx)
 	go w.dispatch(ctx)
 }
 
-// Stop shuts down the worker pool gracefully.
+// Stop shuts down the worker pool gracefully, waiting for in-flight
+// jobs to complete.
 func (w *Worker) Stop() {
 	if w.cancel != nil {
 		w.cancel()
 	}
+	w.wg.Wait()
 }
 
-// Submit enqueues a job for execution. The job must already exist in JobStore.
-// Submit is non-blocking; it returns an error only when the internal queue is
-// full (capacity 256).
+// Submit enqueues a job for execution.
 func (w *Worker) Submit(job Job) error {
 	select {
 	case w.queue <- job:
@@ -244,8 +254,17 @@ func (w *Worker) dispatch(ctx context.Context) {
 			return
 		case job := <-w.queue:
 			w.sem <- struct{}{}
+			// Check ctx after acquiring semaphore: if the context
+			// was cancelled while we waited for a slot, don't leak
+			// a goroutine that will immediately bail out.
+			if ctx.Err() != nil {
+				<-w.sem
+				return
+			}
+			w.wg.Add(1)
 			go func(j Job) {
 				defer func() { <-w.sem }()
+				defer w.wg.Done()
 				w.execute(ctx, j)
 			}(job)
 		}
@@ -253,19 +272,22 @@ func (w *Worker) dispatch(ctx context.Context) {
 }
 
 func (w *Worker) execute(ctx context.Context, job Job) {
-	_ = w.store.UpdateStatus(ctx, job.ID, JobRunning, "")
+	// Use background context for DB updates so that a cancelled parent
+	// context doesn't leave the job stuck in "running" forever.
+	bgCtx := context.Background()
+	_ = w.store.UpdateStatus(bgCtx, job.ID, JobRunning, "")
 
 	err := w.run(ctx, job)
 
 	if ctx.Err() != nil {
-		_ = w.store.UpdateStatus(ctx, job.ID, JobCancelled, "")
+		_ = w.store.UpdateStatus(bgCtx, job.ID, JobCancelled, "")
 		return
 	}
 	if err != nil {
-		_ = w.store.UpdateStatus(ctx, job.ID, JobFailed, err.Error())
+		_ = w.store.UpdateStatus(bgCtx, job.ID, JobFailed, err.Error())
 		return
 	}
-	_ = w.store.UpdateStatus(ctx, job.ID, JobCompleted, "")
+	_ = w.store.UpdateStatus(bgCtx, job.ID, JobCompleted, "")
 }
 
 // NewJob constructs a Job with a fresh ID and the current timestamp.

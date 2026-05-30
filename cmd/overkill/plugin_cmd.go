@@ -8,10 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/plugin"
 )
 
@@ -67,6 +71,19 @@ var pluginInstallCmd = &cobra.Command{
 			return err
 		}
 		dest := filepath.Join(root, name)
+		// Path containment: ensure dest is inside the plugins directory.
+		// Prevents path traversal via crafted git URLs (e.g. '../../etc').
+		absDest, err := filepath.Abs(dest)
+		if err != nil {
+			return fmt.Errorf("plugin: resolve dest path: %w", err)
+		}
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			return fmt.Errorf("plugin: resolve plugins dir: %w", err)
+		}
+		if !strings.HasPrefix(absDest, absRoot+string(filepath.Separator)) && absDest != absRoot {
+			return fmt.Errorf("plugin: path traversal detected — %s is outside %s", dest, root)
+		}
 		if _, err := os.Stat(dest); err == nil {
 			return fmt.Errorf("%s already exists; remove it first", dest)
 		}
@@ -120,7 +137,7 @@ var pluginDoctorCmd = &cobra.Command{
 		if target == nil {
 			return fmt.Errorf("plugin %q not found in %s", name, root)
 		}
-		bridge := &doctorBridge{}
+		bridge := newDoctorBridge(cfg)
 		client := plugin.NewClient(target.Name, target.EntryPath, target.EntryArgs, target.Env, bridge)
 		if target.StaticManifest != nil {
 			client.SetStaticManifest(*target.StaticManifest)
@@ -159,13 +176,111 @@ func trimExt(s, ext string) string {
 	return s
 }
 
-// doctorBridge is a stub HostBridge for `overkill plugin doctor`. It returns
-// empty session info and rejects all config reads.
-type doctorBridge struct{}
+// doctorBridge is a HostBridge for `overkill plugin doctor`. It provides
+// real config access (via path-based lookup) and session info to plugins
+// during isolated handshake testing.
+type doctorBridge struct {
+	cfg *config.Config
+	si  plugin.SessionInfo
+}
 
-func (doctorBridge) SessionInfo() plugin.SessionInfo { return plugin.SessionInfo{ID: "doctor"} }
-func (doctorBridge) ConfigValue(string) (any, bool)  { return nil, false }
-func (doctorBridge) Toast(kind, text string)         { fmt.Printf("[toast %s] %s\n", kind, text) }
+func newDoctorBridge(cfg *config.Config) *doctorBridge {
+	return &doctorBridge{
+		cfg: cfg,
+		si: plugin.SessionInfo{
+			ID:           "doctor",
+			Title:        "Plugin Doctor",
+			MessageCount: 0,
+		},
+	}
+}
+
+func (b *doctorBridge) SessionInfo() plugin.SessionInfo { return b.si }
+
+func (b *doctorBridge) ConfigValue(key string) (any, bool) {
+	if b.cfg == nil {
+		return nil, false
+	}
+	return resolveConfigPath(b.cfg, key)
+}
+
+func (doctorBridge) Toast(kind, text string) { fmt.Printf("[toast %s] %s\n", kind, text) }
+
+// resolveConfigPath walks a dot-separated path (e.g. "providers.0.name")
+// through a Go struct using reflection. TOML tags are matched first, then
+// field names (case-insensitive). Numeric segments index into slices/arrays.
+// Returns (value, true) on success or (nil, false) if the path doesn't resolve.
+func resolveConfigPath(root any, path string) (any, bool) {
+	if path == "" {
+		return nil, false
+	}
+	parts := strings.Split(path, ".")
+	current := reflect.ValueOf(root)
+	for _, part := range parts {
+		// Dereference pointers
+		for current.Kind() == reflect.Ptr {
+			if current.IsNil() {
+				return nil, false
+			}
+			current = current.Elem()
+		}
+
+		switch current.Kind() {
+		case reflect.Struct:
+			field := findFieldByTOML(current, part)
+			if !field.IsValid() {
+				return nil, false
+			}
+			current = field
+		case reflect.Slice, reflect.Array:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= current.Len() {
+				return nil, false
+			}
+			current = current.Index(idx)
+		case reflect.Map:
+			key := current.MapIndex(reflect.ValueOf(part))
+			if !key.IsValid() {
+				return nil, false
+			}
+			current = key
+		default:
+			return nil, false
+		}
+	}
+
+	// Dereference final pointer
+	for current.Kind() == reflect.Ptr {
+		if current.IsNil() {
+			return nil, false
+		}
+		current = current.Elem()
+	}
+
+	if !current.IsValid() {
+		return nil, false
+	}
+	return current.Interface(), true
+}
+
+// findFieldByTOML returns the struct field whose `toml` tag matches name.
+// Falls back to case-insensitive field name match if no tag matches.
+func findFieldByTOML(v reflect.Value, name string) reflect.Value {
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if tag := field.Tag.Get("toml"); tag == name {
+			return v.Field(i)
+		}
+	}
+	// Fallback: case-insensitive field name match
+	for i := 0; i < t.NumField(); i++ {
+		if strings.EqualFold(t.Field(i).Name, name) {
+			return v.Field(i)
+		}
+	}
+	return reflect.Value{}
+}
 
 // Reference json.RawMessage so go imports it (used elsewhere in package).
 var _ = json.RawMessage(nil)

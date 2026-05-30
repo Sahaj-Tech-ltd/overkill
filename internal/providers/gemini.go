@@ -87,16 +87,15 @@ type GeminiProvider struct {
 }
 
 func NewGeminiProvider(apiKey string, models []Model) *GeminiProvider {
-	return &GeminiProvider{
+	p := &GeminiProvider{
 		BaseProvider: NewBaseProvider("gemini", "https://generativelanguage.googleapis.com/v1beta", apiKey, models),
 	}
+	p.SetCustomHeaders(map[string]string{"X-Goog-Api-Key": apiKey})
+	return p
 }
 
 func (p *GeminiProvider) Complete(ctx context.Context, req Request) (Response, error) {
-	// Escape both segments: a model name with `?`, `#`, or `&` would
-	// inject query params or truncate the path; an API key with any
-	// reserved URL character would silently corrupt auth.
-	path := "/models/" + url.PathEscape(req.Model) + ":generateContent?key=" + url.QueryEscape(p.apiKey)
+	path := "/models/" + url.PathEscape(req.Model) + ":generateContent"
 	body := p.buildRequestBody(req)
 
 	resp, err := p.doRequest(ctx, http.MethodPost, path, body)
@@ -118,7 +117,7 @@ func (p *GeminiProvider) Complete(ctx context.Context, req Request) (Response, e
 }
 
 func (p *GeminiProvider) Stream(ctx context.Context, req Request) (<-chan Chunk, error) {
-	path := "/models/" + url.PathEscape(req.Model) + ":streamGenerateContent?key=" + url.QueryEscape(p.apiKey) + "&alt=sse"
+	path := "/models/" + url.PathEscape(req.Model) + ":streamGenerateContent?alt=sse"
 	body := p.buildRequestBody(req)
 
 	resp, err := p.doRequest(ctx, http.MethodPost, path, body)

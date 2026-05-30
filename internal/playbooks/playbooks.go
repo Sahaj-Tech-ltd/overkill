@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,6 +36,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/google/uuid"
 )
 
@@ -130,7 +132,10 @@ func (s *Store) Get(id string) (*Playbook, error) {
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path := filepath.Join(s.dir, id+".json")
+	path, err := security.SafePath(s.dir, id+".json")
+	if err != nil {
+		return fmt.Errorf("playbooks: delete: %w", err)
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("playbooks: delete: %w", err)
 	}
@@ -189,6 +194,10 @@ func (s *Store) RecordOutcome(id string, success bool) (*Playbook, error) {
 // Content + (optionally) updated metadata. The parent's counters
 // stay intact; the child starts fresh. Use this when the agent
 // notices a playbook would have worked with a tweak.
+//
+// B137: Chains are capped at 5 levels deep. Attempting to refine a
+// playbook that is already the 5th generation returns an error to
+// prevent unbounded parent chains.
 func (s *Store) Refine(parentID string, content, description string) (*Playbook, error) {
 	if strings.TrimSpace(content) == "" {
 		return nil, errors.New("playbooks: refined content required")
@@ -202,6 +211,23 @@ func (s *Store) Refine(parentID string, content, description string) (*Playbook,
 	if parent == nil {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("playbooks: parent %s not found", parentID)
+	}
+
+	// Depth check: walk parent chain to count generations.
+	depth := 1
+	current := parent
+	for current.ParentID != "" && depth <= 6 {
+		depth++
+		if depth > 5 {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("playbooks: refinement depth exceeded (max 5 generations)")
+		}
+		// Walk up one level without recursion to avoid stack growth.
+		ancestor, err := s.loadLocked(current.ParentID)
+		if err != nil || ancestor == nil {
+			break
+		}
+		current = ancestor
 	}
 	s.mu.Unlock()
 
@@ -352,32 +378,13 @@ func (s *Store) Rank(taskType, query string, topK int, opts RankOptions) ([]Hit,
 	return hits, nil
 }
 
-// halfLifeDecay returns 2^(-age/halfLife). Bounded [0, 1].
+// halfLifeDecay returns 2^(-age/halfLife) using math.Exp2 for accuracy.
+// Bounded [0, 1].
 func halfLifeDecay(age, halfLife time.Duration) float64 {
 	if halfLife <= 0 || age <= 0 {
 		return 1.0
 	}
-	x := -float64(age) / float64(halfLife)
-	if x < -50 {
-		return 0
-	}
-	// Repeated halving + linear interpolation for the fractional
-	// remainder — same approach as memory.pow2 to avoid pulling
-	// math.Pow into a package that otherwise needs it.
-	result := 1.0
-	for x < 0 {
-		if x <= -1 {
-			result *= 0.5
-			x += 1
-		} else {
-			result *= 1.0 + x*0.5
-			break
-		}
-	}
-	if result < 0 {
-		result = 0
-	}
-	return result
+	return math.Exp2(-float64(age) / float64(halfLife))
 }
 
 // ── internals ───────────────────────────────────────────────────────
@@ -386,7 +393,10 @@ func (s *Store) saveLocked(pb *Playbook) error {
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return fmt.Errorf("playbooks: mkdir: %w", err)
 	}
-	path := filepath.Join(s.dir, pb.ID+".json")
+	path, err := security.SafePath(s.dir, pb.ID+".json")
+	if err != nil {
+		return fmt.Errorf("playbooks: save: %w", err)
+	}
 	tmp := path + ".tmp"
 	data, err := json.MarshalIndent(pb, "", "  ")
 	if err != nil {
@@ -406,7 +416,10 @@ func (s *Store) loadLocked(id string) (*Playbook, error) {
 	if id == "" {
 		return nil, errors.New("playbooks: empty id")
 	}
-	path := filepath.Join(s.dir, id+".json")
+	path, err := security.SafePath(s.dir, id+".json")
+	if err != nil {
+		return nil, fmt.Errorf("playbooks: %w", err)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

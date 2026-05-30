@@ -19,9 +19,7 @@ package automation
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -43,19 +41,7 @@ type SweeperConfig struct {
 	OnLost func(t LedgerTask)
 }
 
-// defaultPIDAlive checks if pid is reachable via signal 0 on Unix.
-// Signal 0 doesn't actually deliver anything — it just probes the
-// kernel's "is this PID alive AND can this user signal it?" answer.
-func defaultPIDAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
-}
+// defaultPIDAlive is implemented in sweeper_unix.go and sweeper_windows.go.
 
 // Sweeper runs the periodic reconciliation loop over a Ledger.
 type Sweeper struct {

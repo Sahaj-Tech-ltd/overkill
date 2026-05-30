@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -151,12 +152,12 @@ func (m *Manager) Resolve(local, remote *session.Session) (winner, loser *sessio
 		return local, nil
 	}
 	if remote.UpdatedAt.After(local.UpdatedAt) {
-		conflict := *local
+		conflict := conflictCopy(local)
 		conflict.ID = local.ID + "_conflict-" + fmt.Sprintf("%d", time.Now().Unix())
 		conflict.Title = "[conflict] " + local.Title
 		return remote, &conflict
 	}
-	conflict := *remote
+	conflict := conflictCopy(remote)
 	conflict.ID = remote.ID + "_conflict-" + fmt.Sprintf("%d", time.Now().Unix())
 	conflict.Title = "[conflict] " + remote.Title
 	return local, &conflict
@@ -176,21 +177,27 @@ func (m *Manager) PullOne(ctx context.Context, id string) error {
 	}
 	local, err := m.store.Load(ctx, id)
 	if err != nil {
-		// Treat any load error as "local missing" — Create.
-		if cerr := m.store.Create(ctx, remote); cerr != nil {
-			return fmt.Errorf("sync: create from remote: %w", cerr)
+		if errors.Is(err, session.ErrNotFound) {
+			// Genuinely missing — safe to create from remote.
+			if cerr := m.store.Create(ctx, remote); cerr != nil {
+				return fmt.Errorf("sync: create from remote: %w", cerr)
+			}
+			m.mu.Lock()
+			m.lastPull = time.Now().UTC()
+			m.mu.Unlock()
+			return nil
 		}
-		m.mu.Lock()
-		m.lastPull = time.Now().UTC()
-		m.mu.Unlock()
-		return nil
+		// Database error — propagate, don't overwrite.
+		return fmt.Errorf("sync: failed to load local session: %w", err)
 	}
 
 	winner, loser := m.Resolve(local, remote)
 	if loser != nil {
-		_ = m.store.Create(ctx, loser)
+		if cerr := m.store.Create(ctx, loser); cerr != nil {
+			return fmt.Errorf("sync: saving conflict loser %s: %w", loser.ID, cerr)
+		}
 	}
-	winner.UpdatedAt = remote.UpdatedAt
+	// Preserve winner's own metadata — do NOT overwrite UpdatedAt with remote's.
 	if err := m.store.Save(ctx, winner); err != nil {
 		return fmt.Errorf("sync: save winner: %w", err)
 	}
@@ -216,4 +223,26 @@ func (m *Manager) PullAll(ctx context.Context) (int, error) {
 		pulled++
 	}
 	return pulled, nil
+}
+
+// conflictCopy creates a shallow copy of a Session without its mutex,
+// suitable for creating conflict variants that are independently usable.
+func conflictCopy(s *session.Session) session.Session {
+	return session.Session{
+		ID:         s.ID,
+		Title:      s.Title,
+		Folder:     s.Folder,
+		ParentID:   s.ParentID,
+		CreatedAt:  s.CreatedAt,
+		UpdatedAt:  s.UpdatedAt,
+		Model:      s.Model,
+		Provider:   s.Provider,
+		TokenCount: s.TokenCount,
+		CostUSD:    s.CostUSD,
+		TurnCount:  s.TurnCount,
+		Metadata:   s.Metadata,
+		Status:     s.Status,
+		Messages:   s.Messages,
+		Children:   s.Children,
+	}
 }

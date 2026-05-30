@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -74,6 +75,25 @@ type bedrockConverseReq struct {
 	Messages        []bedrockConvMsg  `json:"messages"`
 	System          []bedrockSysBlock `json:"system,omitempty"`
 	InferenceConfig *bedrockInfCfg    `json:"inferenceConfig,omitempty"`
+	ToolConfig      *bedrockToolCfg   `json:"toolConfig,omitempty"`
+}
+
+type bedrockToolCfg struct {
+	Tools []bedrockTool `json:"tools"`
+}
+
+type bedrockTool struct {
+	ToolSpec bedrockToolSpec `json:"toolSpec"`
+}
+
+type bedrockToolSpec struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema bedrockToolSchema `json:"inputSchema"`
+}
+
+type bedrockToolSchema struct {
+	JSON json.RawMessage `json:"json"`
 }
 
 type bedrockConvMsg struct {
@@ -113,6 +133,11 @@ func (p *BedrockProvider) Complete(ctx context.Context, req Request) (Response, 
 	}
 	if req.MaxTokens > 0 {
 		bReq.InferenceConfig = &bedrockInfCfg{MaxTokens: &req.MaxTokens}
+	}
+	if len(req.Tools) > 0 {
+		bReq.ToolConfig = &bedrockToolCfg{
+			Tools: convertToBedrockTools(req.Tools),
+		}
 	}
 
 	body, err := json.Marshal(bReq)
@@ -154,7 +179,7 @@ func (p *BedrockProvider) Complete(ctx context.Context, req Request) (Response, 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
 	if err != nil {
 		return Response{}, fmt.Errorf("bedrock: read: %w", err)
 	}
@@ -176,9 +201,149 @@ func (p *BedrockProvider) Complete(ctx context.Context, req Request) (Response, 
 	}, nil
 }
 
-// Stream is not yet implemented for Bedrock.
+// Stream implements basic streaming via the Bedrock ConverseStream API.
+// Returns a channel of Chunk events. If the ConverseStream endpoint
+// returns an error, the channel is closed with the error on the first
+// chunk.
 func (p *BedrockProvider) Stream(ctx context.Context, req Request) (<-chan Chunk, error) {
-	return nil, fmt.Errorf("bedrock: streaming not yet implemented")
+	bReq := bedrockConverseReq{
+		Messages: convertToBedrockMsgs(req.Messages),
+	}
+	if req.SystemPrompt != "" {
+		bReq.System = []bedrockSysBlock{{Text: req.SystemPrompt}}
+	}
+	if req.MaxTokens > 0 {
+		bReq.InferenceConfig = &bedrockInfCfg{MaxTokens: &req.MaxTokens}
+	}
+	if len(req.Tools) > 0 {
+		bReq.ToolConfig = &bedrockToolCfg{
+			Tools: convertToBedrockTools(req.Tools),
+		}
+	}
+
+	body, err := json.Marshal(bReq)
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: stream marshal: %w", err)
+	}
+
+	modelID := req.Model
+	url := fmt.Sprintf("%s/model/%s/converse-stream", p.baseURL, modelID)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: stream new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	creds, err := p.cfg.Credentials.Retrieve(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: stream credentials: %w", err)
+	}
+
+	h := sha256.Sum256(body)
+	payloadHash := hex.EncodeToString(h[:])
+
+	p.mu.Lock()
+	signErr := p.signer.SignHTTP(ctx, creds, httpReq, payloadHash, "bedrock", p.region, time.Now())
+	p.mu.Unlock()
+	if signErr != nil {
+		return nil, fmt.Errorf("bedrock: stream sign: %w", signErr)
+	}
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: stream do: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		resp.Body.Close()
+		return nil, fmt.Errorf("bedrock: stream HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	ch := make(chan Chunk, 16)
+	go func() {
+		defer close(ch)
+		defer resp.Body.Close()
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+		var fullText strings.Builder
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "{") {
+				continue
+			}
+
+			var event bedrockConverseStreamEvent
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				continue
+			}
+
+			if event.ContentBlockDelta != nil && event.ContentBlockDelta.Delta != nil {
+				if text := event.ContentBlockDelta.Delta.Text; text != "" {
+					fullText.WriteString(text)
+					if !sendChunk(ctx, ch, Chunk{Content: text}) {
+						return
+					}
+				}
+			}
+
+			if event.MessageStop != nil {
+				usage := &Usage{}
+				if event.AmazonBedrockMetadata != nil && event.AmazonBedrockMetadata.Usage != nil {
+					usage.InputTokens = event.AmazonBedrockMetadata.Usage.InputTokens
+					usage.OutputTokens = event.AmazonBedrockMetadata.Usage.OutputTokens
+				}
+				_ = sendChunk(ctx, ch, Chunk{Done: true, Usage: usage})
+				return
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			_ = sendChunk(ctx, ch, Chunk{Err: fmt.Errorf("bedrock stream: %w", err)})
+			return
+		}
+		_ = sendChunk(ctx, ch, Chunk{Done: true})
+	}()
+
+	return ch, nil
+}
+
+// bedrockConverseStreamEvent is a single JSON-line event from the ConverseStream API.
+type bedrockConverseStreamEvent struct {
+	ContentBlockDelta *struct {
+		Delta *struct {
+			Text string `json:"text"`
+		} `json:"delta"`
+	} `json:"contentBlockDelta,omitempty"`
+	MessageStop            *struct{}                           `json:"messageStop,omitempty"`
+	AmazonBedrockMetadata  *bedrockStreamMetadata              `json:"metadata,omitempty"`
+	InternalServerException *struct {
+		Message string `json:"message"`
+	} `json:"internalServerException,omitempty"`
+	ModelStreamErrorException *struct {
+		Message string `json:"message"`
+	} `json:"modelStreamErrorException,omitempty"`
+	ValidationException *struct {
+		Message string `json:"message"`
+	} `json:"validationException,omitempty"`
+	ThrottlingException *struct {
+		Message string `json:"message"`
+	} `json:"throttlingException,omitempty"`
+}
+
+type bedrockStreamMetadata struct {
+	Usage *struct {
+		InputTokens  int `json:"inputTokens"`
+		OutputTokens int `json:"outputTokens"`
+	} `json:"usage,omitempty"`
 }
 
 func convertToBedrockMsgs(msgs []Message) []bedrockConvMsg {
@@ -187,6 +352,24 @@ func convertToBedrockMsgs(msgs []Message) []bedrockConvMsg {
 		out = append(out, bedrockConvMsg{
 			Role:    m.Role,
 			Content: []bedrockBlock{{Text: m.Content}},
+		})
+	}
+	return out
+}
+
+func convertToBedrockTools(tools []Tool) []bedrockTool {
+	out := make([]bedrockTool, 0, len(tools))
+	for _, t := range tools {
+		schema := t.Parameters
+		if schema == nil {
+			schema = json.RawMessage(`{"type":"object","properties":{}}`)
+		}
+		out = append(out, bedrockTool{
+			ToolSpec: bedrockToolSpec{
+				Name:        t.Name,
+				Description: t.Description,
+				InputSchema: bedrockToolSchema{JSON: schema},
+			},
 		})
 	}
 	return out

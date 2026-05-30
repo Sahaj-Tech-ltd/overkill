@@ -22,7 +22,7 @@ func TestSessionRouter_BindResolve(t *testing.T) {
 func TestSessionRouter_FollowTUI(t *testing.T) {
 	r, _ := NewSessionRouter("")
 	_ = r.Bind("telegram", "12345", "", "sess-1")
-	if err := r.Follow("12345", "tui"); err != nil {
+	if err := r.Follow("telegram", "12345", "tui"); err != nil {
 		t.Fatal(err)
 	}
 	got, follow := r.Resolve("telegram", "12345", "", "tui-live")
@@ -38,13 +38,13 @@ func TestSessionRouter_FollowTUI(t *testing.T) {
 
 func TestSessionRouter_FollowPinned(t *testing.T) {
 	r, _ := NewSessionRouter("")
-	_ = r.Follow("chat-x", "pinned-sess")
+	_ = r.Follow("discord", "chat-x", "pinned-sess")
 	got, follow := r.Resolve("discord", "chat-x", "", "tui-live")
 	if got != "pinned-sess" || !follow {
 		t.Fatalf("pin: got %q follow=%v", got, follow)
 	}
-	_ = r.Follow("chat-x", "")
-	if r.FollowTarget("chat-x") != "" {
+	_ = r.Follow("discord", "chat-x", "")
+	if r.FollowTarget("discord", "chat-x") != "" {
 		t.Fatal("follow not cleared")
 	}
 }
@@ -68,7 +68,7 @@ func TestSessionRouter_Persistence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "r.json")
 	r1, _ := NewSessionRouter(path)
 	_ = r1.Bind("telegram", "9", "", "sess-99")
-	_ = r1.Follow("9", "tui")
+	_ = r1.Follow("telegram", "9", "tui")
 
 	r2, err := NewSessionRouter(path)
 	if err != nil {

@@ -8,18 +8,19 @@ import (
 	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
+	"github.com/rs/zerolog/log"
 )
 
 type TOMLModel struct {
 	Name             string                `toml:"name"`
 	Family           string                `toml:"family"`
 	MaxTokens        int                   `toml:"max_tokens"`
-	Reasoning        bool                  `toml:"reasoning"`
-	ToolCall         bool                  `toml:"tool_call"`
-	StructuredOutput bool                  `toml:"structured_output"`
-	Temperature      bool                  `toml:"temperature"`
-	Attachment       bool                  `toml:"attachment"`
-	OpenWeights      bool                  `toml:"open_weights"`
+	Reasoning        *bool                 `toml:"reasoning"`
+	ToolCall         *bool                 `toml:"tool_call"`
+	StructuredOutput *bool                 `toml:"structured_output"`
+	Temperature      *bool                 `toml:"temperature"`
+	Attachment       *bool                 `toml:"attachment"`
+	OpenWeights      *bool                 `toml:"open_weights"`
 	Modalities       TOMLModalities        `toml:"modalities"`
 	Cost             TOMLCost              `toml:"cost"`
 	Extends          *TOMLExtends          `toml:"extends"`
@@ -105,13 +106,13 @@ func LoadCatalog(dir string) (*ModelCatalog, error) {
 
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
-			fmt.Fprintf(os.Stderr, "catalog: skipping %s: %v\n", path, readErr)
+			log.Warn().Err(readErr).Str("path", path).Msg("catalog: skipping file")
 			return nil
 		}
 
 		var m TOMLModel
 		if decodeErr := toml.Unmarshal(data, &m); decodeErr != nil {
-			fmt.Fprintf(os.Stderr, "catalog: skipping %s: %v\n", path, decodeErr)
+			log.Warn().Err(decodeErr).Str("path", path).Msg("catalog: skipping invalid model file")
 			return nil
 		}
 
@@ -168,12 +169,12 @@ func (mc *ModelCatalog) merge(parent *Model, child *TOMLModel) TOMLModel {
 		Name:             parent.Name,
 		Family:           parent.Family,
 		MaxTokens:        parent.MaxTokens,
-		Reasoning:        parent.Reasoning,
-		ToolCall:         parent.SupportsTools,
-		StructuredOutput: parent.StructuredOutput,
-		Temperature:      parent.Temperature,
-		Attachment:       parent.Attachment,
-		OpenWeights:      parent.OpenWeights,
+		Reasoning:        &parent.Reasoning,
+		ToolCall:         &parent.SupportsTools,
+		StructuredOutput: &parent.StructuredOutput,
+		Temperature:      &parent.Temperature,
+		Attachment:       &parent.Attachment,
+		OpenWeights:      &parent.OpenWeights,
 		ReleaseDate:      parent.ReleaseDate,
 		LastUpdated:      parent.LastUpdated,
 		Knowledge:        parent.Knowledge,
@@ -208,22 +209,22 @@ func (mc *ModelCatalog) merge(parent *Model, child *TOMLModel) TOMLModel {
 	if child.MaxTokens != 0 {
 		result.MaxTokens = child.MaxTokens
 	}
-	if child.Reasoning {
+	if child.Reasoning != nil {
 		result.Reasoning = child.Reasoning
 	}
-	if child.ToolCall {
+	if child.ToolCall != nil {
 		result.ToolCall = child.ToolCall
 	}
-	if child.StructuredOutput {
+	if child.StructuredOutput != nil {
 		result.StructuredOutput = child.StructuredOutput
 	}
-	if child.Temperature {
+	if child.Temperature != nil {
 		result.Temperature = child.Temperature
 	}
-	if child.Attachment {
+	if child.Attachment != nil {
 		result.Attachment = child.Attachment
 	}
-	if child.OpenWeights {
+	if child.OpenWeights != nil {
 		result.OpenWeights = child.OpenWeights
 	}
 
@@ -297,12 +298,12 @@ func (mc *ModelCatalog) toModel(id string, t *TOMLModel) *Model {
 		MaxTokens:        t.MaxTokens,
 		ContextWindow:    contextWindow,
 		DefaultMaxTokens: defaultMaxTokens,
-		SupportsTools:    t.ToolCall,
-		Reasoning:        t.Reasoning,
-		StructuredOutput: t.StructuredOutput,
-		Temperature:      t.Temperature,
-		Attachment:       t.Attachment,
-		OpenWeights:      t.OpenWeights,
+		SupportsTools:    boolValue(t.ToolCall),
+		Reasoning:        boolValue(t.Reasoning),
+		StructuredOutput: boolValue(t.StructuredOutput),
+		Temperature:      boolValue(t.Temperature),
+		Attachment:       boolValue(t.Attachment),
+		OpenWeights:      boolValue(t.OpenWeights),
 		CostIn:           t.Cost.Input,
 		CostOut:          t.Cost.Output,
 		CostCacheIn:      t.Cost.CacheRead,
@@ -325,6 +326,14 @@ func (mc *ModelCatalog) toModel(id string, t *TOMLModel) *Model {
 	}
 
 	return m
+}
+
+// boolValue returns the dereferenced bool value, defaulting to false if nil.
+func boolValue(b *bool) bool {
+	if b == nil {
+		return false
+	}
+	return *b
 }
 
 func (mc *ModelCatalog) List() []string {

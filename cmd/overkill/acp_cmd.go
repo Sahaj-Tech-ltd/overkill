@@ -11,6 +11,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/acp"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/db"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
 var acpCmd = &cobra.Command{
@@ -22,40 +25,60 @@ var acpServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the ACP server in the foreground",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		connString := os.Getenv("DATABASE_URL")
+		if connString == "" && cfg != nil {
+			connString = cfg.DatabaseURL
+		}
+		if connString == "" {
+			return fmt.Errorf("DATABASE_URL required — set it in ~/.overkill/config.toml or the environment")
+		}
+
+		database, err := db.Open(connString)
+		if err != nil {
+			return fmt.Errorf("open database: %w", err)
+		}
+		defer database.Close()
+
+		if err := db.Migrate(database); err != nil {
+			return fmt.Errorf("migrate database: %w", err)
+		}
+
+		store := session.NewPostgresStore(database)
+
+		addr := config.DefaultACPAddr
+		if cfg != nil && cfg.ACP.Listen != "" {
+			addr = cfg.ACP.Listen
+		}
 		token, err := loadOrCreateACPToken()
 		if err != nil {
-			return err
+			return fmt.Errorf("acp token: %w", err)
 		}
-		app := buildTUIApp()
-		var sender acp.Sender
-		if app != nil && app.Agent != nil {
-			sender = &acpAgentAdapter{a: app.Agent}
+
+		var allowedOrigins []string
+		if cfg != nil {
+			allowedOrigins = cfg.ACP.AllowedOrigins
 		}
-		listen := cfg.ACP.Listen
-		if listen == "" {
-			listen = "127.0.0.1:8421"
-		}
+
 		srv := acp.NewServer(acp.Config{
-			Addr:           listen,
+			Addr:           addr,
 			Token:          token,
-			AllowedOrigins: cfg.ACP.AllowedOrigins,
-			Agent:          sender,
-			Store:          app.Store,
+			AllowedOrigins: allowedOrigins,
+			Store:          store,
 			Name:           "overkill",
 			Version:        Version,
 		})
-		if err := srv.Start(); err != nil {
-			return err
-		}
-		fmt.Printf("acp server listening on %s\n", listen)
-		fmt.Printf("token: %s\n", token)
 
-		stop := make(chan os.Signal, 1)
-		signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-		<-stop
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		return srv.Shutdown(ctx)
+		if err := srv.Start(); err != nil {
+			return fmt.Errorf("start ACP server: %w", err)
+		}
+		fmt.Printf("ACP server listening on %s\n", srv.Addr())
+
+		// Wait for shutdown signal.
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		fmt.Fprintln(os.Stderr, "\nshutting down...")
+		return srv.Shutdown(context.Background())
 	},
 }
 

@@ -3,7 +3,9 @@ package api
 import (
 	"log"
 	"net/http"
+	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 )
 
@@ -42,15 +44,65 @@ func withPanicRecovery(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// withCORS adds permissive CORS headers for localhost development.
+// withCORS adds CORS headers for localhost development.
+// In production, gateways handle CORS at the reverse-proxy layer;
+// this wildcard is intentionally permissive for dev ergonomics
+// (TUI, local dashboards, bridge scripts on loopback). Do NOT
+// expose this endpoint to the public internet without an upstream
+// reverse proxy that sets stricter Origin headers (B101).
+//
+// Origins can be configured via OVERKILL_API_CORS_ORIGINS (comma-separated
+// list, e.g. "http://localhost:3000,http://localhost:5173"). When unset,
+// allows all origins ("*") for local development.
 func withCORS(next http.HandlerFunc) http.HandlerFunc {
+	allowedOrigins := os.Getenv("OVERKILL_API_CORS_ORIGINS")
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		allowOrigin := "*"
+
+		if allowedOrigins != "" {
+			// Restrict to the configured origins.
+			allowOrigin = ""
+			for _, o := range strings.Split(allowedOrigins, ",") {
+				if origin == strings.TrimSpace(o) {
+					allowOrigin = origin
+					break
+				}
+			}
+		}
+		if allowOrigin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// apiToken returns the configured API bearer token, or empty string if auth is disabled.
+func apiToken() string {
+	return os.Getenv("OVERKILL_API_TOKEN")
+}
+
+// withAPIAuth adds optional API token authentication. When OVERKILL_API_TOKEN
+// is set in the environment, all requests must include an Authorization header
+// of the form "Bearer <token>". When the env var is empty, auth is skipped
+// entirely (opt-in security — B099).
+func withAPIAuth(next http.HandlerFunc) http.HandlerFunc {
+	token := apiToken()
+	if token == "" {
+		return next
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)

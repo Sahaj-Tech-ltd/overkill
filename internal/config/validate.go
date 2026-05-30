@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -82,8 +84,10 @@ func (c *Config) Validate() []error {
 			"custom":     true,
 		}
 		if p.Type != "" && !validTypes[p.Type] {
-			// Provider type not in our known list — but the factory now
-			// auto-discovers from models.dev catalog. Only warn, don't reject.
+			// Provider type not in our known list — the factory now
+			// auto-discovers from models.dev catalog. Warn but don't
+			// block validation (B109): unknown types may still work
+			// via auto-discovery.
 			log.Warn().Str("type", p.Type).Msg("config: provider type not in known list; will attempt auto-discovery from models.dev")
 		}
 		if p.Type != "ollama" && p.Type != "bedrock" && p.Type != "vertex" && p.APIKey == "" {
@@ -113,6 +117,10 @@ func (c *Config) Warnings() []Warning {
 
 	if len(c.Providers) == 0 {
 		warns = append(warns, Warning("no providers configured; agent will not be able to make LLM calls"))
+	}
+
+	if c.DatabaseURL == "" && os.Getenv("DATABASE_URL") == "" {
+		warns = append(warns, Warning("database_url not configured and DATABASE_URL env var not set; all persistent stores (sessions, memory, learning) require Postgres — set with: overkill config set database_url <connection-string>"))
 	}
 
 	// Cost limiting is opt-in — no warning when unset (user may not want budget tracking)

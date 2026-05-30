@@ -3,6 +3,11 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
@@ -12,12 +17,16 @@ type Executor struct {
 	provider   providers.Provider
 	model      string
 	maxRetries int
+	verify     bool
+	renderHTML bool // auto-generate DeepWiki-style HTML after spec stage
 }
 
 type Config struct {
 	Provider   providers.Provider
 	Model      string
 	MaxRetries int
+	Verify     bool
+	RenderHTML bool // auto-generate DeepWiki-style HTML after spec stage
 }
 
 func NewExecutor(cfg Config) *Executor {
@@ -29,10 +38,16 @@ func NewExecutor(cfg Config) *Executor {
 		provider:   cfg.Provider,
 		model:      cfg.Model,
 		maxRetries: retries,
+		verify:     cfg.Verify,
+		renderHTML: cfg.RenderHTML,
 	}
 }
 
 func (e *Executor) Run(ctx context.Context, request string) (*PipelineResult, error) {
+	if e.provider == nil {
+		return nil, fmt.Errorf("pipeline: provider is nil")
+	}
+
 	start := time.Now()
 
 	stages := []struct {
@@ -75,6 +90,37 @@ func (e *Executor) Run(ctx context.Context, request string) (*PipelineResult, er
 		}
 
 		results = append(results, *result)
+
+		// Auto-render spec HTML for visual plan view.
+		if s.stage == StageSpec && e.renderHTML && result.Content != "" {
+			e.renderSpecHTML(ctx, result.Content)
+		}
+
+		// Verify Code stage: build and test generated implementation.
+		// Use named lookups by stage rather than hardcoded indices (H-27 fix).
+		if s.stage == StageCode && e.verify {
+			testCode := findStageContent(results, StageTest)
+			implCode := findStageContent(results, StageCode)
+			if testCode != "" && implCode != "" {
+				passed, errs, files := e.verifyGoCode(ctx, testCode, implCode)
+				results[len(results)-1].Passed = passed
+				results[len(results)-1].Errors = errs
+				results[len(results)-1].Files = files
+			}
+		}
+
+		// Verify Refactor stage: re-run tests to confirm refactoring didn't break.
+		if s.stage == StageRefactor && e.verify {
+			testCode := findStageContent(results, StageTest)
+			refCode := findStageContent(results, StageRefactor)
+			if testCode != "" && refCode != "" {
+				passed, errs, files := e.verifyGoCode(ctx, testCode, refCode)
+				results[len(results)-1].Passed = passed
+				results[len(results)-1].Errors = errs
+				results[len(results)-1].Files = files
+			}
+		}
+
 		input = result.Content
 	}
 
@@ -102,6 +148,9 @@ func (e *Executor) Run(ctx context.Context, request string) (*PipelineResult, er
 }
 
 func (e *Executor) RunStage(ctx context.Context, stage Stage, input string) (*StageResult, error) {
+	if e.provider == nil {
+		return nil, fmt.Errorf("pipeline: provider is nil")
+	}
 	prompt := stagePrompt(stage)
 	if prompt == "" {
 		return nil, fmt.Errorf("pipeline: unknown stage %d", stage)
@@ -172,4 +221,153 @@ func stagePrompt(s Stage) string {
 	default:
 		return ""
 	}
+}
+
+var goBlockRe = regexp.MustCompile("(?s)```go\\s*\\n(.*?)```")
+
+type goBlock struct {
+	code     string
+	filename string
+	isTest   bool
+}
+
+func extractGoBlocks(content string) []goBlock {
+	var blocks []goBlock
+
+	matches := goBlockRe.FindAllStringSubmatch(content, -1)
+	for _, m := range matches {
+		code := strings.TrimSpace(m[1])
+		if code == "" {
+			continue
+		}
+		isTest := strings.Contains(code, "*testing.T") || strings.Contains(code, "\"_test\"")
+		blocks = append(blocks, goBlock{code: code, isTest: isTest})
+	}
+
+	if len(blocks) == 0 {
+		// Strip fenced code block markers before checking — bare ``` fences
+		// (no language tag) would otherwise embed markers in the content,
+		// causing looksLikeGo to falsely match the full raw content.
+		stripped := stripFences(content)
+		if looksLikeGo(stripped) {
+			isTest := strings.Contains(stripped, "*testing.T") || strings.Contains(stripped, "\"_test\"")
+			blocks = append(blocks, goBlock{code: stripped, isTest: isTest})
+		}
+	}
+
+	return blocks
+}
+
+func looksLikeGo(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	// Check both raw and trimmed — TrimSpace strips trailing whitespace
+	// which can remove the space after "package" in bare "package " input.
+	return strings.HasPrefix(content, "package ") ||
+		strings.HasPrefix(trimmed, "package ") ||
+		strings.Contains(trimmed, "\npackage ")
+}
+
+// stripFences removes markdown fenced code block delimiters from content.
+// Handles ``` with optional language tag and closing ```.
+func stripFences(content string) string {
+	// Remove opening fence: ```lang\n or just ```\n
+	re := regexp.MustCompile("(?s)^```[a-zA-Z]*\\s*\\n(.*)```\\s*$")
+	m := re.FindStringSubmatch(content)
+	if m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	return content
+}
+
+// findStageContent returns the Content of the first StageResult matching the
+// given Stage, or empty string if not found. Used to replace hardcoded stage
+// index lookups with named references (H-27 fix).
+func findStageContent(results []StageResult, stage Stage) string {
+	for _, r := range results {
+		if r.Stage == stage {
+			return r.Content
+		}
+	}
+	return ""
+}
+
+func (e *Executor) verifyGoCode(ctx context.Context, codeContents ...string) (passed bool, errors []string, files map[string]string) {
+	var allBlocks []goBlock
+	for _, content := range codeContents {
+		allBlocks = append(allBlocks, extractGoBlocks(content)...)
+	}
+
+	if len(allBlocks) == 0 {
+		return true, nil, nil
+	}
+
+	tmpDir, err := os.MkdirTemp("", "overkill-pipeline-")
+	if err != nil {
+		return false, []string{fmt.Sprintf("verify: create temp dir: %v", err)}, nil
+	}
+	defer os.RemoveAll(tmpDir)
+
+	files = make(map[string]string)
+	for i, block := range allBlocks {
+		name := block.filename
+		if name == "" {
+			if block.isTest {
+				name = fmt.Sprintf("file%d_test.go", i)
+			} else {
+				name = fmt.Sprintf("file%d.go", i)
+			}
+		}
+		path := filepath.Join(tmpDir, name)
+		if err := os.WriteFile(path, []byte(block.code), 0644); err != nil {
+			return false, []string{fmt.Sprintf("verify: write %s: %v", name, err)}, nil
+		}
+		files[name] = block.code
+	}
+
+	initCmd := exec.CommandContext(ctx, "go", "mod", "init", "temp")
+	initCmd.Dir = tmpDir
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		errMsg := fmt.Sprintf("go mod init: %s", strings.TrimSpace(string(out)))
+		return false, []string{errMsg}, files
+	}
+
+	buildCmd := exec.CommandContext(ctx, "go", "build", "./...")
+	buildCmd.Dir = tmpDir
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		errMsg := fmt.Sprintf("go build: %s", strings.TrimSpace(string(out)))
+		return false, []string{errMsg}, files
+	}
+
+	testCmd := exec.CommandContext(ctx, "go", "test", "./...")
+	testCmd.Dir = tmpDir
+	if out, err := testCmd.CombinedOutput(); err != nil {
+		errMsg := fmt.Sprintf("go test: %s", strings.TrimSpace(string(out)))
+		return false, []string{errMsg}, files
+	}
+
+	return true, nil, files
+}
+
+// renderSpecHTML generates a DeepWiki-style HTML file from the spec content.
+func (e *Executor) renderSpecHTML(ctx context.Context, content string) {
+	// Generate a short name from the first heading or use default.
+	name := "plan"
+	title := extractTitle(content)
+	if title != "" {
+		nameSlug := slugify(title)
+		if len(nameSlug) > 50 {
+			nameSlug = nameSlug[:50]
+		}
+		if nameSlug != "" {
+			name = nameSlug
+		}
+	}
+
+	path, err := RenderPlanToFile([]byte(content), RenderConfig{Name: name})
+	if err != nil {
+		// Non-fatal: don't fail the pipeline because rendering fails.
+		fmt.Fprintf(os.Stderr, "pipeline: render spec HTML: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "pipeline: rendered plan HTML → %s\n", path)
 }

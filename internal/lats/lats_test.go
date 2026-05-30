@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -214,8 +215,9 @@ func (f *fakeWTProvider) Acquire(id string) (string, func(), error) {
 }
 
 type dummyMutex struct {
+	mu    sync.Mutex
 	count atomic.Int32
 }
 
-func (d *dummyMutex) Lock()   {}
-func (d *dummyMutex) Unlock() {}
+func (d *dummyMutex) Lock()   { d.mu.Lock(); d.count.Add(1) }
+func (d *dummyMutex) Unlock() { d.mu.Unlock() }

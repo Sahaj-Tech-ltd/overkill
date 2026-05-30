@@ -59,8 +59,8 @@ func TestDetect_GeminiPro(t *testing.T) {
 	if fp.Family != "gemini-pro" {
 		t.Errorf("expected family gemini-pro, got %s", fp.Family)
 	}
-	if fp.ContextWindow != 1000000 {
-		t.Errorf("expected context window 1000000, got %d", fp.ContextWindow)
+	if fp.ContextWindow != 2000000 {
+		t.Errorf("expected context window 2000000, got %d", fp.ContextWindow)
 	}
 }
 
@@ -195,9 +195,9 @@ func TestContextWindow_KnownModels(t *testing.T) {
 		{"gpt-4o", 128000},
 		{"gpt-4-turbo", 128000},
 		{"gpt-3.5-turbo", 16385},
-		{"gemini-1.5-pro", 1000000},
+		{"gemini-1.5-pro", 2000000},
 		{"gemini-2.0-flash", 1000000},
-		{"llama-3.1-70b", defaultContextWindow},
+		{"llama-3.1-70b", 131072},
 		{"unknown-model", defaultContextWindow},
 	}
 	for _, tc := range cases {

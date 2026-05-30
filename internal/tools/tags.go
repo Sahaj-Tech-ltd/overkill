@@ -64,7 +64,9 @@ func (t *TagListTool) Execute(ctx context.Context, input json.RawMessage) (json.
 		Path string `json:"path"`
 	}
 	if len(input) > 0 {
-		_ = json.Unmarshal(input, &in)
+		if err := json.Unmarshal(input, &in); err != nil {
+			return nil, fmt.Errorf("tag_list: %w", err)
+		}
 	}
 	if t.mgr == nil {
 		return nil, fmt.Errorf("tag_list: tag manager not configured")

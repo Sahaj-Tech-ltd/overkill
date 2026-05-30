@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/walls/impossibleprobe"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/walls/monitor"
 )
 
@@ -128,4 +129,43 @@ func writeMonitorAlerts(findings []monitor.Finding) {
 		}
 		_ = store.Create(journal.AlertPatternDetected, msg, f.SessionID)
 	}
+}
+
+// impossibleProbeStart arms a periodic impossible-bench probe runner.
+// Every 15 minutes, it runs DefaultProbes against a no-op responder
+// (daemon has no agent session). When wired into a live agent context
+// (e.g. via cron or alarm), the Responder is swapped for the agent.
+func impossibleProbeStart(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(15 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				probes := impossibleprobe.DefaultProbes()
+				for _, p := range probes {
+					// No-op responder: daemon has no agent to probe.
+					// When wired to cron/alarm, the responder is the
+					// actual agent session.
+					result, err := impossibleprobe.Run(ctx,
+						impossibleprobe.ResponderFunc(func(ctx context.Context, prompt string) (string, error) {
+							return "", fmt.Errorf("daemon: no agent responder available")
+						}), p)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "impossibleprobe %s: %v\n", p.ID, err)
+						continue
+					}
+					if result.Outcome != impossibleprobe.OutcomePassed {
+						fmt.Fprintf(os.Stderr, "%simpossibleprobe %s: %s — %s%s\n",
+							colorYellow, p.ID, result.Outcome, result.Reason, colorReset)
+					}
+				}
+			}
+		}
+	}()
+	fmt.Printf("%s✓ impossible-probe ticker armed (every 15m)%s\n", colorGreen, colorReset)
 }

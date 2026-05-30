@@ -73,7 +73,7 @@ func registerWhatsApp(hub *gateway.Hub, disp *gateway.Dispatcher, wa config.What
 		}
 		listen := c.Listen
 		if listen == "" {
-			listen = "127.0.0.1:7798"
+			listen = config.DefaultWhatsAppCloudAddr
 		}
 		bot := cloud.NewBot(c.PhoneNumberID, c.AccessToken, c.AppSecret, c.VerifyToken, listen, wa.AllowedFrom, disp)
 		bot.Logger = logger

@@ -8,6 +8,7 @@ package subagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -207,7 +208,18 @@ func (r *AutonomousRunner) FinalReport() *FinalReport {
 // Run drives the StepDriver to completion. It NEVER asks the user for input;
 // when the contract cannot be satisfied autonomously it returns a FinalReport
 // describing why.
-func (r *AutonomousRunner) Run(ctx context.Context) (*FinalReport, error) {
+func (r *AutonomousRunner) Run(ctx context.Context) (rep *FinalReport, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			rep = r.buildReport("failed", fmt.Sprintf("autonomous runner panicked: %v", rec))
+			r.mu.Lock()
+			r.finalReport = rep
+			r.mu.Unlock()
+			r.maybeEmitHandoff()
+			err = nil // panic is converted to report, not propagated as error
+		}
+	}()
+
 	r.mu.Lock()
 	r.startedAt = time.Now()
 	r.mu.Unlock()
@@ -270,6 +282,12 @@ func (r *AutonomousRunner) Run(ctx context.Context) (*FinalReport, error) {
 
 		// Step error: surface ContractViolation specifically.
 		if sr.Err != nil {
+			// Context cancellation during a step means the parent called
+			// cancel or the deadline expired — report as a handoff, not a
+			// failure.
+			if errors.Is(sr.Err, context.Canceled) || errors.Is(sr.Err, context.DeadlineExceeded) {
+				return r.finalize("handed_off", sr.Err.Error()), nil
+			}
 			if v, ok := asContractViolation(sr.Err); ok {
 				r.mu.Lock()
 				r.violations = append(r.violations, v)

@@ -36,75 +36,73 @@ type errorPattern struct {
 }
 
 type ErrorClassifier struct {
-	patterns []errorPattern
+}
+
+// classifierPatterns is a package-level var so regexes are compiled once.
+var classifierPatterns = []errorPattern{
+	{regexp.MustCompile(`(?i)\b401\b`), ReasonAuth, false, 0},
+	{regexp.MustCompile(`(?i)\b403\b`), ReasonAuth, false, 0},
+	{regexp.MustCompile(`(?i)invalid\s+api\s+key`), ReasonAuth, false, 0},
+	{regexp.MustCompile(`(?i)\bauthentication\b`), ReasonAuth, false, 0},
+	{regexp.MustCompile(`(?i)\bunauthorized\b`), ReasonAuth, false, 0},
+	{regexp.MustCompile(`(?i)\bforbidden\b`), ReasonAuth, false, 0},
+	{regexp.MustCompile(`(?i)access\s+denied`), ReasonAuth, false, 0},
+	{regexp.MustCompile(`(?i)\b429\b`), ReasonRateLimit, true, 60 * time.Second},
+	{regexp.MustCompile(`(?i)rate\s+limit`), ReasonRateLimit, true, 60 * time.Second},
+	{regexp.MustCompile(`(?i)too\s+many\s+requests`), ReasonRateLimit, true, 60 * time.Second},
+	{regexp.MustCompile(`(?i)quota\s+exceeded`), ReasonRateLimit, true, 60 * time.Second},
+	{regexp.MustCompile(`(?i)requests?\s+per\s+(minute|second)`), ReasonRateLimit, true, 60 * time.Second},
+	{regexp.MustCompile(`(?i)\b402\b`), ReasonBilling, false, 24 * time.Hour},
+	{regexp.MustCompile(`(?i)\bbilling\b`), ReasonBilling, false, 24 * time.Hour},
+	{regexp.MustCompile(`(?i)\bpayment\b`), ReasonBilling, false, 24 * time.Hour},
+	{regexp.MustCompile(`(?i)insufficient\s+funds`), ReasonBilling, false, 24 * time.Hour},
+	{regexp.MustCompile(`(?i)\bcredit`), ReasonBilling, false, 24 * time.Hour},
+	{regexp.MustCompile(`(?i)\bsubscription\b`), ReasonBilling, false, 24 * time.Hour},
+	{regexp.MustCompile(`(?i)plan\s+limit`), ReasonBilling, false, 24 * time.Hour},
+	{regexp.MustCompile(`(?i)connection\s+refused`), ReasonNetwork, true, 10 * time.Second},
+	{regexp.MustCompile(`(?i)\bdns\b`), ReasonNetwork, true, 10 * time.Second},
+	{regexp.MustCompile(`(?i)no\s+such\s+host`), ReasonNetwork, true, 10 * time.Second},
+	{regexp.MustCompile(`(?i)\bnetwork\b`), ReasonNetwork, true, 10 * time.Second},
+	{regexp.MustCompile(`(?i)ECONNREFUSED`), ReasonNetwork, true, 10 * time.Second},
+	{regexp.MustCompile(`(?i)ECONNRESET`), ReasonNetwork, true, 10 * time.Second},
+	{regexp.MustCompile(`(?i)EPIPE\b`), ReasonNetwork, true, 10 * time.Second},
+	{regexp.MustCompile(`(?i)connection\s+reset`), ReasonNetwork, true, 10 * time.Second},
+	{regexp.MustCompile(`(?i)context\s+deadline`), ReasonTimeout, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)context\s+canceled`), ReasonTimeout, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)i/o\s+timeout`), ReasonTimeout, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)read\s+timeout`), ReasonTimeout, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)deadline\s+exceeded`), ReasonTimeout, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)\bjson\b`), ReasonFormat, false, 0},
+	{regexp.MustCompile(`(?i)\bunmarshal\b`), ReasonFormat, false, 0},
+	{regexp.MustCompile(`(?i)invalid\s+response`), ReasonFormat, false, 0},
+	{regexp.MustCompile(`(?i)unexpected\s+end`), ReasonFormat, false, 0},
+	{regexp.MustCompile(`(?i)\bdecode\b`), ReasonFormat, false, 0},
+	{regexp.MustCompile(`(?i)syntax\s+error`), ReasonFormat, false, 0},
+	{regexp.MustCompile(`(?i)context\s+length`), ReasonContextOverflow, false, 0},
+	{regexp.MustCompile(`(?i)maximum\s+context`), ReasonContextOverflow, false, 0},
+	{regexp.MustCompile(`(?i)too\s+many\s+tokens`), ReasonContextOverflow, false, 0},
+	{regexp.MustCompile(`(?i)token\s+limit`), ReasonContextOverflow, false, 0},
+	{regexp.MustCompile(`(?i)input\s+is\s+too\s+long`), ReasonContextOverflow, false, 0},
+	{regexp.MustCompile(`(?i)max_tokens`), ReasonContextOverflow, false, 0},
+	{regexp.MustCompile(`(?i)\b500\b`), ReasonOverloaded, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)\b502\b`), ReasonOverloaded, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)\b503\b`), ReasonOverloaded, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)\b529\b`), ReasonOverloaded, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)\boverloaded\b`), ReasonOverloaded, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)internal\s+server\s+error`), ReasonOverloaded, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)bad\s+gateway`), ReasonOverloaded, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)service\s+unavailable`), ReasonOverloaded, true, 30 * time.Second},
+	{regexp.MustCompile(`(?i)model\s+not\s+found`), ReasonModelNotFound, false, 0},
+	{regexp.MustCompile(`(?i)model\s+not\s+available`), ReasonModelNotFound, false, 0},
+	{regexp.MustCompile(`(?i)does\s+not\s+exist`), ReasonModelNotFound, false, 0},
+	{regexp.MustCompile(`(?i)model\s+.*\bnot\b`), ReasonModelNotFound, false, 0},
+	{regexp.MustCompile(`(?i)fork/exec`), ReasonUnknown, true, 5 * time.Second},
+	{regexp.MustCompile(`(?i)signal:\s+killed`), ReasonUnknown, true, 5 * time.Second},
+	{regexp.MustCompile(`(?i)signal:\s+aborted`), ReasonUnknown, true, 5 * time.Second},
 }
 
 func NewErrorClassifier() *ErrorClassifier {
-	c := &ErrorClassifier{}
-
-	c.patterns = []errorPattern{
-		{regexp.MustCompile(`(?i)\b401\b`), ReasonAuth, false, 0},
-		{regexp.MustCompile(`(?i)\b403\b`), ReasonAuth, false, 0},
-		{regexp.MustCompile(`(?i)invalid\s+api\s+key`), ReasonAuth, false, 0},
-		{regexp.MustCompile(`(?i)\bauthentication\b`), ReasonAuth, false, 0},
-		{regexp.MustCompile(`(?i)\bunauthorized\b`), ReasonAuth, false, 0},
-		{regexp.MustCompile(`(?i)\bforbidden\b`), ReasonAuth, false, 0},
-		{regexp.MustCompile(`(?i)access\s+denied`), ReasonAuth, false, 0},
-		{regexp.MustCompile(`(?i)\b429\b`), ReasonRateLimit, true, 60 * time.Second},
-		{regexp.MustCompile(`(?i)rate\s+limit`), ReasonRateLimit, true, 60 * time.Second},
-		{regexp.MustCompile(`(?i)too\s+many\s+requests`), ReasonRateLimit, true, 60 * time.Second},
-		{regexp.MustCompile(`(?i)quota\s+exceeded`), ReasonRateLimit, true, 60 * time.Second},
-		{regexp.MustCompile(`(?i)requests?\s+per\s+(minute|second)`), ReasonRateLimit, true, 60 * time.Second},
-		{regexp.MustCompile(`(?i)\b402\b`), ReasonBilling, false, 24 * time.Hour},
-		{regexp.MustCompile(`(?i)\bbilling\b`), ReasonBilling, false, 24 * time.Hour},
-		{regexp.MustCompile(`(?i)\bpayment\b`), ReasonBilling, false, 24 * time.Hour},
-		{regexp.MustCompile(`(?i)insufficient\s+funds`), ReasonBilling, false, 24 * time.Hour},
-		{regexp.MustCompile(`(?i)\bcredit`), ReasonBilling, false, 24 * time.Hour},
-		{regexp.MustCompile(`(?i)\bsubscription\b`), ReasonBilling, false, 24 * time.Hour},
-		{regexp.MustCompile(`(?i)plan\s+limit`), ReasonBilling, false, 24 * time.Hour},
-		{regexp.MustCompile(`(?i)connection\s+refused`), ReasonNetwork, true, 10 * time.Second},
-		{regexp.MustCompile(`(?i)\bdns\b`), ReasonNetwork, true, 10 * time.Second},
-		{regexp.MustCompile(`(?i)no\s+such\s+host`), ReasonNetwork, true, 10 * time.Second},
-		{regexp.MustCompile(`(?i)\bnetwork\b`), ReasonNetwork, true, 10 * time.Second},
-		{regexp.MustCompile(`(?i)ECONNREFUSED`), ReasonNetwork, true, 10 * time.Second},
-		{regexp.MustCompile(`(?i)ECONNRESET`), ReasonNetwork, true, 10 * time.Second},
-		{regexp.MustCompile(`(?i)EPIPE\b`), ReasonNetwork, true, 10 * time.Second},
-		{regexp.MustCompile(`(?i)connection\s+reset`), ReasonNetwork, true, 10 * time.Second},
-		{regexp.MustCompile(`(?i)context\s+deadline`), ReasonTimeout, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)context\s+canceled`), ReasonTimeout, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)i/o\s+timeout`), ReasonTimeout, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)read\s+timeout`), ReasonTimeout, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)deadline\s+exceeded`), ReasonTimeout, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)\bjson\b`), ReasonFormat, false, 0},
-		{regexp.MustCompile(`(?i)\bunmarshal\b`), ReasonFormat, false, 0},
-		{regexp.MustCompile(`(?i)invalid\s+response`), ReasonFormat, false, 0},
-		{regexp.MustCompile(`(?i)unexpected\s+end`), ReasonFormat, false, 0},
-		{regexp.MustCompile(`(?i)\bdecode\b`), ReasonFormat, false, 0},
-		{regexp.MustCompile(`(?i)syntax\s+error`), ReasonFormat, false, 0},
-		{regexp.MustCompile(`(?i)context\s+length`), ReasonContextOverflow, false, 0},
-		{regexp.MustCompile(`(?i)maximum\s+context`), ReasonContextOverflow, false, 0},
-		{regexp.MustCompile(`(?i)too\s+many\s+tokens`), ReasonContextOverflow, false, 0},
-		{regexp.MustCompile(`(?i)token\s+limit`), ReasonContextOverflow, false, 0},
-		{regexp.MustCompile(`(?i)input\s+is\s+too\s+long`), ReasonContextOverflow, false, 0},
-		{regexp.MustCompile(`(?i)max_tokens`), ReasonContextOverflow, false, 0},
-		{regexp.MustCompile(`(?i)\b500\b`), ReasonOverloaded, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)\b502\b`), ReasonOverloaded, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)\b503\b`), ReasonOverloaded, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)\b529\b`), ReasonOverloaded, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)\boverloaded\b`), ReasonOverloaded, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)internal\s+server\s+error`), ReasonOverloaded, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)bad\s+gateway`), ReasonOverloaded, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)service\s+unavailable`), ReasonOverloaded, true, 30 * time.Second},
-		{regexp.MustCompile(`(?i)model\s+not\s+found`), ReasonModelNotFound, false, 0},
-		{regexp.MustCompile(`(?i)model\s+not\s+available`), ReasonModelNotFound, false, 0},
-		{regexp.MustCompile(`(?i)does\s+not\s+exist`), ReasonModelNotFound, false, 0},
-		{regexp.MustCompile(`(?i)model\s+.*\bnot\b`), ReasonModelNotFound, false, 0},
-		{regexp.MustCompile(`(?i)fork/exec`), ReasonUnknown, true, 5 * time.Second},
-		{regexp.MustCompile(`(?i)signal:\s+killed`), ReasonUnknown, true, 5 * time.Second},
-		{regexp.MustCompile(`(?i)signal:\s+aborted`), ReasonUnknown, true, 5 * time.Second},
-	}
-
-	return c
+	return &ErrorClassifier{}
 }
 
 func (c *ErrorClassifier) Classify(err error) ClassifiedError {
@@ -131,7 +129,7 @@ func (c *ErrorClassifier) Classify(err error) ClassifiedError {
 	}
 
 	msg := err.Error()
-	for _, p := range c.patterns {
+	for _, p := range classifierPatterns {
 		if p.regex.MatchString(msg) {
 			return ClassifiedError{
 				Original:  err,

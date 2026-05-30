@@ -2,8 +2,8 @@
 // or TUI clients. Line-delimited JSON over a stream socket; one request
 // per line, one response per line. Small surface on purpose — anything
 // richer than ping/list/cancel either grows the protocol explicitly or
-// reads/writes BadgerDB directly (the daemon and clients share the
-// same data dir).
+// reads/writes the Postgres DB directly (the daemon and clients share the
+// same database).
 //
 // Why UNIX socket and not gRPC / HTTP?
 //   - Zero dependencies; net package only
@@ -66,6 +66,7 @@ type Server struct {
 	wg       sync.WaitGroup
 	mu       sync.Mutex
 	closed   bool
+	running  bool
 }
 
 // NewServer returns an unstarted server bound to path. The path is
@@ -90,6 +91,14 @@ func (s *Server) Register(op string, h Handler) {
 // Start begins accepting connections. Returns after the listener is
 // bound; the accept loop runs in a goroutine until Stop().
 func (s *Server) Start() error {
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return fmt.Errorf("daemon socket: already running")
+	}
+	s.running = true
+	s.mu.Unlock()
+
 	// Remove a leftover socket from a prior crash. ENOENT is fine.
 	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("daemon socket: cleanup: %w", err)
@@ -122,6 +131,7 @@ func (s *Server) Stop() {
 		return
 	}
 	s.closed = true
+	s.running = false
 	ln := s.ln
 	s.mu.Unlock()
 	if ln != nil {

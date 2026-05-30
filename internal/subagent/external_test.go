@@ -72,8 +72,8 @@ func TestExternalDelegator_EchoCommand(t *testing.T) {
 //
 // Uses "sh -c 'exec sleep 10'" so the shell replaces itself with sleep,
 // ensuring exec.CommandContext can kill the actual sleeping process.
-// The inputData JSON appended as a trailing argument becomes $0 inside
-// the shell and is harmlessly ignored by "exec sleep 10".
+// Context JSON is now delivered via stdin (C1 fix) so it won't
+// interfere with the shell command.
 // ---------------------------------------------------------------------------
 
 func TestExternalDelegator_Timeout(t *testing.T) {

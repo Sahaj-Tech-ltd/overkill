@@ -2,31 +2,24 @@ package checks
 
 import (
 	"context"
-	"path/filepath"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
-// RegisterDB runs a BadgerDB integrity check via session.Probe.
-// Registered as "db.integrity" — the plan calls it `overkill doctor --check-db`.
+// RegisterDB checks that database_url is configured. Formerly checked
+// BadgerDB integrity; all persistent stores are now Postgres-backed.
+// Registered as "db.integrity".
 func RegisterDB(r *doctor.Runner, d Deps) {
 	r.Register(doctor.SubsystemCheck{
 		ID:       "db.integrity",
-		Name:     "BadgerDB integrity check",
+		Name:     "Database config check (PostgreSQL)",
 		Category: doctor.CatCore,
 		Fn: func(ctx context.Context) doctor.Result {
-			dir := filepath.Join(d.ConfigDir, "sessions")
-			exportPath := filepath.Join(d.ConfigDir, "memory-export.md")
-
-			res := session.Probe(dir, exportPath)
-			if res.Corrupt {
-				return failf(
-					"run `/restore <path>` if you have a memory-export.md backup, or delete ~/.overkill/sessions to start fresh",
-					"db corrupt at %s: %s", dir, res.Cause,
-				)
+			if d.Cfg == nil || d.Cfg.DatabaseURL == "" {
+				return failf("set database_url in config.toml or DATABASE_URL env var",
+					"database_url not configured")
 			}
-			return okf("db healthy at %s", dir)
+			return okf("database_url configured")
 		},
 	})
 }

@@ -68,12 +68,18 @@ type openaiToolFunc struct {
 }
 
 type openaiRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openaiMessage `json:"messages"`
-	Tools       []openaiTool    `json:"tools,omitempty"`
-	MaxTokens   int             `json:"max_tokens,omitempty"`
-	Temperature float64         `json:"temperature,omitempty"`
-	Stream      bool            `json:"stream,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []openaiMessage `json:"messages"`
+	Tools          []openaiTool    `json:"tools,omitempty"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
+	Temperature    float64         `json:"temperature,omitempty"`
+	Stream         bool            `json:"stream,omitempty"`
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
+	Thinking       *openaiThinking `json:"thinking,omitempty"`
+}
+
+type openaiThinking struct {
+	Type string `json:"type"`
 }
 
 type openaiResponse struct {
@@ -140,7 +146,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req Request) (Response, e
 		return Response{}, fmt.Errorf("providers: decode openai response: %w", err)
 	}
 
-	return p.parseResponse(&result), nil
+	parsed, err := p.parseResponse(&result)
+	return parsed, err
 }
 
 func (p *OpenAIProvider) Stream(ctx context.Context, req Request) (<-chan Chunk, error) {
@@ -189,10 +196,23 @@ func (p *OpenAIProvider) buildRequestBody(req Request, stream bool) openaiReques
 		body.Tools = openAITools(req.Tools)
 	}
 
+	// Thinking support: map thinking level to provider-specific parameters.
+	// OpenAI o-series uses reasoning_effort; DeepSeek R1 uses thinking.type.
+	if req.ThinkingLevel != "" && req.ThinkingLevel != "off" {
+		// For DeepSeek models (deepseek-reasoner), use thinking {type: enabled}.
+		if strings.HasPrefix(req.Model, "deepseek-reasoner") || strings.HasPrefix(req.Model, "deepseek-r1") {
+			body.Thinking = &openaiThinking{Type: "enabled"}
+		} else {
+			// For OpenAI o-series and other reasoning models, use reasoning_effort.
+			// Map thinking levels to reasoning_effort values.
+			body.ReasoningEffort = openAIReasoningEffort(req.ThinkingLevel)
+		}
+	}
+
 	return body
 }
 
-func (p *OpenAIProvider) parseResponse(result *openaiResponse) Response {
+func (p *OpenAIProvider) parseResponse(result *openaiResponse) (Response, error) {
 	resp := Response{
 		ID:    result.ID,
 		Model: result.Model,
@@ -202,26 +222,30 @@ func (p *OpenAIProvider) parseResponse(result *openaiResponse) Response {
 		},
 	}
 
-	if len(result.Choices) > 0 {
-		choice := result.Choices[0]
-		// Response content always comes back as a string for our request
-		// shape (we don't ask for tool-use blocks or images out). Defensive
-		// assertion in case the API ever evolves — non-string falls back
-		// to empty rather than panicking.
-		if s, ok := choice.Message.Content.(string); ok {
-			resp.Content = s
-		}
-
-		for _, tc := range choice.Message.ToolCalls {
-			resp.ToolCalls = append(resp.ToolCalls, ToolCall{
-				ID:        tc.ID,
-				Name:      tc.Function.Name,
-				Arguments: tc.Function.Arguments,
-			})
-		}
+	if len(result.Choices) == 0 {
+		return Response{}, fmt.Errorf("providers: openai returned empty choices (no model response)")
 	}
 
-	return resp
+	choice := result.Choices[0]
+	// Response content always comes back as a string for our request
+	// shape (we don't ask for tool-use blocks or images out). Defensive
+	// assertion in case the API ever evolves — non-string falls back
+	// to empty rather than panicking.
+	if s, ok := choice.Message.Content.(string); ok {
+		resp.Content = s
+	} else if choice.FinishReason != "stop" {
+		return Response{}, fmt.Errorf("providers: openai response content is not a string (type: %T, finish_reason: %s)", choice.Message.Content, choice.FinishReason)
+	}
+
+	for _, tc := range choice.Message.ToolCalls {
+		resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+			ID:        tc.ID,
+			Name:      tc.Function.Name,
+			Arguments: tc.Function.Arguments,
+		})
+	}
+
+	return resp, nil
 }
 
 // send delivers a chunk while respecting ctx cancellation so a stalled
@@ -469,4 +493,19 @@ func openAITools(tools []Tool) []openaiTool {
 		})
 	}
 	return result
+}
+
+// openAIReasoningEffort maps a thinking level string to an OpenAI
+// reasoning_effort value. For use with o-series and other reasoning models.
+func openAIReasoningEffort(level string) string {
+	switch level {
+	case "minimal", "low":
+		return "low"
+	case "medium":
+		return "medium"
+	case "high", "x-high":
+		return "high"
+	default:
+		return ""
+	}
 }

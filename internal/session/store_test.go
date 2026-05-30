@@ -2,30 +2,44 @@ package session
 
 import (
 	"context"
+	"database/sql"
+	"os"
 	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("postgres: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
 type StoreTestSuite struct {
 	suite.Suite
-	store *BadgerStore
-	dir   string
+	store *PostgresStore
+	db    *sql.DB
 	ctx   context.Context
 }
 
 func (s *StoreTestSuite) SetupTest() {
 	s.ctx = context.Background()
-	s.dir = s.T().TempDir()
-
-	store, err := NewBadgerStore(s.dir)
-	s.Require().NoError(err)
-	s.store = store
+	s.db = openTestDB(s.T())
+	s.store = NewPostgresStore(s.db)
 }
 
 func (s *StoreTestSuite) TearDownTest() {
@@ -333,9 +347,8 @@ func (s *StoreTestSuite) TestListWithAfter() {
 }
 
 func TestListSortedByUpdatedAtDesc_Table(t *testing.T) {
-	dir := t.TempDir()
-	store, err := NewBadgerStore(dir)
-	require.NoError(t, err)
+	db := openTestDB(t)
+	store := NewPostgresStore(db)
 	defer store.Close()
 
 	ctx := context.Background()

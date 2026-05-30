@@ -46,11 +46,14 @@ func (t *LearnRecordTool) Execute(ctx context.Context, in json.RawMessage) (json
 		return errorJSON("class is required"), nil
 	}
 	suggested := t.rec.RecordSuccess(req.Class)
-	out, _ := json.Marshal(map[string]any{
+	out, err := json.Marshal(map[string]any{
 		"class":     req.Class,
 		"suggested": suggested,
 		"counts":    t.rec.Snapshot(),
 	})
+	if err != nil {
+		return nil, fmt.Errorf("learn_record: marshal: %w", err)
+	}
 	return out, nil
 }
 

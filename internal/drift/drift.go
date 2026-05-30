@@ -35,6 +35,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 // Metric is one named axis we track. Keeping these as constants
@@ -105,10 +107,11 @@ func (s *Stats) ZScore(x float64) float64 {
 
 // Baseline holds per-metric running stats for one user.
 type Baseline struct {
-	Metrics    map[Metric]*Stats `json:"metrics"`
-	UpdatedAt  time.Time         `json:"updated_at"`
-	Sessions   int64             `json:"sessions"` // total folded-in
-	WarmupHint string            `json:"warmup_hint,omitempty"`
+	mu         sync.RWMutex       `json:"-"`
+	Metrics    map[Metric]*Stats  `json:"metrics"`
+	UpdatedAt  time.Time          `json:"updated_at"`
+	Sessions   int64              `json:"sessions"` // total folded-in
+	WarmupHint string             `json:"warmup_hint,omitempty"`
 }
 
 // NewBaseline returns an empty baseline.
@@ -122,6 +125,8 @@ func NewBaseline() *Baseline {
 
 // Fold incorporates one session's metrics into the baseline.
 func (b *Baseline) Fold(sample map[Metric]float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	for m, v := range sample {
 		s, ok := b.Metrics[m]
 		if !ok {
@@ -175,6 +180,8 @@ func (o CompareOptions) minSessions() int64 {
 // and returns drift findings. Empty when no metric crossed the
 // threshold OR the baseline has too few sessions to trust.
 func (b *Baseline) Compare(sample map[Metric]float64, opts CompareOptions) []Finding {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	if b.Sessions < opts.minSessions() {
 		return nil
 	}
@@ -222,8 +229,8 @@ func NewStore(path string) *Store {
 }
 
 // Load reads the baseline. Missing file → empty baseline (cold
-// start). Corrupt file → empty baseline + non-nil error so callers
-// can log it but still operate.
+// start). Corrupt file → nil baseline + non-nil error so callers
+// can detect the failure and avoid folding corrupt data.
 func (s *Store) Load() (*Baseline, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -232,14 +239,14 @@ func (s *Store) Load() (*Baseline, error) {
 		if os.IsNotExist(err) {
 			return NewBaseline(), nil
 		}
-		return NewBaseline(), fmt.Errorf("drift: read: %w", err)
+		return nil, fmt.Errorf("drift: read: %w", err)
 	}
 	if len(data) == 0 {
 		return NewBaseline(), nil
 	}
 	var b Baseline
 	if err := json.Unmarshal(data, &b); err != nil {
-		return NewBaseline(), fmt.Errorf("drift: parse: %w", err)
+		return nil, fmt.Errorf("drift: parse: %w", err)
 	}
 	if b.Metrics == nil {
 		b.Metrics = map[Metric]*Stats{}
@@ -266,13 +273,8 @@ func (s *Store) Save(b *Baseline) error {
 	if err != nil {
 		return fmt.Errorf("drift: marshal: %w", err)
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("drift: write tmp: %w", err)
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("drift: rename: %w", err)
+	if err := atomicfile.WriteFile(s.path, data, 0o644); err != nil {
+		return fmt.Errorf("drift: write: %w", err)
 	}
 	return nil
 }

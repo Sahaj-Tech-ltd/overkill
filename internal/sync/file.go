@@ -10,6 +10,7 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 // FileBackend stores blobs/meta on a shared filesystem path. Each session is
@@ -30,12 +31,12 @@ func NewFileBackend(cfg config.SyncFileConfig) (*FileBackend, error) {
 
 func (f *FileBackend) Name() string { return "file" }
 
-func (f *FileBackend) blobPath(id string) string {
-	return filepath.Join(f.root, id+".json.gz")
+func (f *FileBackend) blobPath(id string) (string, error) {
+	return security.SafePath(f.root, id+".json.gz")
 }
 
-func (f *FileBackend) metaPath(id string) string {
-	return filepath.Join(f.root, id+".meta.json")
+func (f *FileBackend) metaPath(id string) (string, error) {
+	return security.SafePath(f.root, id+".meta.json")
 }
 
 func (f *FileBackend) Push(ctx context.Context, id string, data []byte, meta SessionMeta) error {
@@ -52,27 +53,43 @@ func (f *FileBackend) Push(ctx context.Context, id string, data []byte, meta Ses
 	if err != nil {
 		return fmt.Errorf("sync/file: marshal meta: %w", err)
 	}
-	if err := atomicfile.WriteFile(f.metaPath(id), mb, 0o644); err != nil {
+	mp, err := f.metaPath(id)
+	if err != nil {
+		return fmt.Errorf("sync/file: meta path: %w", err)
+	}
+	if err := atomicfile.WriteFile(mp, mb, 0o644); err != nil {
 		return fmt.Errorf("sync/file: write meta: %w", err)
 	}
-	if err := atomicfile.WriteFile(f.blobPath(id), data, 0o644); err != nil {
+	bp, err := f.blobPath(id)
+	if err != nil {
+		return fmt.Errorf("sync/file: blob path: %w", err)
+	}
+	if err := atomicfile.WriteFile(bp, data, 0o644); err != nil {
 		// Clean up orphan meta so the next Push retries from a clean
 		// state rather than appearing to "already exist".
-		_ = os.Remove(f.metaPath(id))
+		_ = os.Remove(mp)
 		return fmt.Errorf("sync/file: write blob: %w", err)
 	}
 	return nil
 }
 
 func (f *FileBackend) Pull(ctx context.Context, id string) ([]byte, SessionMeta, error) {
-	data, err := os.ReadFile(f.blobPath(id))
+	bp, err := f.blobPath(id)
+	if err != nil {
+		return nil, SessionMeta{}, fmt.Errorf("sync/file: blob path: %w", err)
+	}
+	data, err := os.ReadFile(bp)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, SessionMeta{}, ErrNotFound
 		}
 		return nil, SessionMeta{}, fmt.Errorf("sync/file: read blob: %w", err)
 	}
-	mb, err := os.ReadFile(f.metaPath(id))
+	mp, err := f.metaPath(id)
+	if err != nil {
+		return data, SessionMeta{ID: id}, nil
+	}
+	mb, err := os.ReadFile(mp)
 	if err != nil {
 		return data, SessionMeta{ID: id}, nil
 	}
@@ -107,8 +124,16 @@ func (f *FileBackend) List(ctx context.Context) ([]SessionMeta, error) {
 }
 
 func (f *FileBackend) Delete(ctx context.Context, id string) error {
-	bErr := os.Remove(f.blobPath(id))
-	mErr := os.Remove(f.metaPath(id))
+	bp, err := f.blobPath(id)
+	if err != nil {
+		return fmt.Errorf("sync/file: blob path: %w", err)
+	}
+	mp, err := f.metaPath(id)
+	if err != nil {
+		return fmt.Errorf("sync/file: meta path: %w", err)
+	}
+	bErr := os.Remove(bp)
+	mErr := os.Remove(mp)
 	if bErr != nil && os.IsNotExist(bErr) && mErr != nil && os.IsNotExist(mErr) {
 		return ErrNotFound
 	}

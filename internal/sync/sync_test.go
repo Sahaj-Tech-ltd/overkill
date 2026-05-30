@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -12,17 +13,28 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
-func newTestStore(t *testing.T) *session.BadgerStore {
+func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dir := t.TempDir()
-	st, err := session.NewBadgerStore(dir)
-	if err != nil {
-		t.Fatalf("badger store: %v", err)
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
 	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("postgres: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func newTestStore(t *testing.T) *session.PostgresStore {
+	t.Helper()
+	st := session.NewPostgresStore(openTestDB(t))
 	t.Cleanup(func() { _ = st.Close() })
 	return st
 }

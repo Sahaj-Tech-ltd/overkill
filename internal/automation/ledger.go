@@ -6,7 +6,7 @@
 // my agent do while I was AFK?".
 //
 // Implementation goals:
-//   - in-memory by default; persist via SetStore when wired to Badger
+//   - in-memory by default; persist via SetStore when wired to Postgres
 //   - thread-safe; cheap to update on every state transition
 //   - bounded — keep last N entries in memory, evict oldest
 package automation

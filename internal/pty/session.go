@@ -15,12 +15,13 @@ import (
 
 // Session is a single PTY-backed command. Construct with New, then Start.
 type Session struct {
-	mu    sync.Mutex
-	cmd   *exec.Cmd
-	pty   *os.File
-	exit  int
-	done  chan struct{}
-	close sync.Once
+	mu     sync.Mutex
+	cmd    *exec.Cmd
+	pty    *os.File
+	exit   int
+	done   chan struct{}
+	closed bool
+	close  sync.Once
 }
 
 // New returns a session ready to be started.
@@ -34,6 +35,9 @@ func New() *Session {
 func (s *Session) Start(cmd *exec.Cmd) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return errors.New("pty: session already closed")
+	}
 	if s.pty != nil {
 		return errors.New("pty: session already started")
 	}
@@ -43,6 +47,7 @@ func (s *Session) Start(cmd *exec.Cmd) error {
 	}
 	s.cmd = cmd
 	s.pty = f
+	s.done = make(chan struct{})
 	go func() {
 		if err := cmd.Wait(); err != nil {
 			if exit, ok := err.(*exec.ExitError); ok {
@@ -101,6 +106,7 @@ func (s *Session) Close() error {
 	s.close.Do(func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		s.closed = true
 		if s.cmd != nil && s.cmd.Process != nil {
 			_ = s.cmd.Process.Kill()
 		}

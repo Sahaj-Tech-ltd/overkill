@@ -49,13 +49,23 @@ type Entry struct {
 type Manager struct {
 	mu          sync.Mutex
 	root        string
+	projectRoot string
 	maxPerSess  int
 	maxFileSize int64
 }
 
 // NewManager creates a manager rooted at dir (typically ~/.overkill/checkpoints).
 // keepPerSession bounds the number of retained checkpoints per session.
+// projectRoot, when non-empty, restricts snapshots and restores to files
+// under that path.
 func NewManager(dir string, keepPerSession int) (*Manager, error) {
+	return NewManagerWithRoot(dir, keepPerSession, "")
+}
+
+// NewManagerWithRoot creates a manager with an optional projectRoot.
+// When projectRoot is set, all snapshotted and restored paths must be
+// within it.
+func NewManagerWithRoot(dir string, keepPerSession int, projectRoot string) (*Manager, error) {
 	if dir == "" {
 		return nil, errors.New("checkpoint: empty dir")
 	}
@@ -67,6 +77,7 @@ func NewManager(dir string, keepPerSession int) (*Manager, error) {
 	}
 	return &Manager{
 		root:        dir,
+		projectRoot: projectRoot,
 		maxPerSess:  keepPerSession,
 		maxFileSize: 1 << 20, // 1 MiB
 	}, nil
@@ -95,6 +106,10 @@ func (m *Manager) Snapshot(sessionID, reason string, paths []string) (*Manifest,
 
 	for _, p := range paths {
 		clean := filepath.Clean(p)
+		// Containment check: when projectRoot is set, refuse paths outside it.
+		if m.projectRoot != "" && !isUnderRoot(m.projectRoot, clean) {
+			return nil, fmt.Errorf("checkpoint: path %q is outside project root %q", clean, m.projectRoot)
+		}
 		entry := Entry{Path: clean}
 		info, err := os.Stat(clean)
 		if err != nil {
@@ -114,9 +129,22 @@ func (m *Manager) Snapshot(sessionID, reason string, paths []string) (*Manifest,
 			man.Entries = append(man.Entries, entry)
 			continue
 		}
-		raw, err := os.ReadFile(clean)
+		// B048: Use io.LimitReader to prevent TOCTOU (file may grow between stat and read).
+		f, err := os.Open(clean)
+		if err != nil {
+			return nil, fmt.Errorf("checkpoint: open %s: %w", clean, err)
+		}
+		raw, err := io.ReadAll(io.LimitReader(f, m.maxFileSize+1))
+		f.Close()
 		if err != nil {
 			return nil, fmt.Errorf("checkpoint: read %s: %w", clean, err)
+		}
+		if int64(len(raw)) > m.maxFileSize {
+			entry.Existed = true
+			entry.Size = int64(len(raw))
+			entry.Sha256 = "" // signal "too large to capture"
+			man.Entries = append(man.Entries, entry)
+			continue
 		}
 		sum := sha256.Sum256(raw)
 		hash := hex.EncodeToString(sum[:])
@@ -159,6 +187,10 @@ func (m *Manager) Restore(id string) (skipped []string, err error) {
 	}
 	dir := filepath.Join(m.root, id)
 	for _, e := range man.Entries {
+		// Containment check: refuse to write outside project root.
+		if m.projectRoot != "" && !isUnderRoot(m.projectRoot, e.Path) {
+			return nil, fmt.Errorf("checkpoint: restore path %q is outside project root %q", e.Path, m.projectRoot)
+		}
 		if !e.Existed {
 			// File didn't exist before — remove the post-checkpoint creation.
 			if err := os.Remove(e.Path); err != nil && !os.IsNotExist(err) {
@@ -258,3 +290,16 @@ func newID() string {
 
 // randSource is overridable for deterministic tests.
 var randSource = newRandSource()
+
+// isUnderRoot returns true when path is within root (or equal to it).
+func isUnderRoot(root, path string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(absPath, absRoot+string(os.PathSeparator)) || absPath == absRoot
+}

@@ -30,13 +30,10 @@ func NewTestQualityWall(cfg TestQualityConfig) *TestQualityWall {
 	return &TestQualityWall{config: cfg}
 }
 
-func (w *TestQualityWall) AnalyzeTestQuality(tests string) *TestAnalysis {
+func (w *TestQualityWall) AnalyzeTestQuality(code, tests string) *TestAnalysis {
 	a := &TestAnalysis{}
 
 	a.TestCount = strings.Count(tests, "func Test")
-	if a.TestCount == 0 {
-		a.TestCount = strings.Count(tests, "func Test")
-	}
 
 	a.HasTableDriven = strings.Contains(tests, "t.Run(")
 
@@ -66,8 +63,12 @@ func (w *TestQualityWall) AnalyzeTestQuality(tests string) *TestAnalysis {
 	}
 
 	testLines := float64(len(strings.Split(tests, "\n")))
-	codeLines := testLines
-	ratio := testLines / (testLines + codeLines)
+	codeLines := float64(len(strings.Split(code, "\n")))
+	total := testLines + codeLines
+	ratio := float64(0)
+	if total > 0 {
+		ratio = testLines / total
+	}
 	if ratio > 1.0 {
 		ratio = 1.0
 	}
@@ -105,7 +106,7 @@ func (w *TestQualityWall) Check(_ context.Context, code string, tests string) (*
 		}, nil
 	}
 
-	analysis := w.AnalyzeTestQuality(tests)
+	analysis := w.AnalyzeTestQuality(code, tests)
 
 	var warnings []string
 	var suggestions []string

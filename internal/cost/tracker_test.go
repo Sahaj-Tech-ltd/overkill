@@ -13,18 +13,18 @@ import (
 
 type CostTestSuite struct {
 	suite.Suite
-	tracker *BadgerTracker
+	tracker *PostgresTracker
 }
 
 func (s *CostTestSuite) SetupTest() {
-	dir := s.T().TempDir()
+	db := openCostDB(s.T())
 	cfg := config.CostConfig{
 		DailyLimitUSD:    10.0,
 		PerTaskLimitUSD:  5.0,
 		RollingWindowHrs: 5,
 		WarnAtPercent:    80,
 	}
-	tracker, err := NewBadgerTracker(dir, cfg)
+	tracker, err := NewPostgresTracker(db, cfg)
 	s.Require().NoError(err)
 	s.tracker = tracker
 }

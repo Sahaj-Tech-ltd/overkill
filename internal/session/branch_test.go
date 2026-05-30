@@ -8,10 +8,7 @@ import (
 )
 
 func TestBranch_MissingParent(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	if _, err := store.Branch(context.Background(), "nope", 0); err == nil {
 		t.Error("missing parent should error")
@@ -19,10 +16,7 @@ func TestBranch_MissingParent(t *testing.T) {
 }
 
 func TestBranch_NegativeTurn(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := NewSession("/tmp")
 	if err := store.Create(context.Background(), parent); err != nil {
@@ -34,10 +28,7 @@ func TestBranch_NegativeTurn(t *testing.T) {
 }
 
 func TestBranch_CopiesPrefixAndDiverges(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 
 	parent := NewSession("/repo")
@@ -89,10 +80,7 @@ func TestBranch_CopiesPrefixAndDiverges(t *testing.T) {
 }
 
 func TestBranch_TurnBeyondHistoryClamps(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := NewSession("/tmp")
 	parent.Messages = []providers.Message{
@@ -115,10 +103,7 @@ func TestBranch_TurnBeyondHistoryClamps(t *testing.T) {
 }
 
 func TestBranch_ZeroTurnCopiesNothing(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := NewSession("/tmp")
 	parent.Messages = []providers.Message{{Role: "user", Content: "hi"}}
@@ -134,10 +119,7 @@ func TestBranch_ZeroTurnCopiesNothing(t *testing.T) {
 }
 
 func TestBranch_MultipleChildren(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := NewSession("/tmp")
 	parent.Messages = []providers.Message{

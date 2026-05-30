@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -107,20 +106,20 @@ func TestDirsToCheck(t *testing.T) {
 }
 
 func TestExtractTag(t *testing.T) {
-	body := `{"tag_name":"v0.2.1","other":"stuff"}`
+	body := []byte(`{"tag_name":"v0.2.1","other":"stuff"}`)
 	if tag := extractTag(body); tag != "v0.2.1" {
 		t.Errorf("extractTag = %q, want v0.2.1", tag)
 	}
 }
 
 func TestExtractTag_Missing(t *testing.T) {
-	if tag := extractTag(`{"no_tag":"here"}`); tag != "" {
+	if tag := extractTag([]byte(`{"no_tag":"here"}`)); tag != "" {
 		t.Errorf("expected empty, got %q", tag)
 	}
 }
 
 func TestExtractTag_Empty(t *testing.T) {
-	if tag := extractTag(""); tag != "" {
+	if tag := extractTag(nil); tag != "" {
 		t.Errorf("expected empty, got %q", tag)
 	}
 }
@@ -220,18 +219,6 @@ func TestProviders_NoProviders(t *testing.T) {
 				t.Errorf("no-provider check unexpected: %s %s", c.ID, c.Status)
 			}
 		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Storage
-// ---------------------------------------------------------------------------
-
-func TestStorage_OK(t *testing.T) {
-	d := newTestDeps(t, config.Default())
-	r := runOne(t, RegisterStorage, d, "storage.sessions")
-	if r.Status != doctor.SevOK {
-		t.Fatalf("expected ok, got %s: %s", r.Status, r.Detail)
 	}
 }
 
@@ -545,29 +532,25 @@ func TestPlugins_None(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// DB integrity (doctor --check-db)
+// DB config (postgres) — doctor --check-db
 // ---------------------------------------------------------------------------
 
 func TestDB_OK(t *testing.T) {
-	d := newTestDeps(t, config.Default())
+	cfg := config.Default()
+	cfg.DatabaseURL = "postgres://user:***@localhost:5432/overkill"
+	d := newTestDeps(t, cfg)
 	r := runOne(t, RegisterDB, d, "db.integrity")
-	// ConfigDir is a temp dir with no sessions DB yet — Probe treats
-	// missing dir as healthy (fresh install).
 	if r.Status != doctor.SevOK {
-		t.Fatalf("expected ok for fresh install, got %s: %s", r.Status, r.Detail)
+		t.Fatalf("expected ok when database_url is configured, got %s: %s", r.Status, r.Detail)
 	}
 }
 
-func TestDB_CorruptionDetected(t *testing.T) {
-	// Create a sessions dir with garbage files to trigger corruption
-	d := newTestDeps(t, config.Default())
-	sessionsDir := filepath.Join(d.ConfigDir, "sessions")
-	_ = os.MkdirAll(sessionsDir, 0o755)
-	// Write a fake MANIFEST to trick Badger into trying to open it
-	_ = os.WriteFile(filepath.Join(sessionsDir, "MANIFEST"), []byte("garbage"), 0o644)
-
+func TestDB_MissingURL(t *testing.T) {
+	cfg := config.Default()
+	cfg.DatabaseURL = ""
+	d := newTestDeps(t, cfg)
 	r := runOne(t, RegisterDB, d, "db.integrity")
 	if r.Status != doctor.SevFail {
-		t.Fatalf("expected fail for corrupt db, got %s: %s", r.Status, r.Detail)
+		t.Fatalf("expected fail when database_url is empty, got %s: %s", r.Status, r.Detail)
 	}
 }

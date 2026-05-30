@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Text, Box, useInput } from "ink";
 
 interface MultilineInputProps {
@@ -7,6 +7,12 @@ interface MultilineInputProps {
   onSubmit: () => void;
   placeholder?: string;
   focus?: boolean;
+  /**
+   * External key-down handler for up/down arrows.
+   * Called before internal cursor navigation. Return true to
+   * indicate the event was handled (e.g. for input history).
+   */
+  onKeyDown?: (key: { upArrow?: boolean; downArrow?: boolean }) => boolean;
 }
 
 export function MultilineInput({
@@ -15,28 +21,14 @@ export function MultilineInput({
   onSubmit,
   placeholder = "",
   focus = true,
+  onKeyDown,
 }: MultilineInputProps): React.JSX.Element {
   const [cursor, setCursor] = useState(value.length);
-  const historyRef = useRef<string[]>([]);
-  const historyIdxRef = useRef(-1);
-  const savedDraftRef = useRef("");
 
   // Keep cursor in bounds when value changes externally
   useEffect(() => {
     setCursor((c) => Math.min(c, value.length));
   }, [value]);
-
-  const commitToHistory = useCallback((text: string) => {
-    if (text.trim().length === 0) return;
-    const h = historyRef.current;
-    // Don't duplicate consecutive identical entries
-    if (h.length === 0 || h[h.length - 1] !== text) {
-      h.push(text);
-      if (h.length > 100) h.shift();
-    }
-    historyIdxRef.current = -1;
-    savedDraftRef.current = "";
-  }, []);
 
   useInput((input, key) => {
     if (!focus) return;
@@ -44,7 +36,6 @@ export function MultilineInput({
     // Ctrl+Enter = submit
     if (key.return && key.ctrl) {
       if (value.trim().length > 0) {
-        commitToHistory(value);
         onSubmit();
       }
       return;
@@ -66,19 +57,11 @@ export function MultilineInput({
       return;
     }
 
-    // Arrow keys
+    // Arrow keys — delegate to external handler first (for history), then navigate
     if (key.upArrow) {
+      if (onKeyDown?.({ upArrow: true })) return;
+      // Cursor navigation: move up one line
       const before = value.lastIndexOf("\n", cursor - 1);
-      if (before === -1 && historyIdxRef.current === -1) {
-        // At top of input — go to history
-        savedDraftRef.current = value;
-        historyIdxRef.current = historyRef.current.length - 1;
-        if (historyIdxRef.current >= 0) {
-          onChange(historyRef.current[historyIdxRef.current]);
-          setCursor(historyRef.current[historyIdxRef.current].length);
-        }
-        return;
-      }
       if (before === -1) {
         setCursor(0);
         return;
@@ -93,18 +76,8 @@ export function MultilineInput({
     }
 
     if (key.downArrow) {
-      // Exit history mode
-      if (historyIdxRef.current >= 0) {
-        historyIdxRef.current--;
-        if (historyIdxRef.current >= 0) {
-          onChange(historyRef.current[historyIdxRef.current]);
-          setCursor(historyRef.current[historyIdxRef.current].length);
-        } else {
-          onChange(savedDraftRef.current);
-          setCursor(savedDraftRef.current.length);
-        }
-        return;
-      }
+      if (onKeyDown?.({ downArrow: true })) return;
+      // Cursor navigation: move down one line
       const after = value.indexOf("\n", cursor);
       if (after === -1) return;
       const nextAfter = value.indexOf("\n", after + 1);

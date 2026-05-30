@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -121,8 +126,22 @@ func (b *Bot) Run(ctx context.Context) error {
 	}
 }
 
+// Reconnect implements gateway.Reconnecter (B135). The polling loop
+// in Run already handles reconnection with backoff; this provides an
+// explicit hook for external health monitors to trigger a re-poll
+// cycle by cancelling and restarting.
+func (b *Bot) Reconnect(ctx context.Context) error {
+	// Stub: the poll loop auto-reconnects. Future: signal runCtx
+	// to restart cleanly.
+	return nil
+}
+
 func (b *Bot) handle(ctx context.Context, u Update) {
 	if u.Message == nil {
+		// B132: Log unhandled update types so operators can see
+		// what Telegram is sending (e.g. callback_query, inline_query).
+		// These arrive rarely and logging them costs nothing.
+		b.Logger.Printf("telegram: unhandled update type (no message); update_id=%d", u.UpdateID)
 		return
 	}
 	if u.Message.From != nil && u.Message.From.IsBot {
@@ -164,7 +183,9 @@ func (b *Bot) handle(ctx context.Context, u Update) {
 		}
 	}
 	reply := &telegramReply{client: b.Client, chatID: chatID}
-	go b.Dispatcher.Handle(ctx, in, reply)
+	// H-16: Use a detached background context so the poll loop restart
+	// doesn't cancel in-flight agent turns.
+	go b.Dispatcher.Handle(context.Background(), in, reply)
 }
 
 // fetchPhoto resolves a Telegram file_id to bytes + sniffed MIME. Two
@@ -223,6 +244,17 @@ func (r *telegramReply) Update(ctx context.Context, handle, text string) error {
 const telegramMaxLen = 4096
 
 func (r *telegramReply) Final(ctx context.Context, handle, text string) error {
+	// Send the text reply first.
+	if err := r.sendFinalText(ctx, handle, text); err != nil {
+		return err
+	}
+	// Auto-detect TTS audio paths and send as voice notes.
+	r.sendVoiceNotes(ctx, text)
+	return nil
+}
+
+// sendFinalText delivers the text content, chunking if over the limit.
+func (r *telegramReply) sendFinalText(ctx context.Context, handle, text string) error {
 	if len(text) <= telegramMaxLen {
 		return r.Update(ctx, handle, text)
 	}
@@ -240,6 +272,74 @@ func (r *telegramReply) Final(ctx context.Context, handle, text string) error {
 		}
 	}
 	return nil
+}
+
+// ttsPathRe matches TTS output audio file paths (WAV or MP3) in MEDIA: format.
+// Anchored to only match within the MEDIA: prefix so legitimate body text
+// containing path-like strings doesn't trigger ffmpeg conversion.
+var ttsPathRe = regexp.MustCompile(`MEDIA:/tmp/overkill-tts-[a-f0-9]+\.(mp3|wav)`)
+
+// sendVoiceNotes scans the reply text for TTS audio file paths in MEDIA:
+// format, strips the prefix, converts to OGG, and sends as Telegram voice
+// notes. Errors are logged but never surfaced — voice delivery is best-effort.
+func (r *telegramReply) sendVoiceNotes(ctx context.Context, text string) {
+	matches := ttsPathRe.FindAllString(text, -1)
+	for _, mediaPath := range matches {
+		// Strip MEDIA: prefix to get the real filesystem path.
+		audioPath := strings.TrimPrefix(mediaPath, "MEDIA:")
+		// Convert to OGG for Telegram voice note playback.
+		oggPath, err := convertToOGG(ctx, audioPath)
+		if err != nil {
+			// Best-effort: skip silently.
+			continue
+		}
+		defer os.Remove(oggPath)
+
+		// Send as a voice note. Short timeout — we already sent the text.
+		sendCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		_, err = r.client.SendVoice(sendCtx, r.chatID, oggPath)
+		cancel()
+		if err != nil {
+			// Best-effort: skip.
+			continue
+		}
+	}
+}
+
+// convertToOGG converts a WAV or MP3 audio file to OGG (libopus 32k) for
+// Telegram voice notes. Returns the path to the OGG file. Caller should
+// remove it when done. Returns an error if ffmpeg is not installed.
+// Security: inputPath MUST be under a known temp directory (validated by
+// the ttsPathRe regex in callers). This function adds an additional
+// containment check.
+func convertToOGG(ctx context.Context, inputPath string) (string, error) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return "", fmt.Errorf("ffmpeg not installed — required for voice note conversion")
+	}
+
+	// Validate inputPath is under a safe directory (e.g. /tmp/overkill-tts-*).
+	// This guards against path traversal / command injection via filename.
+	if !strings.HasPrefix(filepath.Clean(inputPath), os.TempDir()+string(os.PathSeparator)) {
+		return "", fmt.Errorf("tts: input path outside temp dir")
+	}
+
+	oggPath := inputPath + ".ogg"
+
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		"-i", inputPath,
+		"-c:a", "libopus",
+		"-b:a", "32k",
+		oggPath,
+		"-y",
+	)
+	// Suppress ffmpeg noise; failures produce an error anyway.
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		_ = os.Remove(oggPath)
+		return "", fmt.Errorf("ffmpeg conversion failed: %w", err)
+	}
+
+	return oggPath, nil
 }
 
 // chunkAtRune splits at a rune boundary near max, preferring the last

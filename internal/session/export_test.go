@@ -12,9 +12,7 @@ import (
 )
 
 func TestExport_CreatesFile(t *testing.T) {
-	dir := t.TempDir()
-	store, err := NewBadgerStore(dir)
-	require.NoError(t, err)
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()
@@ -27,14 +25,12 @@ func TestExport_CreatesFile(t *testing.T) {
 	er := NewExportRitual(store, exportPath)
 	require.NoError(t, er.Export(ctx))
 
-	_, err = os.Stat(exportPath)
+	_, err := os.Stat(exportPath)
 	assert.NoError(t, err)
 }
 
 func TestExport_ContainsSessionInfo(t *testing.T) {
-	dir := t.TempDir()
-	store, err := NewBadgerStore(dir)
-	require.NoError(t, err)
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()
@@ -63,9 +59,7 @@ func TestExport_ContainsSessionInfo(t *testing.T) {
 }
 
 func TestExport_EmptyStore(t *testing.T) {
-	dir := t.TempDir()
-	store, err := NewBadgerStore(dir)
-	require.NoError(t, err)
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()
@@ -83,9 +77,7 @@ func TestExport_EmptyStore(t *testing.T) {
 }
 
 func TestExport_CreatesParentDirs(t *testing.T) {
-	dir := t.TempDir()
-	store, err := NewBadgerStore(dir)
-	require.NoError(t, err)
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()
@@ -99,7 +91,7 @@ func TestExport_CreatesParentDirs(t *testing.T) {
 	er := NewExportRitual(store, exportPath)
 	require.NoError(t, er.Export(ctx))
 
-	_, err = os.Stat(exportPath)
+	_, err := os.Stat(exportPath)
 	assert.NoError(t, err)
 
 	info, err := os.Stat(filepath.Join(base, "a", "b", "c"))
@@ -108,9 +100,7 @@ func TestExport_CreatesParentDirs(t *testing.T) {
 }
 
 func TestExport_MultipleSessions(t *testing.T) {
-	dir := t.TempDir()
-	store, err := NewBadgerStore(dir)
-	require.NoError(t, err)
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()

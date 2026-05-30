@@ -1,3 +1,6 @@
+// Package personality — cold-start workflow orchestrator.
+// Coordinates the sequence of cold-start checks, user prompts,
+// and auto-seeding of personality state files.
 package personality
 
 import (

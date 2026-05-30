@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"os"
 )
 
 type OllamaProvider struct {
@@ -10,7 +11,10 @@ type OllamaProvider struct {
 
 func NewOllamaProvider(baseURL string, models []Model) *OllamaProvider {
 	if baseURL == "" {
-		baseURL = "http://localhost:11434"
+		baseURL = os.Getenv("OLLAMA_HOST")
+	}
+	if baseURL == "" {
+		baseURL = CanonicalBaseURL("ollama")
 	}
 	inner := NewOpenAIProvider("", models)
 	inner.BaseProvider.name = "ollama"

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/rs/zerolog"
@@ -12,6 +13,8 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/extensions"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/features"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hotreload"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/settings"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
 )
 
 // Version is the build-time version string. Override with:
@@ -56,13 +59,27 @@ var rootCmd = &cobra.Command{
 			zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 		}
 
+		// setup and its parent commands don't require a config file to
+		// exist — they create one. Skip config loading entirely for those
+		// paths so a fresh install can bootstrap without a pre-existing
+		// config.toml.
+		isSetup := cmd.Name() == "setup" || (cmd.Parent() != nil && cmd.Parent().Name() == "config" && cmd.Name() == "setup")
+		if isSetup {
+			homeDir, _ := config.ConfigDir()
+			if homeDir != "" {
+				// Still bootstrap so soul.md and CLAUDE.md are created.
+				if err := BootstrapOverkillHome(homeDir); err != nil {
+					log.Warn().Err(err).Msg("bootstrap failed, continuing anyway")
+				}
+			}
+			return nil
+		}
+
 		path := cfgPath
 		if path == "" {
 			p, err := config.ConfigPath()
 			if err != nil {
-				log.Warn().Err(err).Msg("failed to resolve config path, using defaults")
-				cfg = config.Default()
-				return nil
+				return fmt.Errorf("config: failed to resolve config path: %w", err)
 			}
 			path = p
 		}
@@ -70,14 +87,12 @@ var rootCmd = &cobra.Command{
 
 		loaded, err := config.Load(path)
 		if err != nil {
-			log.Warn().Err(err).Msg("failed to load config, using defaults")
-			cfg = config.Default()
-			return nil
+			return fmt.Errorf("config: failed to load: %w", err)
 		}
 		cfg = loaded
 
 		if err := cfg.ResolveSecrets(); err != nil {
-			log.Warn().Err(err).Msg("failed to resolve secrets")
+			return fmt.Errorf("config: secrets resolution failed: %w", err)
 		}
 
 		// Bootstrap ~/.overkill/ with essential files (soul.md, CLAUDE.md, etc.)
@@ -88,15 +103,9 @@ var rootCmd = &cobra.Command{
 				log.Warn().Err(err).Msg("bootstrap failed, continuing anyway")
 			}
 
-			// §4.20: probe storage integrity on boot. A corrupt database
-			// must NOT cause a silent cold-start (amnesia). Surface the
-			// restore option before the agent loads.
-			if res := probDBIntegrity(homeDir); res != nil && res.corrupt {
-				log.Warn().
-					Str("cause", res.cause).
-					Bool("export_exists", res.exportExists).
-					Msg("⚠️  DATABASE CORRUPT — run 'overkill doctor --check-db' for recovery options")
-			}
+			// §4.20: storage integrity check removed — Postgres backend
+			// doesn't have BadgerDB-style silent corruption.
+			log.Debug().Msg("storage backend: Postgres")
 		} else {
 			log.Warn().Err(err).Msg("cannot resolve home dir, skipping bootstrap")
 		}
@@ -140,10 +149,38 @@ var rootCmd = &cobra.Command{
 		// P2: extensions manager — register known backends.
 		extensionsMgr = extensions.NewManager()
 
+		// Wire skills backend into the extensions manager so skill
+		// toggling works through the unified extensions surface.
+		if homeDir != "" {
+			userSkillDir := filepath.Join(homeDir, "skills")
+			bundledSkillDir := os.Getenv("OVERKILL_BUNDLED_SKILLS")
+			loader := skills.NewLoader(bundledSkillDir, userSkillDir)
+			if loaded, err := loader.LoadAll(); err == nil && len(loaded) > 0 {
+				reg := skills.NewRegistry()
+				for i := range loaded {
+					_ = reg.Register(&loaded[i])
+				}
+				extensionsMgr.AddBackend(extensions.NewSkillsBackend(reg))
+				log.Debug().Int("count", len(loaded)).Msg("extensions: skills backend registered")
+			} else if err != nil {
+				log.Warn().Err(err).Msg("extensions: skills load failed, backend not registered")
+			}
+		}
+
+		// Apply settings defaults from ~/.overkill/settings.toml.
+		// LoadAll is a no-op when no groups are registered, but when
+		// packages register themselves, their defaults and validation
+		// run here on every boot.
+		if homeDir != "" {
+			if err := settings.LoadAll(homeDir); err != nil {
+				log.Warn().Err(err).Msg("settings load failed, continuing")
+			}
+		}
+
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runTUI(cmd, args)
+		return runInkTUI(cmd, args)
 	},
 }
 

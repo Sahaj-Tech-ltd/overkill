@@ -78,7 +78,7 @@ def test_store_and_search_vector() -> None:
                 content="test content",
                 metadata={"type": "doc"},
             ),
-            backend="badger",
+            backend="inmem",
         ),
         ctx,
     )
@@ -87,7 +87,7 @@ def test_store_and_search_vector() -> None:
 
     search_resp = servicer.SearchVectors(
         overkill_pb2.SearchVectorsRequest(
-            query=[0.1, 0.2, 0.3], top_k=10, threshold=0.0, backend="badger"
+            query=[0.1, 0.2, 0.3], top_k=10, threshold=0.0, backend="inmem"
         ),
         ctx,
     )
@@ -107,7 +107,7 @@ def test_search_with_filters() -> None:
                 content="cat doc",
                 metadata={"type": "cat"},
             ),
-            backend="badger",
+            backend="inmem",
         ),
         ctx,
     )
@@ -119,7 +119,7 @@ def test_search_with_filters() -> None:
                 content="dog doc",
                 metadata={"type": "dog"},
             ),
-            backend="badger",
+            backend="inmem",
         ),
         ctx,
     )
@@ -143,18 +143,18 @@ def test_delete_vector() -> None:
             entry=overkill_pb2.VectorEntry(
                 id="v1", embedding=[0.1, 0.2, 0.3], content="test", metadata={}
             ),
-            backend="badger",
+            backend="inmem",
         ),
         ctx,
     )
 
     del_resp = servicer.DeleteVector(
-        overkill_pb2.DeleteVectorRequest(id="v1", backend="badger"), ctx
+        overkill_pb2.DeleteVectorRequest(id="v1", backend="inmem"), ctx
     )
     assert del_resp.success
 
     del_resp2 = servicer.DeleteVector(
-        overkill_pb2.DeleteVectorRequest(id="nonexistent", backend="badger"), ctx
+        overkill_pb2.DeleteVectorRequest(id="nonexistent", backend="inmem"), ctx
     )
     assert not del_resp2.success
 

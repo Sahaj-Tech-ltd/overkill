@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 // ToolAdapter exposes a plugin-registered tool through the agent's
@@ -29,7 +30,14 @@ func (a *ToolAdapter) Name() string { return a.full }
 func (a *ToolAdapter) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	raw, err := a.manager.CallTool(ctx, a.plugin, a.tool, input)
 	if err != nil {
-		return json.Marshal(map[string]any{"error": err.Error()})
+		b, mErr := json.Marshal(map[string]any{"error": err.Error()})
+		if mErr != nil {
+			// json.Marshal only fails on unserializable types;
+			// a string error message is always serializable.
+			// Return the marshal error so it isn't silently swallowed.
+			return nil, fmt.Errorf("tool_adapter: marshal error response: %w (original: %w)", mErr, err)
+		}
+		return b, nil
 	}
 	// Pass through whatever the plugin returned. Most plugins respond with a
 	// JSON object; if the response isn't valid JSON, wrap it as a string.

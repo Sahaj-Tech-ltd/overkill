@@ -1,28 +1,39 @@
 package agent
 
 import (
+	"database/sql"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func openInMemBadger(t *testing.T) *badger.DB {
+func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	opts := badger.DefaultOptions("").WithInMemory(true).WithLoggingLevel(badger.ERROR)
-	db, err := badger.Open(opts)
+	connStr := os.Getenv("PG_TEST_URL")
+	if connStr == "" {
+		connStr = os.Getenv("DATABASE_URL")
+	}
+	if connStr == "" {
+		t.Skip("skipping: set PG_TEST_URL or DATABASE_URL for postgres tests")
+	}
+	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, db.Ping())
+	t.Cleanup(func() { db.Close() })
 	return db
 }
 
 func newTestApprover(t *testing.T, sessionID string) *SuspendedApprover {
 	t.Helper()
-	db := openInMemBadger(t)
-	return NewSuspendedApprover(db, nil, sessionID, nil)
+	db := openTestDB(t)
+	a, err := NewSuspendedApprover(db, nil, sessionID, nil)
+	require.NoError(t, err)
+	return a
 }
 
 func TestSuspendedApprover_Approve_Timeout(t *testing.T) {
@@ -30,8 +41,8 @@ func TestSuspendedApprover_Approve_Timeout(t *testing.T) {
 	// custom approver with a short-lived channel resolution. We cannot
 	// easily shorten the package-level constants so we use a goroutine
 	// that never resolves and a very short external deadline.
-	db := openInMemBadger(t)
-	approver := NewSuspendedApprover(db, nil, "sess-timeout", nil)
+	db := openTestDB(t)
+	approver, err := NewSuspendedApprover(db, nil, "sess-timeout", nil)
 
 	// Run Approve in a goroutine; it will park. We wait with a generous
 	// deadline and then confirm the record was persisted while parked.
@@ -172,17 +183,17 @@ func TestSuspendedApprover_ConcurrentCalls(t *testing.T) {
 }
 
 func TestListPendingSuspensions_Empty(t *testing.T) {
-	db := openInMemBadger(t)
+	db := openTestDB(t)
 	calls, err := ListPendingSuspensions(db, "no-such-session")
 	require.NoError(t, err)
 	assert.Empty(t, calls)
 }
 
 func TestListPendingSuspensions_MultiSession(t *testing.T) {
-	db := openInMemBadger(t)
+	db := openTestDB(t)
 
-	aApprover := NewSuspendedApprover(db, nil, "sess-a", nil)
-	bApprover := NewSuspendedApprover(db, nil, "sess-b", nil)
+	aApprover, _ := NewSuspendedApprover(db, nil, "sess-a", nil)
+	bApprover, _ := NewSuspendedApprover(db, nil, "sess-b", nil)
 
 	go func() { aApprover.Approve("shell", "a", "high") }()
 	go func() { bApprover.Approve("shell", "b", "high") }()

@@ -3,16 +3,18 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
+
+	_ "github.com/lib/pq"
 )
 
 var (
@@ -55,20 +57,24 @@ var usageCmd = &cobra.Command{
 }
 
 func openCostTracker() (cost.Tracker, func(), error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, nil, err
+	connString := os.Getenv("DATABASE_URL")
+	if connString == "" && cfg != nil {
+		connString = cfg.DatabaseURL
 	}
-	dir := filepath.Join(home, ".overkill", "costs")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, nil, err
+	if connString == "" {
+		return nil, nil, fmt.Errorf("usage: DATABASE_URL must be set for Postgres backend")
+	}
+	db, err := sql.Open("postgres", connString)
+	if err != nil {
+		return nil, nil, fmt.Errorf("usage: open postgres: %w", err)
 	}
 	costCfg := config.CostConfig{}
 	if cfg != nil {
 		costCfg = cfg.Cost
 	}
-	t, err := cost.NewBadgerTracker(dir, costCfg)
+	t, err := cost.NewPostgresTracker(db, costCfg)
 	if err != nil {
+		db.Close()
 		return nil, nil, fmt.Errorf("usage: %w", err)
 	}
 	return t, func() { _ = t.Close() }, nil

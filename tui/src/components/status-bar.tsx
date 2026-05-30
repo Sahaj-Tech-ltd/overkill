@@ -1,104 +1,99 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { Text, Box } from "ink";
-import type { ConnectionState } from "../backend/types.ts";
 import type { Theme } from "../themes/definitions.ts";
+import type { ConnectionState } from "../backend/types.ts";
 
-interface StatusBarProps {
-  connectionState: ConnectionState;
-  model?: string;
-  provider?: string;
-  sessionName?: string;
+export interface StatusBarProps {
+  /** Current working directory (e.g. ~/docker/overkill) */
+  directory?: string;
+  /** Git branch name */
+  branch?: string;
+  /** Number of LSP servers connected */
+  lspCount?: number;
+  /** Whether any LSP is connected */
+  lspConnected?: boolean;
+  /** Number of MCP servers connected */
+  mcpCount?: number;
+  /** Whether any MCP has errors */
+  mcpError?: boolean;
+  /** Whether any MCP is connected */
+  mcpConnected?: boolean;
+  /** Permissions pending count */
+  permissionsPending?: number;
+  /** Whether connected to backend */
+  connected?: ConnectionState;
   theme: Theme;
-  gitBranch?: string;
-  queuedMessages?: number;
-  statusPhase?: string;
 }
 
-const STATUS_SYMBOLS: Record<
-  ConnectionState,
-  { symbol: string; color: string }
-> = {
-  connected: { symbol: "●", color: "green" },
-  connecting: { symbol: "◌", color: "yellow" },
-  disconnected: { symbol: "○", color: "red" },
-};
-
-const VERSION = "v0.2.0";
-
-function formatTime(): string {
-  const now = new Date();
-  const h = now.getHours().toString().padStart(2, "0");
-  const m = now.getMinutes().toString().padStart(2, "0");
-  return `${h}:${m}`;
+function Sep({ theme }: { theme: Theme }): React.JSX.Element {
+  return <Text color={theme.muted}> │ </Text>;
 }
 
+/**
+ * Bottom status bar matching OpenCode's footer.tsx layout:
+ *   ~/parent/name[:branch] │ ● N LSP │ ⊙ N MCP │ /status
+ */
 export function StatusBar({
-  connectionState,
-  model,
-  provider,
-  sessionName,
+  directory,
+  branch,
+  lspCount,
+  lspConnected,
+  mcpCount,
+  mcpConnected,
+  mcpError,
+  permissionsPending,
+  connected,
   theme,
-  gitBranch,
-  queuedMessages,
-  statusPhase,
 }: StatusBarProps): React.JSX.Element {
-  const status = STATUS_SYMBOLS[connectionState];
-  const [time, setTime] = useState(formatTime);
+  // Build directory display: ~/parent/name
+  let dirDisplay = directory ?? ".";
+  if (dirDisplay.startsWith(process.env.HOME ?? "/home/user")) {
+    dirDisplay = "~" + dirDisplay.slice((process.env.HOME ?? "/home/user").length);
+  }
+  const pathLabel = branch ? `${dirDisplay}:${branch}` : dirDisplay;
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTime(formatTime());
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  // LSP indicator
+  const lspLabel = (lspCount ?? 0) > 0 ? `${lspCount} LSP` : null;
+  const lspDot = lspConnected ? "●" : "○";
+
+  // MCP indicator  
+  const mcpLabel = (mcpCount ?? 0) > 0 ? `${mcpCount} MCP` : null;
+  const mcpDot = mcpError ? "⊙" : mcpConnected ? "⊙" : "○";
 
   return (
-    <Box
-      borderStyle="round"
-      borderColor={theme.border}
-      backgroundColor={theme.inputBg}
-      paddingX={1}
-      justifyContent="space-between"
-      width="100%"
-    >
-      <Box>
-        <Text color={status.color}>{status.symbol} </Text>
-        <Text color={theme.text}>{connectionState}</Text>
-        {statusPhase && (
-          <Text color={theme.warning}> [{statusPhase.replace(/_/g, " ")}]</Text>
+    <Box flexDirection="row" justifyContent="space-between" flexShrink={0} paddingX={1}>
+      {/* Left: directory */}
+      <Text color={theme.muted}>{pathLabel}</Text>
+
+      {/* Right: status indicators */}
+      <Box gap={2}>
+        {/* Permissions warning */}
+        {(permissionsPending ?? 0) > 0 && (
+          <Text color={theme.warning}>
+            △ {permissionsPending} Permission{permissionsPending !== 1 ? "s" : ""}
+          </Text>
         )}
-        {provider && model && (
-          <>
-            <Text color={theme.muted}> │ </Text>
-            <Text color={theme.text}>
-              {provider}/{model}
-            </Text>
-          </>
+
+        {/* LSP */}
+        {lspLabel && (
+          <Text>
+            <Text color={lspConnected ? theme.success : theme.muted}>{lspDot}</Text>
+            <Text color={theme.text}> {lspLabel}</Text>
+          </Text>
         )}
-        {sessionName && (
-          <>
-            <Text color={theme.muted}> │ </Text>
-            <Text color={theme.text}>{sessionName}</Text>
-          </>
+
+        {/* MCP */}
+        {mcpLabel && (
+          <Text>
+            <Text color={mcpConnected ? theme.success : mcpError ? theme.error : theme.muted}>{mcpDot}</Text>
+            <Text color={theme.text}> {mcpLabel}</Text>
+          </Text>
         )}
-        {queuedMessages !== undefined && queuedMessages > 0 && (
-          <>
-            <Text color={theme.muted}> │ </Text>
-            <Text color={theme.warning}>
-              [{queuedMessages} queued]
-            </Text>
-          </>
+
+        {/* /status hint when connected */}
+        {connected === "connected" && (
+          <Text color={theme.muted}>/status</Text>
         )}
-      </Box>
-      <Box>
-        {gitBranch && (
-          <>
-            <Text color={theme.accent}>{gitBranch}</Text>
-            <Text color={theme.muted}> │ </Text>
-          </>
-        )}
-        <Text color={theme.muted}>{time} </Text>
-        <Text color={theme.accent}>{VERSION}</Text>
       </Box>
     </Box>
   );

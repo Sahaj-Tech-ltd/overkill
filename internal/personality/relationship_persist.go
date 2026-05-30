@@ -1,3 +1,4 @@
+// Package personality — relationship state persistence (disk save/load).
 package personality
 
 import (

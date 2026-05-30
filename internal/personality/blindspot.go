@@ -1,3 +1,6 @@
+// Package personality — blind-spot tracking: patterns the agent
+// overestimates its ability on, used for self-awareness nudges
+// before executing risky operations.
 package personality
 
 import (
@@ -48,7 +51,15 @@ func NewBlindSpotDetector() *BlindSpotDetector {
 func (bsd *BlindSpotDetector) Observe(taskType string) {
 	bsd.mu.Lock()
 	defer bsd.mu.Unlock()
-	bsd.patterns[taskType]++
+	// Normalize through ExtractVerb so live observations and journaled
+	// observations use the same key space and can merge to reach threshold.
+	verb := ExtractVerb(taskType)
+	if verb != "" {
+		bsd.patterns[verb]++
+	} else if taskType != "" {
+		bsd.patterns[taskType]++
+	}
+	// If both are empty, don't store a dead map entry with an empty key.
 }
 
 func (bsd *BlindSpotDetector) Check() (string, bool) {

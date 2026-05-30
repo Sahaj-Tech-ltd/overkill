@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -12,14 +13,36 @@ import (
 )
 
 type AlertStore struct {
-	dir    string
-	mu     sync.RWMutex
-	alerts []Alert
+	dir       string
+	mu        sync.RWMutex
+	alerts    []Alert
+	retention time.Duration // how long to keep acknowledged alerts before pruning
+	maxAlerts int           // cap on total in-memory alerts
+	dirty     bool          // set when alerts are mutated; cleared by saveLocked
 }
 
 func NewAlertStore(dir string) *AlertStore {
 	return &AlertStore{
-		dir: dir,
+		dir:       dir,
+		retention: 7 * 24 * time.Hour, // default: 7 days
+		maxAlerts: 1000,
+	}
+}
+
+// SetRetention configures how long acknowledged alerts are kept before
+// pruning. Set <= 0 to disable time-based pruning (still capped by max).
+func (s *AlertStore) SetRetention(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.retention = d
+}
+
+// SetMaxAlerts configures the cap on total in-memory alerts (default 1000).
+func (s *AlertStore) SetMaxAlerts(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n > 0 {
+		s.maxAlerts = n
 	}
 }
 
@@ -36,6 +59,8 @@ func (s *AlertStore) Create(alertType AlertType, message string, sessionID strin
 	}
 
 	s.alerts = append(s.alerts, alert)
+	s.dirty = true
+	s.pruneLocked()
 	return s.saveLocked()
 }
 
@@ -59,6 +84,7 @@ func (s *AlertStore) Acknowledge(id string) error {
 	for i := range s.alerts {
 		if s.alerts[i].ID == id {
 			s.alerts[i].Acknowledged = true
+			s.dirty = true
 			return s.saveLocked()
 		}
 	}
@@ -73,6 +99,7 @@ func (s *AlertStore) DismissAll() error {
 	for i := range s.alerts {
 		s.alerts[i].Acknowledged = true
 	}
+	s.dirty = true
 	return s.saveLocked()
 }
 
@@ -99,6 +126,7 @@ func (s *AlertStore) Load() error {
 		return fmt.Errorf("journal: unmarshaling alerts: %w", err)
 	}
 
+	s.dirty = true
 	return nil
 }
 
@@ -110,6 +138,13 @@ func (s *AlertStore) Save() error {
 }
 
 func (s *AlertStore) saveLocked() error {
+	// Fast path: skip file write when nothing changed since last save
+	// (B014). This avoids rewriting the entire alerts.json on every
+	// read-only call that accidentally goes through saveLocked.
+	if !s.dirty {
+		return nil
+	}
+
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return fmt.Errorf("journal: creating alert dir: %w", err)
 	}
@@ -135,5 +170,35 @@ func (s *AlertStore) saveLocked() error {
 		return fmt.Errorf("journal: rename alerts: %w", err)
 	}
 
+	s.dirty = false
 	return nil
+}
+
+// pruneLocked removes acknowledged alerts older than retention and
+// caps total alerts to maxAlerts (oldest first). Caller must hold s.mu.
+func (s *AlertStore) pruneLocked() {
+	if len(s.alerts) == 0 {
+		return
+	}
+
+	cutoff := time.Now().UTC().Add(-s.retention)
+
+	kept := s.alerts[:0]
+	for _, a := range s.alerts {
+		// Drop acknowledged alerts older than the retention window.
+		if a.Acknowledged && s.retention > 0 && a.Timestamp.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, a)
+	}
+
+	// Cap to maxAlerts — drop oldest (smallest timestamp) if over the cap.
+	if s.maxAlerts > 0 && len(kept) > s.maxAlerts {
+		sort.Slice(kept, func(i, j int) bool {
+			return kept[i].Timestamp.Before(kept[j].Timestamp)
+		})
+		kept = kept[len(kept)-s.maxAlerts:]
+	}
+
+	s.alerts = kept
 }

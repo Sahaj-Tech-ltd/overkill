@@ -137,9 +137,9 @@ func TestLoader_LoadFile_MissingName(t *testing.T) {
 	path := writeTestSkill(t, dir, "skill.md", missingNameMD)
 
 	loader := NewLoader("", "")
-	skill, err := loader.LoadFile(path)
-	require.NoError(t, err)
-	require.Empty(t, skill.Name)
+	_, err := loader.LoadFile(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "name is required")
 }
 
 func TestLoader_LoadFile_MissingDescription(t *testing.T) {
@@ -147,9 +147,9 @@ func TestLoader_LoadFile_MissingDescription(t *testing.T) {
 	path := writeTestSkill(t, dir, "skill.md", missingDescMD)
 
 	loader := NewLoader("", "")
-	skill, err := loader.LoadFile(path)
-	require.NoError(t, err)
-	require.Empty(t, skill.Description)
+	_, err := loader.LoadFile(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "description is required")
 }
 
 func TestLoader_LoadFile_FullFrontmatter(t *testing.T) {
@@ -176,9 +176,9 @@ func TestLoader_LoadFile_EmptyBody(t *testing.T) {
 	path := writeTestSkill(t, dir, "skill.md", emptyBodyMD)
 
 	loader := NewLoader("", "")
-	skill, err := loader.LoadFile(path)
-	require.NoError(t, err)
-	require.Empty(t, strings.TrimSpace(skill.Instructions))
+	_, err := loader.LoadFile(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "instructions is required")
 }
 
 func TestLoader_LoadDir(t *testing.T) {
@@ -270,6 +270,7 @@ func TestRegistry_Match(t *testing.T) {
 		Description:  "A review skill description that is long enough",
 		Instructions: "These are instructions that are at least twenty characters long",
 		Triggers:     []string{"review", "code review"},
+		Enabled:      true,
 	}
 
 	err := reg.Register(skill)
@@ -287,6 +288,7 @@ func TestRegistry_Match_CaseInsensitive(t *testing.T) {
 		Description:  "A review skill description that is long enough",
 		Instructions: "These are instructions that are at least twenty characters long",
 		Triggers:     []string{"review"},
+		Enabled:      true,
 	}
 
 	err := reg.Register(skill)

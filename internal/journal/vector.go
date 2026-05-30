@@ -113,6 +113,9 @@ type VectorEnabledStore struct {
 // index is legal and gives FTS-only behaviour — useful for tests
 // and for users running without the Python bridge.
 func NewVectorEnabledStore(store *ObservationStore, index VectorIndex, opts VectorOptions) *VectorEnabledStore {
+	if store == nil {
+		store = NewObservationStore("") // fallback: empty dir, no disk ops
+	}
 	return &VectorEnabledStore{ObservationStore: store, index: index, opts: opts}
 }
 

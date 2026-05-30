@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
@@ -37,10 +38,48 @@ type StreamEvent struct {
 	ToolOutput string      `json:"tool_output,omitempty"` // for tool_call events
 	Model      string      `json:"model,omitempty"`       // for done events
 	Tokens     int         `json:"tokens,omitempty"`      // for done events
+
+	// Provenance tags where this message came from (§7.1.9).
+	// Set by the gateway/cron/subagent before streaming.
+	Provenance *Provenance `json:"provenance,omitempty"`
 }
 
 func (a *Agent) Stream(ctx context.Context, userInput string) (<-chan StreamEvent, error) {
-	return a.StreamWithAttachments(ctx, userInput, nil)
+	return a.StreamWithProvenance(ctx, userInput, nil, nil)
+}
+
+// StreamWithProvenance is the full entry point. Provenance tags the
+// message origin (§7.1.9) so the agent knows whether this came from a
+// user, sub-agent, or cron job. Callers that don't set provenance get
+// the default (user-originated).
+func (a *Agent) StreamWithProvenance(ctx context.Context, userInput string, attachments []providers.Attachment, provenance *Provenance) (<-chan StreamEvent, error) {
+	ch, err := a.StreamWithAttachments(ctx, userInput, attachments)
+	if err != nil {
+		return nil, err
+	}
+	if provenance == nil || provenance.Kind == ProvenanceUser {
+		return ch, nil
+	}
+	// Wrap the channel: prepend the provenance prefix to the user input
+	// and tag the first event with the provenance metadata so downstream
+	// consumers (web dashboard, journal) can display origin info.
+	wrapped := make(chan StreamEvent, 32)
+	go func() {
+		defer close(wrapped)
+		first := true
+		for ev := range ch {
+			if first {
+				first = false
+				ev.Provenance = provenance
+			}
+			select {
+			case wrapped <- ev:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return wrapped, nil
 }
 
 // StreamWithAttachments is the attachment-aware entry point. The plain
@@ -247,6 +286,9 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					Content: filtered,
 				})
 
+				// §4.19 journal: record agent reply (no tool calls).
+				a.recordFlight(journal.EntryAgentReply, filtered)
+
 				// Surface the final assistant turn as an event so the
 				// journal adapter can persist it AND run regex-based
 				// derived passes (e.g. failed-hypothesis extraction).
@@ -259,6 +301,8 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 
 				runResult.Confidence = a.assessTurnConfidence(userInput)
 				out <- StreamEvent{Type: EventStatus, Phase: "done"}
+				// Fire after_turn hooks (§7.1) — best-effort, never blocks.
+				a.fireAfterTurn()
 				out <- StreamEvent{
 					Type:   EventDone,
 					Result: runResult,
@@ -276,6 +320,9 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 				ToolCalls: toolCalls,
 			})
 
+			// §4.19 journal: record agent reply + tool call dispatch.
+			a.recordFlight(journal.EntryAgentReply, filtered+" [dispatched "+fmt.Sprintf("%d", len(toolCalls))+" tool calls]")
+
 			// Same agent_reply emission for the mixed reply+tool_call
 			// branch — the agent's prose still warrants persistence and
 			// derived extraction. The tool_call event handles the
@@ -290,10 +337,52 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			var toolWg sync.WaitGroup
 			toolResults := make([]ToolResult, len(toolCalls))
 
+			// Concurrency control: concurrent-safe tools (Read, Grep,
+			// Glob) can run in parallel. Non-concurrent tools (Bash)
+			// run exclusively. A Bash error cascades — siblings in
+			// the same batch bail instead of executing blindly.
+			var toolConcurrencyMu sync.RWMutex
+			bashErrCtx, bashErrCancel := context.WithCancel(ctx)
+			defer bashErrCancel() // RT: always cancel on scope exit — prevents context leak
+			var bashErrOnce sync.Once
+
 			for i, tc := range toolCalls {
 				toolWg.Add(1)
 				go func(idx int, call providers.ToolCall) {
 					defer toolWg.Done()
+
+					// Gate: acquire concurrency lock based on tool kind.
+					// Concurrent-safe → RLock (shared). Others → Lock (exclusive).
+					_, isConc := a.toolRegistry.GetConcurrency(call.Name, json.RawMessage(call.Arguments))
+					if isConc {
+						toolConcurrencyMu.RLock()
+						defer toolConcurrencyMu.RUnlock()
+					} else {
+						toolConcurrencyMu.Lock()
+						defer toolConcurrencyMu.Unlock()
+					}
+
+					// Check sibling abort BEFORE executing.
+					select {
+					case <-bashErrCtx.Done():
+						bailErr := fmt.Errorf("cancelled: a parallel bash command in this batch errored")
+						toolResults[idx] = ToolResult{
+							ToolCallID: call.ID,
+							ToolName:   call.Name,
+							Output:     json.RawMessage(`{}`),
+							Error:      bailErr,
+						}
+						out <- StreamEvent{
+							Type:      EventToolOutput,
+							Content:   call.Name,
+							ToolCall:  &call,
+							ToolName:  call.Name,
+							ToolInput: parseToolInput(call.Arguments),
+							Metadata:  map[string]interface{}{"output": "", "error": bailErr},
+						}
+						return
+					default:
+					}
 
 					out <- StreamEvent{
 						Type:     EventToolStart,
@@ -393,7 +482,27 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 						})
 					}
 
-					output, toolErr := a.executeTool(ctx, call.Name, input)
+					// Preamble streaming: emit a short natural-language preamble
+				// before tool execution in the streaming path.
+				if a.thinkEnabled() {
+					a.emit("thinking", map[string]any{
+						"message":    generatePreamble(call.Name),
+						"tool":       call.Name,
+						"session_id": a.sessionID,
+					})
+				}
+
+				output, toolErr := a.executeTool(ctx, call.Name, input)
+
+				// §4.19 journal: record tool execution. Best-effort only.
+				a.recordFlight(journal.EntryToolCall, call.Name+" input="+string(input))
+
+					// Sibling abort cascade: if a Bash/shell tool errors,
+					// cancel all other tools in this batch that haven't
+					// started yet.
+					if toolErr != nil && isBashTool(call.Name) {
+						bashErrOnce.Do(func() { bashErrCancel() })
+					}
 
 					// Append a cryptographic receipt for the audit
 					// chain. Hashes only — no payload bodies — so the
@@ -764,4 +873,14 @@ func parseToolInput(args string) interface{} {
 		return args
 	}
 	return v
+}
+
+// isBashTool reports whether a tool name is Bash/shell-like for
+// sibling-abort cascade purposes.
+func isBashTool(name string) bool {
+	switch name {
+	case "bash", "shell", "powershell", "pwsh", "cmd":
+		return true
+	}
+	return false
 }

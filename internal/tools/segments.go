@@ -85,7 +85,9 @@ func (t *SegmentListTool) Execute(_ context.Context, in json.RawMessage) (json.R
 	}
 	var req segmentListInput
 	if len(in) > 0 {
-		_ = json.Unmarshal(in, &req)
+		if err := json.Unmarshal(in, &req); err != nil {
+			return nil, fmt.Errorf("segment_list: %w", err)
+		}
 	}
 	var (
 		out []*memory.Segment
@@ -120,7 +122,9 @@ func (t *SegmentRankTool) Execute(_ context.Context, in json.RawMessage) (json.R
 	}
 	var req segmentRankInput
 	if len(in) > 0 {
-		_ = json.Unmarshal(in, &req)
+		if err := json.Unmarshal(in, &req); err != nil {
+			return nil, fmt.Errorf("segment_rank: %w", err)
+		}
 	}
 	if req.TopK <= 0 {
 		req.TopK = 5

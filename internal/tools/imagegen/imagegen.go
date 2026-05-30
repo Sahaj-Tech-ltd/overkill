@@ -331,10 +331,15 @@ func (t *Tool) generateReplicate(ctx context.Context, in ImageGenInput) (json.Ra
 		case <-time.After(2 * time.Second):
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
+		// B021: Use a per-request child context so each poll gets its own
+		// timeout rather than sharing the single 300s client timeout.
+		reqCtx, reqCancel := context.WithTimeout(ctx, 30*time.Second)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, pollURL, nil)
 		if err != nil {
+			reqCancel()
 			return nil, fmt.Errorf("image_gen (replicate): poll: %w", err)
 		}
+		defer reqCancel()
 		req.Header.Set("Authorization", "Bearer "+apiToken)
 
 		resp, err := client.Do(req)

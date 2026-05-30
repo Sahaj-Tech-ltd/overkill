@@ -22,3 +22,11 @@ type ListOptions struct {
 	Offset   int
 	After    time.Time
 }
+
+// Brancher is the optional store capability that supports tree-structured
+// sessions. PostgresStore satisfies this.
+type Brancher interface {
+	Branch(ctx context.Context, parentID string, atTurn int) (*Session, error)
+	Clone(ctx context.Context, parentID string) (*Session, error)
+	Merge(ctx context.Context, childID string) (*Session, error)
+}

@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/rs/zerolog/log"
@@ -49,7 +51,16 @@ func Doctor() ([]string, error) {
 	if dataDir == "" {
 		homeDir, _ := os.UserHomeDir()
 		if homeDir != "" {
-			dataDir = fmt.Sprintf("%s/.overkill/data", homeDir)
+			if runtime.GOOS == "windows" {
+				localAppData := os.Getenv("LOCALAPPDATA")
+				if localAppData != "" {
+					dataDir = filepath.Join(localAppData, "overkill", "data")
+				} else {
+					dataDir = filepath.Join(homeDir, ".overkill", "data")
+				}
+			} else {
+				dataDir = filepath.Join(homeDir, ".overkill", "data")
+			}
 		}
 	}
 	if dataDir != "" {

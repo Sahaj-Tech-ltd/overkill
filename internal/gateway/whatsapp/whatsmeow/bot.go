@@ -34,7 +34,11 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
-	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO)
+	// third-party library requirement — whatsmeow's sqlstore layer
+	// requires SQLite for device key/session storage. This is NOT
+	// first-party Overkill storage (which uses PostgreSQL exclusively,
+	// per AGENTS.md). The sole consumer is the whatsmeow library itself.
+	_ "modernc.org/sqlite"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
@@ -65,11 +69,26 @@ type Bot struct {
 	mu     sync.Mutex
 	client *whatsmeow.Client
 
+	// disconnectCh is signaled by the Disconnected event handler to
+	// trigger reconnection in connectWithBackoff. Without this, a
+	// network drop would leave the bot silently dead until ctx cancels.
+	disconnectCh chan struct{}
+
+	// containerMu protects the SQLite store container. Closed and
+	// replaced on each reconnect to prevent file-descriptor exhaustion.
+	containerMu sync.Mutex
+	container   *sqlstore.Container
+
 	// Health / reconnect state
 	healthMu        sync.Mutex
 	connected       bool
 	lastConnected   time.Time
 	backoffAttempt  int
+
+	// runCtx carries the Run context for dispatching, so in-flight
+	// handlers survive only as long as the bot is alive.
+	runCtx   context.Context
+	runCtxMu sync.Mutex
 }
 
 // AlertSink is the minimal interface the bot needs to surface
@@ -105,6 +124,10 @@ func (b *Bot) backoff() time.Duration {
 	attempt := b.backoffAttempt
 	b.backoffAttempt++
 	b.healthMu.Unlock()
+	// Cap attempt to prevent integer overflow in math.Pow.
+	if attempt > 30 {
+		attempt = 30
+	}
 	d := time.Duration(math.Pow(2, float64(attempt))) * time.Second
 	if d > 30*time.Second {
 		d = 30 * time.Second
@@ -174,6 +197,10 @@ func (b *Bot) Notify(ctx context.Context, jidStr, text string) error {
 // cancelled. On disconnect the bot reconnects with exponential backoff
 // (1s, 2s, 4s, 8s, 16s, 30s cap). Returns ctx.Err() on cancel.
 func (b *Bot) Run(ctx context.Context) error {
+	b.runCtxMu.Lock()
+	b.runCtx = ctx
+	b.runCtxMu.Unlock()
+
 	if b.StorePath == "" {
 		return fmt.Errorf("whatsmeow: store_path is required — no database file specified for WhatsApp device storage. Provide a path like ~/.overkill/whatsapp/whatsmeow.db")
 	}
@@ -186,7 +213,8 @@ func (b *Bot) Run(ctx context.Context) error {
 
 // connectWithBackoff opens the store, connects the client, and
 // reconnects with exponential backoff on any disconnection or
-// connection failure.
+// connection failure. The Disconnected event handler signals
+// disconnectCh to break out of the wait and trigger a reconnect.
 func (b *Bot) connectWithBackoff(ctx context.Context) error {
 	for {
 		select {
@@ -195,7 +223,16 @@ func (b *Bot) connectWithBackoff(ctx context.Context) error {
 		default:
 		}
 
-		client, err := openClient(ctx, b.StorePath)
+		// Close previous container before opening a new one to
+		// prevent file-descriptor exhaustion across reconnects.
+		b.containerMu.Lock()
+		if b.container != nil {
+			b.container.Close()
+			b.container = nil
+		}
+		b.containerMu.Unlock()
+
+		client, container, err := openClient(ctx, b.StorePath)
 		if err != nil {
 			b.Logger.Printf("whatsmeow: open store: %v", err)
 			delay := b.backoff()
@@ -208,6 +245,10 @@ func (b *Bot) connectWithBackoff(ctx context.Context) error {
 			continue
 		}
 
+		b.containerMu.Lock()
+		b.container = container
+		b.containerMu.Unlock()
+
 		if client.Store.ID == nil {
 			// Store exists but isn't paired — same UX as missing file.
 			return fmt.Errorf("whatsmeow: store at %q exists but has no paired device — run `overkill whatsapp pair` to scan the QR code and link your phone (Settings → Linked Devices → Link a Device)", b.StorePath)
@@ -216,6 +257,9 @@ func (b *Bot) connectWithBackoff(ctx context.Context) error {
 		b.mu.Lock()
 		b.client = client
 		b.mu.Unlock()
+
+		// Fresh disconnect channel for this connection attempt.
+		b.disconnectCh = make(chan struct{}, 1)
 
 		client.AddEventHandler(b.handleEvent)
 
@@ -243,13 +287,21 @@ func (b *Bot) connectWithBackoff(ctx context.Context) error {
 		b.healthMu.Unlock()
 		b.Logger.Printf("whatsmeow: connected as %s", client.Store.ID)
 
-		// Wait for disconnect.
-		<-ctx.Done()
-		client.Disconnect()
-		b.healthMu.Lock()
-		b.connected = false
-		b.healthMu.Unlock()
-		return ctx.Err()
+		// Wait for either context cancellation or a Disconnected event.
+		select {
+		case <-ctx.Done():
+			client.Disconnect()
+			b.healthMu.Lock()
+			b.connected = false
+			b.healthMu.Unlock()
+			return ctx.Err()
+		case <-b.disconnectCh:
+			client.Disconnect()
+			b.healthMu.Lock()
+			b.connected = false
+			b.healthMu.Unlock()
+			// Loop back to reconnect.
+		}
 	}
 }
 
@@ -257,26 +309,32 @@ func (b *Bot) connectWithBackoff(ctx context.Context) error {
 // uses. Same store-open logic as the Bot's connect path; exported
 // so the QR-pairing CLI doesn't have to dup the boilerplate.
 func OpenClientForPair(ctx context.Context, path string) (*whatsmeow.Client, error) {
-	return openClient(ctx, path)
+	client, _, err := openClient(ctx, path)
+	return client, err
 }
 
 // openClient creates a whatsmeow Client backed by SQLite at path.
-// Internal helper shared by Bot.Run and OpenClientForPair.
-func openClient(ctx context.Context, path string) (*whatsmeow.Client, error) {
+// Returns the sqlstore container alongside the client so the caller
+// can close it when creating a new connection (prevents FD exhaustion).
+// Internal helper shared by connectWithBackoff and OpenClientForPair.
+func openClient(ctx context.Context, path string) (*whatsmeow.Client, *sqlstore.Container, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("whatsmeow: mkdir store dir: %w", err)
+		return nil, nil, fmt.Errorf("whatsmeow: mkdir store dir: %w", err)
 	}
 	dsn := "file:" + path + "?_pragma=foreign_keys(1)"
 	dbLog := waLog.Noop
+	// The whatsmeow library requires SQLite for device-key/session
+	// storage (third-party requirement, not first-party Overkill
+	// storage — which uses PostgreSQL per AGENTS.md).
 	container, err := sqlstore.New(ctx, "sqlite", dsn, dbLog)
 	if err != nil {
-		return nil, fmt.Errorf("whatsmeow: open store: %w", err)
+		return nil, nil, fmt.Errorf("whatsmeow: open store: %w", err)
 	}
 	device, err := container.GetFirstDevice(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("whatsmeow: load device: %w", err)
+		return nil, nil, fmt.Errorf("whatsmeow: load device: %w", err)
 	}
-	return whatsmeow.NewClient(device, waLog.Noop), nil
+	return whatsmeow.NewClient(device, waLog.Noop), container, nil
 }
 
 // handleEvent dispatches whatsmeow events to the right handler. We
@@ -297,6 +355,11 @@ func (b *Bot) handleEvent(ev any) {
 		b.connected = false
 		b.healthMu.Unlock()
 		b.Logger.Printf("whatsmeow: disconnected; reconnecting with backoff")
+		// Signal connectWithBackoff to break out of its wait and reconnect.
+		select {
+		case b.disconnectCh <- struct{}{}:
+		default:
+		}
 	case *events.LoggedOut:
 		// Log AND surface a structured alert so a daemon-mode user
 		// actually finds out the bot stopped working. Whatsmeow's
@@ -374,7 +437,13 @@ func (b *Bot) handleMessage(e *events.Message) {
 	}
 
 	reply := &whatsmeowReply{bot: b, to: e.Info.Sender}
-	go b.Dispatcher.Handle(context.Background(), in, reply)
+	b.runCtxMu.Lock()
+	dispatchCtx := b.runCtx
+	b.runCtxMu.Unlock()
+	if dispatchCtx == nil {
+		dispatchCtx = context.Background()
+	}
+	go b.Dispatcher.Handle(dispatchCtx, in, reply)
 }
 
 // whatsmeowReply implements gateway.Reply. WhatsApp via whatsmeow

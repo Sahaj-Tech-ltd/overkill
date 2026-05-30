@@ -155,6 +155,9 @@ func (c *Client) Stream(ctx context.Context, messageID string) (<-chan Event, er
 		return nil, fmt.Errorf("acp/client: stream status %d", resp.StatusCode)
 	}
 
+	// B015: The spawned goroutine reads the SSE body until the caller
+	// consumes the channel. Callers MUST cancel ctx when they stop
+	// reading, otherwise the goroutine leaks (blocks on body read).
 	out := make(chan Event, 32)
 	go func() {
 		defer close(out)

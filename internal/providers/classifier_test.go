@@ -427,10 +427,10 @@ func TestClassifier_CaseInsensitive(t *testing.T) {
 }
 
 func TestClassifier_PatternCount(t *testing.T) {
-	c := NewErrorClassifier()
+	_ = NewErrorClassifier()
 
-	if len(c.patterns) < 40 {
-		t.Errorf("expected at least 40 patterns, got %d", len(c.patterns))
+	if len(classifierPatterns) < 40 {
+		t.Errorf("expected at least 40 patterns, got %d", len(classifierPatterns))
 	}
 }
 

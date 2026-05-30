@@ -1,3 +1,6 @@
+// Package personality — two-layer communication style model.
+// Short-term layer flips per-turn on user input; long-term
+// (baseline) drifts over consecutive sessions.
 package personality
 
 import (

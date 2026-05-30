@@ -74,3 +74,36 @@ func (b *SkillsBackend) Disable(id string) error {
 	}
 	return b.reg.Disable(id)
 }
+
+func (b *SkillsBackend) Get(id string) (*Extension, error) {
+	if b == nil || b.reg == nil {
+		return nil, ErrNotFound
+	}
+	s, ok := b.reg.Get(strings.ToLower(id))
+	if !ok || s == nil {
+		return nil, ErrNotFound
+	}
+	source := "user"
+	if s.Bundled {
+		source = "bundled"
+	}
+	md := map[string]string{}
+	if s.Version != "" {
+		md["version"] = s.Version
+	}
+	if s.Category != "" {
+		md["category"] = s.Category
+	}
+	if len(s.Tags) > 0 {
+		md["tags"] = strings.Join(s.Tags, ",")
+	}
+	return &Extension{
+		Kind:        KindSkill,
+		ID:          strings.ToLower(s.Name),
+		Name:        s.Name,
+		Description: s.Description,
+		Source:      source,
+		Enabled:     s.Enabled,
+		Metadata:    md,
+	}, nil
+}

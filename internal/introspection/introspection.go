@@ -159,7 +159,12 @@ func LoadCodebaseSnippet(dir string, maxChars int) string {
 	}
 	body := string(data)
 	if len(body) > maxChars {
-		body = body[:maxChars] + "\n\n[truncated]"
+		// B090: use rune slicing to avoid splitting a multi-byte
+		// UTF-8 codepoint mid-byte.
+		runes := []rune(body)
+		if len(runes) > maxChars {
+			body = string(runes[:maxChars]) + "\n\n[truncated]"
+		}
 	}
 	return "## Project context (from CODEBASE.md)\n\n" + body
 }

@@ -60,7 +60,7 @@ func TestHeadTailCompressor_GenericContentField(t *testing.T) {
 func TestPatchCompressor_DropsLargeDiff(t *testing.T) {
 	in, _ := json.Marshal(map[string]any{
 		"applied": true,
-		"diff":    strings.Repeat("+ line\n", 1000),
+		"result":  strings.Repeat("+ line\\n", 1000),
 	})
 	out, saved, err := PatchCompressor{}.Compress(in)
 	if err != nil || saved <= 0 {

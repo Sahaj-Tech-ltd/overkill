@@ -11,6 +11,7 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 // GitBackend stores blobs in a local git repo and pushes to a remote on every
@@ -33,6 +34,13 @@ func NewGitBackend(cfg config.SyncGitConfig) (*GitBackend, error) {
 	branch := cfg.Branch
 	if branch == "" {
 		branch = "main"
+	}
+	// Validate remote URL to prevent RCE via git transport protocols
+	// (e.g. "ext::sh -c malicious_cmd%"). Only allow http/https/ssh/git/file.
+	if cfg.RemoteURL != "" {
+		if blocked := blockedGitURL(cfg.RemoteURL); blocked {
+			return nil, fmt.Errorf("sync/git: remote URL %q uses a blocked transport scheme", cfg.RemoteURL)
+		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("sync/git: mkdir: %w", err)
@@ -62,8 +70,12 @@ func runGit(dir string, args ...string) (string, error) {
 func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta SessionMeta) error {
 	// Fetch first to reduce conflict risk.
 	if g.remote != "" {
-		_, _ = runGit(g.dir, "fetch", "origin", g.branch)
-		_, _ = runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch)
+		if _, err := runGit(g.dir, "fetch", "origin", g.branch); err != nil {
+			return fmt.Errorf("sync/git: fetch: %w", err)
+		}
+		if _, err := runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch); err != nil {
+			return fmt.Errorf("sync/git: merge: %w", err)
+		}
 	}
 	// Write meta first, then blob, both atomically — same pattern as
 	// FileBackend.Push so a crash between the two leaves discoverable
@@ -72,11 +84,19 @@ func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta Sess
 	if err != nil {
 		return fmt.Errorf("sync/git: marshal meta: %w", err)
 	}
-	if err := atomicfile.WriteFile(filepath.Join(g.dir, id+".meta.json"), mb, 0o644); err != nil {
+	metaP, err := security.SafePath(g.dir, id+".meta.json")
+	if err != nil {
+		return fmt.Errorf("sync/git: meta path: %w", err)
+	}
+	if err := atomicfile.WriteFile(metaP, mb, 0o644); err != nil {
 		return fmt.Errorf("sync/git: write meta: %w", err)
 	}
-	if err := atomicfile.WriteFile(filepath.Join(g.dir, id+".json.gz"), data, 0o644); err != nil {
-		_ = os.Remove(filepath.Join(g.dir, id+".meta.json"))
+	blobP, err := security.SafePath(g.dir, id+".json.gz")
+	if err != nil {
+		return fmt.Errorf("sync/git: blob path: %w", err)
+	}
+	if err := atomicfile.WriteFile(blobP, data, 0o644); err != nil {
+		_ = os.Remove(metaP)
 		return fmt.Errorf("sync/git: write blob: %w", err)
 	}
 	if out, err := runGit(g.dir, "add", id+".json.gz", id+".meta.json"); err != nil {
@@ -99,10 +119,18 @@ func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta Sess
 
 func (g *GitBackend) Pull(ctx context.Context, id string) ([]byte, SessionMeta, error) {
 	if g.remote != "" {
-		_, _ = runGit(g.dir, "fetch", "origin", g.branch)
-		_, _ = runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch)
+		if _, err := runGit(g.dir, "fetch", "origin", g.branch); err != nil {
+			return nil, SessionMeta{}, fmt.Errorf("sync/git: fetch: %w", err)
+		}
+		if _, err := runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch); err != nil {
+			return nil, SessionMeta{}, fmt.Errorf("sync/git: merge: %w", err)
+		}
 	}
-	data, err := os.ReadFile(filepath.Join(g.dir, id+".json.gz"))
+	blobP, err := security.SafePath(g.dir, id+".json.gz")
+	if err != nil {
+		return nil, SessionMeta{}, fmt.Errorf("sync/git: blob path: %w", err)
+	}
+	data, err := os.ReadFile(blobP)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, SessionMeta{}, ErrNotFound
@@ -110,8 +138,11 @@ func (g *GitBackend) Pull(ctx context.Context, id string) ([]byte, SessionMeta, 
 		return nil, SessionMeta{}, fmt.Errorf("sync/git: read blob: %w", err)
 	}
 	var meta SessionMeta
-	if mb, err := os.ReadFile(filepath.Join(g.dir, id+".meta.json")); err == nil {
-		_ = json.Unmarshal(mb, &meta)
+	metaP, err := security.SafePath(g.dir, id+".meta.json")
+	if err == nil {
+		if mb, err := os.ReadFile(metaP); err == nil {
+			_ = json.Unmarshal(mb, &meta)
+		}
 	}
 	if meta.ID == "" {
 		meta.ID = id
@@ -121,8 +152,12 @@ func (g *GitBackend) Pull(ctx context.Context, id string) ([]byte, SessionMeta, 
 
 func (g *GitBackend) List(ctx context.Context) ([]SessionMeta, error) {
 	if g.remote != "" {
-		_, _ = runGit(g.dir, "fetch", "origin", g.branch)
-		_, _ = runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch)
+		if _, err := runGit(g.dir, "fetch", "origin", g.branch); err != nil {
+			return nil, fmt.Errorf("sync/git: fetch: %w", err)
+		}
+		if _, err := runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch); err != nil {
+			return nil, fmt.Errorf("sync/git: merge: %w", err)
+		}
 	}
 	entries, err := os.ReadDir(g.dir)
 	if err != nil {
@@ -146,9 +181,34 @@ func (g *GitBackend) List(ctx context.Context) ([]SessionMeta, error) {
 	return out, nil
 }
 
+// blockedGitURL returns true when url uses a git transport that could
+// execute arbitrary commands (ext::, remote-ext::, etc.).
+// Only http, https, ssh, git, and file transports are allowed.
+func blockedGitURL(url string) bool {
+	// Check for blocked transport prefix before the first ":" that isn't
+	// part of "://".
+	if idx := strings.Index(url, "://"); idx >= 0 {
+		scheme := strings.ToLower(url[:idx])
+		switch scheme {
+		case "http", "https", "ssh", "git", "file":
+			return false
+		default:
+			return true
+		}
+	}
+	// scp-like syntax (user@host:path) — allowed.
+	return false
+}
+
 func (g *GitBackend) Delete(ctx context.Context, id string) error {
-	bp := filepath.Join(g.dir, id+".json.gz")
-	mp := filepath.Join(g.dir, id+".meta.json")
+	bp, err := security.SafePath(g.dir, id+".json.gz")
+	if err != nil {
+		return fmt.Errorf("sync/git: blob path: %w", err)
+	}
+	mp, err := security.SafePath(g.dir, id+".meta.json")
+	if err != nil {
+		return fmt.Errorf("sync/git: meta path: %w", err)
+	}
 	bErr := os.Remove(bp)
 	mErr := os.Remove(mp)
 	if bErr != nil && os.IsNotExist(bErr) && mErr != nil && os.IsNotExist(mErr) {

@@ -9,7 +9,7 @@ import (
 )
 
 // seedParent creates a parent session with `n` messages and persists it.
-func seedParent(t *testing.T, store *BadgerStore, n int) *Session {
+func seedParent(t *testing.T, store *PostgresStore, n int) *Session {
 	t.Helper()
 	p := NewSession("/repo")
 	p.Title = "trunk"
@@ -29,10 +29,7 @@ func seedParent(t *testing.T, store *BadgerStore, n int) *Session {
 }
 
 func TestClone_MissingParent(t *testing.T) {
-	store, err := NewBadgerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	if _, err := store.Clone(context.Background(), "nope"); err == nil {
 		t.Error("missing parent should error")
@@ -40,7 +37,7 @@ func TestClone_MissingParent(t *testing.T) {
 }
 
 func TestClone_EmptyParentID(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	if _, err := store.Clone(context.Background(), ""); err == nil {
 		t.Error("empty parentID should error")
@@ -48,7 +45,7 @@ func TestClone_EmptyParentID(t *testing.T) {
 }
 
 func TestClone_CopiesAllMessages(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 4)
 
@@ -71,7 +68,7 @@ func TestClone_CopiesAllMessages(t *testing.T) {
 }
 
 func TestClone_LinksIntoParentChildren(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 	child, _ := store.Clone(context.Background(), parent.ID)
@@ -86,7 +83,7 @@ func TestClone_LinksIntoParentChildren(t *testing.T) {
 }
 
 func TestClone_DivergesFromParent(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 	child, _ := store.Clone(context.Background(), parent.ID)
@@ -103,7 +100,7 @@ func TestClone_DivergesFromParent(t *testing.T) {
 }
 
 func TestMerge_FastForwardsParent(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 
@@ -137,7 +134,7 @@ func TestMerge_FastForwardsParent(t *testing.T) {
 }
 
 func TestMerge_RejectsDivergedParent(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 
@@ -155,7 +152,7 @@ func TestMerge_RejectsDivergedParent(t *testing.T) {
 }
 
 func TestMerge_NoChangesIsNoOp(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 3)
 	child, _ := store.Branch(context.Background(), parent.ID, 3)
@@ -171,7 +168,7 @@ func TestMerge_NoChangesIsNoOp(t *testing.T) {
 }
 
 func TestMerge_OrphanChildErrors(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	orphan := NewSession("/tmp") // no ParentID
 	if err := store.Create(context.Background(), orphan); err != nil {
@@ -183,7 +180,7 @@ func TestMerge_OrphanChildErrors(t *testing.T) {
 }
 
 func TestMerge_MissingChildErrors(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	if _, err := store.Merge(context.Background(), "nope"); err == nil {
 		t.Error("missing child should error")
@@ -191,7 +188,7 @@ func TestMerge_MissingChildErrors(t *testing.T) {
 }
 
 func TestMerge_EmptyChildIDErrors(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	if _, err := store.Merge(context.Background(), ""); err == nil {
 		t.Error("empty childID should error")
@@ -199,7 +196,7 @@ func TestMerge_EmptyChildIDErrors(t *testing.T) {
 }
 
 func TestMerge_ChildSurvivesUntouched(t *testing.T) {
-	store, _ := NewBadgerStore(t.TempDir())
+	store := NewPostgresStore(openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 	child, _ := store.Branch(context.Background(), parent.ID, 2)

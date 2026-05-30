@@ -3,12 +3,16 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -204,7 +208,10 @@ type BotCommand struct {
 
 // SetMyCommands replaces the bot's command list for all chats.
 func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error {
-	cmdBytes, _ := json.Marshal(commands)
+	cmdBytes, err := json.Marshal(commands)
+	if err != nil {
+		return fmt.Errorf("telegram: marshal commands: %w", err)
+	}
 	q := url.Values{}
 	q.Set("commands", string(cmdBytes))
 	var resp struct {
@@ -254,6 +261,78 @@ func (c *Client) SendChatAction(ctx context.Context, chatID int64, action string
 	return nil
 }
 
+// SendVoice sends an OGG audio file as a Telegram voice note.
+// oggPath must be a local .ogg file encoded with libopus at a reasonable
+// bitrate (e.g. 32k). Telegram plays it as a native voice bubble.
+func (c *Client) SendVoice(ctx context.Context, chatID int64, oggPath string) (int, error) {
+	f, err := os.Open(oggPath)
+	if err != nil {
+		return 0, fmt.Errorf("telegram: sendVoice: open: %w", err)
+	}
+	defer f.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	_ = writer.WriteField("chat_id", strconv.FormatInt(chatID, 10))
+
+	part, err := writer.CreateFormFile("voice", filepath.Base(oggPath))
+	if err != nil {
+		return 0, fmt.Errorf("telegram: sendVoice: create form file: %w", err)
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return 0, fmt.Errorf("telegram: sendVoice: copy: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return 0, fmt.Errorf("telegram: sendVoice: close writer: %w", err)
+	}
+
+	base := c.BaseURL
+	if base == "" {
+		base = DefaultBaseURL
+	}
+	u := fmt.Sprintf("%s/bot%s/sendVoice", base, c.Token)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, &body)
+	if err != nil {
+		// B131: Redact token from request-creation errors.
+		sanitized := strings.ReplaceAll(err.Error(), c.Token, "***")
+		return 0, fmt.Errorf("telegram: sendVoice: %s", sanitized)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	httpClient := c.HTTP
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("telegram: sendVoice: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+	if resp.StatusCode/100 != 2 {
+		return 0, fmt.Errorf("telegram: sendVoice: http %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var out struct {
+		OK     bool    `json:"ok"`
+		Result Message `json:"result"`
+		Desc   string  `json:"description"`
+	}
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return 0, err
+	}
+	if !out.OK {
+		return 0, fmt.Errorf("telegram: sendVoice: %s", out.Desc)
+	}
+	return out.Result.MessageID, nil
+}
+
 func (c *Client) do(ctx context.Context, method string, q url.Values, out any) error {
 	base := c.BaseURL
 	if base == "" {
@@ -262,7 +341,10 @@ func (c *Client) do(ctx context.Context, method string, q url.Values, out any) e
 	u := fmt.Sprintf("%s/bot%s/%s", base, c.Token, method)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(q.Encode()))
 	if err != nil {
-		return err
+		// B131: Redact the token from errors — http.NewRequestWithContext may
+		// include the full URL in its error string. Replace with ***.
+		sanitized := strings.ReplaceAll(err.Error(), c.Token, "***")
+		return fmt.Errorf("telegram: %s: %s", method, sanitized)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	httpClient := c.HTTP

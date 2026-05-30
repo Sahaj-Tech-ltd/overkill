@@ -41,6 +41,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 // Outcome is the labeled result of a session.
@@ -180,6 +182,9 @@ func computeLift(s *ActionStats, totalSessions, totalSuccesses int64) float64 {
 		return math.NaN()
 	}
 	successesWithout := totalSuccesses - s.SuccessCount
+	if successesWithout < 0 {
+		successesWithout = 0
+	}
 	pSuccessBaseline := float64(successesWithout) / float64(without)
 	if pSuccessBaseline == 0 {
 		// Avoid divide-by-zero: if there's no baseline success,
@@ -291,17 +296,12 @@ func (s *Store) SaveSession(rec SessionRecord) error {
 		return fmt.Errorf("credit: mkdir: %w", err)
 	}
 	path := filepath.Join(s.dir, rec.SessionID+".json")
-	tmp := path + ".tmp"
 	data, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
 		return fmt.Errorf("credit: marshal: %w", err)
 	}
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("credit: write: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("credit: rename: %w", err)
 	}
 	return nil
 }

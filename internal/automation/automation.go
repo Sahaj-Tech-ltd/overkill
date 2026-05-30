@@ -31,6 +31,7 @@ type SOPStatus string
 
 const (
 	SOPStatusActive    SOPStatus = "active"
+	SOPStatusRunning   SOPStatus = "running"
 	SOPStatusPaused    SOPStatus = "paused"
 	SOPStatusCompleted SOPStatus = "completed"
 	SOPStatusFailed    SOPStatus = "failed"

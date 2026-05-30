@@ -1,3 +1,5 @@
+// Package personality — contextual fun fact database with time-of-day
+// and random fact retrieval.
 package personality
 
 import (

@@ -9,7 +9,7 @@ package walls
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -18,8 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/google/uuid"
+
+	_ "github.com/lib/pq"
 )
 
 // Regression is one persisted record. Created on bug-fix, verified on demand.
@@ -61,6 +62,9 @@ func DefaultCmdRunner(ctx context.Context, cmd string, timeout time.Duration) (s
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
+	if err := validateRegressionCmd(cmd); err != nil {
+		return "", err
+	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, "sh", "-c", cmd).CombinedOutput()
@@ -69,6 +73,23 @@ func DefaultCmdRunner(ctx context.Context, cmd string, timeout time.Duration) (s
 
 // ErrRegressionNotFound is returned when an ID is missing.
 var ErrRegressionNotFound = errors.New("regression bank: not found")
+
+// validateRegressionCmd blocks dangerous shell metacharacters in a
+// regression test command. Prevents command injection via stored TestCmd
+// strings that were recorded before validation was added or by
+// compromised callers.
+func validateRegressionCmd(cmd string) error {
+	// B054: This intentionally blocks shell metacharacters like $() and {}
+	// to prevent command injection in stored regression test commands. As a
+	// side effect, valid shell commands that use command substitution
+	// (e.g. go test $(go list ./...)) are also rejected. Users needing
+	// these patterns should write a wrapper script and store the script path
+	// as the test command instead.
+	if strings.ContainsAny(cmd, ";&|`$(){}[]<>\n") {
+		return fmt.Errorf("regression bank: test_cmd contains dangerous characters")
+	}
+	return nil
+}
 
 // RegressionBank coordinates record/verify against a RegressionStore.
 type RegressionBank struct {
@@ -96,6 +117,9 @@ func (b *RegressionBank) Record(r *Regression) (*Regression, error) {
 	}
 	if strings.TrimSpace(r.TestCmd) == "" {
 		return nil, errors.New("regression bank: test_cmd is required")
+	}
+	if err := validateRegressionCmd(r.TestCmd); err != nil {
+		return nil, err
 	}
 	if r.ID == "" {
 		r.ID = uuid.NewString()
@@ -143,6 +167,21 @@ func (b *RegressionBank) Verify(ctx context.Context, timeout time.Duration) ([]V
 	results := make([]VerifyResult, 0, len(regs))
 	for i := range regs {
 		r := regs[i]
+		// Re-validate stored TestCmd before execution to catch
+		// commands that were recorded before validation was added.
+		if valErr := validateRegressionCmd(r.TestCmd); valErr != nil {
+			r.LastVerify = time.Now().UTC()
+			r.LastResult = "failed"
+			r.LastFailMsg = valErr.Error()
+			_ = b.store.Save(&r)
+			results = append(results, VerifyResult{
+				ID:     r.ID,
+				Title:  r.Title,
+				Passed: false,
+				Output: "validation: " + valErr.Error(),
+			})
+			continue
+		}
 		out, runErr := b.runner(ctx, r.TestCmd, timeout)
 		passed := runErr == nil
 		r.LastVerify = time.Now().UTC()
@@ -171,82 +210,106 @@ func trimOutput(s string, max int) string {
 	return s[:max] + "\n... [truncated]"
 }
 
-// --- BadgerDB-backed store ----------------------------------------------------
+// --- PostgreSQL-backed store ---------------------------------------------------
 
-// BadgerRegressionStore persists regressions under the "regression:" key prefix.
-type BadgerRegressionStore struct {
-	db *badger.DB
+// PostgresRegressionStore persists regressions in the regressions table.
+type PostgresRegressionStore struct {
+	db *sql.DB
 }
 
-// NewBadgerRegressionStore wraps an open Badger DB.
-func NewBadgerRegressionStore(db *badger.DB) *BadgerRegressionStore {
-	return &BadgerRegressionStore{db: db}
-}
-
-const regKeyPrefix = "regression:"
-
-func regKey(id string) []byte { return []byte(regKeyPrefix + id) }
-
-func (s *BadgerRegressionStore) Save(r *Regression) error {
-	data, err := json.Marshal(r)
+func NewPostgresRegressionStore(db *sql.DB) (*PostgresRegressionStore, error) {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS regressions (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		symptom TEXT NOT NULL DEFAULT '',
+		root_cause TEXT NOT NULL DEFAULT '',
+		test_cmd TEXT NOT NULL,
+		commit_sha TEXT NOT NULL DEFAULT '',
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		last_verify TIMESTAMPTZ,
+		last_result TEXT NOT NULL DEFAULT '',
+		last_fail_msg TEXT NOT NULL DEFAULT ''
+	)`)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("regression bank: create table: %w", err)
 	}
-	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Set(regKey(r.ID), data)
-	})
+	return &PostgresRegressionStore{db: db}, nil
 }
 
-func (s *BadgerRegressionStore) Get(id string) (*Regression, error) {
-	var out *Regression
-	err := s.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(regKey(id))
-		if err != nil {
-			if errors.Is(err, badger.ErrKeyNotFound) {
-				return ErrRegressionNotFound
-			}
-			return err
-		}
-		return item.Value(func(val []byte) error {
-			var r Regression
-			if err := json.Unmarshal(val, &r); err != nil {
-				return err
-			}
-			out = &r
-			return nil
-		})
-	})
-	return out, err
+func (s *PostgresRegressionStore) Save(r *Regression) error {
+	_, err := s.db.Exec(
+		`INSERT INTO regressions (id, title, symptom, root_cause, test_cmd, commit_sha, created_at, last_verify, last_result, last_fail_msg)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		 ON CONFLICT (id) DO UPDATE SET
+			title=EXCLUDED.title, symptom=EXCLUDED.symptom, root_cause=EXCLUDED.root_cause,
+			test_cmd=EXCLUDED.test_cmd, commit_sha=EXCLUDED.commit_sha,
+			last_verify=EXCLUDED.last_verify, last_result=EXCLUDED.last_result, last_fail_msg=EXCLUDED.last_fail_msg`,
+		r.ID, r.Title, r.Symptom, r.RootCause, r.TestCmd, r.CommitSHA,
+		nullTime(r.CreatedAt), nullTime(r.LastVerify), r.LastResult, r.LastFailMsg,
+	)
+	return err
 }
 
-func (s *BadgerRegressionStore) List() ([]Regression, error) {
+func (s *PostgresRegressionStore) Get(id string) (*Regression, error) {
+	var r Regression
+	var created, verify sql.NullTime
+	err := s.db.QueryRow(
+		`SELECT id, title, symptom, root_cause, test_cmd, commit_sha, created_at, last_verify, last_result, last_fail_msg
+		 FROM regressions WHERE id = $1`, id,
+	).Scan(&r.ID, &r.Title, &r.Symptom, &r.RootCause, &r.TestCmd, &r.CommitSHA,
+		&created, &verify, &r.LastResult, &r.LastFailMsg)
+	if err == sql.ErrNoRows {
+		return nil, ErrRegressionNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if created.Valid {
+		r.CreatedAt = created.Time
+	}
+	if verify.Valid {
+		r.LastVerify = verify.Time
+	}
+	return &r, nil
+}
+
+func (s *PostgresRegressionStore) List() ([]Regression, error) {
+	rows, err := s.db.Query(
+		`SELECT id, title, symptom, root_cause, test_cmd, commit_sha, created_at, last_verify, last_result, last_fail_msg
+		 FROM regressions ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 	var out []Regression
-	err := s.db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
-		prefix := []byte(regKeyPrefix)
-		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
-			err := it.Item().Value(func(val []byte) error {
-				var r Regression
-				if err := json.Unmarshal(val, &r); err != nil {
-					return err
-				}
-				out = append(out, r)
-				return nil
-			})
-			if err != nil {
-				return err
-			}
+	for rows.Next() {
+		var r Regression
+		var created, verify sql.NullTime
+		if err := rows.Scan(&r.ID, &r.Title, &r.Symptom, &r.RootCause, &r.TestCmd, &r.CommitSHA,
+			&created, &verify, &r.LastResult, &r.LastFailMsg); err != nil {
+			return nil, err
 		}
-		return nil
-	})
-	return out, err
+		if created.Valid {
+			r.CreatedAt = created.Time
+		}
+		if verify.Valid {
+			r.LastVerify = verify.Time
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
-func (s *BadgerRegressionStore) Delete(id string) error {
-	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Delete(regKey(id))
-	})
+func (s *PostgresRegressionStore) Delete(id string) error {
+	_, err := s.db.Exec("DELETE FROM regressions WHERE id = $1", id)
+	return err
+}
+
+func nullTime(t time.Time) interface{} {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }
 
 // --- in-memory store (tests) --------------------------------------------------

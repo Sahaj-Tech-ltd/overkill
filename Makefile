@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install docker run dev install-all plugins
+.PHONY: build test lint clean install docker run dev install-all plugins release
 
 BINARY=bin/overkill
 GO=go
@@ -70,3 +70,7 @@ plugins:
 	$(GO) build -o examples/plugins/notes/notes ./examples/plugins/notes
 	$(GO) build -o examples/plugins/git-stats/git-stats ./examples/plugins/git-stats
 	@echo "plugins built — copy or symlink directories into ~/.overkill/plugins/ to install"
+
+# Cross-compile release binaries for all platforms.
+release:
+	@bash scripts/release.sh $(VERSION)

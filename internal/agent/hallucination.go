@@ -62,6 +62,24 @@ func (a *Agent) getHallucinationScanner() HallucinationScanner {
 	return a.hallucinationScanner
 }
 
+// SessionBookmarkStore is the minimal surface the agent needs to persist
+// user bookmarks (§7.4). Wired by cmd/overkill with a gateway.BookmarkStore
+// adapter when a PostgreSQL connection is available.
+type SessionBookmarkStore interface {
+	Save(sessionID, label string) error
+}
+
+// SetSessionBookmarkStore wires a bookmark store for session bookmarking.
+// nil disables. Safe to call at any time.
+func (a *Agent) SetSessionBookmarkStore(s SessionBookmarkStore) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.bookmarkStore = s
+	a.mu.Unlock()
+}
+
 // buildEvidenceCorpus concatenates everything the agent considers
 // "real" for this session — user messages, prior assistant turns,
 // tool outputs, system prompt. The scanner uses this as the

@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -458,5 +459,235 @@ func TestExecutor_Run_SetsCorrectModel(t *testing.T) {
 
 	if capturedModel != "gpt-4o" {
 		t.Errorf("model = %q, want 'gpt-4o'", capturedModel)
+	}
+}
+
+func TestExecutor_Verify_CodePasses(t *testing.T) {
+	responses := []providers.Response{
+		{Content: "spec output"},
+		{Content: "```go\npackage temp\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Error(\"1+2 != 3\")\n\t}\n}\n```"},
+		{Content: "```go\npackage temp\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n```"},
+		{Content: "```go\npackage temp\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n```"},
+	}
+	p := newMockProvider(responses, nil)
+	exec := NewExecutor(Config{Provider: p, Model: "test-model", Verify: true})
+
+	result, err := exec.Run(context.Background(), "build an Add function")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	codeStage := result.Stages[2]
+	if !codeStage.Passed {
+		t.Errorf("Code stage: expected Passed=true, got false. Errors: %v", codeStage.Errors)
+	}
+	if codeStage.Files == nil || len(codeStage.Files) == 0 {
+		t.Error("Code stage: expected Files to be populated")
+	}
+	if !result.Success {
+		t.Errorf("expected PipelineResult.Success=true when verification passes, got Success=%v", result.Success)
+		for i, s := range result.Stages {
+			t.Logf("  stage %d (%s): Passed=%v Errors=%v", i, s.Stage, s.Passed, s.Errors)
+		}
+	}
+	t.Logf("Code stage files: %v", codeStage.Files)
+}
+
+func TestExecutor_Verify_CodeFailsBuild(t *testing.T) {
+	responses := []providers.Response{
+		{Content: "spec output"},
+		{Content: "```go\npackage temp\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Error(\"1+2 != 3\")\n\t}\n}\n```"},
+		{Content: "```go\npackage temp\n\nfunc Add(a, b int) int {\n\treturn a + b  // missing closing brace\n```"},
+		{Content: "refactored output"},
+	}
+	p := newMockProvider(responses, nil)
+	exec := NewExecutor(Config{Provider: p, Model: "test-model", Verify: true})
+
+	result, err := exec.Run(context.Background(), "build an Add function")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	codeStage := result.Stages[2]
+	if codeStage.Passed {
+		t.Error("Code stage: expected Passed=false for broken code, got true")
+	}
+	if len(codeStage.Errors) == 0 {
+		t.Error("Code stage: expected Errors for broken code, got none")
+	} else {
+		t.Logf("Code stage errors: %v", codeStage.Errors)
+	}
+	if result.Success {
+		t.Error("expected PipelineResult.Success=false when verification fails")
+	}
+}
+
+func TestExecutor_Verify_CodeFailsTest(t *testing.T) {
+	responses := []providers.Response{
+		{Content: "spec output"},
+		{Content: "```go\npackage temp\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(1, 2) != 4 {\n\t\tt.Error(\"unexpected\")\n\t}\n}\n```"},
+		{Content: "```go\npackage temp\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n```"},
+		{Content: "refactored output"},
+	}
+	p := newMockProvider(responses, nil)
+	exec := NewExecutor(Config{Provider: p, Model: "test-model", Verify: true})
+
+	result, err := exec.Run(context.Background(), "build an Add function")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	codeStage := result.Stages[2]
+	if codeStage.Passed {
+		t.Error("Code stage: expected Passed=false for failing test, got true")
+	}
+	if len(codeStage.Errors) == 0 {
+		t.Error("Code stage: expected Errors for failing test, got none")
+	} else {
+		t.Logf("Code stage errors: %v", codeStage.Errors)
+	}
+	if result.Success {
+		t.Error("expected PipelineResult.Success=false when verification fails")
+	}
+}
+
+func TestExecutor_Verify_RefactorReRunsTests(t *testing.T) {
+	responses := []providers.Response{
+		{Content: "spec output"},
+		{Content: "```go\npackage temp\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Error(\"1+2 != 3\")\n\t}\n}\n```"},
+		{Content: "```go\npackage temp\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n```"},
+		{Content: "```go\npackage temp\n\nfunc Add(a, b int) int {\n\treturn a - b\n}\n```"},
+	}
+	p := newMockProvider(responses, nil)
+	exec := NewExecutor(Config{Provider: p, Model: "test-model", Verify: true})
+
+	result, err := exec.Run(context.Background(), "build an Add function")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	codeStage := result.Stages[2]
+	if !codeStage.Passed {
+		t.Fatalf("Code stage should pass, got errors: %v", codeStage.Errors)
+	}
+
+	refactorStage := result.Stages[3]
+	if refactorStage.Passed {
+		t.Error("Refactor stage: expected Passed=false (refactored Add returns a-b, test expects a+b)")
+	}
+	if len(refactorStage.Errors) == 0 {
+		t.Error("Refactor stage: expected Errors for broken refactor")
+	} else {
+		t.Logf("Refactor stage errors: %v", refactorStage.Errors)
+	}
+	if result.Success {
+		t.Error("expected PipelineResult.Success=false when refactor verification fails")
+	}
+}
+
+func TestExecutor_Verify_NoGoCodeDegradesGracefully(t *testing.T) {
+	responses := []providers.Response{
+		{Content: "spec output"},
+		{Content: "test output"},
+		{Content: "code output"},
+		{Content: "refactored output"},
+	}
+	p := newMockProvider(responses, nil)
+	exec := NewExecutor(Config{Provider: p, Model: "test-model", Verify: true})
+
+	result, err := exec.Run(context.Background(), "build a thing")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	for i, sr := range result.Stages {
+		if !sr.Passed {
+			t.Errorf("stage %d: expected Passed=true (no Go code to verify), got false. Errors: %v", i, sr.Errors)
+		}
+	}
+	if !result.Success {
+		t.Error("expected PipelineResult.Success=true when no Go code to verify")
+	}
+}
+
+func TestExecutor_Verify_Disabled(t *testing.T) {
+	responses := []providers.Response{
+		{Content: "spec output"},
+		{Content: "```go\npackage temp\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Error(\"1+2 != 3\")\n\t}\n}\n```"},
+		{Content: "```go\npackage temp\n\nfunc Add(a int, b int) int {\n\treturn a + b\n```"},
+		{Content: "refactored output"},
+	}
+	p := newMockProvider(responses, nil)
+	exec := NewExecutor(Config{Provider: p, Model: "test-model", Verify: false})
+
+	result, err := exec.Run(context.Background(), "build an Add function")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	codeStage := result.Stages[2]
+	if !codeStage.Passed {
+		t.Errorf("Code stage: expected Passed=true when verification disabled, got false")
+	}
+	if !result.Success {
+		t.Error("expected PipelineResult.Success=true when verification disabled")
+	}
+}
+
+func TestExtractGoBlocks_CodeBlocks(t *testing.T) {
+	content := "some text\n```go\npackage main\n\nfunc main() {}\n```\nmore text"
+	blocks := extractGoBlocks(content)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if !strings.Contains(blocks[0].code, "package main") {
+		t.Errorf("expected package main in block, got: %s", blocks[0].code)
+	}
+}
+
+func TestExtractGoBlocks_NoBlocks(t *testing.T) {
+	blocks := extractGoBlocks("just some text, no code here")
+	if len(blocks) != 0 {
+		t.Errorf("expected 0 blocks, got %d", len(blocks))
+	}
+}
+
+func TestExtractGoBlocks_BareGo(t *testing.T) {
+	blocks := extractGoBlocks("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hi\")\n}")
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block from bare Go, got %d", len(blocks))
+	}
+	if blocks[0].code != "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hi\")\n}" {
+		t.Errorf("unexpected block content: %s", blocks[0].code)
+	}
+}
+
+func TestExtractGoBlocks_TestFile(t *testing.T) {
+	blocks := extractGoBlocks("package temp\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}")
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if !blocks[0].isTest {
+		t.Error("expected isTest=true for test code")
+	}
+}
+
+func TestExtractGoBlocks_MultipleCodeBlocks(t *testing.T) {
+	content := "```go\npackage pkg\n\nfunc Foo() int { return 1 }\n```\nand more\n```go\npackage pkg\n\nfunc Bar() int { return 2 }\n```"
+	blocks := extractGoBlocks(content)
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(blocks))
+	}
+}
+
+func TestLooksLikeGo(t *testing.T) {
+	if !looksLikeGo("package main\nfunc main() {}") {
+		t.Error("expected looksLikeGo=true for package main")
+	}
+	if looksLikeGo("just some text") {
+		t.Error("expected looksLikeGo=false for plain text")
+	}
+	if !looksLikeGo("\n\npackage main\nfunc main() {}") {
+		t.Error("expected looksLikeGo=true for indented package")
 	}
 }

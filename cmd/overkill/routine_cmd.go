@@ -1,17 +1,18 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
+
+	_ "github.com/lib/pq"
 )
 
 // routineCmd groups the §7.1 Layer 4 routine management
@@ -24,23 +25,25 @@ var routineCmd = &cobra.Command{
 	Short: "Manage automation routines (event → action with cooldown)",
 }
 
-// openRoutineStore opens the same Badger DB the daemon uses and
-// wraps it in a routine store. The caller must Close the returned
-// *badger.DB. Returns (nil, nil, err) if the DB can't open.
-func openRoutineStore() (*automation.BadgerRoutineStore, *badger.DB, error) {
-	home, err := os.UserHomeDir()
+// openRoutineStore opens Postgres and returns a routine store.
+func openRoutineStore() (*automation.PostgresRoutineStore, *sql.DB, error) {
+	connString := os.Getenv("DATABASE_URL")
+	if connString == "" && cfg != nil {
+		connString = cfg.DatabaseURL
+	}
+	if connString == "" {
+		return nil, nil, fmt.Errorf("routine: DATABASE_URL must be set for Postgres backend")
+	}
+	db, err := sql.Open("postgres", connString)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("routine: open postgres: %w", err)
 	}
-	dir := filepath.Join(home, ".overkill", "automation")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, nil, err
-	}
-	db, err := badger.Open(badger.DefaultOptions(dir).WithLoggingLevel(badger.ERROR))
+	store, err := automation.NewPostgresRoutineStore(db)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open automation db: %w", err)
+		db.Close()
+		return nil, nil, fmt.Errorf("routine: open store: %w", err)
 	}
-	return automation.NewBadgerRoutineStore(db), db, nil
+	return store, db, nil
 }
 
 var routineListCmd = &cobra.Command{

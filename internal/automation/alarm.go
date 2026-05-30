@@ -215,7 +215,7 @@ func (a *AlarmClock) checkAlarms() {
 		}
 		a.mu.Unlock()
 
-		err := a.fire(alarm)
+		err := safeFire(a.fire, alarm)
 
 		a.mu.Lock()
 		live, exists = a.alarms[alarm.ID]
@@ -362,4 +362,16 @@ func (a *AlarmClock) Pending() []*Alarm {
 	})
 
 	return pending
+}
+
+// safeFire wraps the user-supplied fire callback with a panic recovery.
+// Without this, a panic in the callback would crash the tick goroutine
+// and silence all future alarms.
+func safeFire(fn func(alarm *Alarm) error, alarm *Alarm) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("alarm fire panicked: %v", r)
+		}
+	}()
+	return fn(alarm)
 }

@@ -112,8 +112,9 @@ func (e *EventLog) Append(state []byte) error {
 const maxEventLogBytes = 5 * 1024 * 1024
 
 // rotateLocked keeps the last ~half of the event log and discards the
-// older half. Best-effort: on any error the existing file is left in
-// place and the next append continues. Caller must hold e.mu.
+// older half. Writes the truncated content to a temporary file first and
+// renames it atomically — if a crash occurs before rename, the original
+// log is intact. Caller must hold e.mu.
 func (e *EventLog) rotateLocked() error {
 	data, err := os.ReadFile(e.path)
 	if err != nil {
@@ -131,7 +132,12 @@ func (e *EventLog) rotateLocked() error {
 	if mid >= len(data) {
 		return nil
 	}
-	return os.WriteFile(e.path, data[mid+1:], 0o644)
+	// Write to temp file first, then rename atomically.
+	tmp := e.path + ".tmp"
+	if err := os.WriteFile(tmp, data[mid+1:], 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, e.path)
 }
 
 // Latest reads the most recent well-formed entry from the log, or

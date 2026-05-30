@@ -107,10 +107,9 @@ func (e *SOPEngine) executeSteps(ctx context.Context, id string) error {
 	indices := e.stepOrder(id)
 
 	// Seed prevOutput from the last already-done step so
-	// ModeDeterministic preserves the step-N output → step-N+1
-	// input chain across Pause/Resume. Without this, every Resume
-	// silently fed "" into the first remaining deterministic step
-	// and the chain broke.
+	// Find the closest preceding done step (B077). The prior
+	// implementation picked the last done step regardless of position,
+	// which broke the output→input chain when steps were interleaved.
 	var prevOutput string
 	e.mu.RLock()
 	if sop, ok := e.sops[id]; ok {
@@ -120,6 +119,16 @@ func (e *SOPEngine) executeSteps(ctx context.Context, id string) error {
 			}
 			if sop.Steps[idx].Status == StepDone {
 				prevOutput = sop.Steps[idx].Output
+			}
+		}
+		// Find the closest preceding done step to the first executable index.
+		if len(indices) > 0 {
+			firstIdx := indices[0]
+			for i := firstIdx - 1; i >= 0; i-- {
+				if sop.Steps[i].Status == StepDone {
+					prevOutput = sop.Steps[i].Output
+					break
+				}
 			}
 		}
 	}

@@ -6,7 +6,7 @@
 // scheduled work — it couldn't warn "your build cron fires in 4 min" or
 // "the deploy SOP is paused waiting on your approval."
 //
-// These read-only tools query the same on-disk Badger stores the daemon
+// These read-only tools query the same Postgres tables the daemon
 // writes to. No live scheduler dependency. The daemon (or `overkill cron`
 // / `overkill sop`) still owns mutation; the agent just reads.
 package tools
@@ -23,7 +23,7 @@ import (
 )
 
 // AutomationLister is the minimal surface for listing SOPs without
-// pulling in the full engine. *automation.BadgerSOPStore satisfies it.
+// pulling in the full engine. *automation.PostgresSOPStore satisfies it.
 type AutomationLister interface {
 	LoadSOPs() ([]automation.SOP, error)
 }
@@ -50,7 +50,9 @@ func (t *AutomationListTool) Execute(_ context.Context, in json.RawMessage) (jso
 		return errorJSON("automation store not configured (daemon-only setup)"), nil
 	}
 	var req automationListInput
-	_ = json.Unmarshal(in, &req)
+	if err := json.Unmarshal(in, &req); err != nil {
+		return nil, fmt.Errorf("automation_list: %w", err)
+	}
 	sops, err := t.store.LoadSOPs()
 	if err != nil {
 		return errorJSON(err.Error()), nil
@@ -77,7 +79,7 @@ func (t *AutomationListTool) Execute(_ context.Context, in json.RawMessage) (jso
 }
 
 // CronLister is the minimal surface for listing cron jobs without a live
-// Scheduler. *cron.BadgerJobStore satisfies it.
+// Scheduler. *cron.PostgresJobStore satisfies it.
 type CronLister interface {
 	LoadJobs() ([]cron.Job, error)
 }
@@ -108,7 +110,9 @@ func (t *CronListTool) Execute(_ context.Context, in json.RawMessage) (json.RawM
 		return errorJSON("cron store not configured (daemon-only setup)"), nil
 	}
 	var req cronListInput
-	_ = json.Unmarshal(in, &req)
+	if err := json.Unmarshal(in, &req); err != nil {
+		return nil, fmt.Errorf("cron_list: %w", err)
+	}
 	jobs, err := t.store.LoadJobs()
 	if err != nil {
 		return errorJSON(err.Error()), nil

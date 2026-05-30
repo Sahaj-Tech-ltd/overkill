@@ -1,6 +1,8 @@
 import React from "react";
 import { Text, Box } from "ink";
 import { ThinkingBlock } from "./thinking-block.tsx";
+import { useTheme } from "../../lib/theme.ts";
+import { highlight } from "../../lib/highlight.ts";
 
 interface MessageProps {
   role: "user" | "assistant" | "system";
@@ -8,6 +10,10 @@ interface MessageProps {
   streaming?: boolean;
   terminalWidth?: number;
   reasoning?: string;
+  /** Duration of the reasoning phase in ms */
+  reasoningDuration?: number;
+  /** Duration of the entire turn in ms */
+  turnDuration?: number;
 }
 
 interface TextSegment {
@@ -74,59 +80,102 @@ function parseMarkdown(text: string): TextSegment[] {
   return segments;
 }
 
-function renderSegment(segment: TextSegment, key: number): React.JSX.Element {
+function renderSegment(
+  segment: TextSegment,
+  key: number,
+  theme: ReturnType<typeof useTheme>,
+  syntax?: import("../../themes/definitions.ts").SyntaxColors,
+): React.JSX.Element {
   switch (segment.type) {
     case "bold":
       return (
-        <Text key={key} bold>
+        <Text key={key} bold color={theme.text}>
           {segment.content}
         </Text>
       );
     case "code":
       return (
-        <Text key={key} backgroundColor="gray" color="white">
+        <Text key={key} backgroundColor={theme.inputBg} color={theme.accent}>
           {" "}
           {segment.content}{" "}
         </Text>
       );
-    case "codeblock":
+    case "codeblock": {
+      // Detect language from first line if it looks like a lang tag.
+      const firstLine = segment.content.split("\n")[0] ?? "";
+      const langMatch = firstLine.match(/^[a-zA-Z0-9_+#-]+$/);
+      const lang = langMatch ? firstLine : undefined;
+      const code = lang
+        ? segment.content.slice(firstLine.length + 1)
+        : segment.content;
+      const highlightedLines = highlight(code, lang ?? "text", syntax);
       return (
         <Box
           key={key}
           flexDirection="column"
           borderStyle="round"
-          borderColor="gray"
+          borderColor={theme.border}
           paddingX={1}
         >
-          {segment.content.split("\n").map((line, i) => (
-            <Text key={i} color="green">
-              {line}
-            </Text>
-          ))}
+          {highlightedLines.length > 0 ? (
+            highlightedLines.map((line, i) => (
+              <Text key={i}>
+                {line.length > 0 ? (
+                  line.map((token, j) => (
+                    <Text key={j} color={token.color}>
+                      {token.text}
+                    </Text>
+                  ))
+                ) : (
+                  <Text> </Text>
+                )}
+              </Text>
+            ))
+          ) : (
+            code.split("\n").map((line, i) => (
+              <Text key={i} color={theme.accent}>
+                {line}
+              </Text>
+            ))
+          )}
         </Box>
       );
+    }
     default:
-      return <Text key={key}>{segment.content}</Text>;
+      return <Text key={key} color={theme.text}>{segment.content}</Text>;
   }
 }
 
-function renderContent(text: string): React.JSX.Element[] {
+function renderContent(
+  text: string,
+  theme: ReturnType<typeof useTheme>,
+  syntax?: import("../../themes/definitions.ts").SyntaxColors,
+): React.JSX.Element[] {
   const segments = parseMarkdown(text);
-  return segments.map((seg, i) => renderSegment(seg, i));
+  return segments.map((seg, i) => renderSegment(seg, i, theme, syntax));
 }
 
 function wrapText(text: string, width: number): string[] {
   const lines: string[] = [];
   for (const line of text.split("\n")) {
-    if (line.length <= width) {
+    const runes = [...line];
+    if (runes.length <= width) {
       lines.push(line);
     } else {
-      for (let i = 0; i < line.length; i += width) {
-        lines.push(line.slice(i, i + width));
+      for (let i = 0; i < runes.length; i += width) {
+        lines.push(runes.slice(i, i + width).join(""));
       }
     }
   }
   return lines;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const mins = Math.floor(ms / 60000);
+  const secs = ((ms % 60000) / 1000).toFixed(1);
+  return `${mins}m ${secs}s`;
 }
 
 export function MessageBubble({
@@ -135,8 +184,11 @@ export function MessageBubble({
   streaming,
   terminalWidth,
   reasoning,
+  reasoningDuration,
+  turnDuration,
 }: MessageProps): React.JSX.Element {
   const maxWidth = terminalWidth ? terminalWidth - 4 : 80;
+  const theme = useTheme();
 
   if (role === "system") {
     return (
@@ -171,7 +223,13 @@ export function MessageBubble({
 
   return (
     <Box flexDirection="column">
-      {reasoning && <ThinkingBlock reasoning={reasoning} />}
+      {reasoning && (
+        <ThinkingBlock
+          reasoning={reasoning}
+          duration={reasoningDuration}
+          theme={theme}
+        />
+      )}
       {wrapped.map((line, i) => (
         <Box key={i}>
           {i === 0 ? (
@@ -179,16 +237,22 @@ export function MessageBubble({
               <Text color="cyan" bold>
                 {prefix}
               </Text>
-              {renderContent(line)}
+              {renderContent(line, theme, theme.syntax)}
             </>
           ) : (
             <>
               <Text>{" ".repeat(prefix.length)}</Text>
-              {renderContent(line)}
+              {renderContent(line, theme, theme.syntax)}
             </>
           )}
         </Box>
       ))}
+      {/* Turn completion time — shown when turn is done (not streaming) */}
+      {!streaming && turnDuration != null && turnDuration > 0 && (
+        <Box marginTop={1}>
+          <Text color={theme.muted}>⏱ Turn completed in {formatDuration(turnDuration)}</Text>
+        </Box>
+      )}
       {streaming && (
         <Box>
           <Text>{" ".repeat(prefix.length)}</Text>

@@ -172,6 +172,15 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 			"input":      string(input),
 			"session_id": a.sessionID,
 		})
+		// Preamble streaming: emit a short natural-language preamble
+		// before tool execution (like Codex's "thinking" messages).
+		if a.thinkEnabled() {
+			a.emit("thinking", map[string]any{
+				"message":    generatePreamble(tc.Name),
+				"tool":       tc.Name,
+				"session_id": a.sessionID,
+			})
+		}
 		toolResult, toolErr := a.executeTool(ctx, tc.Name, input)
 
 		// §4.19 journal: record tool execution. Best-effort only.
@@ -225,7 +234,7 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 	// next prompt when many tools fail at once.
 	if rf, budget := a.getReflector(); rf != nil && budget > 0 {
 		notes := 0
-		for _, tr := range result.ToolResults {
+		for i, tr := range result.ToolResults {
 			if notes >= budget {
 				break
 			}
@@ -237,8 +246,13 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 			if errStr == "" && !rf.IsFailure(tr.ToolName, outStr, "") {
 				continue
 			}
+			callArgs := ""
+			if i < len(result.ToolCalls) {
+				callArgs = result.ToolCalls[i].Arguments
+			}
 			f := Failure{
 				ToolName: tr.ToolName,
+				Input:    callArgs,
 				Output:   outStr,
 				Error:    errStr,
 			}

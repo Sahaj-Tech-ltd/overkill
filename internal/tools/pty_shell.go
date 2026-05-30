@@ -11,6 +11,7 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/pty"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools/bash"
 )
 
 // PTYShellTool runs a command inside a pseudo-terminal so that progress bars,
@@ -23,14 +24,36 @@ type PTYShellTool struct {
 	// dispatch, but a scanner here catches direct callers (plugins,
 	// subagents) that bypass the agent loop.
 	scanner *security.CommandScanner
+	// bashValidate enables shell-specific security classification
+	// (the validator chain from internal/tools/bash/). When nil,
+	// only the generic CommandScanner runs. Set via WithBashSecurity().
+	bashValidate func(string) bash.Result
 }
 
-func NewPTYShellTool(cwd string) *PTYShellTool {
-	return &PTYShellTool{
+// BashSecurityOption controls whether the bash validator chain runs
+// inside PTYShellTool.Execute. Pass true to enable.
+type BashSecurityOption bool
+
+// WithBashSecurity enables or disables shell-specific security validation.
+// When enabled, the bash validator chain runs before the generic CommandScanner.
+func WithBashSecurity(enabled BashSecurityOption) func(*PTYShellTool) {
+	return func(t *PTYShellTool) {
+		if enabled {
+			t.bashValidate = bash.Validate
+		}
+	}
+}
+
+func NewPTYShellTool(cwd string, opts ...func(*PTYShellTool)) *PTYShellTool {
+	t := &PTYShellTool{
 		maxTimeout: 5 * time.Minute,
 		cwd:        cwd,
 		scanner:    security.NewCommandScanner(security.WithProjectPath(cwd)),
 	}
+	for _, o := range opts {
+		o(t)
+	}
+	return t
 }
 
 func (t *PTYShellTool) Name() string { return "pty_shell" }
@@ -54,6 +77,20 @@ func (t *PTYShellTool) Execute(ctx context.Context, input json.RawMessage) (json
 	}
 	if strings.TrimSpace(in.Command) == "" {
 		return nil, fmt.Errorf("pty_shell: command is required")
+	}
+
+	// Bash security validator chain (port from Claude Code):
+	// runs before the generic CommandScanner for shell-specific checks.
+	if t.bashValidate != nil {
+		r := t.bashValidate(in.Command)
+		switch r.Behavior {
+		case bash.Deny:
+			return nil, fmt.Errorf("pty_shell: blocked: %s (%s)", r.Message, r.Reason)
+		case bash.Ask:
+			// The agent loop's checkToolApproval will prompt the user.
+			// We pass through here — the agent sees the Ask result and
+			// surfaces it in the approval dialog.
+		}
 	}
 
 	// Defense-in-depth scan, identical to ShellTool. Mismatched gates here
@@ -101,7 +138,7 @@ func (t *PTYShellTool) Execute(ctx context.Context, input json.RawMessage) (json
 		}
 	}
 
-	cmd := exec.Command("sh", "-c", in.Command)
+	cmd := exec.CommandContext(ctx, "sh", "-c", in.Command)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}

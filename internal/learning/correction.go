@@ -51,13 +51,16 @@ func UnmarshalCorrection(data []byte) (*Correction, error) {
 // The patterns are case-insensitive and anchored at sentence starts or after
 // punctuation to avoid false positives mid-sentence.
 var correctionPatterns = []*regexp.Regexp{
-	// Start-of-message or after preceding punctuation
-	regexp.MustCompile(`(?im)^\s*(?:no|nope|nah)[,;:!.\s]`),
+	// Start-of-message or after preceding punctuation.
+	// "no" / "nope" / "nah" followed by punctuation (comma, semicolon, etc.)
+	// or end-of-line — NOT followed by another word like "worries" or "problem".
+	regexp.MustCompile(`(?im)^\s*(?:no|nope|nah)[,;:!.]`),
+	regexp.MustCompile(`(?im)^\s*(?:no|nope|nah)\s*$`),
 	regexp.MustCompile(`(?im)^\s*wrong[,;:!.\s]`),
 	regexp.MustCompile(`(?im)^\s*actually[,;:!.\s]`),
 	regexp.MustCompile(`(?im)^\s*instead[,;:!.\s]`),
 	regexp.MustCompile(`(?im)^\s*correct(?:ion)?\s*[:;]`),
-	regexp.MustCompile(`(?im)^\s*that(?:'s|\s+is)\s+wrong`),
+	regexp.MustCompile(`(?im)^\s*(?:no\s+)?that(?:'s|\s+is)\s+wrong`),
 	regexp.MustCompile(`(?im)^\s*don'?t\s+do\s+that`),
 	regexp.MustCompile(`(?im)^\s*please\s+don'?t\b`),
 	regexp.MustCompile(`(?im)^\s*i\s+(?:meant|said|wanted)\b`),

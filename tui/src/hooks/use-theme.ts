@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
-import { type Theme, themes } from "../themes/definitions.ts";
+import type { Theme } from "../themes/definitions.ts";
+import { themes } from "../themes/all-themes.ts";
 
 export interface UseThemeResult {
   theme: Theme;
@@ -8,8 +9,18 @@ export interface UseThemeResult {
   availableThemes: Array<{ name: string; label: string }>;
 }
 
+const DEFAULT_THEME = "catppuccin-mocha";
+
+function getInitialTheme(): string {
+  const envTheme = process.env["OVERKILL_THEME"];
+  if (envTheme && themes[envTheme]) {
+    return envTheme;
+  }
+  return DEFAULT_THEME;
+}
+
 export function useTheme(): UseThemeResult {
-  const [themeName, setThemeName] = useState<string>("dark");
+  const [themeName, setThemeName] = useState<string>(getInitialTheme);
 
   const setTheme = useCallback((name: string) => {
     if (themes[name]) {
@@ -18,12 +29,12 @@ export function useTheme(): UseThemeResult {
   }, []);
 
   const theme = useMemo(
-    () => themes[themeName] ?? themes["dark"]!,
+    () => themes[themeName] ?? themes[DEFAULT_THEME]!,
     [themeName],
   );
 
   const availableThemes = useMemo(
-    () => Object.values(themes).map((t) => ({ name: t.name, label: t.label })),
+    () => Object.values(themes as Record<string, Theme>).map((t) => ({ name: t.name, label: t.label })),
     [],
   );
 

@@ -20,7 +20,7 @@ func TestLoadUserOverrides_MissingFile(t *testing.T) {
 	if u.Profile != "yolo" {
 		t.Errorf("Profile = %q, want yolo", u.Profile)
 	}
-	if u.Advanced.Scanners.Command.Enabled {
+	if u.Advanced.Scanners.Command.Enabled != nil && *u.Advanced.Scanners.Command.Enabled {
 		t.Error("yolo default: command scanner should be disabled")
 	}
 	if u.Advanced.Permissions.AutoApproveAll == nil || !*u.Advanced.Permissions.AutoApproveAll {
@@ -50,7 +50,7 @@ func TestApplyProfile(t *testing.T) {
 			if u.Profile != tc.profile {
 				t.Errorf("Profile = %q, want %q", u.Profile, tc.profile)
 			}
-			if got := u.Advanced.Scanners.Command.Enabled; got != tc.wantCommand {
+			if got := u.Advanced.Scanners.Command.Enabled; got == nil || *got != tc.wantCommand {
 				t.Errorf("Command scanner = %v, want %v", got, tc.wantCommand)
 			}
 			autoApprove := false
@@ -77,7 +77,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 
 	u := DefaultUserOverrides()
 	u.Basic.Model = "claude-sonnet-4-6"
-	u.Basic.VimMode = true
+	u.Basic.VimMode = boolPtr(true)
 	u.Advanced.Persona.Tone = "terse"
 
 	if err := SaveUserOverrides(path, u); err != nil {
@@ -91,7 +91,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	if loaded.Basic.Model != "claude-sonnet-4-6" {
 		t.Errorf("Model = %q, want claude-sonnet-4-6", loaded.Basic.Model)
 	}
-	if !loaded.Basic.VimMode {
+	if loaded.Basic.VimMode == nil || !*loaded.Basic.VimMode {
 		t.Error("VimMode should round-trip true")
 	}
 	if loaded.Advanced.Persona.Tone != "terse" {
@@ -149,7 +149,7 @@ func TestLoadUserOverrides_PartialFile(t *testing.T) {
 		t.Errorf("Model = %q, want claude-haiku", u.Basic.Model)
 	}
 	// Yolo defaults still apply for unspecified fields.
-	if u.Advanced.Scanners.Command.Enabled {
+	if u.Advanced.Scanners.Command.Enabled != nil && *u.Advanced.Scanners.Command.Enabled {
 		t.Error("partial file should preserve yolo defaults (command scanner off)")
 	}
 }
