@@ -53,7 +53,12 @@
 
   @shadow host shadow.databunker.uk
   handle @shadow {
-    reverse_proxy host.docker.internal:3004
+    respond 404 "use harshvardhanrathi.com"
+  }
+
+  @harsha host harshvardhanrathi.com www.harshvardhanrathi.com
+  handle @harsha {
+    reverse_proxy shadow:3000
   }
 
   @attentive host attentive.databunker.uk attentive.fyi
