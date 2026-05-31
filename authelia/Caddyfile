@@ -68,7 +68,7 @@
 
   @builders host builders.databunker.uk
   handle @builders {
-    reverse_proxy builders-site:80
+    reverse_proxy host.docker.internal:8182
   }
 
   # Catch-all: return 404 for unmatched hosts instead of silent 200
