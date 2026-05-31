@@ -66,6 +66,11 @@
     reverse_proxy attentive:3003
   }
 
+  @builders host builders.databunker.uk
+  handle @builders {
+    reverse_proxy builders-site:80
+  }
+
   # Catch-all: return 404 for unmatched hosts instead of silent 200
   handle {
     respond 404
