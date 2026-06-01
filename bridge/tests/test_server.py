@@ -1,10 +1,14 @@
 import os
 import sys
 
+import pytest
+
 _BRIDGE_DIR = os.path.join(os.path.dirname(__file__), "..")
 _PROTO_DIR = os.path.join(_BRIDGE_DIR, "proto")
 sys.path.insert(0, _BRIDGE_DIR)
 sys.path.insert(0, _PROTO_DIR)
+
+SKIP_INTEGRATION = os.environ.get("CI", "") == "true"
 
 
 import grpc  # noqa: E402
@@ -82,6 +86,7 @@ def test_ping() -> None:
     assert resp.version == "0.2.0"
 
 
+@pytest.mark.skipif(SKIP_INTEGRATION, reason="ML model required, skipped in CI")
 def test_embed() -> None:
     servicer = OverkillBridgeServicer()
     resp = servicer.Embed(overkill_pb2.EmbedRequest(text="hello world", model="test"), FakeContext())
@@ -89,6 +94,7 @@ def test_embed() -> None:
     assert resp.tokens > 0
 
 
+@pytest.mark.skipif(SKIP_INTEGRATION, reason="ML model required, skipped in CI")
 def test_embed_batch() -> None:
     servicer = OverkillBridgeServicer()
     resp = servicer.EmbedBatch(
@@ -100,6 +106,7 @@ def test_embed_batch() -> None:
         assert r.tokens > 0
 
 
+@pytest.mark.skipif(SKIP_INTEGRATION, reason="ML model required, skipped in CI")
 def test_rerank() -> None:
     servicer = OverkillBridgeServicer()
     resp = servicer.Rerank(
