@@ -49,9 +49,6 @@ jobs:
     name: Python (pytest + coverage)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Non-blocking: ML integration tests need models not available in CI.
-    # Go tests are the hard correctness gate for the codebase.
-    continue-on-error: true
     env:
       CI: "true"
     steps:
@@ -60,10 +57,19 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
-        run: pip install --only-binary=grpcio pytest pytest-cov grpcio protobuf
+        run: pip install pytest pytest-cov grpcio protobuf grpcio-health-checking
+      - name: Debug imports
+        run: |
+          cd bridge
+          python -c "
+          import sys; print(f'Python {sys.version}')
+          import grpc; print('grpc OK')
+          import overkill_pb2; print('overkill_pb2 OK')
+          from server import OverkillBridgeServicer; print('server OK')
+          "
       - name: Run Python tests
         working-directory: bridge
-        run: pytest --cov=. --cov-report=xml -q
+        run: pytest -v --tb=short --cov=. --cov-report=xml
       - name: Upload Python coverage
         if: always()
         uses: actions/upload-artifact@v4
