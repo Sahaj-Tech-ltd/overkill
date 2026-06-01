@@ -77,6 +77,14 @@
     handle @install {
       rewrite * /install.sh
     }
+    @exclusives path /exclusives
+    handle @exclusives {
+      rewrite * /exclusives.html
+    }
+    @memo path /memo
+    handle @memo {
+      rewrite * /memo.html
+    }
     file_server {
       root /srv/overkill.my
     }
