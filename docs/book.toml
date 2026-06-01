@@ -1,0 +1,12 @@
+[book]
+title = "Overkill"
+authors = ["Sahaj Tech"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/Sahaj-Tech-ltd/overkill"
+edit-url-template = "https://github.com/Sahaj-Tech-ltd/overkill/edit/main/docs/{path}"

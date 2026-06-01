@@ -1,0 +1,16 @@
+# Gitleaks config for Overkill
+# Pre-push hook uses: gitleaks detect -c .gitleaks.toml
+# Docs: https://github.com/gitleaks/gitleaks#configuration
+
+[allowlist]
+  description = "Test fixtures and known false positives"
+  paths = [
+    '''_test\.go$''',
+    '''testdata/''',
+    '''\.gitleaks\.toml$''',
+  ]
+  regexes = [
+    '''sk-(?:res-)?[\w]{3,8}\.\.\.[\w]{3,8}''',
+    '''eyJ[a-zA-Z0-9_\-]{2,8}\.\.\.[a-zA-Z0-9_\-]{2,8}''',
+    '''up/down/tab/enter/esc''',
+  ]

@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          OUT="dist/overkill-${GOOS}-${GOARCH}"
+          [ "$GOOS" = "windows" ] && OUT="${OUT}.exe"
+          mkdir -p dist
+          go build -trimpath \
+            -ldflags="-s -w -X main.Version=${VERSION}" \
+            -o "$OUT" \
+            ./cmd/overkill
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: overkill-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+
+  checksums:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: overkill-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Generate checksums
+        run: cd dist && sha256sum * > checksums.txt
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: dist/checksums.txt
+
+  publish:
+    needs: checksums
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: overkill-*
+          merge-multiple: true
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: dist/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes-file CHANGELOG.md \
+            dist/overkill-* dist/checksums.txt

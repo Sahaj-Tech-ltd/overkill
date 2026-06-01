@@ -1,0 +1,72 @@
+name: Supply-Chain Audit
+
+# Catches suspicious files, install hooks, and audits Python dependencies.
+# Split out from security.yml so the supply-chain failure mode is its
+# own line on the PR check list — readers can tell at a glance whether
+# a failure is "vulnerable dep" vs "code smell" vs "leaked secret".
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Weekly Sunday 00:00 UTC. Catches newly-published advisories for
+    # deps that weren't touched in any recent PR.
+    - cron: "0 0 * * 0"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check for .pth files in dependencies
+        run: |
+          # .pth files in site-packages are an old supply-chain attack
+          # vector — they get auto-imported at Python startup. None of
+          # our deps need them, so any .pth in the tree is a smell.
+          if find . -name "*.pth" -not -path "./.git/*" | grep -q .; then
+            echo "::error::Found .pth file in dependencies"
+            exit 1
+          fi
+          echo "No .pth files found"
+
+      - name: Check for base64+exec patterns in Python deps
+        run: |
+          # Packages that pair base64 with exec/eval are a classic
+          # obfuscated-payload signature. Bridge code is small enough
+          # that this grep is precise — bigger Python codebases would
+          # need a denylist of known-good usages.
+          if grep -r -l "base64" bridge/ --include="*.py" --exclude-dir=proto 2>/dev/null | xargs -r grep -l "exec\|eval" 2>/dev/null; then
+            echo "::error::Found base64+exec patterns"
+            exit 1
+          fi
+          echo "No suspicious base64+exec patterns found"
+
+      - name: Check for suspicious install hooks
+        run: |
+          # preinstall/postinstall scripts in package.json are the
+          # primary npm supply-chain attack vector. We don't ship JS,
+          # so any package.json with these hooks shouldn't be in the
+          # tree.
+          if find . -name "package.json" -not -path "./.git/*" -exec grep -l "preinstall\|postinstall" {} \; | grep -q .; then
+            echo "::error::Found suspicious install hooks"
+            exit 1
+          fi
+          echo "No suspicious install hooks found"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit on bridge deps
+        working-directory: bridge
+        run: pip-audit -r requirements.txt

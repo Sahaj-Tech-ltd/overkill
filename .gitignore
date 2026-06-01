@@ -1,0 +1,67 @@
+# Build output
+bin/
+dist/
+overkill
+*.exe
+
+# Dependencies (npm)
+tui/node_modules/
+node_modules/
+
+# Internal docs — stay local, never on GitHub
+plans/
+bugs.md
+plan.md
+out-of-scope.md
+wishes.md
+BUG_SWEEP_REPORT.md
+
+# Local-only directories — not part of the repo
+deprecated/
+deploy/
+inspiration/
+research/
+
+# Built docs site (mdBook output — built during CI, not source)
+docs/book/
+
+# HTML (except web UI static)
+*.html
+!internal/web/static/index.html
+
+# Compiled plugin binaries
+examples/plugins/*/git-stats
+examples/plugins/*/notes
+examples/**/*.exe
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env (secrets)
+.env
+.env.*
+!.env.example
+
+# Go
+*.test
+*.out
+*.prof
+
+# Python
+__pycache__/
+*.pyc
+bridge/.venv/
+bridge/bridge.egg-info/
+.ruff_cache/
+
+# Cache & temp
+.cache/
+*.log
+REDTEAM_REPORT.md

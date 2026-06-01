@@ -1,0 +1,326 @@
+package api
+
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
+)
+
+// JSON-RPC 2.0 envelope types.
+
+type Request struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type Response struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Result  interface{}     `json:"result,omitempty"`
+	Error   *RPCError       `json:"error,omitempty"`
+}
+
+type RPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// Standard JSON-RPC error codes.
+const (
+	ParseError     = -32700
+	InvalidRequest = -32600
+	MethodNotFound = -32601
+	InvalidParams  = -32602
+	InternalError  = -32603
+)
+
+func errorString(code int) string {
+	switch code {
+	case ParseError:
+		return "Parse error"
+	case InvalidRequest:
+		return "Invalid request"
+	case MethodNotFound:
+		return "Method not found"
+	case InvalidParams:
+		return "Invalid params"
+	default:
+		return "Internal error"
+	}
+}
+
+// --- agent ---
+
+type SendMessageParams struct {
+	SessionID string `json:"session_id,omitempty"`
+	Message   string `json:"message"`
+}
+
+type SendMessageResult struct {
+	Response    string `json:"response"`
+	ToolCalls   int    `json:"tool_calls"`
+	TotalTokens int    `json:"total_tokens"`
+	Steps       int    `json:"steps"`
+	Model       string `json:"model"`
+	Blocked     bool   `json:"blocked"`
+	BlockReason string `json:"block_reason,omitempty"`
+}
+
+type AbortParams struct {
+	SessionID string `json:"session_id"`
+}
+
+// SteerParams is the payload for agent.steer RPC calls.
+type SteerParams struct {
+	SessionID string `json:"session_id"`
+	Message   string `json:"message"`
+	Role      string `json:"role,omitempty"`
+}
+
+// --- session ---
+
+type SessionInfo struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Name      string    `json:"name"`
+	Folder    string    `json:"folder"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Model     string    `json:"model"`
+	Provider  string    `json:"provider"`
+	Status    string    `json:"status"`
+	ParentID  string    `json:"parent_id,omitempty"`
+	Children  []string  `json:"children,omitempty"`
+}
+
+// ForkParams is the payload for agent.fork RPC calls.
+type ForkParams struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name,omitempty"`
+}
+
+// ForkResult is returned by agent.fork.
+type ForkResult struct {
+	Session SessionInfo `json:"session"`
+}
+
+type SessionListResult struct {
+	Sessions []SessionInfo `json:"sessions"`
+}
+
+type SessionCreateParams struct {
+	Folder   string `json:"folder,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Provider string `json:"provider,omitempty"`
+}
+
+type SessionCreateResult struct {
+	Session SessionInfo `json:"session"`
+}
+
+type SessionDeleteParams struct {
+	ID string `json:"id"`
+}
+
+// --- config ---
+
+type ConfigGetResult struct {
+	Version      int                    `json:"version"`
+	Agent        map[string]interface{} `json:"agent"`
+	UI           map[string]interface{} `json:"ui"`
+	Thinking     map[string]interface{} `json:"thinking,omitempty"`
+	SystemPrompt string                 `json:"system_prompt,omitempty"`
+	Security     map[string]interface{} `json:"security,omitempty"`
+	Session      map[string]interface{} `json:"session,omitempty"`
+	Cost         map[string]interface{} `json:"cost,omitempty"`
+	Compaction   map[string]interface{} `json:"compaction,omitempty"`
+	Ouroboros    map[string]interface{} `json:"ouroboros,omitempty"`
+	RedTeam      map[string]interface{} `json:"red_team,omitempty"`
+	Gateways     map[string]interface{} `json:"gateways,omitempty"`
+}
+
+type ConfigUpdateParams struct {
+	Patch map[string]interface{} `json:"patch"`
+}
+
+// --- providers ---
+
+type ProviderInfo struct {
+	Name   string      `json:"name"`
+	Type   string      `json:"type"`
+	Models []ModelInfo `json:"models"`
+}
+
+type ModelInfo struct {
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Family           string   `json:"family"`
+	ContextWindow    int      `json:"context_window"`
+	DefaultMaxTokens int      `json:"maxTokens"`
+	SupportsTools    bool     `json:"supports_tools"`
+	SupportsVision   bool     `json:"supports_vision"`
+	Reasoning        bool     `json:"reasoning"`
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
+}
+
+type ProvidersListResult struct {
+	Providers []ProviderInfo `json:"providers"`
+}
+
+type ModelsListParams struct {
+	Provider string `json:"provider"`
+}
+
+type ModelsListResult struct {
+	Models []ModelInfo `json:"models"`
+}
+
+// --- config.exists / config.create ---
+
+type ConfigExistsResult struct {
+	Exists bool `json:"exists"`
+}
+
+type ConfigCreateParams struct {
+	Providers      []config.ProviderConfig `json:"providers,omitempty"`
+	Models         []config.ModelConfig    `json:"models,omitempty"`
+	DefaultModel   string                  `json:"defaultModel,omitempty"`
+	VisionProvider string                  `json:"visionProvider,omitempty"`
+	ReviewProvider string                  `json:"reviewProvider,omitempty"`
+	TTS            *TTSConfig              `json:"tts,omitempty"`
+	Gateway        *GatewayConfigFields    `json:"gateway,omitempty"`
+}
+
+// TTSConfig holds text-to-speech settings written as part of config.create.
+type TTSConfig struct {
+	Provider string `json:"provider,omitempty"` // "openai" | "elevenlabs" | "edge"
+	APIKey   string `json:"apiKey,omitempty"`
+	Voice    string `json:"voice,omitempty"`
+}
+
+// GatewayConfigFields holds gateway configuration for the onboarding wizard.
+type GatewayConfigFields struct {
+	Discord  *DiscordGatewayConfig  `json:"discord,omitempty"`
+	Telegram *TelegramGatewayConfig `json:"telegram,omitempty"`
+	WhatsApp *WhatsAppGatewayConfig `json:"whatsapp,omitempty"`
+}
+
+type DiscordGatewayConfig struct {
+	BotToken        string `json:"bot_token,omitempty"`
+	Enabled         bool   `json:"enabled"`
+	NotifyChannelID string `json:"notify_channel_id,omitempty"`
+}
+
+type TelegramGatewayConfig struct {
+	BotToken     string `json:"bot_token,omitempty"`
+	Enabled      bool   `json:"enabled"`
+	NotifyChatID int64  `json:"notify_chat_id,omitempty"`
+}
+
+type WhatsAppGatewayConfig struct {
+	Enabled bool   `json:"enabled"`
+	Backend string `json:"backend,omitempty"` // "whatsmeow" | "cloud"
+}
+
+// --- agent.subagents ---
+
+type SubagentInfo struct {
+	Name      string `json:"name"`
+	Status    string `json:"status"` // "running" | "completed" | "failed"
+	ElapsedMs int64  `json:"elapsed_ms"`
+	Model     string `json:"model"`
+}
+
+type SubagentListResult struct {
+	Subagents []SubagentInfo `json:"subagents"`
+}
+
+// --- gateway.test ---
+
+type GatewayTestParams struct {
+	Gateway string `json:"gateway"` // "discord" | "telegram" | "slack"
+	Token   string `json:"token"`
+}
+
+type GatewayTestResult struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	User  string `json:"user,omitempty"` // bot username if OK
+}
+
+// --- status ---
+
+type HealthResult struct {
+	Status  string `json:"status"`
+	Version int    `json:"version"`
+}
+
+// --- wizard.catalog ---
+
+type WizardCatalogResult struct {
+	Providers   []config.WizardOption `json:"providers"`
+	Gateways    []config.WizardOption `json:"gateways"`
+	TTS         []config.WizardOption `json:"tts"`
+	Databases   []config.WizardOption `json:"databases"`
+	Review      []config.WizardOption `json:"review"`
+	Recommended config.QuickSetup     `json:"recommended"`
+}
+
+// --- wizard.quick-setup ---
+
+type WizardQuickSetupParams struct {
+	Provider       string `json:"provider,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Gateway        string `json:"gateway,omitempty"`
+	TTS            string `json:"tts,omitempty"`
+	Database       string `json:"database,omitempty"`
+	ReviewProvider string `json:"review_provider,omitempty"`
+	ReviewModel    string `json:"review_model,omitempty"`
+}
+
+type WizardQuickSetupResult struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// --- goal.get / plan.get (dashboard RPC) ---
+
+type GoalGetResult struct {
+	Objective   string  `json:"objective"`
+	Status      string  `json:"status"`
+	TokenBudget *int    `json:"token_budget"`
+	TokensUsed  int     `json:"tokens_used"`
+	TimeUsedS   float64 `json:"time_used_s"`
+}
+
+type PlanGetItem struct {
+	ID     string `json:"id"`
+	Text   string `json:"text"`
+	Status string `json:"status"`
+}
+
+type PlanGetResult struct {
+	Title string        `json:"title"`
+	Items []PlanGetItem `json:"items"`
+}
+
+// --- session.usage ---
+
+// SessionUsageParams is the payload for session.usage RPC calls.
+type SessionUsageParams struct {
+	SessionID string `json:"session_id,omitempty"`
+	Scope     string `json:"scope,omitempty"` // "session" (default), "daily", "all"
+}
+
+// SessionUsageResult is returned by session.usage.
+type SessionUsageResult struct {
+	Report    *cost.UsageReport `json:"report"`
+	Daily     *cost.CostSummary `json:"daily,omitempty"`      // populated when scope=daily
+	SyncError string            `json:"sync_error,omitempty"` // last auto-push failure for this session
+}

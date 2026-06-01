@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  overkill:
+    build: .
+    container_name: overkill
+    environment:
+      - OVERKILL_CONFIG=/workspace/.overkill/config.toml
+    volumes:
+      - .:/workspace
+      - overkill-data:/home/overkill/.overkill
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+
+volumes:
+  overkill-data:
