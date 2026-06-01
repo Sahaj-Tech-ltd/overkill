@@ -2,7 +2,7 @@ services:
   stirling-pdf:
     image: frooodle/s-pdf:latest
     container_name: stirling-pdf
-    restart: unless-stopped
+    restart: "no"
     ports:
       - "8080:8080"
     volumes:

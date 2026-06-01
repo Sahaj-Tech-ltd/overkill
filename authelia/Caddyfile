@@ -30,7 +30,7 @@
   @pdf host pdf.databunker.uk
   handle @pdf {
     import protected
-    reverse_proxy host.docker.internal:8080
+    reverse_proxy host.docker.internal:8095
   }
 
   @joules host joules.me
