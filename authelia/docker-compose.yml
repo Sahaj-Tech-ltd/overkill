@@ -55,6 +55,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy-data:/data
+      - /home/harsh/claude/overkill-website:/srv/overkill.my:ro
     ports:
       - "127.0.0.1:8888:80"
     extra_hosts:

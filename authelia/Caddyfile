@@ -71,6 +71,17 @@
     reverse_proxy host.docker.internal:8182
   }
 
+  @overkill host overkill.my
+  handle @overkill {
+    @install path /install
+    handle @install {
+      rewrite * /install.sh
+    }
+    file_server {
+      root /srv/overkill.my
+    }
+  }
+
   # Catch-all: return 404 for unmatched hosts instead of silent 200
   handle {
     respond 404
