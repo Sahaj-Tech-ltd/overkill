@@ -38,11 +38,6 @@
     reverse_proxy host.docker.internal:8687
   }
 
-  @stillhere host stillherehq.com www.stillherehq.com
-  handle @stillhere {
-    reverse_proxy stillhere-api:8000
-  }
-
   @sync host sync.databunker.uk
   handle @sync {
     import protected
@@ -61,7 +56,7 @@
     reverse_proxy shadow:3000
   }
 
-  @attentive host attentive.databunker.uk attentive.fyi
+  @attentive host attentive.fyi
   handle @attentive {
     reverse_proxy attentive:3003
   }
