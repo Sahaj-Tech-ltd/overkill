@@ -38,6 +38,11 @@
     reverse_proxy host.docker.internal:8687
   }
 
+  @stillhere host stillherehq.com www.stillherehq.com
+  handle @stillhere {
+    reverse_proxy stillhere-api:8000
+  }
+
   @sync host sync.databunker.uk
   handle @sync {
     import protected
@@ -64,6 +69,16 @@
   @builders host builders.databunker.uk
   handle @builders {
     reverse_proxy host.docker.internal:8182
+  }
+
+  @sign host sign.databunker.uk
+  handle @sign {
+    reverse_proxy host.docker.internal:3002
+  }
+
+  @ntfy host ntfy.databunker.uk
+  handle @ntfy {
+    reverse_proxy host.docker.internal:2586
   }
 
   @overkill host overkill.my
