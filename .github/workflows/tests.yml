@@ -57,7 +57,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
-        run: pip install pytest pytest-cov grpcio protobuf
+        run: pip install --only-binary=grpcio pytest pytest-cov grpcio protobuf
       - name: Run Python tests
         working-directory: bridge
         run: pytest --cov=. --cov-report=xml -q
