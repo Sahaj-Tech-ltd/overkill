@@ -65,3 +65,5 @@ bridge/bridge.egg-info/
 .cache/
 *.log
 REDTEAM_REPORT.md
+/bridge/.coverage
+/bridge/coverage.xml
