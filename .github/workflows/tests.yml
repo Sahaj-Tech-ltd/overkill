@@ -52,7 +52,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
-        run: pip install -e bridge/[dev]
+        run: |
+          pip install pytest pytest-cov grpcio protobuf numpy
+          pip install -e bridge/ --no-deps
       - name: Run Python tests
         working-directory: bridge
         run: pytest --cov=. --cov-report=xml -q
