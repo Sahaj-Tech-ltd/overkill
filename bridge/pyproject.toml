@@ -22,6 +22,9 @@ dev = [
     "ruff>=0.3.0",
     "mypy>=1.8",
 ]
+qdrant = [
+    "qdrant-client>=1.8.0",
+]
 
 [tool.setuptools]
 py-modules = []

@@ -13,5 +13,16 @@ services:
     stdin_open: true
     tty: true
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: overkill-qdrant
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    profiles:
+      - vector
+
 volumes:
   overkill-data:
+  qdrant-data:
