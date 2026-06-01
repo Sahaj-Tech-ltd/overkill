@@ -9,12 +9,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 from concurrent import futures
 
 import grpc  # noqa: E402
-import overkill_pb2  # noqa: E402
-import overkill_pb2_grpc  # noqa: E402
 
 # grpc health check — standard health checking protocol
 from grpc_health.v1 import health_pb2, health_pb2_grpc  # noqa: E402
 
+import overkill_pb2  # noqa: E402
+import overkill_pb2_grpc  # noqa: E402
 from compaction.service import CompactionService  # noqa: E402
 from embeddings.service import EmbeddingService  # noqa: E402
 from memory.service import VectorMemoryService  # noqa: E402
@@ -173,10 +173,14 @@ class OverkillBridgeServicer(overkill_pb2_grpc.OverkillBridgeServicer):
 class HealthServicer(health_pb2_grpc.HealthServicer):
     """Standard gRPC health check service."""
 
-    def Check(self, request: health_pb2.HealthCheckRequest, context: grpc.ServicerContext) -> health_pb2.HealthCheckResponse:
+    def Check(  # noqa: N802
+        self, request: health_pb2.HealthCheckRequest, context: grpc.ServicerContext
+    ) -> health_pb2.HealthCheckResponse:
         return health_pb2.HealthCheckResponse(status=health_pb2.HealthCheckResponse.SERVING)
 
-    def Watch(self, request: health_pb2.HealthCheckRequest, context: grpc.ServicerContext):
+    def Watch(  # noqa: N802
+        self, request: health_pb2.HealthCheckRequest, context: grpc.ServicerContext
+    ):
         # Not implemented — streaming health watch not needed.
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         return health_pb2.HealthCheckResponse()

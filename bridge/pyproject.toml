@@ -39,7 +39,7 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM"]
-exclude = ["proto/"]
+exclude = ["proto/", "overkill_pb2.py", "overkill_pb2_grpc.py", "overkill_pb2.pyi", "overkill_pb2_grpc.pyi"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -20,7 +20,7 @@ class VectorMemoryService:
         self._store: dict[str, dict] = {}
         self._mu = threading.RLock()
         self._store_order: list[str] = []
-        self._pg_backend: "PostgresVectorBackend | None" = None
+        self._pg_backend: PostgresVectorBackend | None = None
         self._pg_lock = threading.Lock()
 
     def _validate_backend(self, backend: str) -> None:
@@ -28,7 +28,7 @@ class VectorMemoryService:
             supported = ", ".join(sorted(_SUPPORTED_BACKENDS))
             raise ValueError(f"Unsupported backend '{backend}'. Supported: {supported}")
 
-    def _get_pg(self) -> "PostgresVectorBackend":
+    def _get_pg(self) -> PostgresVectorBackend:
         if self._pg_backend is not None:
             return self._pg_backend
         with self._pg_lock:
@@ -105,7 +105,7 @@ class VectorMemoryService:
     def _cosine_similarity(a: list[float], b: list[float]) -> float:
         if len(a) != len(b):
             raise ValueError(f"Dimension mismatch: {len(a)} vs {len(b)}")
-        dot = sum(x * y for x, y in zip(a, b))
+        dot = sum(x * y for x, y in zip(a, b, strict=False))
         norm_a = math.sqrt(sum(x * x for x in a))
         norm_b = math.sqrt(sum(x * x for x in b))
         if norm_a == 0 or norm_b == 0:

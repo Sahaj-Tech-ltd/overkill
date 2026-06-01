@@ -6,12 +6,10 @@ _PROTO_DIR = os.path.join(_BRIDGE_DIR, "proto")
 sys.path.insert(0, _BRIDGE_DIR)
 sys.path.insert(0, _PROTO_DIR)
 
-import overkill_pb2  # noqa: E402
-
-import collections
 
 import grpc  # noqa: E402
 
+import overkill_pb2  # noqa: E402
 from server import OverkillBridgeServicer  # noqa: E402
 
 
@@ -81,7 +79,7 @@ def test_ping() -> None:
     servicer = OverkillBridgeServicer()
     resp = servicer.Ping(overkill_pb2.PingRequest(), FakeContext())
     assert resp.status == "ok"
-    assert resp.version == "0.1.0"
+    assert resp.version == "0.2.0"
 
 
 def test_embed() -> None:
