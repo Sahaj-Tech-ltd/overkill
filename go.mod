@@ -1,6 +1,6 @@
 module github.com/Sahaj-Tech-ltd/overkill
 
-go 1.26
+go 1.24
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.7
