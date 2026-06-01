@@ -64,9 +64,8 @@ jobs:
           fi
           echo "No suspicious install hooks found"
 
-      - name: Install pip-audit
-        run: pip install pip-audit
+      - name: Install bridge + pip-audit
+        run: pip install -e bridge/[dev] pip-audit
 
-      - name: Run pip-audit on bridge deps
-        working-directory: bridge
-        run: pip-audit -r requirements.txt
+      - name: Run pip-audit on installed packages
+        run: pip-audit
