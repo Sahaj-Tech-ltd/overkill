@@ -62,12 +62,15 @@ func TestWireAgent_ModelHotSwap(t *testing.T) {
 	rep := &captureReporter{}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	stop, err := WireAgent(ctx, b, agent, file, rep)
 	if err != nil {
+		cancel()
 		t.Fatalf("WireAgent: %v", err)
 	}
+	// Defer in cancel-first order: cancel fires ctx.Done() so the
+	// WireAgent goroutine exits and stop()'s <-done unblocks.
 	defer stop()
+	defer cancel()
 
 	// Save a new model.
 	if err := os.WriteFile(file, []byte("schema_version: 1\nbasic:\n  model: claude-haiku-4-5\n"), 0o644); err != nil {
@@ -114,9 +117,9 @@ func TestWireAgent_PersonaChangeReports(t *testing.T) {
 	agent := &fakeAgent{}
 	rep := &captureReporter{}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	stop, _ := WireAgent(ctx, b, agent, file, rep)
 	defer stop()
+	defer cancel()
 
 	_ = os.WriteFile(file, []byte("schema_version: 1\nadvanced:\n  persona:\n    tone: terse\n"), 0o644)
 

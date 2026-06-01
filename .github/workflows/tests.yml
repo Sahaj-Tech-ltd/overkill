@@ -18,6 +18,7 @@ concurrency:
 env:
   GO_VERSION: "1.24"
   PYTHON_VERSION: "3.12"
+  GOTOOLCHAIN: auto
 
 jobs:
   go-tests:
@@ -51,7 +52,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
-        run: pip install -r bridge/requirements.txt
+        run: pip install -e bridge/[dev]
       - name: Run Python tests
         working-directory: bridge
         run: pytest --cov=. --cov-report=xml -q
