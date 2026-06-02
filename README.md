@@ -1,17 +1,17 @@
 <div align="center">
 
-```
- ██████╗ ██╗   ██╗███████╗██████╗ ██╗  ██╗ ██╗██╗     ██╗
+<pre>
+ ██████╗ ██╗   ██╗███████╗██████╗ ██╗  ██╗██╗██╗     ██╗
  ██╔═══██╗██║   ██║██╔════╝██╔══██╗██║ ██╔╝██║██║     ██║
  ██║   ██║██║   ██║█████╗  ██████╔╝█████╔╝ ██║██║     ██║
  ██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗██╔═██╗ ██║██║     ██║
  ╚██████╔╝ ╚████╔╝ ███████╗██║  ██║██║  ██╗██║███████╗███████╗
  ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝
-```
+</pre>
 
 # overkill
 
-**The Frontier AI Harness That Has A Personality And Lets You Vibecode From Bed.**
+**The Frontier AI harness That Has A Personality And Lets You Vibecode From Bed.**
 
 [![Go](https://img.shields.io/badge/go-1.23+-00ADD8?style=flat-square&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-blue?style=flat-square)](LICENSE-MIT)
