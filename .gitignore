@@ -53,3 +53,5 @@ bridge/bridge.egg-info/
 REDTEAM_REPORT.md
 /bridge/.coverage
 /bridge/coverage.xml
+prod/overkill
+prod/bin/
