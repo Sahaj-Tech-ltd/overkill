@@ -32,24 +32,24 @@ type SetupWizard struct {
 
 // providerToCatalog maps setup wizard provider keys to models.dev catalog IDs.
 var providerToCatalog = map[string]string{
-	"openai":      "openai",
-	"anthropic":   "anthropic",
-	"gemini":      "google",
-	"deepseek":    "deepseek",
-	"ollama":      "ollama", // local, no catalog needed
-	"openrouter":  "openrouter",
-	"groq":        "groq",
-	"xai":         "xai",
-	"mistral":     "mistral",
-	"togetherai":  "togetherai",
-	"perplexity":  "perplexity",
-	"deepinfra":   "deepinfra",
-	"cerebras":    "cerebras",
-	"fireworks":   "fireworks-ai",
-	"bedrock":     "amazon-bedrock",
-	"vertex":      "google-vertex",
-	"azure":       "azure",
-	"copilot":     "github-copilot",
+	"openai":     "openai",
+	"anthropic":  "anthropic",
+	"gemini":     "google",
+	"deepseek":   "deepseek",
+	"ollama":     "ollama", // local, no catalog needed
+	"openrouter": "openrouter",
+	"groq":       "groq",
+	"xai":        "xai",
+	"mistral":    "mistral",
+	"togetherai": "togetherai",
+	"perplexity": "perplexity",
+	"deepinfra":  "deepinfra",
+	"cerebras":   "cerebras",
+	"fireworks":  "fireworks-ai",
+	"bedrock":    "amazon-bedrock",
+	"vertex":     "google-vertex",
+	"azure":      "azure",
+	"copilot":    "github-copilot",
 }
 
 // ProviderToCatalogID returns the models.dev catalog ID for a setup wizard
