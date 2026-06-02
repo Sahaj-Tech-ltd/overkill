@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill"
 )
 
 const defaultSoulMD = `# SOUL.md — Overkill's Constitution
@@ -137,11 +140,19 @@ func BootstrapOverkillHome(homeDir string) error {
 		"plans",
 		"checkpoints",
 		"sessions",
+		"skills",
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(filepath.Join(homeDir, d), 0o755); err != nil {
 			return fmt.Errorf("bootstrap: creating %s: %w", d, err)
 		}
+	}
+
+	// Unpack bundled skills into ~/.overkill/skills/ on first run.
+	// Existing user-installed skills are never overwritten — only
+	// skills that don't already exist on disk are extracted.
+	if err := unpackBundledSkills(homeDir); err != nil {
+		return fmt.Errorf("bootstrap: unpacking skills: %w", err)
 	}
 
 	// soul.md — only write if it doesn't exist (user may have edited it)
@@ -175,5 +186,59 @@ func BootstrapOverkillHome(homeDir string) error {
 		}
 	}
 
+	return nil
+}
+
+// unpackBundledSkills extracts skills embedded at build time into
+// ~/.overkill/skills/. Existing directories are never overwritten —
+// users can edit installed skills without losing changes on upgrade.
+func unpackBundledSkills(homeDir string) error {
+	skillsDir := filepath.Join(homeDir, "skills")
+	entries, err := fs.ReadDir(bundled.SkillsFS, "skills")
+	if err != nil {
+		return fmt.Errorf("reading embedded skills: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		target := filepath.Join(skillsDir, entry.Name())
+		// Never overwrite: if the skill already exists (user-installed
+		// or previously unpacked), skip it.
+		if _, err := os.Stat(target); err == nil {
+			continue
+		}
+		if err := copyEmbeddedDir("skills/"+entry.Name(), target); err != nil {
+			return fmt.Errorf("unpacking %s: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func copyEmbeddedDir(src, dst string) error {
+	entries, err := fs.ReadDir(bundled.SkillsFS, src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := src + "/" + entry.Name()
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyEmbeddedDir(srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+		data, err := fs.ReadFile(bundled.SkillsFS, srcPath)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+			return err
+		}
+	}
 	return nil
 }

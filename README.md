@@ -6,7 +6,7 @@
 
 # overkill
 
-**The Frontier AI harness That Has A Personality And Lets You Vibecode From Bed.**
+**The Frontier AI Harness That Has A Personality And Lets You Vibecode From Bed.**
 
 [![Go](https://img.shields.io/badge/go-1.23+-00ADD8?style=flat-square&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-blue?style=flat-square)](LICENSE-MIT)
@@ -41,6 +41,7 @@ Or with Go: `go install github.com/Sahaj-Tech-ltd/overkill@main`
 
 ---
 
+<!-- ⚠️ SYNC: If the exclusives count changes, update the website too: overkill-website/exclusives.html -->
 **[Read the book →](https://github.com/Sahaj-Tech-ltd/overkill/wiki)** &nbsp;|&nbsp; **[43 exclusives →](https://overkill.my/exclusives)** &nbsp;|&nbsp; **[Meet Memo →](https://overkill.my/memo)**
 
 <!-- CONTRIBUTORS START -->
