@@ -94,6 +94,7 @@ var configGetCmd = &cobra.Command{
 			return err
 		}
 
+		// codeql[go/clear-text-logging]: user explicitly asked to see this config value
 		fmt.Println(field.Interface())
 		return nil
 	},

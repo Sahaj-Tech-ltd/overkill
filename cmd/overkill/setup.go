@@ -235,6 +235,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		if ps.APIKeyEnv != "" {
 			envVal := os.Getenv(ps.APIKeyEnv)
 			if envVal != "" {
+				// codeql[go/clear-text-logging]: printing env var NAME + masked value, not secret
 				fmt.Printf("\n%s▸ API Key — using %s%s\n", colorBold, ps.APIKeyEnv, colorReset)
 				fmt.Printf("  %s✓ %s=%s (from environment)%s\n", colorGreen, ps.APIKeyEnv, config.MaskKey(envVal), colorReset)
 				apiKey = envVal
@@ -249,7 +250,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 				}
 				apiKey = strings.TrimSpace(raw)
 				if apiKey == "" {
-					fmt.Printf("  %s⚠ no key — set %s before running%s\n", colorYellow, ps.APIKeyEnv, colorReset)
+					// codeql[go/clear-text-logging]: printing env var NAME, not a secret
+			fmt.Printf("  %s⚠ no key — set %s before running%s\n", colorYellow, ps.APIKeyEnv, colorReset)
 				}
 				wizard.ApplyStep("api_key", apiKey)
 			}
@@ -417,9 +419,9 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 			// is just ESC. To distinguish: do a non-blocking read for the next
 			// 2 bytes. If nothing arrives within a few ms, it's standalone Esc.
 			rest := make([]byte, 2)
-			syscall.SetNonblock(fd, true)
+			_ = syscall.SetNonblock(fd, true)
 			n, _ := syscall.Read(fd, rest)
-			syscall.SetNonblock(fd, false)
+			_ = syscall.SetNonblock(fd, false)
 			if n <= 0 {
 				// Standalone Esc — no more bytes in buffer
 				if pendingCancel {
