@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.26"
 
 jobs:
   gosec:
@@ -98,14 +98,18 @@ jobs:
     timeout-minutes: 10
     # Non-blocking: secret scanning produces false positives on test
     # fixtures and embedded test keys. go test is the hard gate.
+    # Uses the free gitleaks CLI (no license needed) instead of the
+    # gitleaks-action which requires a paid license as of v2.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz -C /usr/local/bin gitleaks
+      - name: Run gitleaks
+        run: gitleaks detect --verbose --redact --no-git
 
   dependency-review:
     name: dependency review

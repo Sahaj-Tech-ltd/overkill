@@ -253,7 +253,7 @@ func (t *Tool) generateStability(ctx context.Context, in ImageGenInput) (json.Ra
 	}
 
 	outPath := tmpPath("overkill-img", ".png")
-	if err := os.WriteFile(outPath, body, 0o644); err != nil {
+	if err := os.WriteFile(outPath, body, 0o600); err != nil {
 		return nil, fmt.Errorf("image_gen (stability): write file: %w", err)
 	}
 

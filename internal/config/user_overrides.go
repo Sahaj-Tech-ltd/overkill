@@ -266,10 +266,10 @@ func SaveUserOverrides(path string, u *UserOverrides) error {
 	if err != nil {
 		return fmt.Errorf("config: marshal user.yaml: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("config: mkdir for user.yaml: %w", err)
 	}
-	return atomicfile.WriteFile(path, data, 0o644)
+	return atomicfile.WriteFile(path, data, 0o600)
 }
 
 // UserOverridesPath returns the canonical XDG path. Honours

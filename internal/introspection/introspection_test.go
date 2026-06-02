@@ -42,7 +42,7 @@ func TestIntrospector_Get_Existing(t *testing.T) {
 
 	content := "# Codebase Map\n\nSome content here."
 	path := filepath.Join(dir, string(FileCodebase))
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("setup: write file: %v", err)
 	}
 
@@ -146,7 +146,7 @@ func TestIntrospector_IsStale_Fresh(t *testing.T) {
 	intro, dir := newTestIntrospector(t, mockHandler(""))
 
 	path := filepath.Join(dir, string(FileCodebase))
-	if err := os.WriteFile(path, []byte("content"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("content"), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -159,7 +159,7 @@ func TestIntrospector_IsStale_Stale(t *testing.T) {
 	intro, dir := newTestIntrospector(t, mockHandler(""))
 
 	path := filepath.Join(dir, string(FileCodebase))
-	if err := os.WriteFile(path, []byte("content"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("content"), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -185,7 +185,7 @@ func TestIntrospector_List(t *testing.T) {
 	intro, dir := newTestIntrospector(t, mockHandler(""))
 
 	codebasePath := filepath.Join(dir, string(FileCodebase))
-	if err := os.WriteFile(codebasePath, []byte("codebase content"), 0o644); err != nil {
+	if err := os.WriteFile(codebasePath, []byte("codebase content"), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 

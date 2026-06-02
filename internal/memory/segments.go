@@ -455,7 +455,7 @@ func expandGlob(root, pattern string) ([]string, error) {
 // ── internals ───────────────────────────────────────────────────────
 
 func (s *SegmentStore) saveLocked(seg *Segment) error {
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("segments: mkdir: %w", err)
 	}
 	path, err := security.SafePath(s.dir, seg.ID+".json")
@@ -467,7 +467,7 @@ func (s *SegmentStore) saveLocked(seg *Segment) error {
 	if err != nil {
 		return fmt.Errorf("segments: marshal: %w", err)
 	}
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("segments: write tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

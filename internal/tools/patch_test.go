@@ -119,7 +119,7 @@ func TestApplyHunks_PreserveNoTrailingNewline(t *testing.T) {
 func TestPatchTool_Execute(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "f.txt")
-	if err := os.WriteFile(path, []byte("a\nb\nc\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("a\nb\nc\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	tool := NewPatchTool(dir)

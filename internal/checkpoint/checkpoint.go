@@ -72,7 +72,7 @@ func NewManagerWithRoot(dir string, keepPerSession int, projectRoot string) (*Ma
 	if keepPerSession <= 0 {
 		keepPerSession = 20
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
 	return &Manager{
@@ -93,7 +93,7 @@ func (m *Manager) Snapshot(sessionID, reason string, paths []string) (*Manifest,
 
 	id := newID()
 	dir := filepath.Join(m.root, id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("checkpoint: mkdir: %w", err)
 	}
 
@@ -149,7 +149,7 @@ func (m *Manager) Snapshot(sessionID, reason string, paths []string) (*Manifest,
 		sum := sha256.Sum256(raw)
 		hash := hex.EncodeToString(sum[:])
 		out := filepath.Join(dir, hash)
-		if err := atomicfile.WriteFile(out, raw, 0o644); err != nil {
+		if err := atomicfile.WriteFile(out, raw, 0o600); err != nil {
 			return nil, fmt.Errorf("checkpoint: write %s: %w", out, err)
 		}
 		entry.Existed = true
@@ -163,7 +163,7 @@ func (m *Manager) Snapshot(sessionID, reason string, paths []string) (*Manifest,
 	if err != nil {
 		return nil, fmt.Errorf("checkpoint: marshal: %w", err)
 	}
-	if err := atomicfile.WriteFile(manPath, mb, 0o644); err != nil {
+	if err := atomicfile.WriteFile(manPath, mb, 0o600); err != nil {
 		return nil, fmt.Errorf("checkpoint: write manifest: %w", err)
 	}
 
@@ -208,10 +208,10 @@ func (m *Manager) Restore(id string) (skipped []string, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("checkpoint: read snapshot %s: %w", src, err)
 		}
-		if err := os.MkdirAll(filepath.Dir(e.Path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(e.Path), 0o750); err != nil {
 			return nil, fmt.Errorf("checkpoint: mkdir parent for %s: %w", e.Path, err)
 		}
-		if err := atomicfile.WriteFile(e.Path, buf, 0o644); err != nil {
+		if err := atomicfile.WriteFile(e.Path, buf, 0o600); err != nil {
 			return nil, fmt.Errorf("checkpoint: restore %s: %w", e.Path, err)
 		}
 	}

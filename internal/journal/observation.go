@@ -99,7 +99,7 @@ func (s *ObservationStore) Store(obs *Observation) error {
 	defer s.mu.Unlock()
 
 	obsDir := filepath.Join(s.dir, "observations")
-	if err := os.MkdirAll(obsDir, 0o755); err != nil {
+	if err := os.MkdirAll(obsDir, 0o750); err != nil {
 		return fmt.Errorf("journal: creating observations dir: %w", err)
 	}
 

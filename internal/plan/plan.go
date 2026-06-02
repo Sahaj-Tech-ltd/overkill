@@ -236,7 +236,7 @@ func (s *Store) Remaining() int {
 // temp-file rename so a crash mid-write leaves the previous
 // snapshot intact.
 func (s *Store) save(p *Plan) error {
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("plan: mkdir: %w", err)
 	}
 	data, err := json.MarshalIndent(p, "", "  ")
@@ -244,7 +244,7 @@ func (s *Store) save(p *Plan) error {
 		return fmt.Errorf("plan: marshal: %w", err)
 	}
 	tmp := s.path() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("plan: write tmp: %w", err)
 	}
 	if err := os.Rename(tmp, s.path()); err != nil {

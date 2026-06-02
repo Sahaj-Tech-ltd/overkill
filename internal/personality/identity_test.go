@@ -29,7 +29,7 @@ func TestLoadIdentity_OverridePreferred(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	overkillDir := filepath.Join(home, ".overkill")
-	if err := os.MkdirAll(overkillDir, 0o755); err != nil {
+	if err := os.MkdirAll(overkillDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	override := `[identity]
@@ -55,7 +55,7 @@ func TestLoadIdentity_MalformedOverrideFallsBackToDefault(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	overkillDir := filepath.Join(home, ".overkill")
-	_ = os.MkdirAll(overkillDir, 0o755)
+	_ = os.MkdirAll(overkillDir, 0o750)
 	bad := `this = is = not = valid = toml`
 	if err := os.WriteFile(filepath.Join(overkillDir, "identity.toml"), []byte(bad), 0o644); err != nil {
 		t.Fatal(err)

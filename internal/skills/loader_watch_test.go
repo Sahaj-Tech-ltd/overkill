@@ -95,7 +95,7 @@ func TestLoaderWatch_CreateModifyDelete(t *testing.T) {
 	path := filepath.Join(userDir, "hot-reload-target.md")
 
 	// 1. Create — onChange fires with parsed skill.
-	require.NoError(t, os.WriteFile(path, []byte(watchTestSkillV1), 0o644))
+	require.NoError(t, os.WriteFile(path, []byte(watchTestSkillV1), 0o600))
 	got := col.wait(t, 2*time.Second)
 	require.Equal(t, "hot-reload-target", got.Name)
 	require.Equal(t, "1.0.0", got.Version)
@@ -104,7 +104,7 @@ func TestLoaderWatch_CreateModifyDelete(t *testing.T) {
 	// 2. Modify — onChange fires again with the new content.
 	// Sleep slightly longer than the debounce so we get a distinct event.
 	time.Sleep(watchDebounce + 100*time.Millisecond)
-	require.NoError(t, os.WriteFile(path, []byte(watchTestSkillV2), 0o644))
+	require.NoError(t, os.WriteFile(path, []byte(watchTestSkillV2), 0o600))
 	got = col.wait(t, 2*time.Second)
 	require.Equal(t, "hot-reload-target", got.Name)
 	require.Equal(t, "1.1.0", got.Version)
@@ -135,7 +135,7 @@ func TestLoaderWatch_CtxCancelStopsWatcher(t *testing.T) {
 	time.Sleep(watchDebounce + 200*time.Millisecond)
 
 	path := filepath.Join(userDir, "post-cancel.md")
-	require.NoError(t, os.WriteFile(path, []byte(watchTestSkillV1), 0o644))
+	require.NoError(t, os.WriteFile(path, []byte(watchTestSkillV1), 0o600))
 
 	select {
 	case s := <-col.ch:

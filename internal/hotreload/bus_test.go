@@ -29,7 +29,7 @@ func runBus(t *testing.T, paths Paths) *Bus {
 func TestBus_FiresOnFileWrite(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "user.yaml")
-	if err := os.WriteFile(file, []byte("schema_version: 1\n"), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte("schema_version: 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -38,7 +38,7 @@ func TestBus_FiresOnFileWrite(t *testing.T) {
 	defer unsub()
 
 	// Modify the file and expect an event.
-	if err := os.WriteFile(file, []byte("schema_version: 1\nbasic:\n  vim_mode: true\n"), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte("schema_version: 1\nbasic:\n  vim_mode: true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -58,7 +58,7 @@ func TestBus_FiresOnFileWrite(t *testing.T) {
 func TestBus_Debounce(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "user.yaml")
-	_ = os.WriteFile(file, []byte("a"), 0o644)
+	_ = os.WriteFile(file, []byte("a"), 0o600)
 
 	b := runBus(t, Paths{UserConfigFile: file})
 	ch, unsub := b.Subscribe(SubjectConfig)
@@ -66,7 +66,7 @@ func TestBus_Debounce(t *testing.T) {
 
 	// Burst of writes. Expect a SINGLE coalesced event.
 	for i := 0; i < 5; i++ {
-		_ = os.WriteFile(file, []byte("v"+string(rune('a'+i))), 0o644)
+		_ = os.WriteFile(file, []byte("v"+string(rune('a'+i))), 0o600)
 		time.Sleep(5 * time.Millisecond)
 	}
 
@@ -93,8 +93,8 @@ func TestBus_ClassifyByPath(t *testing.T) {
 	dir := t.TempDir()
 	skillsDir := filepath.Join(dir, "skills")
 	agentsDir := filepath.Join(dir, "agents")
-	_ = os.MkdirAll(skillsDir, 0o755)
-	_ = os.MkdirAll(agentsDir, 0o755)
+	_ = os.MkdirAll(skillsDir, 0o750)
+	_ = os.MkdirAll(agentsDir, 0o750)
 
 	b := runBus(t, Paths{SkillsDir: skillsDir, AgentsDir: agentsDir})
 	skillCh, unsubS := b.Subscribe(SubjectSkill)
@@ -123,14 +123,14 @@ func TestBus_ClassifyByPath(t *testing.T) {
 func TestBus_Unsubscribe(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "user.yaml")
-	_ = os.WriteFile(file, []byte("x"), 0o644)
+	_ = os.WriteFile(file, []byte("x"), 0o600)
 
 	b := runBus(t, Paths{UserConfigFile: file})
 	ch, unsub := b.Subscribe(SubjectConfig)
 	unsub()
 	// After unsubscribe the channel is closed; reading should not
 	// receive an event and must not block forever.
-	_ = os.WriteFile(file, []byte("y"), 0o644)
+	_ = os.WriteFile(file, []byte("y"), 0o600)
 	select {
 	case _, ok := <-ch:
 		if ok {
@@ -146,7 +146,7 @@ func TestBus_Unsubscribe(t *testing.T) {
 func TestBus_StopIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "user.yaml")
-	_ = os.WriteFile(file, []byte("x"), 0o644)
+	_ = os.WriteFile(file, []byte("x"), 0o600)
 	b := runBus(t, Paths{UserConfigFile: file})
 	b.Stop()
 	b.Stop() // must not panic on second close

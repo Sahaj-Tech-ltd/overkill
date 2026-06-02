@@ -114,7 +114,7 @@ func (m *Manager) Acquire(taskID string, opts AcquireOptions) (*ManagedTree, err
 		_ = os.RemoveAll(path)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("worktree manager: mkdir: %w", err)
 	}
 	if err := Add(m.repoDir, path, branch); err != nil {

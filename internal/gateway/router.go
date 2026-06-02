@@ -205,7 +205,7 @@ func (r *SessionRouter) persist(snap routerFile) error {
 	if r.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(r.path), 0o750); err != nil {
 		return err
 	}
 	buf, err := json.MarshalIndent(snap, "", "  ")
@@ -225,7 +225,7 @@ func (r *SessionRouter) persistLocked() error {
 	if r.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(r.path), 0o750); err != nil {
 		return err
 	}
 	buf, err := json.MarshalIndent(r.data, "", "  ")

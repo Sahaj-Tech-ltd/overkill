@@ -42,7 +42,7 @@ regenerate everything.`,
 		}
 
 		introDir := filepath.Join(homeDir, "introspection")
-		if err := os.MkdirAll(introDir, 0o755); err != nil {
+		if err := os.MkdirAll(introDir, 0o750); err != nil {
 			return fmt.Errorf("create introspection dir: %w", err)
 		}
 

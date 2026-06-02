@@ -90,9 +90,9 @@ func TestNarrateSession_AppendsToExistingDayFile(t *testing.T) {
 	dir := t.TempDir()
 	when := time.Now().UTC()
 	entriesDir := filepath.Join(dir, "entries")
-	_ = os.MkdirAll(entriesDir, 0o755)
+	_ = os.MkdirAll(entriesDir, 0o750)
 	existing := filepath.Join(entriesDir, when.Format("2006-01-02")+".md")
-	_ = os.WriteFile(existing, []byte("# previous session content\n"), 0o644)
+	_ = os.WriteFile(existing, []byte("# previous session content\n"), 0o600)
 
 	rec := NewFlightRecorder(dir, "sess-2")
 	_ = rec.RecordInput("new session work")

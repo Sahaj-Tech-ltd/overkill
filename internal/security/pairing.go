@@ -455,11 +455,11 @@ func (ps *PairingStore) writeAllowLocked(channel, accountID string, allowList []
 // atomicWrite writes data to a temp file and renames it over the target.
 // This ensures a crash mid-write leaves the prior state intact.
 func atomicWrite(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("pairing: mkdir: %w", err)
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("pairing: write tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

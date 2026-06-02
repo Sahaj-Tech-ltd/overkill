@@ -49,7 +49,7 @@ func TestContractDriver_BootstrapPrompt(t *testing.T) {
 func TestContractDriver_CheckOutput_FileExists(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "out.txt")
-	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(target, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	c := &subagent.Contract{

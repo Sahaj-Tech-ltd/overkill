@@ -147,7 +147,7 @@ func (t *GlossaryAddTermTool) Execute(_ context.Context, in json.RawMessage) (js
 	path := filepath.Join(root, "CONTEXT.md")
 	existing, _ := os.ReadFile(path)
 	updated, replaced := upsertGlossaryTerm(string(existing), term, req.Definition, req.Example)
-	if err := atomicfile.WriteFile(path, []byte(updated), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(updated), 0o600); err != nil {
 		return errorJSON(err.Error()), nil
 	}
 	body, _ := json.Marshal(map[string]any{

@@ -48,12 +48,12 @@ func LoadSoul(path string) (*SoulFile, error) {
 
 func CreateDefaultSoul(path string, agentName string) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("personality: create soul dir: %w", err)
 	}
 
 	tmpl := defaultSoulTemplate(agentName)
-	if err := atomicfile.WriteFile(path, []byte(tmpl), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(tmpl), 0o600); err != nil {
 		return fmt.Errorf("personality: write soul: %w", err)
 	}
 
@@ -70,11 +70,11 @@ func (s *SoulFile) Update(content string) error {
 	}
 
 	dir := filepath.Dir(s.Path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("personality: update soul dir: %w", err)
 	}
 
-	if err := atomicfile.WriteFile(s.Path, []byte(content), 0o644); err != nil {
+	if err := atomicfile.WriteFile(s.Path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("personality: update soul: %w", err)
 	}
 

@@ -17,7 +17,7 @@ func TestLoadAtMentions_None(t *testing.T) {
 func TestLoadAtMentions_LoadsFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hello.txt")
-	if err := os.WriteFile(path, []byte("contents"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	wd, _ := os.Getwd()
@@ -45,7 +45,7 @@ func TestLoadAtMentions_DedupesAndCaps(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < maxMentionFiles+5; i++ {
 		path := filepath.Join(dir, "f"+itoaQuick(i)+".txt")
-		_ = os.WriteFile(path, []byte("x"), 0o644)
+		_ = os.WriteFile(path, []byte("x"), 0o600)
 	}
 	wd, _ := os.Getwd()
 	defer os.Chdir(wd)

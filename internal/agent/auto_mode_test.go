@@ -20,7 +20,7 @@ Run the test suite.
 
 	dir := t.TempDir()
 	planPath := filepath.Join(dir, "test-plan.md")
-	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(planPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -54,7 +54,7 @@ Run the test suite.
 func TestLoadPlan_NoPhases(t *testing.T) {
 	dir := t.TempDir()
 	planPath := filepath.Join(dir, "empty.md")
-	os.WriteFile(planPath, []byte("# Just a title\n"), 0o644)
+	os.WriteFile(planPath, []byte("# Just a title\n"), 0o600)
 
 	_, err := LoadPlan(planPath)
 	if err == nil {

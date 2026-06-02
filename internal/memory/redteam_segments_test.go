@@ -21,11 +21,11 @@ func rtSegStore(t *testing.T) (*SegmentStore, string, string) {
 	base := t.TempDir()
 	storeDir := filepath.Join(base, "segments")
 	defaultRoot := filepath.Join(base, "project") // the project root segments point at
-	if err := os.MkdirAll(defaultRoot, 0o755); err != nil {
+	if err := os.MkdirAll(defaultRoot, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	canary := filepath.Join(base, "canary.txt")
-	if err := os.WriteFile(canary, []byte("CANARY"), 0o644); err != nil {
+	if err := os.WriteFile(canary, []byte("CANARY"), 0o600); err != nil {
 		t.Fatalf("canary write: %v", err)
 	}
 	return NewSegmentStore(storeDir, defaultRoot), canary, defaultRoot
@@ -99,7 +99,7 @@ func TestRedteam_Seg_LoadFiles_GlobEscape(t *testing.T) {
 
 	// Place a regular file inside defaultRoot so the segment is valid.
 	legit := filepath.Join(defaultRoot, "legit.go")
-	if err := os.WriteFile(legit, []byte("package p"), 0o644); err != nil {
+	if err := os.WriteFile(legit, []byte("package p"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -234,7 +234,7 @@ func TestRedteam_Seg_GlobEscape_WithRootDir(t *testing.T) {
 	// (not inside defaultRoot).
 	outsideRoot := filepath.Dir(defaultRoot) // base/, one level up
 	targetFile := filepath.Join(outsideRoot, "should_not_read.txt")
-	if err := os.WriteFile(targetFile, []byte("SECRET"), 0o644); err != nil {
+	if err := os.WriteFile(targetFile, []byte("SECRET"), 0o600); err != nil {
 		t.Skipf("cannot create target file %q: %v", targetFile, err)
 	}
 	t.Cleanup(func() { os.Remove(targetFile) })

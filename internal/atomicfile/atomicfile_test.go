@@ -11,7 +11,7 @@ func TestWriteFile_Basic(t *testing.T) {
 	path := filepath.Join(dir, "test.txt")
 	data := []byte("hello world")
 
-	if err := WriteFile(path, data, 0644); err != nil {
+	if err := WriteFile(path, data, 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -37,11 +37,11 @@ func TestWriteFile_Overwrite(t *testing.T) {
 	path := filepath.Join(dir, "test.txt")
 
 	// Write initial content.
-	if err := os.WriteFile(path, []byte("old"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("old"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	// Overwrite atomically.
-	if err := WriteFile(path, []byte("new data"), 0644); err != nil {
+	if err := WriteFile(path, []byte("new data"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestWriteFile_CreatesParentDir(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "deep", "test.txt")
 
-	err := WriteFile(path, []byte("x"), 0644)
+	err := WriteFile(path, []byte("x"), 0600)
 	if err == nil {
 		t.Error("expected error when parent dirs don't exist")
 	}
@@ -84,7 +84,7 @@ func TestWriteFile_Empty(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "empty.txt")
 
-	if err := WriteFile(path, []byte{}, 0644); err != nil {
+	if err := WriteFile(path, []byte{}, 0600); err != nil {
 		t.Fatalf("WriteFile empty: %v", err)
 	}
 
@@ -104,7 +104,7 @@ func TestWriteFile_LargeData(t *testing.T) {
 		data[i] = byte(i % 256)
 	}
 
-	if err := WriteFile(path, data, 0644); err != nil {
+	if err := WriteFile(path, data, 0600); err != nil {
 		t.Fatalf("WriteFile large: %v", err)
 	}
 

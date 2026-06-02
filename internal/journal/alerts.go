@@ -152,7 +152,7 @@ func (s *AlertStore) saveLocked() error {
 		return nil
 	}
 
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("journal: creating alert dir: %w", err)
 	}
 
@@ -169,7 +169,7 @@ func (s *AlertStore) saveLocked() error {
 	// frustration_signal record. Every other state file in this
 	// repo uses temp+rename; this was the outlier.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("journal: writing alerts tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

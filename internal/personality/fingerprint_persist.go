@@ -60,7 +60,7 @@ func (ft *FingerprintTracker) SaveToFile(path string) error {
 	if cur == nil {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("personality: fingerprint mkdir: %w", err)
 	}
 	data, err := json.MarshalIndent(cur, "", "  ")
@@ -72,7 +72,7 @@ func (ft *FingerprintTracker) SaveToFile(path string) error {
 	// next load.
 	_ = NewEventLog(path).Append(data)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("personality: fingerprint write: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

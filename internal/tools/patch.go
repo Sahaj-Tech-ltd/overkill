@@ -106,7 +106,7 @@ func (p *PatchTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	if !bytes.Equal(current, src) {
 		return nil, fmt.Errorf("patch: %s was modified between read and write; aborting to avoid clobbering external changes", full)
 	}
-	if err := os.WriteFile(full, []byte(out), 0o644); err != nil {
+	if err := os.WriteFile(full, []byte(out), 0o600); err != nil {
 		return nil, fmt.Errorf("patch: write %s: %w", full, err)
 	}
 	return json.Marshal(PatchOutput{

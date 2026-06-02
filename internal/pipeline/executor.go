@@ -353,7 +353,7 @@ func (e *Executor) verifyGoCode(ctx context.Context, codeContents ...string) (pa
 			}
 		}
 		path := filepath.Join(tmpDir, name)
-		if err := os.WriteFile(path, []byte(block.code), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(block.code), 0600); err != nil {
 			return false, []string{fmt.Sprintf("verify: write %s: %v", name, err)}, nil
 		}
 		files[name] = block.code
@@ -436,7 +436,7 @@ func (e *Executor) verifyGeneratedTests(ctx context.Context, content string) []s
 			fname = block.filename
 		}
 		target := filepath.Join(tmpDir, fname)
-		if err := os.WriteFile(target, []byte(block.code), 0o644); err != nil {
+		if err := os.WriteFile(target, []byte(block.code), 0o600); err != nil {
 			return []string{fmt.Sprintf("verify: write %s: %v", fname, err)}
 		}
 		written = append(written, target)

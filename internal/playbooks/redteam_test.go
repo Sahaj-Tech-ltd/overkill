@@ -25,7 +25,7 @@ func rtStore(t *testing.T) (*Store, string) {
 	// Canary: a file at base/canary.txt — one level ABOVE the store
 	// root. Any successful read/write/delete of it means traversal.
 	canary := filepath.Join(base, "canary.txt")
-	if err := os.WriteFile(canary, []byte("CANARY"), 0o644); err != nil {
+	if err := os.WriteFile(canary, []byte("CANARY"), 0o600); err != nil {
 		t.Fatalf("could not create canary: %v", err)
 	}
 	return NewStore(storeDir), canary

@@ -142,7 +142,7 @@ func Load(path string) (*Config, error) {
 
 func (c *Config) Save(path string) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("config: creating directory %s: %w", dir, err)
 	}
 
@@ -164,7 +164,7 @@ func ConfigDir() (string, error) {
 	// where os.UserHomeDir() may be wrong or unavailable.
 	if envDir := os.Getenv("OVERKILL_HOME"); envDir != "" {
 		dir := filepath.Clean(envDir)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return "", fmt.Errorf("config: creating OVERKILL_HOME dir %s: %w", dir, err)
 		}
 		return dir, nil
@@ -191,7 +191,7 @@ func ConfigDir() (string, error) {
 		dir = filepath.Join(homeDir, ".overkill")
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", fmt.Errorf("config: creating config directory %s: %w", dir, err)
 	}
 
@@ -215,7 +215,7 @@ func ThemesDir() (string, error) {
 		return "", err
 	}
 	themesDir := filepath.Join(dir, "themes")
-	if err := os.MkdirAll(themesDir, 0o755); err != nil {
+	if err := os.MkdirAll(themesDir, 0o750); err != nil {
 		return "", fmt.Errorf("config: creating themes directory %s: %w", themesDir, err)
 	}
 	return themesDir, nil

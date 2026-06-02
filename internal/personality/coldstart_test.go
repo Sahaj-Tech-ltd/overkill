@@ -23,7 +23,7 @@ func TestIsColdStart_ReturnsTrueForNonexistentFile(t *testing.T) {
 func TestIsColdStart_ReturnsFalseForExistingFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "relationship.json")
-	err := os.WriteFile(path, []byte(`{"total_sessions": 5}`), 0644)
+	err := os.WriteFile(path, []byte(`{"total_sessions": 5}`), 0600)
 	require.NoError(t, err)
 
 	csp := NewColdStartProtocol()
@@ -33,7 +33,7 @@ func TestIsColdStart_ReturnsFalseForExistingFile(t *testing.T) {
 func TestIsColdStart_ReturnsTrueForEmptyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "relationship.json")
-	err := os.WriteFile(path, []byte{}, 0644)
+	err := os.WriteFile(path, []byte{}, 0600)
 	require.NoError(t, err)
 
 	csp := NewColdStartProtocol()

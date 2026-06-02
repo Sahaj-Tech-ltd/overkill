@@ -58,7 +58,7 @@ func TestCheckFileClaim_Unchanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.go")
 	content := []byte("package main\nfunc main() {}")
-	os.WriteFile(path, content, 0644)
+	os.WriteFile(path, content, 0600)
 
 	preFiles := map[string]string{"main.go": fileHash(path)}
 
@@ -77,7 +77,7 @@ func TestCheckFileClaim_Unchanged(t *testing.T) {
 func TestCheckFileClaim_ActuallyChanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.go")
-	os.WriteFile(path, []byte("package main\nfunc main() {}"), 0644)
+	os.WriteFile(path, []byte("package main\nfunc main() {}"), 0600)
 
 	preFiles := map[string]string{"main.go": "oldhash123"}
 
@@ -103,7 +103,7 @@ func TestFirstLines(t *testing.T) {
 func TestFileHash(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.txt")
-	os.WriteFile(path, []byte("hello"), 0644)
+	os.WriteFile(path, []byte("hello"), 0600)
 
 	h1 := fileHash(path)
 	h2 := fileHash(path)
@@ -119,8 +119,8 @@ func TestFileHash_DifferentContent(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.txt")
 	b := filepath.Join(dir, "b.txt")
-	os.WriteFile(a, []byte("hello"), 0644)
-	os.WriteFile(b, []byte("world"), 0644)
+	os.WriteFile(a, []byte("hello"), 0600)
+	os.WriteFile(b, []byte("world"), 0600)
 
 	if fileHash(a) == fileHash(b) {
 		t.Error("different content should produce different hashes")

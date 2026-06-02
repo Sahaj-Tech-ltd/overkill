@@ -34,9 +34,9 @@ func setupGitRepo(t *testing.T) string {
 func commitFile(t *testing.T, dir, path, content, message string) {
 	t.Helper()
 	fullPath := filepath.Join(dir, path)
-	err := os.MkdirAll(filepath.Dir(fullPath), 0o755)
+	err := os.MkdirAll(filepath.Dir(fullPath), 0o750)
 	require.NoError(t, err)
-	err = os.WriteFile(fullPath, []byte(content), 0o644)
+	err = os.WriteFile(fullPath, []byte(content), 0o600)
 	require.NoError(t, err)
 
 	cmd := exec.Command("git", "add", path)

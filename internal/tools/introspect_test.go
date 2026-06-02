@@ -86,7 +86,7 @@ func TestIntrospect_OversizedTruncation(t *testing.T) {
 	dir := t.TempDir()
 	big := strings.Repeat("A", maxIntrospectChars+500)
 	path := filepath.Join(dir, "CODEBASE.md")
-	if err := os.WriteFile(path, []byte(big), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(big), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	tool := NewIntrospectTool(dir)

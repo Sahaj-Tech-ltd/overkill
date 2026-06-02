@@ -296,7 +296,7 @@ Tests MUST compile and run — no syntax errors, no missing imports.`
 
 // writeTestFiles writes generated test files to the working directory.
 func (rt *RedTeamTestGen) writeTestFiles(workdir string, testFiles map[string]string) error {
-	if err := os.MkdirAll(workdir, 0755); err != nil {
+	if err := os.MkdirAll(workdir, 0750); err != nil {
 		return fmt.Errorf("create workdir: %w", err)
 	}
 	for filename, code := range testFiles {
@@ -305,7 +305,7 @@ func (rt *RedTeamTestGen) writeTestFiles(workdir string, testFiles map[string]st
 		if !strings.HasPrefix(filepath.Clean(dest), filepath.Clean(workdir)+string(os.PathSeparator)) {
 			continue
 		}
-		if err := os.WriteFile(dest, []byte(code), 0644); err != nil {
+		if err := os.WriteFile(dest, []byte(code), 0600); err != nil {
 			return fmt.Errorf("write %s: %w", filename, err)
 		}
 	}

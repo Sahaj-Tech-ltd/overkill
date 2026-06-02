@@ -54,7 +54,7 @@ func NewLearningsStore(dir string) *LearningsStore {
 func (s *LearningsStore) Append(l Learning) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("learnings: mkdir: %w", err)
 	}
 	if l.ID == "" {

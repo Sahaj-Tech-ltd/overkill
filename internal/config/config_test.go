@@ -97,7 +97,7 @@ func TestLoad_InvalidTOML(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "config.toml")
 
-	require.NoError(t, os.WriteFile(path, []byte("not valid [[[toml"), 0o644))
+	require.NoError(t, os.WriteFile(path, []byte("not valid [[[toml"), 0o600))
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -483,7 +483,7 @@ api_key = "sk-ant-test"
 base_url = "https://api.example.com"
 strict_mode = true
 `
-	require.NoError(t, os.WriteFile(path, []byte(tomlContent), 0o644))
+	require.NoError(t, os.WriteFile(path, []byte(tomlContent), 0o600))
 
 	cfg, err := Load(path)
 	require.NoError(t, err)

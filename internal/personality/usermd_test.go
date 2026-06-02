@@ -38,7 +38,7 @@ func TestSeedUserMD_WritesProfile(t *testing.T) {
 func TestSeedUserMD_DoesNotOverwriteExisting(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "user.md")
-	if err := os.WriteFile(path, []byte("USER EDITED CONTENT"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("USER EDITED CONTENT"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	wrote, err := SeedUserMD(path, &ColdStartProfile{UserName: "Alice"})

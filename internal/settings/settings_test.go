@@ -223,7 +223,7 @@ enabled = false
 api_key = "sk-custom"
 `
 	path := filepath.Join(dir, "settings.toml")
-	if err := os.WriteFile(path, []byte(tomlData), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(tomlData), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

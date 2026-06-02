@@ -51,7 +51,7 @@ func EnsureArch(projectRoot string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("walls: arch generate: %w", err)
 	}
-	if err := atomicfile.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(body), 0o600); err != nil {
 		return false, fmt.Errorf("walls: arch write: %w", err)
 	}
 	return true, nil
@@ -68,7 +68,7 @@ func EnsureGlossary(projectRoot string) (bool, error) {
 		return false, nil
 	}
 	body := renderGlossaryTemplate(filepath.Base(projectRoot))
-	if err := atomicfile.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(body), 0o600); err != nil {
 		return false, fmt.Errorf("walls: glossary write: %w", err)
 	}
 	return true, nil

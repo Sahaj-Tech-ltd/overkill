@@ -113,7 +113,7 @@ func checkAndCreateDir(path, label string) []string {
 	var fixes []string
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
-		if mkdirErr := os.MkdirAll(path, 0o755); mkdirErr != nil {
+		if mkdirErr := os.MkdirAll(path, 0o750); mkdirErr != nil {
 			log.Warn().Err(mkdirErr).Str("path", path).Msgf("cannot create %s", label)
 		} else {
 			fixes = append(fixes, fmt.Sprintf("created %s at %s", label, path))

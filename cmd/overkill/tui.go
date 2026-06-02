@@ -304,7 +304,13 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 							SystemPrompt: ouroCfg.SystemPrompt,
 						})
 					}
-					log.Printf("tui: Ouroboros provider creation failed for '%s': %v", ouroCfg.Provider, err)
+					// Log the failure, but sanitize the error message — it may
+					// contain the API key if the provider constructor leaks it.
+					errMsg := err.Error()
+					if ouroKey != "" {
+						errMsg = strings.ReplaceAll(errMsg, ouroKey, "***")
+					}
+					log.Printf("tui: Ouroboros provider creation failed for '%s': %s", ouroCfg.Provider, errMsg)
 				}
 			}
 			return walls.NewOuroborosWall(walls.OuroborosConfig{})

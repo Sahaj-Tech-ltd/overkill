@@ -23,7 +23,7 @@ func NewExportRitual(store Store, exportPath string) *ExportRitual {
 }
 
 func (er *ExportRitual) Export(ctx context.Context) error {
-	if err := os.MkdirAll(dirOf(er.exportPath), 0o755); err != nil {
+	if err := os.MkdirAll(dirOf(er.exportPath), 0o750); err != nil {
 		return fmt.Errorf("export: creating dirs: %w", err)
 	}
 
@@ -63,7 +63,7 @@ func (er *ExportRitual) Export(ctx context.Context) error {
 		}
 	}
 
-	if err := atomicfile.WriteFile(er.exportPath, []byte(b.String()), 0o644); err != nil {
+	if err := atomicfile.WriteFile(er.exportPath, []byte(b.String()), 0o600); err != nil {
 		return fmt.Errorf("export: writing file: %w", err)
 	}
 

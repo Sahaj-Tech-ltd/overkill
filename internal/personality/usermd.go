@@ -34,11 +34,11 @@ func SeedUserMD(path string, profile *ColdStartProfile) (bool, error) {
 	} else if !os.IsNotExist(err) {
 		return false, fmt.Errorf("personality: stat user.md: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return false, fmt.Errorf("personality: mkdir user.md: %w", err)
 	}
 	content := renderUserMD(profile)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return false, fmt.Errorf("personality: write user.md: %w", err)
 	}
 	return true, nil

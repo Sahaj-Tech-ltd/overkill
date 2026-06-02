@@ -55,12 +55,12 @@ func RenderPlanToFile(markdown []byte, cfg RenderConfig) (string, error) {
 		return "", fmt.Errorf("render: home dir: %w", err)
 	}
 	plansDir := filepath.Join(home, ".overkill", "plans")
-	if err := os.MkdirAll(plansDir, 0o755); err != nil {
+	if err := os.MkdirAll(plansDir, 0o750); err != nil {
 		return "", fmt.Errorf("render: mkdir plans: %w", err)
 	}
 
 	path := filepath.Join(plansDir, name+".html")
-	if err := os.WriteFile(path, []byte(htmlStr), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(htmlStr), 0o600); err != nil {
 		return "", fmt.Errorf("render: write html: %w", err)
 	}
 	return path, nil

@@ -17,7 +17,7 @@ import (
 func TestStress_EmptyTOML(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "config.toml")
-	requireNoErr(t, os.WriteFile(path, []byte(""), 0o644))
+	requireNoErr(t, os.WriteFile(path, []byte(""), 0o600))
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -37,7 +37,7 @@ func TestStress_NULBytesInTOML(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "config.toml")
 	data := []byte("version = 1\n[agent]\nname = \"Bot\x00Evil\"\n")
-	requireNoErr(t, os.WriteFile(path, data, 0o644))
+	requireNoErr(t, os.WriteFile(path, data, 0o600))
 
 	cfg, err := Load(path)
 	// Either returns defaults gracefully or an error
@@ -57,7 +57,7 @@ func TestStress_LongKeyNames(t *testing.T) {
 	path := filepath.Join(tmpDir, "config.toml")
 	longName := strings.Repeat("x", 10000)
 	data := []byte("version = 1\n[" + longName + "]\nkey = \"val\"\n")
-	requireNoErr(t, os.WriteFile(path, data, 0o644))
+	requireNoErr(t, os.WriteFile(path, data, 0o600))
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -74,7 +74,7 @@ func TestStress_HugeStringValue(t *testing.T) {
 	path := filepath.Join(tmpDir, "config.toml")
 	hugeVal := strings.Repeat("A", 1_000_000)
 	data := []byte("version = 1\n[agent]\nname = \"" + hugeVal + "\"\n")
-	requireNoErr(t, os.WriteFile(path, data, 0o644))
+	requireNoErr(t, os.WriteFile(path, data, 0o600))
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -96,7 +96,7 @@ name = "😀🎉🚀"
 type = "openai"
 api_key = "sk-🍕🍔🌮"
 `
-	requireNoErr(t, os.WriteFile(path, []byte(tomlContent), 0o644))
+	requireNoErr(t, os.WriteFile(path, []byte(tomlContent), 0o600))
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -120,7 +120,7 @@ name = ""
 type = ""
 api_key = ""
 `
-	requireNoErr(t, os.WriteFile(path, []byte(tomlContent), 0o644))
+	requireNoErr(t, os.WriteFile(path, []byte(tomlContent), 0o600))
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -144,7 +144,7 @@ func TestStress_DeeplyNestedTOML(t *testing.T) {
 		key += ".x"
 	}
 	sb.WriteString("[" + key + "]\nval = 1\n")
-	requireNoErr(t, os.WriteFile(path, []byte(sb.String()), 0o644))
+	requireNoErr(t, os.WriteFile(path, []byte(sb.String()), 0o600))
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestStress_BinaryGarbage(t *testing.T) {
 	for i := range garbage {
 		garbage[i] = byte(i % 256)
 	}
-	requireNoErr(t, os.WriteFile(path, garbage, 0o644))
+	requireNoErr(t, os.WriteFile(path, garbage, 0o600))
 
 	cfg, err := Load(path)
 	// Should either fail with error OR return defaults
@@ -247,7 +247,7 @@ func TestStress_ManyProviders(t *testing.T) {
 		sb.WriteString(string(rune('A' + (i % 26))))
 		sb.WriteString("\"\ntype = \"custom\"\napi_key = \"key\"\nbase_url = \"https://api.example.com\"\n\n")
 	}
-	requireNoErr(t, os.WriteFile(path, []byte(sb.String()), 0o644))
+	requireNoErr(t, os.WriteFile(path, []byte(sb.String()), 0o600))
 
 	cfg, err := Load(path)
 	if err != nil {

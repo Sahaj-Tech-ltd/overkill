@@ -84,7 +84,7 @@ func TestFileBackendErrors(t *testing.T) {
 	}
 	// Mkdir error
 	blocker := filepath.Join(dir, "blocker")
-	os.WriteFile(blocker, []byte("x"), 0o644)
+	os.WriteFile(blocker, []byte("x"), 0o600)
 	if _, err := NewFileBackend(config.SyncFileConfig{Path: blocker + "/sub"}); err == nil {
 		t.Fatal("expected mkdir error")
 	}

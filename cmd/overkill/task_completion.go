@@ -29,7 +29,7 @@ func taskCompletionAlertSink() automation.TerminalSink {
 		return func(automation.LedgerTask) {}
 	}
 	alertDir := filepath.Join(home, ".overkill", "alerts")
-	if err := os.MkdirAll(alertDir, 0o755); err != nil {
+	if err := os.MkdirAll(alertDir, 0o750); err != nil {
 		return func(automation.LedgerTask) {}
 	}
 	store := journal.NewAlertStore(alertDir)

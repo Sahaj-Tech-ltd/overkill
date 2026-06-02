@@ -69,7 +69,7 @@ func TestEventLog_LatestOnMissingFileIsNil(t *testing.T) {
 func TestLoadWithFallback_PrefersSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	snap := filepath.Join(dir, "state.json")
-	if err := os.WriteFile(snap, []byte(`{"src":"snapshot"}`), 0o644); err != nil {
+	if err := os.WriteFile(snap, []byte(`{"src":"snapshot"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	log := NewEventLog(snap)
@@ -102,7 +102,7 @@ func TestLoadWithFallback_RecoversFromMissingSnapshot(t *testing.T) {
 func TestLoadWithFallback_RecoversFromCorruptSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	snap := filepath.Join(dir, "state.json")
-	if err := os.WriteFile(snap, []byte("{this is not valid"), 0o644); err != nil {
+	if err := os.WriteFile(snap, []byte("{this is not valid"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	log := NewEventLog(snap)

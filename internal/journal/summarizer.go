@@ -137,7 +137,7 @@ Rules:
 
 func (s *Summarizer) WriteSummary(dir string, sessionID string, summary string) error {
 	entriesDir := filepath.Join(dir, "entries")
-	if err := os.MkdirAll(entriesDir, 0o755); err != nil {
+	if err := os.MkdirAll(entriesDir, 0o750); err != nil {
 		return fmt.Errorf("journal: creating entries dir: %w", err)
 	}
 
@@ -145,7 +145,7 @@ func (s *Summarizer) WriteSummary(dir string, sessionID string, summary string) 
 	filename := fmt.Sprintf("%s-%s.md", now.Format("2006-01-02"), sessionID)
 	path := filepath.Join(entriesDir, filename)
 
-	if err := os.WriteFile(path, []byte(summary), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(summary), 0o600); err != nil {
 		return fmt.Errorf("journal: writing summary: %w", err)
 	}
 
@@ -159,7 +159,7 @@ func (s *Summarizer) WriteSummary(dir string, sessionID string, summary string) 
 // per the §4.19 spec while still preserving per-session attribution.
 func (s *Summarizer) WriteDayNarrative(dir string, sessionID string, narrative string, when times.Time) error {
 	entriesDir := filepath.Join(dir, "entries")
-	if err := os.MkdirAll(entriesDir, 0o755); err != nil {
+	if err := os.MkdirAll(entriesDir, 0o750); err != nil {
 		return fmt.Errorf("journal: creating entries dir: %w", err)
 	}
 	path := filepath.Join(entriesDir, when.Format("2006-01-02")+".md")
@@ -170,9 +170,9 @@ func (s *Summarizer) WriteDayNarrative(dir string, sessionID string, narrative s
 		header := fmt.Sprintf("\n\n---\n\n## session %s (%s)\n\n",
 			sessionID, when.Format("15:04"))
 		combined := string(existing) + header + strings.TrimSpace(narrative) + "\n"
-		return os.WriteFile(path, []byte(combined), 0o644)
+		return os.WriteFile(path, []byte(combined), 0o600)
 	}
-	if err := os.WriteFile(path, []byte(narrative), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(narrative), 0o600); err != nil {
 		return fmt.Errorf("journal: writing day narrative: %w", err)
 	}
 	return nil

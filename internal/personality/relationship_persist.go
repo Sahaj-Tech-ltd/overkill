@@ -18,7 +18,7 @@ func (r *RelationshipTracker) SaveToFile(path string) error {
 		return nil
 	}
 	state := r.State()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("personality: relationship mkdir: %w", err)
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -29,7 +29,7 @@ func (r *RelationshipTracker) SaveToFile(path string) error {
 	// crash between the two leaves us with a recoverable log entry.
 	_ = NewEventLog(path).Append(data)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("personality: relationship write: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

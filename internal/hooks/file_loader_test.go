@@ -10,7 +10,7 @@ import (
 func writeScript(t *testing.T, dir, body string, executable bool) string {
 	t.Helper()
 	path := filepath.Join(dir, "hook.sh")
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if executable {
@@ -24,7 +24,7 @@ func writeScript(t *testing.T, dir, body string, executable bool) string {
 func TestLoadFromDir_RegistersExecutableScripts(t *testing.T) {
 	root := t.TempDir()
 	point := filepath.Join(root, string(BeforeToolCall))
-	if err := os.MkdirAll(point, 0o755); err != nil {
+	if err := os.MkdirAll(point, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	writeScript(t, point, "#!/bin/sh\nexit 0\n", true)
@@ -46,7 +46,7 @@ func TestLoadFromDir_RegistersExecutableScripts(t *testing.T) {
 func TestLoadFromDir_SkipsNonExecutable(t *testing.T) {
 	root := t.TempDir()
 	point := filepath.Join(root, string(AfterToolCall))
-	if err := os.MkdirAll(point, 0o755); err != nil {
+	if err := os.MkdirAll(point, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	writeScript(t, point, "#!/bin/sh\nexit 0\n", false)
@@ -75,7 +75,7 @@ func TestLoadFromDir_MissingDirOK(t *testing.T) {
 func TestLoadedHook_PipesEventToStdin(t *testing.T) {
 	root := t.TempDir()
 	point := filepath.Join(root, string(OnError))
-	if err := os.MkdirAll(point, 0o755); err != nil {
+	if err := os.MkdirAll(point, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	out := filepath.Join(root, "captured.txt")
@@ -102,7 +102,7 @@ func TestIsExecutable(t *testing.T) {
 	dir := t.TempDir()
 	exe := writeScript(t, dir, "#!/bin/sh\n", true)
 	non := filepath.Join(dir, "not_exe")
-	_ = os.WriteFile(non, []byte("x"), 0o644)
+	_ = os.WriteFile(non, []byte("x"), 0o600)
 	if !isExecutable(exe) {
 		t.Error("expected executable")
 	}

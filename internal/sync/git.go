@@ -47,7 +47,7 @@ func NewGitBackend(cfg config.SyncGitConfig) (*GitBackend, error) {
 			return nil, fmt.Errorf("sync/git: remote URL %q uses a blocked transport scheme", cfg.RemoteURL)
 		}
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("sync/git: mkdir: %w", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {
@@ -72,7 +72,33 @@ func runGit(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// safeGitID rejects session IDs that could double as git options/flags
+// when interpolated into git invocations.  Session IDs should be
+// alphanumeric and hyphens (UUID-ish) — anything else is suspicious.
+func safeGitID(id string) error {
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return fmt.Errorf("sync/git: invalid session ID %q", id)
+	}
+	if id == "" {
+		return fmt.Errorf("sync/git: empty session ID")
+	}
+	// Reject IDs that look like flags: starting with "-", containing "..",
+	// or that are too long (sanity check).
+	if id[0] == '-' || strings.Contains(id, "..") || len(id) > 256 {
+		return fmt.Errorf("sync/git: suspicious session ID %q", id)
+	}
+	return nil
+}
+
 func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta SessionMeta) error {
+	// Validate ID before passing to git.
+	if err := safeGitID(id); err != nil {
+		return err
+	}
 	// Fetch first to reduce conflict risk.
 	if g.remote != "" {
 		if _, err := runGit(g.dir, "fetch", "origin", g.branch); err != nil {
@@ -93,14 +119,14 @@ func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta Sess
 	if err != nil {
 		return fmt.Errorf("sync/git: meta path: %w", err)
 	}
-	if err := atomicfile.WriteFile(metaP, mb, 0o644); err != nil {
+	if err := atomicfile.WriteFile(metaP, mb, 0o600); err != nil {
 		return fmt.Errorf("sync/git: write meta: %w", err)
 	}
 	blobP, err := security.SafePath(g.dir, id+".json.gz")
 	if err != nil {
 		return fmt.Errorf("sync/git: blob path: %w", err)
 	}
-	if err := atomicfile.WriteFile(blobP, data, 0o644); err != nil {
+	if err := atomicfile.WriteFile(blobP, data, 0o600); err != nil {
 		_ = os.Remove(metaP)
 		return fmt.Errorf("sync/git: write blob: %w", err)
 	}
@@ -123,6 +149,10 @@ func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta Sess
 }
 
 func (g *GitBackend) Pull(ctx context.Context, id string) ([]byte, SessionMeta, error) {
+	// Validate ID before path construction.
+	if err := safeGitID(id); err != nil {
+		return nil, SessionMeta{}, err
+	}
 	if g.remote != "" {
 		if _, err := runGit(g.dir, "fetch", "origin", g.branch); err != nil {
 			return nil, SessionMeta{}, fmt.Errorf("sync/git: fetch: %w", err)
@@ -206,6 +236,10 @@ func blockedGitURL(url string) bool {
 }
 
 func (g *GitBackend) Delete(ctx context.Context, id string) error {
+	// Validate ID before passing to git.
+	if err := safeGitID(id); err != nil {
+		return err
+	}
 	bp, err := security.SafePath(g.dir, id+".json.gz")
 	if err != nil {
 		return fmt.Errorf("sync/git: blob path: %w", err)

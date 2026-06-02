@@ -374,7 +374,7 @@ func TestColdStartManager_DirectoryPath(t *testing.T) {
 	// NewColdStartManager appends "relationship.json"; pass dir so path = dir/relationship.json.
 	// But let's also test: create a *directory* at that path.
 	dirPath := dir + "/relationship.json"
-	if err := os.Mkdir(dirPath, 0o755); err != nil {
+	if err := os.Mkdir(dirPath, 0o750); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	// IsColdStart should handle this gracefully — os.Stat on a dir returns Size()=4096+ not 0.

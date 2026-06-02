@@ -12,10 +12,10 @@ func TestSnapshot_RoundTrip(t *testing.T) {
 	work := t.TempDir()
 	a := filepath.Join(work, "a.txt")
 	b := filepath.Join(work, "b.txt")
-	if err := os.WriteFile(a, []byte("hello"), 0o644); err != nil {
+	if err := os.WriteFile(a, []byte("hello"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(b, []byte("world"), 0o644); err != nil {
+	if err := os.WriteFile(b, []byte("world"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -29,7 +29,7 @@ func TestSnapshot_RoundTrip(t *testing.T) {
 	}
 
 	// Mutate after snapshot.
-	_ = os.WriteFile(a, []byte("DELETED"), 0o644)
+	_ = os.WriteFile(a, []byte("DELETED"), 0o600)
 	_ = os.Remove(b)
 
 	skipped, err := m.Restore(man.ID)
@@ -62,7 +62,7 @@ func TestSnapshot_NonExistentFileRollbackRemovesPostCreation(t *testing.T) {
 	}
 
 	// Simulate the agent creating it.
-	_ = os.WriteFile(target, []byte("oops"), 0o644)
+	_ = os.WriteFile(target, []byte("oops"), 0o600)
 
 	if _, err := m.Restore(man.ID); err != nil {
 		t.Fatalf("restore: %v", err)
@@ -102,7 +102,7 @@ func TestList_NewestFirstAndPrune(t *testing.T) {
 	dir := t.TempDir()
 	work := t.TempDir()
 	target := filepath.Join(work, "x.txt")
-	_ = os.WriteFile(target, []byte("v1"), 0o644)
+	_ = os.WriteFile(target, []byte("v1"), 0o600)
 
 	m, _ := NewManager(dir, 2) // keep only 2 per session
 	for i := 0; i < 4; i++ {
@@ -126,7 +126,7 @@ func TestList_AllSessionsWhenEmpty(t *testing.T) {
 	dir := t.TempDir()
 	work := t.TempDir()
 	target := filepath.Join(work, "x.txt")
-	_ = os.WriteFile(target, []byte("v"), 0o644)
+	_ = os.WriteFile(target, []byte("v"), 0o600)
 
 	m, _ := NewManager(dir, 5)
 	_, _ = m.Snapshot("s1", "", []string{target})
@@ -150,7 +150,7 @@ func TestSnapshot_ReasonStored(t *testing.T) {
 	dir := t.TempDir()
 	work := t.TempDir()
 	target := filepath.Join(work, "a")
-	_ = os.WriteFile(target, []byte("x"), 0o644)
+	_ = os.WriteFile(target, []byte("x"), 0o600)
 	m, _ := NewManager(dir, 5)
 	man, _ := m.Snapshot("s", "before patch foo.go", []string{target})
 	if !strings.Contains(man.Reason, "patch foo.go") {

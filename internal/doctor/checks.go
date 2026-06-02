@@ -310,7 +310,7 @@ func checkDir(path, label string) CheckResult {
 	// B055: Use PID + random suffix to avoid collisions when two
 	// doctor runs race against each other.
 	tmpFile := filepath.Join(path, probeFilename())
-	if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
+	if err := os.WriteFile(tmpFile, []byte("test"), 0o600); err != nil {
 		return CheckResult{
 			Status:  StatusWarn,
 			Message: fmt.Sprintf("doctor: %s exists but is not writable: %v", label, err),

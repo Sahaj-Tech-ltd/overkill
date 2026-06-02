@@ -130,7 +130,7 @@ func (m *SessionMap) persist(snap map[string]sessionEntry) error {
 	if m.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(m.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(m.path), 0o750); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(snap, "", "  ")

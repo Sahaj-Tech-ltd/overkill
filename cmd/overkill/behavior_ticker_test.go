@@ -26,7 +26,7 @@ func withTempHome(t *testing.T) string {
 func writeJournalEntry(t *testing.T, home string, e journal.Entry) {
 	t.Helper()
 	rawDir := filepath.Join(home, ".overkill", "journal", "raw")
-	if err := os.MkdirAll(rawDir, 0o755); err != nil {
+	if err := os.MkdirAll(rawDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(rawDir, e.Timestamp.Format("2006-01-02")+".jsonl")

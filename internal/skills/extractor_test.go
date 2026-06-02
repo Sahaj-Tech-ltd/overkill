@@ -44,7 +44,7 @@ func TestExtract_WritesSkillMarkdown(t *testing.T) {
 func TestExtract_PreservesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "thing")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+	if err := os.MkdirAll(skillDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("hand-edited"), 0o644); err != nil {

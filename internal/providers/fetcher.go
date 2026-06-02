@@ -279,7 +279,7 @@ func (f *HTTPModelFetcher) FetchAndPersist(ctx context.Context, providerName, pr
 	}
 
 	modelsDir := filepath.Join(outputDir, providerName, "models")
-	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
+	if err := os.MkdirAll(modelsDir, 0o750); err != nil {
 		return nil, 0, fmt.Errorf("providers: create models dir: %w", err)
 	}
 
@@ -295,7 +295,7 @@ func (f *HTTPModelFetcher) FetchAndPersist(ctx context.Context, providerName, pr
 			return nil, 0, fmt.Errorf("providers: marshal model %s: %w", m.ID, merr)
 		}
 
-		if wErr := atomicfile.WriteFile(modelFile, tomlData, 0o644); wErr != nil {
+		if wErr := atomicfile.WriteFile(modelFile, tomlData, 0o600); wErr != nil {
 			return nil, 0, fmt.Errorf("providers: write model %s: %w", m.ID, wErr)
 		}
 	}
@@ -312,7 +312,7 @@ func (f *HTTPModelFetcher) FetchAndPersist(ctx context.Context, providerName, pr
 	if err != nil {
 		return nil, 0, fmt.Errorf("providers: marshal provider: %w", err)
 	}
-	if err := atomicfile.WriteFile(providerFile, pData, 0o644); err != nil {
+	if err := atomicfile.WriteFile(providerFile, pData, 0o600); err != nil {
 		return nil, 0, fmt.Errorf("providers: write provider: %w", err)
 	}
 

@@ -53,7 +53,7 @@ func (c *captureReporter) all() [][]string {
 func TestWireAgent_ModelHotSwap(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "user.yaml")
-	if err := os.WriteFile(file, []byte("schema_version: 1\nbasic:\n  model: claude-opus-4-7\n"), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte("schema_version: 1\nbasic:\n  model: claude-opus-4-7\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,7 +73,7 @@ func TestWireAgent_ModelHotSwap(t *testing.T) {
 	defer cancel()
 
 	// Save a new model.
-	if err := os.WriteFile(file, []byte("schema_version: 1\nbasic:\n  model: claude-haiku-4-5\n"), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte("schema_version: 1\nbasic:\n  model: claude-haiku-4-5\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,7 +111,7 @@ func TestWireAgent_ModelHotSwap(t *testing.T) {
 func TestWireAgent_PersonaChangeReports(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "user.yaml")
-	_ = os.WriteFile(file, []byte("schema_version: 1\n"), 0o644)
+	_ = os.WriteFile(file, []byte("schema_version: 1\n"), 0o600)
 
 	b := runBus(t, Paths{UserConfigFile: file})
 	agent := &fakeAgent{}
@@ -121,7 +121,7 @@ func TestWireAgent_PersonaChangeReports(t *testing.T) {
 	defer stop()
 	defer cancel()
 
-	_ = os.WriteFile(file, []byte("schema_version: 1\nadvanced:\n  persona:\n    tone: terse\n"), 0o644)
+	_ = os.WriteFile(file, []byte("schema_version: 1\nadvanced:\n  persona:\n    tone: terse\n"), 0o600)
 
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {

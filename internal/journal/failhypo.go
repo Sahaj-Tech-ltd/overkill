@@ -138,7 +138,7 @@ func (s *FailedHypothesisStore) Append(h FailedHypothesis) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("failhypo: mkdir: %w", err)
 	}
 	ts := h.Timestamp

@@ -38,7 +38,7 @@ func RegisterFilesystem(r *doctor.Runner, d Deps) {
 			Name:     "Writable: " + dir.label,
 			Category: doctor.CatSystem,
 			Fn: func(ctx context.Context) doctor.Result {
-				if err := os.MkdirAll(dir.path, 0o755); err != nil {
+				if err := os.MkdirAll(dir.path, 0o750); err != nil {
 					return failf("chmod or chown "+dir.path+" so the current user owns it",
 						"mkdir: %v", err)
 				}

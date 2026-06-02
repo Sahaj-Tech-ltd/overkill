@@ -23,7 +23,7 @@ func TestRelationship_RecoversFromWipedSnapshot(t *testing.T) {
 	}
 
 	// Simulate the adversarial / corruption case: snapshot is wiped.
-	if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
+	if err := os.WriteFile(path, []byte{}, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,7 +51,7 @@ func TestFingerprint_RecoversFromCorruptedSnapshot(t *testing.T) {
 	}
 
 	// Corrupt the snapshot.
-	if err := os.WriteFile(path, []byte("not valid json"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("not valid json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

@@ -30,7 +30,7 @@ func (s stubVerdictScanner) Scan(_ context.Context, path string) (safety.Result,
 func writeSkill(t *testing.T, root, name, body string) {
 	t.Helper()
 	dir := filepath.Join(root, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if len(body) < 20 {

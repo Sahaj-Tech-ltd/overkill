@@ -123,7 +123,7 @@ func (m *Manager) load() error {
 }
 
 func (m *Manager) save() error {
-	if err := os.MkdirAll(filepath.Dir(m.manifestPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(m.manifestPath), 0750); err != nil {
 		return err
 	}
 
@@ -131,7 +131,7 @@ func (m *Manager) save() error {
 	if err != nil {
 		return fmt.Errorf("modules: marshal manifest: %w", err)
 	}
-	return atomicfile.WriteFile(m.manifestPath, data, 0644)
+	return atomicfile.WriteFile(m.manifestPath, data, 0600)
 }
 
 // seedDefaults populates the manifest with built-in tracked modules.
@@ -381,7 +381,7 @@ func (m *Manager) fetchGitHubRelease(mod *Module, version string) error {
 	if err := os.RemoveAll(dest); err != nil {
 		return fmt.Errorf("modules: clean destination %s: %w", dest, err)
 	}
-	if err := os.MkdirAll(dest, 0o755); err != nil {
+	if err := os.MkdirAll(dest, 0o750); err != nil {
 		return fmt.Errorf("modules: create destination %s: %w", dest, err)
 	}
 

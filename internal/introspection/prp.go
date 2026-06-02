@@ -40,7 +40,7 @@ func WritePRP(in PRPInputs) (*PRPResult, error) {
 	if in.OutputDir == "" {
 		return nil, fmt.Errorf("introspection: PRP output_dir required")
 	}
-	if err := os.MkdirAll(in.OutputDir, 0o755); err != nil {
+	if err := os.MkdirAll(in.OutputDir, 0o750); err != nil {
 		return nil, err
 	}
 	out := filepath.Join(in.OutputDir, "PRP.md")
@@ -48,7 +48,7 @@ func WritePRP(in PRPInputs) (*PRPResult, error) {
 		return &PRPResult{Path: out, Created: false}, nil
 	}
 	body := renderPRP(in)
-	if err := atomicfile.WriteFile(out, []byte(body), 0o644); err != nil {
+	if err := atomicfile.WriteFile(out, []byte(body), 0o600); err != nil {
 		return nil, err
 	}
 	return &PRPResult{Path: out, Created: true}, nil

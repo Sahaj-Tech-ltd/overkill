@@ -6,12 +6,13 @@ on:
   schedule:
     - cron: "0 0 * * 0"
 
+# Need write access to push contributors update directly.
+permissions:
+  contents: write
+
 jobs:
   update-contributors:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - name: Fetch contributors
@@ -37,9 +38,14 @@ jobs:
           fi
           
           rm -f contributors_table.md contributors_header.md contributors_full.md
-      - uses: peter-evans/create-pull-request@v6
-        with:
-          title: "Update contributors list"
-          body: "Automated update of the contributors section in README.md"
-          branch: update-contributors
-          commit-message: "chore: update contributors list"
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet README.md; then
+            echo "No changes to contributors."
+          else
+            git add README.md
+            git commit -m "chore: update contributors list"
+            git push
+          fi

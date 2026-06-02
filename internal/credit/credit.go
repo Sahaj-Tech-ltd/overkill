@@ -292,7 +292,7 @@ func (s *Store) SaveSession(rec SessionRecord) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("credit: mkdir: %w", err)
 	}
 	path := filepath.Join(s.dir, rec.SessionID+".json")
@@ -300,7 +300,7 @@ func (s *Store) SaveSession(rec SessionRecord) error {
 	if err != nil {
 		return fmt.Errorf("credit: marshal: %w", err)
 	}
-	if err := atomicfile.WriteFile(path, data, 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("credit: write: %w", err)
 	}
 	return nil

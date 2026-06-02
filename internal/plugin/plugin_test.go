@@ -844,7 +844,7 @@ func TestDiscoverEmptyDir(t *testing.T) {
 func TestDiscoverDirWithPluginToml(t *testing.T) {
 	dir := t.TempDir()
 	pDir := filepath.Join(dir, "myplug")
-	if err := os.MkdirAll(pDir, 0o755); err != nil {
+	if err := os.MkdirAll(pDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	tomlContent := `name = "myplug"
@@ -882,7 +882,7 @@ events = ["compact"]
 func TestDiscoverDirWithPluginTomlMissingEntry(t *testing.T) {
 	dir := t.TempDir()
 	pDir := filepath.Join(dir, "badplug")
-	if err := os.MkdirAll(pDir, 0o755); err != nil {
+	if err := os.MkdirAll(pDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	tomlContent := `name = "badplug"
@@ -903,7 +903,7 @@ version = "1.0"
 func TestDiscoverDirInvalidToml(t *testing.T) {
 	dir := t.TempDir()
 	pDir := filepath.Join(dir, "bad")
-	if err := os.MkdirAll(pDir, 0o755); err != nil {
+	if err := os.MkdirAll(pDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(pDir, "plugin.toml"), []byte("[[["), 0o644); err != nil {
@@ -921,7 +921,7 @@ func TestDiscoverDirInvalidToml(t *testing.T) {
 func TestIsExecutable(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "reg")
-	if err := os.WriteFile(regFile, []byte("data"), 0o644); err != nil {
+	if err := os.WriteFile(regFile, []byte("data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if isExecutable(regFile) {

@@ -51,7 +51,7 @@ func Extract(req ExtractRequest) (*ExtractResult, error) {
 		return nil, fmt.Errorf("skills: output_dir required")
 	}
 	dir := filepath.Join(req.OutputDir, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
 	out := filepath.Join(dir, "SKILL.md")
@@ -59,7 +59,7 @@ func Extract(req ExtractRequest) (*ExtractResult, error) {
 		return &ExtractResult{Path: out, Name: name, Created: false}, nil
 	}
 	body := renderSkillMarkdown(name, req)
-	if err := atomicfile.WriteFile(out, []byte(body), 0o644); err != nil {
+	if err := atomicfile.WriteFile(out, []byte(body), 0o600); err != nil {
 		return nil, err
 	}
 	return &ExtractResult{Path: out, Name: name, Created: true}, nil

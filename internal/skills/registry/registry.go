@@ -181,7 +181,7 @@ func (c *Client) Install(ctx context.Context, slug, version, skillsDir string) (
 		return "", fmt.Errorf("registry: install blocked (%s): %s", worst, strings.Join(labels, "; "))
 	}
 
-	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+	if err := os.MkdirAll(skillsDir, 0o750); err != nil {
 		return "", fmt.Errorf("registry: mkdir skillsDir: %w", err)
 	}
 	dest := filepath.Join(skillsDir, m.Slug)
@@ -245,7 +245,7 @@ func (c *Client) fetchAndUnpack(ctx context.Context, url, dest string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("registry: download status %d", resp.StatusCode)
 	}
-	if err := os.MkdirAll(dest, 0o755); err != nil {
+	if err := os.MkdirAll(dest, 0o750); err != nil {
 		return err
 	}
 
@@ -270,11 +270,11 @@ func (c *Client) fetchAndUnpack(ctx context.Context, url, dest string) error {
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := os.MkdirAll(target, 0o750); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 				return err
 			}
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode)&0o777)

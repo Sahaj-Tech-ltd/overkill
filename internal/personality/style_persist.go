@@ -38,7 +38,7 @@ func (si *StyleInferencer) SaveToFile(path string) error {
 		StreakLength: si.sessionCount,
 	}
 	si.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("personality: style mkdir: %w", err)
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -48,7 +48,7 @@ func (si *StyleInferencer) SaveToFile(path string) error {
 	// Event-log append for corruption recovery — see eventlog.go.
 	_ = NewEventLog(path).Append(data)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("personality: style write: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

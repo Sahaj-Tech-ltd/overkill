@@ -168,7 +168,7 @@ percent = 25
 [show_per_command_metadata]
 default = true
 `
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	m := NewManager()
@@ -189,7 +189,7 @@ default = true
 func TestLoadFromTOML_BadFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "features.toml")
-	_ = os.WriteFile(path, []byte("not valid ["), 0o644)
+	_ = os.WriteFile(path, []byte("not valid ["), 0o600)
 	m := NewManager()
 	if err := m.LoadFromTOML(path); err == nil || !strings.Contains(err.Error(), "parse") {
 		t.Errorf("expected parse error, got %v", err)

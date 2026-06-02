@@ -35,7 +35,7 @@ func generateArchitecture(ctx context.Context, provider providers.Provider, mode
 }
 
 func generateFile(ctx context.Context, provider providers.Provider, model string, dir string, fileType FileType, systemPrompt string) (*IntrospectionFile, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("introspection: create dir: %w", err)
 	}
 
@@ -53,7 +53,7 @@ func generateFile(ctx context.Context, provider providers.Provider, model string
 	}
 
 	path := filepath.Join(dir, string(fileType))
-	if err := atomicfile.WriteFile(path, []byte(resp.Content), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(resp.Content), 0o600); err != nil {
 		return nil, fmt.Errorf("introspection: write %s: %w", fileType, err)
 	}
 

@@ -343,7 +343,10 @@ func classifyToolRisk(toolName, args string) string {
 		}
 		s := strings.ToLower(a.URL)
 		switch {
-		case strings.HasPrefix(s, "javascript:"), strings.HasPrefix(s, "chrome:"):
+		case strings.HasPrefix(s, "javascript:"),
+			strings.HasPrefix(s, "data:"),
+			strings.HasPrefix(s, "vbscript:"),
+			strings.HasPrefix(s, "chrome:"):
 			return "high"
 		case strings.HasPrefix(s, "file:"), strings.HasPrefix(s, "ftp:"):
 			return "medium"

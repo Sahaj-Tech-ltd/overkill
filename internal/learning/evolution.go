@@ -217,7 +217,7 @@ func (e *Engine) RecordTurn(ctx context.Context, record LearningRecord) error {
 	}
 
 	path := filepath.Join(e.recordDir, "turns.jsonl")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("evolution: mkdir: %w", err)
 	}
 
@@ -334,19 +334,19 @@ func (e *Engine) applyDraft(draft SkillDraft) error {
 	if _, err := os.Stat(skillPath); err == nil {
 		backupPath := filepath.Join(e.backupDir, draft.TargetSkillName,
 			fmt.Sprintf("%d", time.Now().UnixNano()), "SKILL.md")
-		if err := os.MkdirAll(filepath.Dir(backupPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(backupPath), 0o750); err != nil {
 			return err
 		}
 		data, _ := os.ReadFile(skillPath)
-		_ = os.WriteFile(backupPath, data, 0o644)
+		_ = os.WriteFile(backupPath, data, 0o600)
 	}
 
 	// Write new skill atomically.
-	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0o750); err != nil {
 		return err
 	}
 	tmp := skillPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(draft.BodyOrPatch), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(draft.BodyOrPatch), 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, skillPath)

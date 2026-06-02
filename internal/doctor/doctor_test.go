@@ -180,7 +180,7 @@ func TestDoctor_Report(t *testing.T) {
 		filepath.Join(tmpDir, "data", "journal"),
 	}
 	for _, dir := range dirs {
-		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.MkdirAll(dir, 0o750))
 	}
 
 	d := NewDoctor(tmpDir)

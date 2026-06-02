@@ -41,7 +41,7 @@ model: haiku
 maxTurns: 5
 ---
 You are an exploration agent from a file.`
-	if err := os.WriteFile(agentFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(agentFile, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -124,8 +124,8 @@ func TestAgentRegistry_SelectBestByName(t *testing.T) {
 func TestAgentRegistry_PriorityResolution(t *testing.T) {
 	projectDir := filepath.Join(t.TempDir(), "project")
 	userDir := filepath.Join(t.TempDir(), "user")
-	os.MkdirAll(projectDir, 0755)
-	os.MkdirAll(userDir, 0755)
+	os.MkdirAll(projectDir, 0750)
+	os.MkdirAll(userDir, 0750)
 
 	r := NewAgentRegistry(projectDir, userDir)
 	r.RegisterBuiltin(AgentDef{Name: "helper", Description: "built-in helper"})
@@ -136,7 +136,7 @@ func TestAgentRegistry_PriorityResolution(t *testing.T) {
 name: helper
 description: user-level helper
 ---
-User.`), 0644)
+User.`), 0600)
 
 	// Project agent overrides user.
 	projectFile := filepath.Join(projectDir, "helper.md")
@@ -144,7 +144,7 @@ User.`), 0644)
 name: helper
 description: project-level helper
 ---
-Project.`), 0644)
+Project.`), 0600)
 
 	if err := r.Scan(); err != nil {
 		t.Fatalf("Scan: %v", err)

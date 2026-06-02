@@ -97,7 +97,7 @@ This is the full instruction body for the comprehensive skill test case.
 func writeTestSkill(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	err := os.WriteFile(path, []byte(content), 0644)
+	err := os.WriteFile(path, []byte(content), 0600)
 	require.NoError(t, err)
 	return path
 }

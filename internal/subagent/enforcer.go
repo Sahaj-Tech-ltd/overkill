@@ -54,7 +54,7 @@ type fileAuditWriter struct {
 // can't be created (graceful degradation; auditing is best-effort).
 func NewFileAuditWriter(baseDir, id string) (*fileAuditWriter, error) {
 	dir := filepath.Join(baseDir, id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("audit: mkdir: %w", err)
 	}
 	p := filepath.Join(dir, "contract-audit.jsonl")

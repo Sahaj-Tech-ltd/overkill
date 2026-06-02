@@ -300,7 +300,7 @@ func (s *Store) save(t *Task) error {
 }
 
 func (s *Store) saveLocked(t *Task) error {
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("tasks: mkdir: %w", err)
 	}
 	path := filepath.Join(s.dir, t.ID+".json")
@@ -308,7 +308,7 @@ func (s *Store) saveLocked(t *Task) error {
 	if err != nil {
 		return fmt.Errorf("tasks: marshal: %w", err)
 	}
-	if err := atomicfile.WriteFile(path, data, 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("tasks: write: %w", err)
 	}
 	return nil

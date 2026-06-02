@@ -81,7 +81,7 @@ func (m *ColdStartManager) ProcessFirstResponse(response string) (*ColdStartProf
 }
 
 func (m *ColdStartManager) persistLocked(profile *ColdStartProfile) error {
-	if err := os.MkdirAll(filepath.Dir(m.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(m.path), 0o750); err != nil {
 		return fmt.Errorf("personality: cold start: mkdir: %w", err)
 	}
 	data, err := json.MarshalIndent(profile, "", "  ")
@@ -91,7 +91,7 @@ func (m *ColdStartManager) persistLocked(profile *ColdStartProfile) error {
 	// Write to a sibling tmp file then rename — avoids leaving a
 	// half-written relationship.json behind on partial failures.
 	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("personality: cold start: write: %w", err)
 	}
 	if err := os.Rename(tmp, m.path); err != nil {

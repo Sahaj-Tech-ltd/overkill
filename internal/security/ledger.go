@@ -34,7 +34,7 @@ func NewLedger(path string) (*Ledger, error) {
 	if path == "" {
 		return nil, errors.New("ledger: path required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, err
 	}
 	l := &Ledger{path: path}

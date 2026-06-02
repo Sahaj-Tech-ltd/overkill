@@ -67,7 +67,7 @@ var pluginInstallCmd = &cobra.Command{
 			return fmt.Errorf("could not derive plugin name from %s", raw)
 		}
 		root := plugin.DefaultPluginsDir()
-		if err := os.MkdirAll(root, 0o755); err != nil {
+		if err := os.MkdirAll(root, 0o750); err != nil {
 			return err
 		}
 		dest := filepath.Join(root, name)

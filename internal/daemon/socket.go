@@ -103,7 +103,7 @@ func (s *Server) Start() error {
 	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("daemon socket: cleanup: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o750); err != nil {
 		return fmt.Errorf("daemon socket: mkdir: %w", err)
 	}
 	ln, err := net.Listen("unix", s.path)

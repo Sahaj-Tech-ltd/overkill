@@ -266,14 +266,14 @@ func (s *Store) Save(b *Baseline) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o750); err != nil {
 		return fmt.Errorf("drift: mkdir: %w", err)
 	}
 	data, err := json.MarshalIndent(b, "", "  ")
 	if err != nil {
 		return fmt.Errorf("drift: marshal: %w", err)
 	}
-	if err := atomicfile.WriteFile(s.path, data, 0o644); err != nil {
+	if err := atomicfile.WriteFile(s.path, data, 0o600); err != nil {
 		return fmt.Errorf("drift: write: %w", err)
 	}
 	return nil

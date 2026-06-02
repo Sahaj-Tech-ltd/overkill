@@ -1189,7 +1189,7 @@ func exportMemoryIfNeeded(homeDir string) {
 	b.WriteString(fmt.Sprintf("- Memories: `%s/memories/`\n", homeDir))
 	b.WriteString(fmt.Sprintf("- Skills: `%s/skills/`\n", homeDir))
 
-	if err := os.WriteFile(exportPath, []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(exportPath, []byte(b.String()), 0o600); err != nil {
 		log.Printf("memory export: write %s: %v", exportPath, err)
 	}
 }

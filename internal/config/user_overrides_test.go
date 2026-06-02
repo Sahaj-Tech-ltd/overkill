@@ -125,7 +125,7 @@ func TestSaveAtomic(t *testing.T) {
 func TestLoadUserOverrides_ParseError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "user.yaml")
-	if err := os.WriteFile(path, []byte("not: valid: yaml: [unclosed"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("not: valid: yaml: [unclosed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadUserOverrides(path); err == nil {
@@ -138,7 +138,7 @@ func TestLoadUserOverrides_PartialFile(t *testing.T) {
 	path := filepath.Join(dir, "user.yaml")
 	// Just one field set; everything else should fall back to defaults.
 	body := "basic:\n  model: claude-haiku\n"
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	u, err := LoadUserOverrides(path)

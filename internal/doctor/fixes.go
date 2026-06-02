@@ -19,7 +19,7 @@ func fixConfigExists(configDir string) CheckResult {
 			Message: "config file already exists",
 		}
 	}
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	if err := os.MkdirAll(configDir, 0o750); err != nil {
 		return CheckResult{
 			Status:  StatusFail,
 			Message: fmt.Sprintf("doctor: cannot create config directory: %v", err),
@@ -151,7 +151,7 @@ func fixMissingDir(path, label string) CheckResult {
 			Message: fmt.Sprintf("%s already exists", label),
 		}
 	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		return CheckResult{
 			Status:  StatusFail,
 			Message: fmt.Sprintf("doctor: cannot create %s at %s: %v", label, path, err),

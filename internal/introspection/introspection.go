@@ -129,11 +129,11 @@ func WriteCodebaseFromScan(sourceDir, outDir string) (*IntrospectionFile, error)
 		return nil, fmt.Errorf("introspection: scan: %w", err)
 	}
 	body := RenderCodebaseMarkdown(res)
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		return nil, fmt.Errorf("introspection: mkdir: %w", err)
 	}
 	path := filepath.Join(outDir, string(FileCodebase))
-	if err := atomicfile.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(body), 0o600); err != nil {
 		return nil, fmt.Errorf("introspection: write: %w", err)
 	}
 	return &IntrospectionFile{

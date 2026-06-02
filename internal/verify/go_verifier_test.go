@@ -24,7 +24,7 @@ func main() {
 }
 `
 	mainPath := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(mainPath, []byte(src), 0o644); err != nil {
+	if err := os.WriteFile(mainPath, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,7 +51,7 @@ import "fmt"
 func main() { fmt.Println("hi") }
 `
 	mainPath := filepath.Join(dir, "main.go")
-	_ = os.WriteFile(mainPath, []byte(src), 0o644)
+	_ = os.WriteFile(mainPath, []byte(src), 0o600)
 
 	v := NewGoVerifier()
 	ok, detail, skipped := v.Verify(context.Background(), mainPath, nil)

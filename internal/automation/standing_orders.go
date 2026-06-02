@@ -50,7 +50,7 @@ func NewOrdersFile(path string) (*OrdersFile, error) {
 	if path == "" {
 		return nil, errors.New("standing orders: empty path")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, err
 	}
 	o := &OrdersFile{path: path}

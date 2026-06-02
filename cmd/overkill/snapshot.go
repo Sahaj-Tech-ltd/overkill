@@ -70,7 +70,7 @@ var snapshotExportCmd = &cobra.Command{
 			return fmt.Errorf("marshal: %w", err)
 		}
 		dir := SnapshotDir()
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return err
 		}
 		filename := fmt.Sprintf("%s-%s.json", s.ID, time.Now().Format("20060102-150405"))
@@ -103,7 +103,7 @@ func dailySnapshotTick(store session.Store) {
 		return
 	}
 	dir := SnapshotDir()
-	_ = os.MkdirAll(dir, 0o755)
+	_ = os.MkdirAll(dir, 0o750)
 	for _, s := range sessions {
 		data, _ := json.MarshalIndent(s, "", "  ")
 		filename := fmt.Sprintf("%s-%s.json", s.ID, time.Now().Format("20060102-150405"))

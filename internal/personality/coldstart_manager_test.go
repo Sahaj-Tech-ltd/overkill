@@ -94,7 +94,7 @@ func TestColdStartManager_LoadExistingProfile(t *testing.T) {
 func TestColdStartManager_EmptyFileTreatedAsCold(t *testing.T) {
 	dir := t.TempDir()
 	// Touch empty relationship.json.
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "relationship.json"), []byte(""), 0o644); err != nil {

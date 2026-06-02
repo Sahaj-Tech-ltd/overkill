@@ -123,7 +123,7 @@ tui/                Ink+React terminal UI
 // Overkill reads on startup. Safe to call repeatedly — existing user-edited
 // files are never overwritten.
 func BootstrapOverkillHome(homeDir string) error {
-	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+	if err := os.MkdirAll(homeDir, 0o750); err != nil {
 		return fmt.Errorf("bootstrap: creating home dir: %w", err)
 	}
 
@@ -147,7 +147,7 @@ func BootstrapOverkillHome(homeDir string) error {
 	// soul.md — only write if it doesn't exist (user may have edited it)
 	soulPath := filepath.Join(homeDir, "memories", "soul.md")
 	if _, err := os.Stat(soulPath); os.IsNotExist(err) {
-		if err := os.WriteFile(soulPath, []byte(defaultSoulMD), 0o644); err != nil {
+		if err := os.WriteFile(soulPath, []byte(defaultSoulMD), 0o600); err != nil {
 			return fmt.Errorf("bootstrap: writing soul.md: %w", err)
 		}
 	}
@@ -155,7 +155,7 @@ func BootstrapOverkillHome(homeDir string) error {
 	// CLAUDE.md — only write if it doesn't exist (user may have customised it)
 	claudePath := filepath.Join(homeDir, "CLAUDE.md")
 	if _, err := os.Stat(claudePath); os.IsNotExist(err) {
-		if err := os.WriteFile(claudePath, []byte(defaultClaudeMD()), 0o644); err != nil {
+		if err := os.WriteFile(claudePath, []byte(defaultClaudeMD()), 0o600); err != nil {
 			return fmt.Errorf("bootstrap: writing CLAUDE.md: %w", err)
 		}
 	}
@@ -169,7 +169,7 @@ func BootstrapOverkillHome(homeDir string) error {
 	for name, content := range introFiles {
 		path := filepath.Join(introDir, name)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
-			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 				return fmt.Errorf("bootstrap: writing %s: %w", name, err)
 			}
 		}

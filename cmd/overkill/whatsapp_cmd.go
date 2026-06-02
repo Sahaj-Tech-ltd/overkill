@@ -134,7 +134,7 @@ func runWhatsappPair(cmd *cobra.Command, args []string) error {
 		}
 		storePath = filepath.Join(home, ".overkill", "whatsapp.db")
 	}
-	if err := os.MkdirAll(filepath.Dir(storePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(storePath), 0o750); err != nil {
 		return fmt.Errorf("whatsapp pair: mkdir: %w", err)
 	}
 

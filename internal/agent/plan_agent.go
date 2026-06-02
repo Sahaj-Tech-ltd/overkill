@@ -525,20 +525,20 @@ func (dp *DeepPlanner) writeArtifacts(planMD string, diagram string, name string
 		return nil, fmt.Errorf("home dir: %w", err)
 	}
 	plansDir := filepath.Join(home, ".overkill", "plans")
-	if err := os.MkdirAll(plansDir, 0o755); err != nil {
+	if err := os.MkdirAll(plansDir, 0o750); err != nil {
 		return nil, fmt.Errorf("mkdir plans: %w", err)
 	}
 
 	output := &PlanOutput{}
 
 	planPath := filepath.Join(plansDir, name+".md")
-	if err := os.WriteFile(planPath, []byte(planMD), 0o644); err != nil {
+	if err := os.WriteFile(planPath, []byte(planMD), 0o600); err != nil {
 		return nil, fmt.Errorf("write plan: %w", err)
 	}
 	output.PlanPath = planPath
 
 	diagramPath := filepath.Join(plansDir, name+".mmd")
-	if err := os.WriteFile(diagramPath, []byte(diagram), 0o644); err != nil {
+	if err := os.WriteFile(diagramPath, []byte(diagram), 0o600); err != nil {
 		return nil, fmt.Errorf("write diagram: %w", err)
 	}
 	output.DiagramPath = diagramPath

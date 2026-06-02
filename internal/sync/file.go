@@ -23,7 +23,7 @@ func NewFileBackend(cfg config.SyncFileConfig) (*FileBackend, error) {
 	if cfg.Path == "" {
 		return nil, fmt.Errorf("sync/file: path is required")
 	}
-	if err := os.MkdirAll(cfg.Path, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.Path, 0o750); err != nil {
 		return nil, fmt.Errorf("sync/file: mkdir %s: %w", cfg.Path, err)
 	}
 	return &FileBackend{root: cfg.Path}, nil
@@ -57,14 +57,14 @@ func (f *FileBackend) Push(ctx context.Context, id string, data []byte, meta Ses
 	if err != nil {
 		return fmt.Errorf("sync/file: meta path: %w", err)
 	}
-	if err := atomicfile.WriteFile(mp, mb, 0o644); err != nil {
+	if err := atomicfile.WriteFile(mp, mb, 0o600); err != nil {
 		return fmt.Errorf("sync/file: write meta: %w", err)
 	}
 	bp, err := f.blobPath(id)
 	if err != nil {
 		return fmt.Errorf("sync/file: blob path: %w", err)
 	}
-	if err := atomicfile.WriteFile(bp, data, 0o644); err != nil {
+	if err := atomicfile.WriteFile(bp, data, 0o600); err != nil {
 		// Clean up orphan meta so the next Push retries from a clean
 		// state rather than appearing to "already exist".
 		_ = os.Remove(mp)

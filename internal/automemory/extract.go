@@ -96,7 +96,7 @@ func (e *Extractor) Extract(ctx context.Context, transcript string) error {
 // against existing entries.
 func (e *Extractor) writeFacts(facts []Fact) error {
 	dir := filepath.Join(e.HomeDir, memoryDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return err
 	}
 

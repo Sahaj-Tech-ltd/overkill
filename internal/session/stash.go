@@ -37,7 +37,7 @@ func NewStashStore(path string) (*StashStore, error) {
 	if path == "" {
 		return nil, fmt.Errorf("stash: empty path")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("stash: mkdir: %w", err)
 	}
 	return &StashStore{path: path}, nil
@@ -147,5 +147,5 @@ func (s *StashStore) writeLocked(entries []StashEntry) error {
 	if err != nil {
 		return fmt.Errorf("stash: marshal: %w", err)
 	}
-	return atomicfile.WriteFile(s.path, b, 0o644)
+	return atomicfile.WriteFile(s.path, b, 0o600)
 }

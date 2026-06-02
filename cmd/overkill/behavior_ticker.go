@@ -103,7 +103,7 @@ func behaviorTick(since time.Time) time.Time {
 
 	// 2) failed-hypothesis extraction over the same window.
 	fhDir := filepath.Join(home, ".overkill", "failed_hypotheses")
-	_ = os.MkdirAll(fhDir, 0o755)
+	_ = os.MkdirAll(fhDir, 0o750)
 	store := journal.NewFailedHypothesisStore(fhDir)
 	for _, e := range window {
 		for _, h := range journal.ExtractFailedHypotheses(e) {
@@ -124,7 +124,7 @@ func writeMonitorAlerts(findings []monitor.Finding) {
 		return
 	}
 	alertDir := filepath.Join(home, ".overkill", "alerts")
-	if err := os.MkdirAll(alertDir, 0o755); err != nil {
+	if err := os.MkdirAll(alertDir, 0o750); err != nil {
 		return
 	}
 	store := journal.NewAlertStore(alertDir)

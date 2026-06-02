@@ -69,9 +69,9 @@ func extractTarGz(r io.Reader, destDir string) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			os.MkdirAll(target, 0o755)
+			os.MkdirAll(target, 0o750)
 		case tar.TypeReg:
-			os.MkdirAll(filepath.Dir(target), 0o755)
+			os.MkdirAll(filepath.Dir(target), 0o750)
 			// Mask mode to prevent SUID/SGID/world-writable.
 			mode := os.FileMode(header.Mode) & 0o755
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)

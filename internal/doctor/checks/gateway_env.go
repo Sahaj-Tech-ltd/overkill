@@ -64,7 +64,7 @@ func RegisterGatewayEnv(r *doctor.Runner, d Deps) {
 				info, err := os.Stat(dir.path)
 				if os.IsNotExist(err) {
 					// Create the directory if it doesn't exist.
-					if mkErr := os.MkdirAll(dir.path, 0o755); mkErr != nil {
+					if mkErr := os.MkdirAll(dir.path, 0o750); mkErr != nil {
 						return warnf("create it manually or check permissions",
 							"%s is missing and could not be created: %v", dir.path, mkErr)
 					}

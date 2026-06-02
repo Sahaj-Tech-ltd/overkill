@@ -237,11 +237,11 @@ func (f *FSTool) write(_ context.Context, in *FSInput) (json.RawMessage, error) 
 	}
 
 	dir := filepath.Dir(resolved)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("fs write: %w", err)
 	}
 
-	if err := os.WriteFile(resolved, []byte(in.Content), 0o644); err != nil {
+	if err := os.WriteFile(resolved, []byte(in.Content), 0o600); err != nil {
 		return nil, fmt.Errorf("fs write: %w", err)
 	}
 
@@ -272,7 +272,7 @@ func (f *FSTool) edit(_ context.Context, in *FSInput) (json.RawMessage, error) {
 
 	content = strings.Replace(content, in.Old, in.New, 1)
 
-	if err := os.WriteFile(resolved, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(resolved, []byte(content), 0o600); err != nil {
 		return nil, fmt.Errorf("fs edit: %w", err)
 	}
 
@@ -345,7 +345,7 @@ func (f *FSTool) mkdir(_ context.Context, in *FSInput) (json.RawMessage, error) 
 		return nil, err
 	}
 
-	if err := os.MkdirAll(resolved, 0o755); err != nil {
+	if err := os.MkdirAll(resolved, 0o750); err != nil {
 		return nil, fmt.Errorf("fs mkdir: %w", err)
 	}
 

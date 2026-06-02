@@ -79,7 +79,7 @@ func TestRegistry_LookupNoMatchReturnsNil(t *testing.T) {
 func TestRegistry_ExtractCallsMatched(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
-	_ = os.WriteFile(path, []byte("hello world"), 0o644)
+	_ = os.WriteFile(path, []byte("hello world"), 0o600)
 
 	want := &fakeExt{
 		name:   "test",
@@ -113,7 +113,7 @@ func TestDetect_KnownExtensions(t *testing.T) {
 	}
 	for _, c := range cases {
 		path := filepath.Join(dir, c.name)
-		_ = os.WriteFile(path, []byte(c.body), 0o644)
+		_ = os.WriteFile(path, []byte(c.body), 0o600)
 		mime, ext, err := Detect(path)
 		if err != nil {
 			t.Errorf("detect %s: %v", c.name, err)
@@ -131,7 +131,7 @@ func TestDetect_KnownExtensions(t *testing.T) {
 func TestDetect_OOXMLCorrectionForDocx(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "report.docx")
-	_ = os.WriteFile(path, []byte("PK\x03\x04rest of zip..."), 0o644)
+	_ = os.WriteFile(path, []byte("PK\x03\x04rest of zip..."), 0o600)
 	mime, _, _ := Detect(path)
 	if !strings.Contains(mime, "wordprocessingml") {
 		t.Errorf("docx OOXML correction failed, got mime=%q", mime)
@@ -141,7 +141,7 @@ func TestDetect_OOXMLCorrectionForDocx(t *testing.T) {
 func TestDetect_OOXMLXLSX(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sheet.xlsx")
-	_ = os.WriteFile(path, []byte("PK\x03\x04zip data..."), 0o644)
+	_ = os.WriteFile(path, []byte("PK\x03\x04zip data..."), 0o600)
 	mime, _, _ := Detect(path)
 	if !strings.Contains(mime, "spreadsheetml") {
 		t.Errorf("xlsx OOXML correction failed, got mime=%q", mime)
@@ -151,7 +151,7 @@ func TestDetect_OOXMLXLSX(t *testing.T) {
 func TestDetect_OOXMLPPTX(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "deck.pptx")
-	_ = os.WriteFile(path, []byte("PK\x03\x04zip data..."), 0o644)
+	_ = os.WriteFile(path, []byte("PK\x03\x04zip data..."), 0o600)
 	mime, _, _ := Detect(path)
 	if !strings.Contains(mime, "presentationml") {
 		t.Errorf("pptx OOXML correction failed, got mime=%q", mime)
@@ -161,7 +161,7 @@ func TestDetect_OOXMLPPTX(t *testing.T) {
 func TestDetect_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "empty.txt")
-	_ = os.WriteFile(path, []byte{}, 0o644)
+	_ = os.WriteFile(path, []byte{}, 0o600)
 	// Empty file: Read returns (0, EOF). Detect treats 0-byte reads as error.
 	_, ext, err := Detect(path)
 	if err == nil {
@@ -211,7 +211,7 @@ func TestIsTextLike(t *testing.T) {
 func TestTextExtractor_ReadsFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
-	_ = os.WriteFile(path, []byte("hello\nworld\n"), 0o644)
+	_ = os.WriteFile(path, []byte("hello\nworld\n"), 0o600)
 
 	ex := NewTextExtractor()
 	res, err := ex.Extract(context.Background(), path)
@@ -230,7 +230,7 @@ func TestTextExtractor_CapsLargeFiles(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "big.log")
 	big := strings.Repeat("x", 500*1024)
-	_ = os.WriteFile(path, []byte(big), 0o644)
+	_ = os.WriteFile(path, []byte(big), 0o600)
 
 	ex := NewTextExtractor()
 	res, _ := ex.Extract(context.Background(), path)
@@ -261,7 +261,7 @@ func TestBinaryFallback_ClaimsAnything(t *testing.T) {
 func TestBinaryFallback_ProducesMetadataWhenContentUnknown(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "weird.bin")
-	_ = os.WriteFile(path, []byte("\x00\x01\x02\x03\x04hello"), 0o644)
+	_ = os.WriteFile(path, []byte("\x00\x01\x02\x03\x04hello"), 0o600)
 
 	b := NewBinaryFallback()
 	res, err := b.Extract(context.Background(), path)
@@ -334,7 +334,7 @@ func TestRegistry_EmptyLookupReturnsNil(t *testing.T) {
 func TestRegistry_EmptyExtractReturnsErrNoExtractor(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "f.txt")
-	_ = os.WriteFile(path, []byte("hi"), 0o644)
+	_ = os.WriteFile(path, []byte("hi"), 0o600)
 
 	r := NewRegistry()
 	_, err := r.Extract(context.Background(), path)

@@ -91,10 +91,10 @@ func TestFetchCatalog_FallsBackToCache(t *testing.T) {
 
 	// Pre-seed the cache.
 	path, _ := cachePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(fakePayload), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(fakePayload), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

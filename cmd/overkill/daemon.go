@@ -76,7 +76,7 @@ func init() {
 func daemonHomeDir() (string, error) {
 	// Respect OVERKILL_HOME when set (e.g. container/profiles).
 	if dir := os.Getenv("OVERKILL_HOME"); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return "", fmt.Errorf("daemon: creating OVERKILL_HOME dir %s: %w", dir, err)
 		}
 		return dir, nil
@@ -87,7 +87,7 @@ func daemonHomeDir() (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(home, ".overkill")
-	return dir, os.MkdirAll(dir, 0o755)
+	return dir, os.MkdirAll(dir, 0o750)
 }
 
 func pidFilePath() (string, error) {

@@ -392,7 +392,7 @@ func halfLifeDecay(age, halfLife time.Duration) float64 {
 // ── internals ───────────────────────────────────────────────────────
 
 func (s *Store) saveLocked(pb *Playbook) error {
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("playbooks: mkdir: %w", err)
 	}
 	path, err := security.SafePath(s.dir, pb.ID+".json")
@@ -404,7 +404,7 @@ func (s *Store) saveLocked(pb *Playbook) error {
 	if err != nil {
 		return fmt.Errorf("playbooks: marshal: %w", err)
 	}
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("playbooks: write tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

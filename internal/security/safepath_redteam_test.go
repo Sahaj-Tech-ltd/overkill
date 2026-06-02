@@ -55,7 +55,7 @@ func TestSymlinkErrorNotSilent(t *testing.T) {
 	// Create a symlink inside base that points outside.
 	symlinkPath := filepath.Join(base, "escape")
 	outsideTarget := filepath.Join(base, "..", "outside_target")
-	os.MkdirAll(outsideTarget, 0o755)
+	os.MkdirAll(outsideTarget, 0o750)
 	if err := os.Symlink(outsideTarget, symlinkPath); err != nil {
 		t.Skipf("cannot create symlink (Windows or permission): %v", err)
 	}

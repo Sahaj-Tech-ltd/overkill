@@ -127,7 +127,7 @@ func loadOrCreateACPToken() (string, error) {
 		return string(data), nil
 	}
 	tk := acp.GenerateToken()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return "", err
 	}
 	if err := os.WriteFile(path, []byte(tk), 0o600); err != nil {

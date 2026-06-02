@@ -375,7 +375,7 @@ func TestFSNegative_ReadOffsets(t *testing.T) {
 			sb.WriteString("line of text that is long enough to be noticeable\n")
 		}
 		fullPath := filepath.Join(root, "medium.txt")
-		require.NoError(t, os.WriteFile(fullPath, []byte(sb.String()), 0o644))
+		require.NoError(t, os.WriteFile(fullPath, []byte(sb.String()), 0o600))
 		input := FSInput{Action: "read", Path: "medium.txt"}
 		raw, _ := json.Marshal(input)
 		out, err := fs.Execute(context.Background(), raw)
@@ -541,7 +541,7 @@ func TestGrepNegative_SkipsGitAndBinary(t *testing.T) {
 
 	// .git dir with matching text
 	gitDir := filepath.Join(root, ".git")
-	require.NoError(t, os.MkdirAll(gitDir, 0o755))
+	require.NoError(t, os.MkdirAll(gitDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("match_me_special"), 0o644))
 
 	// Also a matching non-git file

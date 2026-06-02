@@ -14,7 +14,7 @@ func TestDiscover_RejectsSymlinkBypass(t *testing.T) {
 
 	// Create a legitimate plugin directory with plugin.toml.
 	legit := filepath.Join(root, "legit")
-	if err := os.MkdirAll(legit, 0o755); err != nil {
+	if err := os.MkdirAll(legit, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	legitTOML := `name = "legit"
@@ -73,7 +73,7 @@ func TestDiscover_EntrySymlinkEscapesSandbox(t *testing.T) {
 
 	// Create a legitimate-looking plugin directory inside root.
 	pluginDir := filepath.Join(root, "my-plugin")
-	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+	if err := os.MkdirAll(pluginDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 

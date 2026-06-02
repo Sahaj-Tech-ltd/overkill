@@ -22,7 +22,7 @@ func TestUnderstand_RequiresPath(t *testing.T) {
 func TestUnderstand_ReadsTextFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
-	_ = os.WriteFile(path, []byte("hello multimodal world"), 0o644)
+	_ = os.WriteFile(path, []byte("hello multimodal world"), 0o600)
 
 	tool := NewUnderstandTool(multimodal.DefaultRegistry(nil), dir)
 	out, err := tool.Execute(context.Background(), json.RawMessage(`{"path":"note.txt"}`))
@@ -43,9 +43,9 @@ func TestUnderstand_ReadsTextFile(t *testing.T) {
 func TestUnderstand_ResolvesRelativeAgainstCwd(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "docs")
-	_ = os.MkdirAll(sub, 0o755)
+	_ = os.MkdirAll(sub, 0o750)
 	path := filepath.Join(sub, "spec.md")
-	_ = os.WriteFile(path, []byte("# Spec\n\nbody"), 0o644)
+	_ = os.WriteFile(path, []byte("# Spec\n\nbody"), 0o600)
 
 	tool := NewUnderstandTool(multimodal.DefaultRegistry(nil), dir)
 	out, err := tool.Execute(context.Background(), json.RawMessage(`{"path":"docs/spec.md"}`))

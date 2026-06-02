@@ -21,7 +21,7 @@ func TestRead_LargeFileReturnsDiskReference(t *testing.T) {
 	for i := 0; i < 3000; i++ {
 		b.WriteString("// line filler for the large-file test, padded to make each line longer\n")
 	}
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if info, _ := os.Stat(path); info.Size() < largeFileByteThreshold {
@@ -65,7 +65,7 @@ func TestRead_RangedReadCapsAtLineLimit(t *testing.T) {
 	for i := 0; i < 3000; i++ {
 		b.WriteString("line\n")
 	}
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,7 +95,7 @@ func TestRead_RangedReadCapsAtLineLimit(t *testing.T) {
 func TestRead_SmallFileFullRead(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "small.go")
-	if err := os.WriteFile(path, []byte("package x\n\nfunc Y() int { return 1 }\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("package x\n\nfunc Y() int { return 1 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

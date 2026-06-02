@@ -103,7 +103,7 @@ func (q *CompressionQueue) Enqueue(observationID string) (*QueueJob, error) {
 		return nil, errors.New("queue: observation id required")
 	}
 	// Idempotency check: scan existing jobs for this observation.
-	if err := os.MkdirAll(q.dir, 0o755); err != nil {
+	if err := os.MkdirAll(q.dir, 0o750); err != nil {
 		return nil, fmt.Errorf("queue: mkdir: %w", err)
 	}
 	jobs, err := q.listLocked()
@@ -318,7 +318,7 @@ func (q *CompressionQueue) loadLocked(id string) (*QueueJob, error) {
 }
 
 func (q *CompressionQueue) saveLocked(j *QueueJob) error {
-	if err := os.MkdirAll(q.dir, 0o755); err != nil {
+	if err := os.MkdirAll(q.dir, 0o750); err != nil {
 		return fmt.Errorf("queue: mkdir: %w", err)
 	}
 	path := filepath.Join(q.dir, j.ID+".json")
@@ -327,7 +327,7 @@ func (q *CompressionQueue) saveLocked(j *QueueJob) error {
 	if err != nil {
 		return fmt.Errorf("queue: marshal: %w", err)
 	}
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("queue: write tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

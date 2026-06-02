@@ -41,7 +41,7 @@ func (r *FlightRecorder) Record(entryType EntryType, content string, metadata js
 	}
 
 	rawDir := filepath.Join(r.dir, "raw")
-	if err := os.MkdirAll(rawDir, 0o755); err != nil {
+	if err := os.MkdirAll(rawDir, 0o750); err != nil {
 		return fmt.Errorf("journal: creating raw dir: %w", err)
 	}
 

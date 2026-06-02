@@ -320,7 +320,7 @@ func OpenClientForPair(ctx context.Context, path string) (*whatsmeow.Client, err
 // can close it when creating a new connection (prevents FD exhaustion).
 // Internal helper shared by connectWithBackoff and OpenClientForPair.
 func openClient(ctx context.Context, path string) (*whatsmeow.Client, *sqlstore.Container, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, nil, fmt.Errorf("whatsmeow: mkdir store dir: %w", err)
 	}
 	dsn := "file:" + path + "?_pragma=foreign_keys(1)"

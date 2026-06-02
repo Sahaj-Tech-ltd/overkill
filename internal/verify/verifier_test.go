@@ -184,7 +184,7 @@ func TestFormatToolMessage_PluralProblems(t *testing.T) {
 func TestTOMLVerifier_ValidParses(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ok.toml")
-	if err := os.WriteFile(path, []byte("foo = \"bar\"\n[section]\nx = 1\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("foo = \"bar\"\n[section]\nx = 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	v := NewTOMLVerifier()
@@ -197,7 +197,7 @@ func TestTOMLVerifier_ValidParses(t *testing.T) {
 func TestTOMLVerifier_InvalidFails(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.toml")
-	_ = os.WriteFile(path, []byte("this = is = not = toml"), 0o644)
+	_ = os.WriteFile(path, []byte("this = is = not = toml"), 0o600)
 	v := NewTOMLVerifier()
 	ok, detail, _ := v.Verify(context.Background(), path, nil)
 	if ok {
@@ -233,7 +233,7 @@ func TestJSONVerifier_TrailingCommaFails(t *testing.T) {
 func TestYAMLVerifier_ValidParses(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ok.yaml")
-	_ = os.WriteFile(path, []byte("foo: bar\nlist:\n  - one\n  - two\n"), 0o644)
+	_ = os.WriteFile(path, []byte("foo: bar\nlist:\n  - one\n  - two\n"), 0o600)
 	v := NewYAMLVerifier()
 	ok, _, _ := v.Verify(context.Background(), path, nil)
 	if !ok {
@@ -244,7 +244,7 @@ func TestYAMLVerifier_ValidParses(t *testing.T) {
 func TestYAMLVerifier_BadIndentFails(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.yaml")
-	_ = os.WriteFile(path, []byte("foo:\n  bar:\n   baz: 1\n     quux: 2"), 0o644)
+	_ = os.WriteFile(path, []byte("foo:\n  bar:\n   baz: 1\n     quux: 2"), 0o600)
 	v := NewYAMLVerifier()
 	ok, _, _ := v.Verify(context.Background(), path, nil)
 	if ok {

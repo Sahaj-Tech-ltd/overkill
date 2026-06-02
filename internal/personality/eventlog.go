@@ -73,7 +73,7 @@ func (e *EventLog) Append(state []byte) error {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(e.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(e.path), 0o750); err != nil {
 		return fmt.Errorf("eventlog: mkdir: %w", err)
 	}
 	version, _ := e.countLocked() // best-effort; 0 on missing file
@@ -134,7 +134,7 @@ func (e *EventLog) rotateLocked() error {
 	}
 	// Write to temp file first, then rename atomically.
 	tmp := e.path + ".tmp"
-	if err := os.WriteFile(tmp, data[mid+1:], 0o644); err != nil {
+	if err := os.WriteFile(tmp, data[mid+1:], 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, e.path)
