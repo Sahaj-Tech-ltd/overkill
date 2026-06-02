@@ -16,8 +16,9 @@ The line in the sand. Public beta, polished onboarding, real docs.
 | **Onboarding wizard v2** — one provider, one key, one model, go | June 7 |
 | **docs.overkill.my** — searchable, every command documented | June 10 |
 | **Task dashboard** — web UI showing active sessions, cron jobs, sub-agent status, cost breakdown | June 14 |
-| **Bug bash** — close all HIGH severity items | June 10 |
-| **Windows native support** — PowerShell installer, pre-built `.exe`, TUI on Windows Terminal | June 12 |
+|| **Bug bash** — close all HIGH severity items | June 10 |
+|| **Self-hosted model catalog** — `overkill.my/models.json` scraper replaces models.dev dependency | June 8 |
+|| **Windows native support** — PowerShell installer, pre-built `.exe`, TUI on Windows Terminal | June 12 |
 | **Homebrew tap + npm global install** — reach non-Go users | June 14 |
 | **Beta release cut** — `v0.10.0-beta` tag, signed binaries, release notes | June 16 |
 
