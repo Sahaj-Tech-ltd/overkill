@@ -30,6 +30,35 @@ type SetupWizard struct {
 	selected  string
 }
 
+// providerToCatalog maps setup wizard provider keys to models.dev catalog IDs.
+var providerToCatalog = map[string]string{
+	"openai":      "openai",
+	"anthropic":   "anthropic",
+	"gemini":      "google",
+	"deepseek":    "deepseek",
+	"ollama":      "ollama", // local, no catalog needed
+	"openrouter":  "openrouter",
+	"groq":        "groq",
+	"xai":         "xai",
+	"mistral":     "mistral",
+	"togetherai":  "togetherai",
+	"perplexity":  "perplexity",
+	"deepinfra":   "deepinfra",
+	"cerebras":    "cerebras",
+	"fireworks":   "fireworks-ai",
+	"bedrock":     "amazon-bedrock",
+	"vertex":      "google-vertex",
+	"azure":       "azure",
+	"copilot":     "github-copilot",
+}
+
+// ProviderToCatalogID returns the models.dev catalog ID for a setup wizard
+// provider key, or ("", false) if no mapping exists.
+func ProviderToCatalogID(key string) (string, bool) {
+	id, ok := providerToCatalog[key]
+	return id, ok
+}
+
 var builtinProviders = map[string]ProviderSetup{
 	"openai": {
 		Name:        "OpenAI",

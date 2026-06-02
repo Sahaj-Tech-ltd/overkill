@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 var setupCmd = &cobra.Command{
@@ -44,6 +46,16 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	wizard := config.NewSetupWizard(cfg)
 	all := wizard.AllProviders()
 
+	// Fetch live model catalog from models.dev (uses disk cache, fast).
+	// We use this to show current models instead of the baked-in list.
+	fmt.Printf("  %sFetching latest model catalog from models.dev...%s", colorDim, colorReset)
+	catalog, catalogErr := providers.FetchCatalog(context.Background())
+	if catalogErr != nil {
+		fmt.Printf("\r  %s⚠ models.dev unreachable — using cached model list%s\n", colorYellow, colorReset)
+	} else {
+		fmt.Printf("\r  %s✓ model catalog loaded (%d providers)%s\n", colorGreen, len(catalog.Providers()), colorReset)
+	}
+
 	// Welcome
 	fmt.Println()
 	fmt.Printf("%s%s╔══════════════════════════════════════════╗%s\n", colorBold, colorGreen, colorReset)
@@ -54,10 +66,29 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	fmt.Println("  You only need ONE to get started — you can add more later.")
 	fmt.Println()
 
-	// Build provider list with key detection
+	// Build provider list with key detection and live model catalog
 	infos := make([]providerInfo, 0, len(all)+1)
 	for key, p := range all {
 		info := providerInfo{Key: key, Display: p}
+
+		// Use live catalog models if available, fall back to hardcoded.
+		if catalog != nil {
+			if catID, ok := config.ProviderToCatalogID(key); ok {
+				if catModels := catalog.Models(catID); len(catModels) > 0 {
+					// Limit to top 15 models to keep the list manageable
+					top := catModels
+					if len(top) > 15 {
+						top = top[:15]
+					}
+					ids := make([]string, len(top))
+					for i, m := range top {
+						ids[i] = m.ID
+					}
+					info.Display.Models = ids
+				}
+			}
+		}
+
 		if p.APIKeyEnv != "" {
 			if val := os.Getenv(p.APIKeyEnv); val != "" {
 				info.HasKey = true
