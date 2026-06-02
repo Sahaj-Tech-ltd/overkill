@@ -27,7 +27,7 @@ var setupCmd = &cobra.Command{
 
 Supports 18 built-in providers plus custom OpenAI-compatible endpoints.
 Arrow keys to navigate, Enter to select.
-Press Esc or Ctrl+C twice to cancel (prevents accidental exit).`,
+Press Esc or Ctrl+C twice to exit (prevents accidental exit).`,
 	RunE: runSetup,
 }
 
@@ -342,13 +342,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 // arrowSelect renders a scrollable list with arrow-key navigation.
 // Selected item is purple with ▸ marker. Esc/Ctrl+C need two presses within
-// 2 seconds to cancel (matching OpenCode/Hermes behaviour).
+// 2 seconds to exit (matching OpenCode/Hermes behaviour).
 func arrowSelect(title string, items []providerInfo) (string, error) {
 	if len(items) == 0 {
 		return "", fmt.Errorf("no items")
 	}
-
-	fmt.Printf("\n%s▸ %s%s  (↑↓ to move, Enter to select, Esc×2 to cancel)\n\n", colorBold, title, colorReset)
 
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
@@ -393,7 +391,9 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 		fmt.Printf("\033[%dA", len(items))
 	}
 
-	renderList(items, selected)
+	// Initial render — renderList handles the full area (title + blank + items)
+	fmt.Println()
+	renderList(title, items, selected)
 
 	oneByte := make([]byte, 1)
 	for {
@@ -407,10 +407,10 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 		case b == 13: // Enter
 			if pendingCancel {
 				clearCancel()
-				renderList(items, selected)
+				renderList(title, items, selected)
 				continue
 			}
-			clearLines(len(items))
+			clearLines(len(items) + 2)
 			return items[selected].Key, nil
 
 		case b == 27: // Escape — could be standalone (1 byte) or arrow key prefix (3 bytes)
@@ -424,17 +424,17 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 			if n <= 0 {
 				// Standalone Esc — no more bytes in buffer
 				if pendingCancel {
-					clearLines(len(items))
+					clearLines(len(items) + 2)
 					return "", fmt.Errorf("cancelled")
 				}
 				pendingCancel = true
 				cancelTimer = time.AfterFunc(2*time.Second, func() {
 					cancelTimerCh <- struct{}{}
 					clearCancel()
-					renderList(items, selected)
+					renderList(title, items, selected)
 				})
 				fmt.Printf("\033[%dB", len(items))
-				fmt.Printf("\033[2K\r  %sEsc — press again to cancel (or wait 2s)%s", colorDim, colorReset)
+				fmt.Printf("\033[2K\r  %sEsc — press again to exit (or wait 2s)%s", colorDim, colorReset)
 				fmt.Printf("\033[%dA", len(items))
 				continue
 			}
@@ -442,7 +442,7 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 			// Arrow key — got at least 1 more byte
 			if pendingCancel {
 				clearCancel()
-				renderList(items, selected)
+				renderList(title, items, selected)
 			}
 			if rest[0] == 91 { // '[' — confirms ESC[ sequence
 				if n >= 2 {
@@ -450,12 +450,12 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 					case 'A': // Up
 						if selected > 0 {
 							selected--
-							renderList(items, selected)
+							renderList(title, items, selected)
 						}
 					case 'B': // Down
 						if selected < len(items)-1 {
 							selected++
-							renderList(items, selected)
+							renderList(title, items, selected)
 						}
 					}
 				}
@@ -463,48 +463,47 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 
 		case b == 3: // Ctrl+C
 			if pendingCancel {
-				clearLines(len(items))
+				clearLines(len(items) + 2)
 				return "", fmt.Errorf("cancelled")
 			}
 			pendingCancel = true
 			cancelTimer = time.AfterFunc(2*time.Second, func() {
 				cancelTimerCh <- struct{}{}
 				clearCancel()
-				renderList(items, selected)
+				renderList(title, items, selected)
 			})
 			fmt.Printf("\033[%dB", len(items))
-			fmt.Printf("\033[2K\r  %sCtrl+C — press again to cancel (or wait 2s)%s", colorDim, colorReset)
+			fmt.Printf("\033[2K\r  %sCtrl+C — press again to exit (or wait 2s)%s", colorDim, colorReset)
 			fmt.Printf("\033[%dA", len(items))
 
 		case b == 'q': // q to quit
 			if pendingCancel {
 				clearCancel()
-				renderList(items, selected)
+				renderList(title, items, selected)
 				continue
 			}
-			clearLines(len(items))
+			clearLines(len(items) + 2)
 			return "", fmt.Errorf("cancelled")
 
 		default:
 			if pendingCancel {
 				clearCancel()
-				renderList(items, selected)
+				renderList(title, items, selected)
 			}
 		}
 	}
 }
 
-func renderList(items []providerInfo, selected int) {
-	// Clear the full list area by moving up and clearing each line.
-	// First call has nothing above it, but the escape is harmless.
-	for range items {
+func renderList(title string, items []providerInfo, selected int) {
+	// Clear the entire selection area: title line + blank line + N items.
+	// On first call there's nothing above to clear, but the escape codes are harmless.
+	for i := 0; i < len(items)+2; i++ {
 		fmt.Print("\033[2K") // clear line
 		fmt.Print("\033[1A") // move up
 	}
-	fmt.Print("\033[2K") // clear the title line too
 
-	// Reprint title
-	fmt.Printf("\r%s▸ %s%s  (↑↓ to move, Enter to select, Esc×2 to cancel)\n\n", colorBold, "", colorReset)
+	// Title line
+	fmt.Printf("\r%s▸ %s%s  (↑↓ to move, Enter to select, Esc×2 to exit)\n\n", colorBold, title, colorReset)
 
 	for i, info := range items {
 		if i == selected {
@@ -533,7 +532,6 @@ func renderList(items []providerInfo, selected int) {
 			fmt.Printf("    %s %s%s\n", marker, name, tag)
 		}
 	}
-	// Cursor is now after the last item — no terminal gymnastics needed.
 }
 
 func clearLines(count int) {
