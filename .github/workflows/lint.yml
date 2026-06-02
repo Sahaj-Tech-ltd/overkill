@@ -19,6 +19,15 @@ jobs:
   go-lint:
     name: golangci-lint
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prod
+    defaults:
+      run:
+        working-directory: prod
+    defaults:
+      run:
+        working-directory: prod
     timeout-minutes: 10
     # Non-blocking quality gate — golangci-lint version compatibility with
     # bleeding-edge Go toolchains is brittle. go vet is the hard gate.
@@ -104,4 +113,4 @@ jobs:
       - name: Install ruff
         run: pip install ruff
       - name: Run ruff
-        run: ruff check bridge/
+        run: ruff check prod/bridge/

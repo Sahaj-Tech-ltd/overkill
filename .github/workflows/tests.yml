@@ -24,6 +24,9 @@ jobs:
   go-tests:
     name: Go tests
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prod
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +63,7 @@ jobs:
         run: pip install pytest pytest-cov grpcio protobuf grpcio-health-checking
       - name: Debug imports
         run: |
-          cd bridge
+          cd prod/bridge
           python -c "
           import sys; print(f'Python {sys.version}')
           import grpc; print('grpc OK')
@@ -68,11 +71,11 @@ jobs:
           from server import OverkillBridgeServicer; print('server OK')
           "
       - name: Run Python tests
-        working-directory: bridge
+        working-directory: prod/bridge
         run: pytest -v --tb=short --cov=. --cov-report=xml
       - name: Upload Python coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: python-coverage
-          path: bridge/coverage.xml
+          path: prod/bridge/coverage.xml

@@ -1,0 +1,7 @@
+name = "git-stats"
+version = "0.1.0"
+entry = "./git-stats"
+description = "Git stats tool, compact-time stash, and pre-prompt git status context"
+
+[permissions]
+events = ["compact"]

@@ -1,0 +1,14 @@
+grpcio>=1.62.0
+grpcio-tools>=1.62.0
+protobuf>=4.25.0
+numpy>=1.26.0
+sentence-transformers>=2.6.0
+
+[dev]
+pytest>=8.0
+pytest-cov>=4.1
+ruff>=0.3.0
+mypy>=1.8
+
+[qdrant]
+qdrant-client>=1.8.0

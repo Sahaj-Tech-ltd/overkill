@@ -19,6 +19,12 @@ jobs:
   gosec:
     name: gosec
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prod
+    defaults:
+      run:
+        working-directory: prod
     timeout-minutes: 10
     permissions:
       contents: read

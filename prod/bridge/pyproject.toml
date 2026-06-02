@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bridge"
+version = "0.1.0"
+description = "Python bridge for Overkill AI coding agent"
+requires-python = ">=3.11"
+dependencies = [
+    "grpcio>=1.62.0",
+    "grpcio-tools>=1.62.0",
+    "protobuf>=4.25.0",
+    "numpy>=1.26.0",
+    "sentence-transformers>=2.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.3.0",
+    "mypy>=1.8",
+]
+qdrant = [
+    "qdrant-client>=1.8.0",
+]
+
+[tool.setuptools]
+py-modules = []
+packages = ["memory", "embeddings", "reranking", "compaction", "proto"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+exclude = ["proto/", "overkill_pb2.py", "overkill_pb2_grpc.py", "overkill_pb2.pyi", "overkill_pb2_grpc.pyi"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true

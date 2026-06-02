@@ -22,6 +22,9 @@ jobs:
     name: Lint + build (linux/amd64)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: prod
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -47,6 +50,9 @@ jobs:
   cross-build:
     name: Cross build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prod
     timeout-minutes: 10
     strategy:
       fail-fast: false

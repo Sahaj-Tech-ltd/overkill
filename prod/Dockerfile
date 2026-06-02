@@ -4,17 +4,17 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /build
 
-COPY go.mod go.sum ./
+COPY prod/go.mod prod/go.sum ./
 RUN go mod download
 
-COPY . .
+COPY prod/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /overkill ./cmd/overkill
 
 FROM python:3.12-slim AS python-builder
 
 WORKDIR /build
 
-COPY bridge/ bridge/
+COPY prod/bridge/ bridge/
 RUN pip install --no-cache-dir --prefix=/install -e "./bridge[dev]"
 
 FROM python:3.12-slim
