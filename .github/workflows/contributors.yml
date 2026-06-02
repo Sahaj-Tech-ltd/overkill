@@ -6,7 +6,6 @@ on:
   schedule:
     - cron: "0 0 * * 0"
 
-# Need write access to push contributors update directly.
 permissions:
   contents: write
 
@@ -21,22 +20,27 @@ jobs:
         run: |
           CONTRIBUTORS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/contributors?per_page=100")
-          
-          echo "## Contributors" > contributors_table.md
-          echo "" >> contributors_table.md
-          echo "$CONTRIBUTORS" | jq -r '.[] | "| <img src=\"\(.avatar_url)\" width=\"40\" height=\"40\" /> | [\(.login)](\(.html_url)) | \(.contributions) |"' >> contributors_table.md
-          
-          echo "| | User | Contributions |" > contributors_header.md
-          echo "|---|---|---|" >> contributors_header.md
-          
-          cat contributors_header.md contributors_table.md > contributors_full.md
-          
+
+          echo "## Contributors" > contributors_full.md
+          echo "" >> contributors_full.md
+          echo "| | User | Contributions |" >> contributors_full.md
+          echo "|---|---|---|" >> contributors_full.md
+          echo "$CONTRIBUTORS" | jq -r '.[] | "| <img src=\"\(.avatar_url)\" width=\"40\" height=\"40\" /> | [\(.login)](\(.html_url)) | \(.contributions) |"' >> contributors_full.md
+
           if grep -q "<!-- CONTRIBUTORS START -->" README.md; then
-            sed -i '/<!-- CONTRIBUTORS START -->/,/<!-- CONTRIBUTORS END -->/c\<!-- CONTRIBUTORS START -->\n'"$(cat contributors_full.md)"'\n<!-- CONTRIBUTORS END -->' README.md
+            awk -v contrib="$(cat contributors_full.md)" '
+              /<!-- CONTRIBUTORS START -->/ { print; print contrib; in_block=1; next }
+              /<!-- CONTRIBUTORS END -->/ { in_block=0 }
+              !in_block { print }
+              END { if (!in_block) print "<!-- CONTRIBUTORS END -->" }
+            ' README.md > README.tmp && mv README.tmp README.md
           else
-            echo -e "\n<!-- CONTRIBUTORS START -->\n$(cat contributors_full.md)\n<!-- CONTRIBUTORS END -->" >> README.md
+            echo "" >> README.md
+            echo "<!-- CONTRIBUTORS START -->" >> README.md
+            cat contributors_full.md >> README.md
+            echo "<!-- CONTRIBUTORS END -->" >> README.md
           fi
-          
+
           rm -f contributors_table.md contributors_header.md contributors_full.md
       - name: Commit and push if changed
         run: |
