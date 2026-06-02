@@ -24,7 +24,8 @@ var setupCmd = &cobra.Command{
 	Long: `Walk through selecting and configuring an LLM provider.
 
 Supports 18 built-in providers plus custom OpenAI-compatible endpoints.
-Arrow keys to navigate, Enter to select, Ctrl+C to cancel.`,
+Arrow keys to navigate, Enter to select.
+Press Esc or Ctrl+C twice to cancel (prevents accidental exit).`,
 	RunE: runSetup,
 }
 
@@ -151,7 +152,6 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			for i := range models {
 				models[i] = strings.TrimSpace(models[i])
 			}
-			// Pick first model by default since we asked manually
 			model = models[0]
 		} else {
 			fmt.Printf("  %s✓ found %d models%s\n", colorGreen, len(models), colorReset)
@@ -283,15 +283,15 @@ func runSetup(cmd *cobra.Command, args []string) error {
 }
 
 // arrowSelect renders a scrollable list with arrow-key navigation.
-// The selected item is highlighted purple with a > marker.
+// Selected item is purple with ▸ marker. Esc/Ctrl+C need two presses within
+// 2 seconds to cancel (matching OpenCode/Hermes behaviour).
 func arrowSelect(title string, items []providerInfo) (string, error) {
 	if len(items) == 0 {
 		return "", fmt.Errorf("no items")
 	}
 
-	fmt.Printf("\n%s▸ %s%s  (↑↓ to move, Enter to select)\n\n", colorBold, title, colorReset)
+	fmt.Printf("\n%s▸ %s%s  (↑↓ to move, Enter to select, Esc×2 to cancel)\n\n", colorBold, title, colorReset)
 
-	// Switch terminal to raw mode for arrow keys
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -299,7 +299,7 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 	}
 	defer term.Restore(fd, oldState)
 
-	// Handle Ctrl+C / resize
+	// OS signal handler
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
@@ -316,63 +316,135 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 	}()
 
 	selected := 0
+	pendingCancel := false
+	var cancelTimer *time.Timer
+	cancelTimerCh := make(chan struct{})
+
+	clearCancel := func() {
+		if cancelTimer != nil {
+			cancelTimer.Stop()
+		}
+		select {
+		case <-cancelTimerCh:
+		default:
+		}
+		pendingCancel = false
+		// Clear popup below list
+		fmt.Printf("\033[%dB", len(items))
+		fmt.Print("\033[2K\r")
+		fmt.Printf("\033[%dA", len(items))
+	}
+
 	renderList(items, selected)
 
-	buf := make([]byte, 3)
+	oneByte := make([]byte, 1)
 	for {
-		n, err := os.Stdin.Read(buf)
+		_, err := os.Stdin.Read(oneByte)
 		if err != nil {
 			return "", err
 		}
+		b := oneByte[0]
 
 		switch {
-		case n == 1 && buf[0] == 13: // Enter
-			// Clear the list and return
+		case b == 13: // Enter
+			if pendingCancel {
+				clearCancel()
+				renderList(items, selected)
+				continue
+			}
 			clearLines(len(items))
 			return items[selected].Key, nil
 
-		case n == 1 && buf[0] == 3: // Ctrl+C
+		case b == 27: // Escape — could be standalone (1 byte) or arrow key prefix (3 bytes)
+			// In raw mode, arrow keys arrive as ESC [ letter. Standalone Esc
+			// is just ESC. To distinguish: do a non-blocking read for the next
+			// 2 bytes. If nothing arrives within a few ms, it's standalone Esc.
+			rest := make([]byte, 2)
+			syscall.SetNonblock(fd, true)
+			n, _ := syscall.Read(fd, rest)
+			syscall.SetNonblock(fd, false)
+			if n <= 0 {
+				// Standalone Esc — no more bytes in buffer
+				if pendingCancel {
+					clearLines(len(items))
+					return "", fmt.Errorf("cancelled")
+				}
+				pendingCancel = true
+				cancelTimer = time.AfterFunc(2*time.Second, func() {
+					cancelTimerCh <- struct{}{}
+					clearCancel()
+					renderList(items, selected)
+				})
+				fmt.Printf("\033[%dB", len(items))
+				fmt.Printf("\033[2K\r  %sEsc — press again to cancel (or wait 2s)%s", colorDim, colorReset)
+				fmt.Printf("\033[%dA", len(items))
+				continue
+			}
+
+			// Arrow key — got at least 1 more byte
+			if pendingCancel {
+				clearCancel()
+				renderList(items, selected)
+			}
+			if rest[0] == 91 { // '[' — confirms ESC[ sequence
+				if n >= 2 {
+					switch rest[1] {
+					case 'A': // Up
+						if selected > 0 {
+							selected--
+							renderList(items, selected)
+						}
+					case 'B': // Down
+						if selected < len(items)-1 {
+							selected++
+							renderList(items, selected)
+						}
+					}
+				}
+			}
+
+		case b == 3: // Ctrl+C
+			if pendingCancel {
+				clearLines(len(items))
+				return "", fmt.Errorf("cancelled")
+			}
+			pendingCancel = true
+			cancelTimer = time.AfterFunc(2*time.Second, func() {
+				cancelTimerCh <- struct{}{}
+				clearCancel()
+				renderList(items, selected)
+			})
+			fmt.Printf("\033[%dB", len(items))
+			fmt.Printf("\033[2K\r  %sCtrl+C — press again to cancel (or wait 2s)%s", colorDim, colorReset)
+			fmt.Printf("\033[%dA", len(items))
+
+		case b == 'q': // q to quit
+			if pendingCancel {
+				clearCancel()
+				renderList(items, selected)
+				continue
+			}
 			clearLines(len(items))
 			return "", fmt.Errorf("cancelled")
 
-		case n == 1 && buf[0] == 'q': // q to quit
-			clearLines(len(items))
-			return "", fmt.Errorf("cancelled")
-
-		case n == 3 && buf[0] == 27 && buf[1] == 91: // Escape sequences
-			switch buf[2] {
-			case 'A': // Up
-				if selected > 0 {
-					selected--
-					renderList(items, selected)
-				}
-			case 'B': // Down
-				if selected < len(items)-1 {
-					selected++
-					renderList(items, selected)
-				}
+		default:
+			if pendingCancel {
+				clearCancel()
+				renderList(items, selected)
 			}
 		}
 	}
 }
 
 func renderList(items []providerInfo, selected int) {
-	// Move cursor up to first item
 	if selected > 0 {
 		fmt.Printf("\033[%dA", selected)
 	}
 
 	for i, info := range items {
-		// Clear line
 		fmt.Print("\033[2K\r")
 
-		marker := " "
-		if info.HasKey {
-			marker = "🔑"
-		}
-
 		if i == selected {
-			// Purple highlight + > marker
 			name := info.Display.Name
 			tag := ""
 			if info.Key == "ollama" {
@@ -384,6 +456,10 @@ func renderList(items []providerInfo, selected int) {
 			fmt.Printf("  %s%s▸ %s%s%s\r\n", colorBold, colorPurple, name, colorReset, tag)
 		} else {
 			name := info.Display.Name
+			marker := " "
+			if info.HasKey {
+				marker = "🔑"
+			}
 			tag := ""
 			if info.Key == "ollama" {
 				tag = " (no API key needed)"
@@ -395,7 +471,6 @@ func renderList(items []providerInfo, selected int) {
 		}
 	}
 
-	// If we didn't reach the end, move back to selected
 	moveBack := len(items) - 1 - selected
 	if moveBack > 0 {
 		fmt.Printf("\033[%dA", moveBack)
@@ -409,7 +484,6 @@ func clearLines(count int) {
 			fmt.Print("\033[1B")
 		}
 	}
-	// Move back to top
 	if count > 1 {
 		fmt.Printf("\033[%dA", count-1)
 	}
