@@ -69,7 +69,15 @@ jobs:
             ignored=""
           fi
           govulncheck -json ./... > govulncheck.json || true
-          # Surface findings, but only fail when an unignored vuln is found.
+
+          # Count called vs uncalled for summary.
+          called_count=$(jq '[.[] | select(.osv and .finding)] | length' govulncheck.json 2>/dev/null || echo 0)
+          uncalled_count=$(jq '[.[] | select(.osv and (.finding | not))] | length' govulncheck.json 2>/dev/null || echo 0)
+          echo "govulncheck: ${called_count} called, ${uncalled_count} uncalled (in dependency tree only)"
+
+          # Only fail on CALLED vulns — uncalled means the vulnerable code is
+          # in the module graph but never reached from our code. govulncheck
+          # reports both but the "finding" field is only present for reachable vulns.
           fail=0
           while IFS= read -r line; do
             id=$(echo "$line" | jq -r '.osv.id // empty' 2>/dev/null || true)
@@ -78,9 +86,17 @@ jobs:
               echo "::notice::Ignoring $id (listed in .govulncheck-ignore)"
               continue
             fi
-            echo "::error::Vulnerability $id"
+            echo "::error::CALLED vulnerability $id"
             fail=1
-          done < <(jq -c 'select(.osv) // empty' govulncheck.json 2>/dev/null || true)
+          done < <(jq -c 'select(.osv and .finding)' govulncheck.json 2>/dev/null || true)
+
+          # Print uncalled as notices (informational, not blocking).
+          while IFS= read -r line; do
+            id=$(echo "$line" | jq -r '.osv.id // empty' 2>/dev/null || true)
+            [ -z "$id" ] && continue
+            echo "::notice::Uncalled $id (in dependency tree but not reached)"
+          done < <(jq -c 'select(.osv and (.finding | not))' govulncheck.json 2>/dev/null || true)
+
           # Always print human report for context.
           govulncheck ./... || true
           exit $fail
