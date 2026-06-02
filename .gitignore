@@ -8,20 +8,6 @@ dist/
 tui/node_modules/
 node_modules/
 
-# Internal docs — stay local, never on GitHub
-plans/
-bugs.md
-plan.md
-out-of-scope.md
-wishes.md
-BUG_SWEEP_REPORT.md
-
-# Local-only directories — not part of the repo
-deprecated/
-deploy/
-inspiration/
-research/
-
 # Built docs site (mdBook output — built during CI, not source)
 docs/book/
 
