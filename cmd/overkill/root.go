@@ -180,6 +180,16 @@ var rootCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// If no provider is configured, route to setup wizard instead of
+		// opening the TUI (which needs a working LLM backend).
+		if cfg != nil && len(cfg.Providers) == 0 && cfg.Agent.DefaultProvider == "" {
+			fmt.Println()
+			fmt.Printf("%s%s⚡ No provider configured.%s\n", colorBold, colorYellow, colorReset)
+			fmt.Println()
+			fmt.Println("  Let's set one up. I'll walk you through it.")
+			fmt.Println()
+			return runSetup(cmd, args)
+		}
 		return runInkTUI(cmd, args)
 	},
 }

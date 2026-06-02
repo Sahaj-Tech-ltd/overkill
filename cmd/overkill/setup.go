@@ -190,5 +190,5 @@ func runSetup(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	configCmd.AddCommand(setupCmd)
+	rootCmd.AddCommand(setupCmd)
 }
