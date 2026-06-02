@@ -8,12 +8,14 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   update-contributors:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Fetch contributors
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -32,7 +34,6 @@ jobs:
               /<!-- CONTRIBUTORS START -->/ { print; print contrib; in_block=1; next }
               /<!-- CONTRIBUTORS END -->/ { in_block=0 }
               !in_block { print }
-              END { if (!in_block) print "<!-- CONTRIBUTORS END -->" }
             ' README.md > README.tmp && mv README.tmp README.md
           else
             echo "" >> README.md
@@ -41,15 +42,34 @@ jobs:
             echo "<!-- CONTRIBUTORS END -->" >> README.md
           fi
 
-          rm -f contributors_table.md contributors_header.md contributors_full.md
-      - name: Commit and push if changed
+          rm -f contributors_full.md
+
+      - name: Create PR and merge if changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           if git diff --quiet README.md; then
             echo "No changes to contributors."
-          else
-            git add README.md
-            git commit -m "chore: update contributors list"
-            git push
+            exit 0
           fi
+
+          BRANCH="contributors/update-$(date +%Y%m%d-%H%M%S)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add README.md
+          git commit -m "chore: update contributors list"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: update contributors list" \
+            --body "Automated contributors update from GitHub Actions." \
+            --label "automated"
+
+          # Auto-approve
+          gh pr review "$BRANCH" --approve --body "Automated approval."
+
+          # Auto-merge (squash, delete branch)
+          gh pr merge "$BRANCH" --squash --delete-branch
