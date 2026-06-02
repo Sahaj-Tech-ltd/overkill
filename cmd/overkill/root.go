@@ -28,6 +28,7 @@ const (
 	colorGreen  = "\033[32m"
 	colorYellow = "\033[33m"
 	colorBlue   = "\033[34m"
+	colorPurple = "\033[35m"
 	colorBold   = "\033[1m"
 	colorDim    = "\033[2m"
 )
@@ -193,7 +194,27 @@ var rootCmd = &cobra.Command{
 			fmt.Println()
 			return runSetup(cmd, args)
 		}
-		return runInkTUI(cmd, args)
+
+		err := runInkTUI(cmd, args)
+		if err != nil {
+			// TUI failed to launch — most likely running from go install
+			// binary without the repo clone (tui/ dir not found, npm missing).
+			fmt.Println()
+			fmt.Printf("%s%s⚠ TUI not available%s\n", colorBold, colorYellow, colorReset)
+			fmt.Println()
+			fmt.Println("  The Ink TUI needs the full repo clone + Node.js:")
+			fmt.Println("    git clone https://github.com/Sahaj-Tech-ltd/overkill")
+			fmt.Println("    cd overkill/tui && npm install")
+			fmt.Println("    cd .. && go run ./cmd/overkill")
+			fmt.Println()
+			fmt.Println("  For now, use the CLI directly:")
+			fmt.Printf("    %soverkill run%s            (single-turn agent loop)\n", colorBold, colorReset)
+			fmt.Printf("    %soverkill setup%s          (configure a provider)\n", colorBold, colorReset)
+			fmt.Printf("    %soverkill config setup%s   (full config wizard)\n", colorBold, colorReset)
+			fmt.Printf("    %soverkill --help%s         (all commands)\n", colorBold, colorReset)
+			fmt.Println()
+		}
+		return nil
 	},
 }
 

@@ -91,7 +91,6 @@ func runInkTUI(cmd *cobra.Command, args []string) error {
 
 	// Open Postgres for session and learning stores via internal/db.
 	database, err := db.Open(connString)
-	defer database.Close()
 	if err != nil {
 		return fmt.Errorf("db: %w", err)
 	}
