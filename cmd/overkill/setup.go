@@ -92,7 +92,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		if p.APIKeyEnv != "" {
 			if val := os.Getenv(p.APIKeyEnv); val != "" {
 				info.HasKey = true
-				info.Display.APIKeyEnv = fmt.Sprintf("%s=%s***%s (detected from env)", p.APIKeyEnv, val[:4], val[len(val)-4:])
+				info.Display.APIKeyEnv = fmt.Sprintf("%s=%s (detected from env)", p.APIKeyEnv, config.MaskKey(val))
 			}
 		}
 		infos = append(infos, info)
@@ -229,7 +229,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			envVal := os.Getenv(ps.APIKeyEnv)
 			if envVal != "" {
 				fmt.Printf("\n%s▸ API Key — using %s%s\n", colorBold, ps.APIKeyEnv, colorReset)
-				fmt.Printf("  %s✓ %s=%s***%s (from environment)%s\n", colorGreen, ps.APIKeyEnv, envVal[:4], envVal[len(envVal)-4:], colorReset)
+				fmt.Printf("  %s✓ %s=%s (from environment)%s\n", colorGreen, ps.APIKeyEnv, config.MaskKey(envVal), colorReset)
 				apiKey = envVal
 				wizard.ApplyStep("api_key", envVal)
 			} else {

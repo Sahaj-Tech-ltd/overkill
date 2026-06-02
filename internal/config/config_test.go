@@ -422,7 +422,7 @@ func TestMaskSecrets(t *testing.T) {
 	}
 
 	masked := cfg.MaskSecrets()
-	assert.Equal(t, "sk***************ef", masked.Providers[0].APIKey)
+	assert.Equal(t, "sk-12...cdef", masked.Providers[0].APIKey)
 	assert.Equal(t, "sk-1234567890abcdef", cfg.Providers[0].APIKey, "original should be unchanged")
 }
 
