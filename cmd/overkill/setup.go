@@ -392,7 +392,6 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 	}
 
 	// Initial render — renderList handles the full area (title + blank + items)
-	fmt.Println()
 	renderList(title, items, selected)
 
 	oneByte := make([]byte, 1)
