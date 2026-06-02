@@ -8,5 +8,6 @@ services:
     environment:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_SCHEDULE=0 0 4 * * *
+      - WATCHTOWER_LABEL_ENABLE=true
       - TZ=America/New_York
       - DOCKER_API_VERSION=1.44

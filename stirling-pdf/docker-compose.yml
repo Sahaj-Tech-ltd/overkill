@@ -13,9 +13,10 @@ services:
       - DOCKER_ENABLE_SECURITY=false
       - INSTALL_BOOK_AND_ADVANCED_HTML_OPS=false
       - LANGS=en_US
+    mem_limit: 4g
     healthcheck:
       test: ["CMD-SHELL", "curl -s http://localhost:8080/api/v1/info -o /dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 60s
