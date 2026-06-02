@@ -6,7 +6,7 @@
  ██║   ██║██║   ██║█████╗  ██████╔╝█████╔╝ ██║██║     ██║
  ██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗██╔═██╗ ██║██║     ██║
  ╚██████╔╝ ╚████╔╝ ███████╗██║  ██║██║  ██╗██║███████╗███████╗
-  ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝
+ ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝
 ```
 
 # overkill
@@ -49,9 +49,9 @@ Or with Go: `go install github.com/Sahaj-Tech-ltd/overkill@main`
 **[Read the book →](https://github.com/Sahaj-Tech-ltd/overkill/wiki)** &nbsp;|&nbsp; **[43 exclusives →](https://overkill.my/exclusives)** &nbsp;|&nbsp; **[Meet Memo →](https://overkill.my/memo)**
 
 <!-- CONTRIBUTORS START -->
-| | User | Contributions |
-|---|---|---|
 ## Contributors
 
+| | User | Contributions |
+|---|---|---|
 | <img src="https://avatars.githubusercontent.com/u/94193726?v=4" width="40" height="40" /> | [xyzmr114](https://github.com/xyzmr114) | 24 |
 <!-- CONTRIBUTORS END -->
