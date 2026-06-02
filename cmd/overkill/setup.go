@@ -222,12 +222,15 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		wizard.ApplyStep("provider", providerKey)
 		fmt.Printf("\n\n  %s✓ %s%s\n", colorGreen, ps.Name, colorReset)
 
+		var apiKey string
+
 		// Step 2: API key
 		if ps.APIKeyEnv != "" {
 			envVal := os.Getenv(ps.APIKeyEnv)
 			if envVal != "" {
 				fmt.Printf("\n%s▸ API Key — using %s%s\n", colorBold, ps.APIKeyEnv, colorReset)
 				fmt.Printf("  %s✓ %s=%s***%s (from environment)%s\n", colorGreen, ps.APIKeyEnv, envVal[:4], envVal[len(envVal)-4:], colorReset)
+				apiKey = envVal
 				wizard.ApplyStep("api_key", envVal)
 			} else {
 				fmt.Printf("\n%s▸ API Key%s\n", colorBold, colorReset)
@@ -237,11 +240,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 				if err != nil {
 					return nil
 				}
-				key := strings.TrimSpace(raw)
-				if key == "" {
+				apiKey = strings.TrimSpace(raw)
+				if apiKey == "" {
 					fmt.Printf("  %s⚠ no key — set %s before running%s\n", colorYellow, ps.APIKeyEnv, colorReset)
 				}
-				wizard.ApplyStep("api_key", key)
+				wizard.ApplyStep("api_key", apiKey)
 			}
 		} else {
 			wizard.ApplyStep("api_key", "")
@@ -262,11 +265,26 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		wizard.ApplyStep("base_url", baseURL)
 		fmt.Printf("  %s✓ %s%s\n", colorGreen, baseURL, colorReset)
 
-		// Step 4: Model (arrow keys)
-		if len(ps.Models) > 1 {
+		// Step 4: Model — try live API first, fall back to catalog
+		fmt.Printf("\n%s▸ Models%s\n", colorBold, colorReset)
+		var models []string
+		if apiKey != "" && baseURL != "" {
+			fmt.Printf("  %sFetching live from %s/v1/models...%s\n", colorDim, baseURL, colorReset)
+			models, _ = fetchModels(baseURL, apiKey)
+		}
+		if len(models) > 0 {
+			fmt.Printf("  %s✓ found %d models from API%s\n", colorGreen, len(models), colorReset)
+		} else {
+			if len(ps.Models) > 0 {
+				models = ps.Models
+				fmt.Printf("  %susing %d models from catalog%s\n", colorDim, len(models), colorReset)
+			}
+		}
+
+		if len(models) > 1 {
 			fmt.Println()
-			modelInfos := make([]providerInfo, len(ps.Models))
-			for i, m := range ps.Models {
+			modelInfos := make([]providerInfo, len(models))
+			for i, m := range models {
 				modelInfos[i] = providerInfo{
 					Key:     m,
 					Display: config.ProviderSetup{Name: m},
@@ -277,9 +295,21 @@ func runSetup(cmd *cobra.Command, args []string) error {
 				return nil
 			}
 			wizard.ApplyStep("model", model)
-		} else if len(ps.Models) == 1 {
-			wizard.ApplyStep("model", ps.Models[0])
-			fmt.Printf("\n  %s✓ model: %s%s\n", colorGreen, ps.Models[0], colorReset)
+		} else if len(models) == 1 {
+			wizard.ApplyStep("model", models[0])
+			fmt.Printf("\n  %s✓ model: %s%s\n", colorGreen, models[0], colorReset)
+		} else {
+			fmt.Printf("  %s⚠ no models available%s\n", colorYellow, colorReset)
+			fmt.Printf("  Enter model ID manually: ")
+			raw, err := bufio.NewReader(os.Stdin).ReadString('\n')
+			if err != nil {
+				return nil
+			}
+			model := strings.TrimSpace(raw)
+			if model == "" {
+				return nil
+			}
+			wizard.ApplyStep("model", model)
 		}
 	}
 
