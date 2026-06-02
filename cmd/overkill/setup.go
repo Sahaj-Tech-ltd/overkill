@@ -215,7 +215,6 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 		ps = config.ProviderSetup{Name: customName_, DefaultBase: customURL}
 		providerKey = customName_
-		model = model
 	} else {
 		// Built-in provider
 		ps = all[providerKey]
@@ -251,7 +250,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 				apiKey = strings.TrimSpace(raw)
 				if apiKey == "" {
 					// codeql[go/clear-text-logging]: printing env var NAME, not a secret
-			fmt.Printf("  %s⚠ no key — set %s before running%s\n", colorYellow, ps.APIKeyEnv, colorReset)
+					fmt.Printf("  %s⚠ no key — set %s before running%s\n", colorYellow, ps.APIKeyEnv, colorReset)
 				}
 				wizard.ApplyStep("api_key", apiKey)
 			}
