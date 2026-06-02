@@ -486,6 +486,20 @@ func findRepoRoot() (string, error) {
 		}
 		dir = parent
 	}
+	// Fallback: check ~/.overkill/repo/ (created by install script).
+	if home, ok := os.LookupEnv("HOME"); ok {
+		fallback := filepath.Join(home, ".overkill", "repo")
+		if _, err := os.Stat(filepath.Join(fallback, "go.mod")); err == nil {
+			return fallback, nil
+		}
+		// Also try XDG_DATA_HOME.
+		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+			fallback = filepath.Join(xdg, "overkill", "repo")
+			if _, err := os.Stat(filepath.Join(fallback, "go.mod")); err == nil {
+				return fallback, nil
+			}
+		}
+	}
 	return os.Getwd()
 }
 
