@@ -55,3 +55,8 @@ REDTEAM_REPORT.md
 /bridge/coverage.xml
 prod/overkill
 prod/bin/
+
+# Internal planning/research (never tracked)
+inspiration/
+plans/
+research/
