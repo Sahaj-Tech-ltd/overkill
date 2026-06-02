@@ -60,11 +60,12 @@ func ProviderToCatalogID(key string) (string, bool) {
 }
 
 var builtinProviders = map[string]ProviderSetup{
-	"openai": {
-		Name:        "OpenAI",
-		APIKeyEnv:   providers.CanonicalAPIKeyEnv("openai"),
-		DefaultBase: providers.CanonicalBaseURL("openai"),
-		Models:      []string{"gpt-4o", "o1", "o1-mini", "o3-mini"},
+	"deepseek": {
+		Name:        "DeepSeek",
+		APIKeyEnv:   providers.CanonicalAPIKeyEnv("deepseek"),
+		DefaultBase: providers.CanonicalBaseURL("deepseek"),
+		// Hardcoded fallback only — catalog (models.dev) is the primary source.
+		Models: []string{"deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v3", "deepseek-chat", "deepseek-reasoner"},
 	},
 	"anthropic": {
 		Name:        "Anthropic",
@@ -78,11 +79,11 @@ var builtinProviders = map[string]ProviderSetup{
 		DefaultBase: providers.CanonicalBaseURL("gemini"),
 		Models:      []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"},
 	},
-	"deepseek": {
-		Name:        "DeepSeek",
-		APIKeyEnv:   providers.CanonicalAPIKeyEnv("deepseek"),
-		DefaultBase: providers.CanonicalBaseURL("deepseek"),
-		Models:      []string{"deepseek-chat", "deepseek-reasoner"},
+	"openai": {
+		Name:        "OpenAI",
+		APIKeyEnv:   providers.CanonicalAPIKeyEnv("openai"),
+		DefaultBase: providers.CanonicalBaseURL("openai"),
+		Models:      []string{"gpt-4o", "o1", "o1-mini", "o3-mini"},
 	},
 	"ollama": {
 		Name:        "Ollama",

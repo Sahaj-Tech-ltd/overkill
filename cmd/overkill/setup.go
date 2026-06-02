@@ -219,6 +219,13 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	} else {
 		// Built-in provider
 		ps = all[providerKey]
+		// Use catalog-enriched models from the selection list, not stale hardcoded.
+		for _, info := range infos {
+			if info.Key == providerKey && len(info.Display.Models) > 0 {
+				ps.Models = info.Display.Models
+				break
+			}
+		}
 		wizard.ApplyStep("provider", providerKey)
 		fmt.Printf("\n\n  %s✓ %s%s\n", colorGreen, ps.Name, colorReset)
 
@@ -327,20 +334,10 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Printf("  %s%s✓ Setup complete!%s\n", colorBold, colorGreen, colorReset)
-	fmt.Println()
-	if isCustom {
-		fmt.Printf("  Provider: %s (custom)\n", customName_)
-		fmt.Printf("  Endpoint: %s\n", customURL)
-	} else {
-		fmt.Printf("  Provider: %s\n", ps.Name)
-	}
-	fmt.Printf("  Config:   %s\n", path)
-	fmt.Println()
-	fmt.Printf("  Run %soverkill%s to start the agent.\n", colorBold, colorReset)
+	fmt.Printf("  %s%s✓ Setup complete! Starting Overkill...%s\n", colorBold, colorGreen, colorReset)
 	fmt.Println()
 
-	return nil
+	return runAgent(cmd, args)
 }
 
 // arrowSelect renders a scrollable list with arrow-key navigation.
@@ -498,13 +495,18 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 }
 
 func renderList(items []providerInfo, selected int) {
-	if selected > 0 {
-		fmt.Printf("\033[%dA", selected)
+	// Clear the full list area by moving up and clearing each line.
+	// First call has nothing above it, but the escape is harmless.
+	for range items {
+		fmt.Print("\033[2K") // clear line
+		fmt.Print("\033[1A") // move up
 	}
+	fmt.Print("\033[2K") // clear the title line too
+
+	// Reprint title
+	fmt.Printf("\r%s▸ %s%s  (↑↓ to move, Enter to select, Esc×2 to cancel)\n\n", colorBold, "", colorReset)
 
 	for i, info := range items {
-		fmt.Print("\033[2K\r")
-
 		if i == selected {
 			name := info.Display.Name
 			tag := ""
@@ -514,7 +516,7 @@ func renderList(items []providerInfo, selected int) {
 			if info.Key == customKey {
 				tag = " (bring your own endpoint)"
 			}
-			fmt.Printf("  %s%s▸ %s%s%s\r\n", colorBold, colorPurple, name, colorReset, tag)
+			fmt.Printf("  %s%s▸ %s%s%s\n", colorBold, colorPurple, name, colorReset, tag)
 		} else {
 			name := info.Display.Name
 			marker := " "
@@ -528,14 +530,10 @@ func renderList(items []providerInfo, selected int) {
 			if info.Key == customKey {
 				tag = " (bring your own endpoint)"
 			}
-			fmt.Printf("    %s %s%s\r\n", marker, name, tag)
+			fmt.Printf("    %s %s%s\n", marker, name, tag)
 		}
 	}
-
-	moveBack := len(items) - 1 - selected
-	if moveBack > 0 {
-		fmt.Printf("\033[%dA", moveBack)
-	}
+	// Cursor is now after the last item — no terminal gymnastics needed.
 }
 
 func clearLines(count int) {

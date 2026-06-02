@@ -108,7 +108,7 @@ func buildProviderCatalog() []WizardOption {
 			Category:    CategoryProvider,
 			APIKeyEnv:   providers.CanonicalAPIKeyEnv("deepseek"),
 			DefaultBase: providers.CanonicalBaseURL("deepseek"),
-			Models:      []string{"deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat"},
+			Models:      []string{"deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v3", "deepseek-chat", "deepseek-reasoner"},
 			RequiresKey: true,
 			Tags:        []string{"recommended", "cloud", "chinese"},
 		},
