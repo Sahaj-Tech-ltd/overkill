@@ -137,7 +137,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/dependency-review-action@v5
 
   # Supply-chain audit lives in supply-chain-audit.yml. Splitting it out
   # means a "supply-chain failed" status on a PR is unambiguous — readers
