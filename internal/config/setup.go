@@ -239,6 +239,11 @@ func (sw *SetupWizard) AvailableProviders() []ProviderSetup {
 	return result
 }
 
+// AllProviders returns the full provider map (canonical key → ProviderSetup).
+func (sw *SetupWizard) AllProviders() map[string]ProviderSetup {
+	return sw.providers
+}
+
 func (sw *SetupWizard) AvailableProvidersByName() map[string]ProviderSetup {
 	names := sw.providerNames()
 	result := make(map[string]ProviderSetup, len(names))

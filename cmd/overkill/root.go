@@ -65,9 +65,12 @@ var rootCmd = &cobra.Command{
 		// config.toml.
 		isSetup := cmd.Name() == "setup" || (cmd.Parent() != nil && cmd.Parent().Name() == "config" && cmd.Name() == "setup")
 		if isSetup {
+			// setup creates a config file — we don't need an existing one,
+			// but we DO need a valid config object to write into.
+			cfg = config.Default()
 			homeDir, _ := config.ConfigDir()
 			if homeDir != "" {
-				// Still bootstrap so soul.md and CLAUDE.md are created.
+				// Bootstrap so soul.md and CLAUDE.md are created.
 				if err := BootstrapOverkillHome(homeDir); err != nil {
 					log.Warn().Err(err).Msg("bootstrap failed, continuing anyway")
 				}
