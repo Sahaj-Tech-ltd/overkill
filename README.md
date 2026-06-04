@@ -49,5 +49,7 @@ Or with Go: `go install github.com/Sahaj-Tech-ltd/overkill@main`
 
 | | User | Contributions |
 |---|---|---|
-| <img src="https://avatars.githubusercontent.com/u/94193726?v=4" width="40" height="40" /> | [xyzmr114](https://github.com/xyzmr114) | 24 |
+| <img src="https://avatars.githubusercontent.com/u/94193726?v=4" width="40" height="40" /> | [xyzmr114](https://github.com/xyzmr114) | 64 |
+| <img src="https://avatars.githubusercontent.com/in/29110?v=4" width="40" height="40" /> | [dependabot[bot]](https://github.com/apps/dependabot) | 3 |
+| <img src="https://avatars.githubusercontent.com/in/15368?v=4" width="40" height="40" /> | [github-actions[bot]](https://github.com/apps/github-actions) | 1 |
 <!-- CONTRIBUTORS END -->
