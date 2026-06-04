@@ -12,7 +12,7 @@ dependencies = [
     "grpcio-tools>=1.62.0",
     "protobuf>=4.25.0",
     "numpy>=1.26.0",
-    "sentence-transformers>=2.6.0",
+    "sentence-transformers>=5.5.1",
 ]
 
 [project.optional-dependencies]
