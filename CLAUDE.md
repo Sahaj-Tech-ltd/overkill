@@ -51,6 +51,7 @@ Internet → cloudflared (host network) → Caddy (authelia stack, 127.0.0.1:888
 | attentive | 3003 | attentive.databunker.uk | No |
 | uptime-kuma | 3001 (host) | status.databunker.uk | No |
 | ladder | 8184 | ladder.databunker.uk | No |
+| crw | 3005 | crw.databunker.uk (future) | No |
 | adguard | 53/80/443/3000/853 | — | — |
 
 ### Key Cross-Stack Dependencies
@@ -99,3 +100,7 @@ Password authentication is disabled. Pubkey only. Root login disabled.
 ### Ladder (`ladder/`)
 
 Paywall bypass proxy (alternative to defunct 12ft.io). Go binary, Docker, port 8184 → 8080. No auth. Uses GoogleBot UA spoofing with domain-based rulesets from everywall/ladder-rules. Caddy routes `ladder.databunker.uk` directly (no Authelia). External access blocked via nftables — only reachable through Caddy.
+
+### crw (`crw/`)
+
+Fast, self-hosted Firecrawl-compatible web scraper. Rust binary, Docker, port 3005 → 3000. No auth, internal-only (127.0.0.1). REST API at `/v1/scrape`, `/v1/crawl`, `/v1/map`, `/v1/search`. ~50MB RAM idle. Hermes MCP integration via `crw-mcp` binary at `~/.local/bin/crw-mcp` (embedded mode).
