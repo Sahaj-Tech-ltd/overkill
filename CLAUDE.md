@@ -50,6 +50,7 @@ Internet → cloudflared (host network) → Caddy (authelia stack, 127.0.0.1:888
 | shadow | 3004 | shadow.databunker.uk | No |
 | attentive | 3003 | attentive.databunker.uk | No |
 | uptime-kuma | 3001 (host) | status.databunker.uk | No |
+| ladder | 8184 | ladder.databunker.uk | No |
 | adguard | 53/80/443/3000/853 | — | — |
 
 ### Key Cross-Stack Dependencies
@@ -85,7 +86,7 @@ sudo systemctl restart docker-block-external.service
 sudo iptables -L DOCKER-USER -n -v
 ```
 
-Ports currently blocked from external access: `3000 3001 3002 3010 8080 8081 8090 8091 8092 9090 9100`
+Ports currently blocked from external access: `3000 3001 3002 3010 8080 8081 8090 8091 8092 8182 8184 8687 9090 9100 2586 8095`
 
 ### `.env` files contain secrets — never commit them
 
@@ -94,3 +95,7 @@ All `.env` files are gitignored. When adding a new service, copy from `.env.exam
 ### SSH
 
 Password authentication is disabled. Pubkey only. Root login disabled.
+
+### Ladder (`ladder/`)
+
+Paywall bypass proxy (alternative to defunct 12ft.io). Go binary, Docker, port 8184 → 8080. No auth. Uses GoogleBot UA spoofing with domain-based rulesets from everywall/ladder-rules. Caddy routes `ladder.databunker.uk` directly (no Authelia). External access blocked via nftables — only reachable through Caddy.

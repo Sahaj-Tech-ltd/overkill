@@ -81,6 +81,11 @@
     reverse_proxy host.docker.internal:2586
   }
 
+  @ladder host ladder.databunker.uk
+  handle @ladder {
+    reverse_proxy host.docker.internal:8184
+  }
+
   @overkill host overkill.my
   handle @overkill {
     @install path /install
