@@ -11,6 +11,10 @@
   }
 }
 
+cloud.databunker.uk {
+  reverse_proxy host.docker.internal:8093
+}
+
 :80 {
   @auth host auth.databunker.uk
   handle @auth {
@@ -102,13 +106,6 @@
     }
     file_server {
       root /srv/overkill.my
-    }
-  }
-
-  @nextcloud host cloud.databunker.uk
-  handle @nextcloud {
-    reverse_proxy host.docker.internal:8093 {
-      header_up Host cloud.databunker.uk
     }
   }
 
