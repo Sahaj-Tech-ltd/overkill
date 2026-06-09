@@ -105,6 +105,13 @@
     }
   }
 
+  @nextcloud host cloud.databunker.uk
+  handle @nextcloud {
+    reverse_proxy host.docker.internal:8093 {
+      header_up Host cloud.databunker.uk
+    }
+  }
+
   # Catch-all: return 404 for unmatched hosts instead of silent 200
   handle {
     respond 404
