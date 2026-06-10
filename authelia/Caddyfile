@@ -5,29 +5,29 @@
 
 (protected) {
   forward_auth authelia:9091 {
-    uri /api/verify?rd=https://auth.databunker.uk
+    uri /api/verify?rd=https://auth.harshvardhanrathi.com
     copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
     header_up X-Forwarded-Proto https
   }
 }
 
 :80 {
-  @auth host auth.databunker.uk
+  @auth host auth.harshvardhanrathi.com
   handle @auth {
     reverse_proxy authelia:9091
   }
 
-  @status host status.databunker.uk
+  @status host status.harshvardhanrathi.com
   handle @status {
     reverse_proxy host.docker.internal:3001
   }
 
-  @affine host affine.databunker.uk
+  @affine host affine.harshvardhanrathi.com
   handle @affine {
     reverse_proxy host.docker.internal:3010
   }
 
-  @pdf host pdf.databunker.uk
+  @pdf host pdf.harshvardhanrathi.com
   handle @pdf {
     import protected
     reverse_proxy host.docker.internal:8095
@@ -43,7 +43,7 @@
     reverse_proxy stillhere-api:8000
   }
 
-  @sync host sync.databunker.uk
+  @sync host sync.harshvardhanrathi.com
   handle @sync {
     import protected
     reverse_proxy syncthing:8384 {
@@ -66,22 +66,22 @@
     reverse_proxy attentive:3003
   }
 
-  @builders host builders.databunker.uk
+  @builders host builders.harshvardhanrathi.com
   handle @builders {
     reverse_proxy host.docker.internal:8182
   }
 
-  @sign host sign.databunker.uk
+  @sign host sign.harshvardhanrathi.com
   handle @sign {
     reverse_proxy host.docker.internal:3002
   }
 
-  @ntfy host ntfy.databunker.uk
+  @ntfy host ntfy.harshvardhanrathi.com
   handle @ntfy {
     reverse_proxy host.docker.internal:2586
   }
 
-  @ladder host ladder.databunker.uk
+  @ladder host ladder.harshvardhanrathi.com
   handle @ladder {
     reverse_proxy host.docker.internal:8184
   }
@@ -105,7 +105,7 @@
     }
   }
 
-  @nextcloud host cloud.databunker.uk
+  @nextcloud host cloud.harshvardhanrathi.com
   handle @nextcloud {
     reverse_proxy host.docker.internal:8093
   }
