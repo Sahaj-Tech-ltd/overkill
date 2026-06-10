@@ -17,7 +17,7 @@
     reverse_proxy authelia:9091
   }
 
-  @status host status.harshvardhanrathi.com
+  @status host status.harshvardhanrathi.com status.databunker.uk
   handle @status {
     reverse_proxy host.docker.internal:3001
   }
@@ -51,9 +51,9 @@
     }
   }
 
-  @shadow host shadow.databunker.uk
+  @shadow host shadow.harshvardhanrathi.com shadow.databunker.uk
   handle @shadow {
-    respond 404 "use harshvardhanrathi.com"
+    redir https://harshvardhanrathi.com 301
   }
 
   @harsha host harshvardhanrathi.com www.harshvardhanrathi.com
