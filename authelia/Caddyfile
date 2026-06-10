@@ -12,7 +12,7 @@
 }
 
 :80 {
-  @auth host auth.harshvardhanrathi.com
+  @auth host auth.harshvardhanrathi.com auth.databunker.uk
   handle @auth {
     reverse_proxy authelia:9091
   }
@@ -22,12 +22,12 @@
     reverse_proxy host.docker.internal:3001
   }
 
-  @affine host affine.harshvardhanrathi.com
+  @affine host affine.harshvardhanrathi.com affine.databunker.uk
   handle @affine {
     reverse_proxy host.docker.internal:3010
   }
 
-  @pdf host pdf.harshvardhanrathi.com
+  @pdf host pdf.harshvardhanrathi.com pdf.databunker.uk
   handle @pdf {
     import protected
     reverse_proxy host.docker.internal:8095
@@ -43,7 +43,7 @@
     reverse_proxy stillhere-api:8000
   }
 
-  @sync host sync.harshvardhanrathi.com
+  @sync host sync.harshvardhanrathi.com sync.databunker.uk
   handle @sync {
     import protected
     reverse_proxy syncthing:8384 {
@@ -66,22 +66,22 @@
     reverse_proxy attentive:3003
   }
 
-  @builders host builders.harshvardhanrathi.com
+  @builders host builders.harshvardhanrathi.com builders.databunker.uk
   handle @builders {
     reverse_proxy host.docker.internal:8182
   }
 
-  @sign host sign.harshvardhanrathi.com
+  @sign host sign.harshvardhanrathi.com sign.databunker.uk
   handle @sign {
     reverse_proxy host.docker.internal:3002
   }
 
-  @ntfy host ntfy.harshvardhanrathi.com
+  @ntfy host ntfy.harshvardhanrathi.com ntfy.databunker.uk
   handle @ntfy {
     reverse_proxy host.docker.internal:2586
   }
 
-  @ladder host ladder.harshvardhanrathi.com
+  @ladder host ladder.harshvardhanrathi.com ladder.databunker.uk
   handle @ladder {
     reverse_proxy host.docker.internal:8184
   }
@@ -105,7 +105,7 @@
     }
   }
 
-  @nextcloud host cloud.harshvardhanrathi.com
+  @nextcloud host cloud.harshvardhanrathi.com cloud.databunker.uk
   handle @nextcloud {
     reverse_proxy host.docker.internal:8093
   }
