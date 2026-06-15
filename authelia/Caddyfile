@@ -105,6 +105,11 @@
     reverse_proxy host.docker.internal:8093
   }
 
+  @addy host addy.databunker.uk
+  handle @addy {
+    reverse_proxy host.docker.internal:8085
+  }
+
   # Catch-all: return 404 for unmatched hosts instead of silent 200
   handle {
     respond 404
