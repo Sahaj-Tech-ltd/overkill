@@ -107,7 +107,9 @@
 
   @addy host addy.databunker.uk
   handle @addy {
-    reverse_proxy host.docker.internal:8085
+    reverse_proxy addy:8000 {
+      header_up X-Forwarded-Proto https
+    }
   }
 
   # Catch-all: return 404 for unmatched hosts instead of silent 200
