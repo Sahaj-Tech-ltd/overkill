@@ -117,6 +117,7 @@
     handle_path /fixate* {
       reverse_proxy host.docker.internal:8096 {
         header_up Host localhost
+        header_up X-Forwarded-Proto https
       }
     }
     reverse_proxy sahajtech:80
