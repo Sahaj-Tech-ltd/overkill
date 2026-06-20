@@ -112,13 +112,13 @@
     }
   }
 
-  @fixate host fixate.sahajtech.dev
-  handle @fixate {
-    reverse_proxy host.docker.internal:8096
-  }
-
   @sahajtech host sahajtech.dev www.sahajtech.dev
   handle @sahajtech {
+    handle_path /fixate* {
+      reverse_proxy host.docker.internal:8096 {
+        header_up Host localhost
+      }
+    }
     reverse_proxy sahajtech:80
   }
 
