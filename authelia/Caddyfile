@@ -78,7 +78,8 @@
 
   @ladder host ladder.harshvardhanrathi.com
   handle @ladder {
-    reverse_proxy host.docker.internal:8184
+    import protected
+    reverse_proxy host.docker.internal:8587
   }
 
   @overkill host overkill.my
