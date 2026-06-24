@@ -53,6 +53,9 @@
 
   @harsha host harshvardhanrathi.com www.harshvardhanrathi.com
   handle @harsha {
+    handle_path /agentphone-webhook* {
+      reverse_proxy agentphone-webhook:8098
+    }
     reverse_proxy shadow:3000
   }
 
@@ -122,6 +125,11 @@
       }
     }
     reverse_proxy sahajtech:80
+  }
+
+  @agentphone host agentphone.databunker.uk
+  handle @agentphone {
+    reverse_proxy agentphone-webhook:8098
   }
 
   # Catch-all: return 404 for unmatched hosts instead of silent 200
