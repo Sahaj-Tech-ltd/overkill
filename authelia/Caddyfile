@@ -12,6 +12,17 @@
 }
 
 :80 {
+  # Global: hang up on bot/scanner probes without wasting backend compute
+  @botBlock {
+    path *.php *.php?* *.asp *.aspx *.jsp *.cgi
+    path /wp-* /wp-admin* /wp-content* /wp-includes* /xmlrpc*
+    path /.env* /.git* /.aws* /config* /.DS_Store
+    path /admin* /administrator* /backup* /cgi-bin/*
+  }
+  handle @botBlock {
+    respond 444
+  }
+
   @auth host auth.harshvardhanrathi.com
   handle @auth {
     reverse_proxy authelia:9091
