@@ -1,6 +1,7 @@
 {
   admin off
   auto_https off
+  order rate_limit before respond
 }
 
 (protected) {
