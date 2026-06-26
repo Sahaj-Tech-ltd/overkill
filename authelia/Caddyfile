@@ -42,10 +42,10 @@
     respond 444
   }
 
-  # Global: per-IP rate limit (120 req/min, real client IP via cloudflared)
+  # Global: per-IP rate limit (120 req/min, real client IP via CF-Connecting-IP header)
   rate_limit {
     zone dynamic {
-      key {http.request.remote.host}
+      key {http.request.header.CF-Connecting-IP}
       events 120
       window 1m
     }
