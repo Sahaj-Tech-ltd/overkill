@@ -2,6 +2,9 @@
   admin off
   auto_https off
   order rate_limit before respond
+  servers {
+    trusted_proxies static private_ranges
+  }
 }
 
 (protected) {
@@ -13,6 +16,15 @@
 }
 
 :80 {
+  # JSON access log for fail2ban
+  log {
+    output file /var/log/caddy/access.log {
+      roll_size 50mb
+      roll_keep 5
+    }
+    format json
+  }
+
   # Global: hang up on bot/scanner probes without wasting backend compute
   @botBlock {
     path *.php *.php?* *.asp *.aspx *.jsp *.cgi
@@ -142,6 +154,12 @@
   @agentphone host agentphone.databunker.uk
   handle @agentphone {
     reverse_proxy agentphone-webhook:8098
+  }
+
+  @trek host trek.harshvardhanrathi.com
+  handle @trek {
+    import protected
+    reverse_proxy host.docker.internal:8097
   }
 
   # Catch-all: return 404 for unmatched hosts instead of silent 200
