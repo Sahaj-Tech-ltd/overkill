@@ -1,9 +1,15 @@
 {
   admin off
   auto_https off
-  order rate_limit before respond
   servers {
     trusted_proxies static private_ranges
+    max_header_size 16384
+    timeouts {
+      read_body 30s
+      read_header 10s
+      write 60s
+      idle 5m
+    }
   }
 }
 
@@ -34,6 +40,15 @@
   }
   handle @botBlock {
     respond 444
+  }
+
+  # Global: per-IP rate limit (120 req/min, real client IP via cloudflared)
+  rate_limit {
+    zone dynamic {
+      key {http.request.remote.host}
+      events 120
+      window 1m
+    }
   }
 
   @auth host auth.harshvardhanrathi.com
@@ -160,6 +175,19 @@
   handle @trek {
     import protected
     reverse_proxy host.docker.internal:8097
+  }
+
+  @chatto host chat.harshvardhanrathi.com
+  handle @chatto {
+    reverse_proxy chatto:4000 {
+      header_up X-Real-IP {http.request.remote.host}
+    }
+    encode gzip zstd
+  }
+
+  @livekit host livekit.chat.harshvardhanrathi.com
+  handle @livekit {
+    reverse_proxy livekit:7880
   }
 
   # Catch-all: return 404 for unmatched hosts instead of silent 200
