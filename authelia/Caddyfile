@@ -42,11 +42,13 @@
     respond 444
   }
 
-  # Global: per-IP rate limit (120 req/min, real client IP via CF-Connecting-IP header)
+  # Global: per-IP rate limit (300 req/min, real client IP via CF-Connecting-IP header)
+  # Bumped from 120→300 on 2026-06-27: internal monitoring bursts (push monitors + content
+  # checks) were triggering 429 for the VPS's own IP, causing false content-check failures.
   rate_limit {
     zone dynamic {
       key {http.request.header.CF-Connecting-IP}
-      events 120
+      events 300
       window 1m
     }
   }
