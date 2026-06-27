@@ -42,13 +42,15 @@
     respond 444
   }
 
-  # Global: per-IP rate limit (300 req/min, real client IP via CF-Connecting-IP header)
-  # Bumped from 120→300 on 2026-06-27: internal monitoring bursts (push monitors + content
-  # checks) were triggering 429 for the VPS's own IP, causing false content-check failures.
+  # Global: per-IP+host rate limit (500 req/min per IP per host, real client IP via CF-Connecting-IP header)
+  # Bumped from 300 to 500 and key changed to include host (2026-06-27): internal monitoring
+  # bursts (push monitors, content checks, stack health checks) were exhausting the per-IP
+  # bucket, causing 429s for unrelated services. Keying by IP+host isolates traffic so
+  # push monitor bursts to status.harshvardhanrathi.com don't block overkill.my checks.
   rate_limit {
     zone dynamic {
-      key {http.request.header.CF-Connecting-IP}
-      events 300
+      key {http.request.header.CF-Connecting-IP}_{http.request.host}
+      events 500
       window 1m
     }
   }
