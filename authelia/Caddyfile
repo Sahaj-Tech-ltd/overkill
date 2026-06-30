@@ -178,7 +178,7 @@
   @trek host trek.harshvardhanrathi.com
   handle @trek {
     import protected
-    reverse_proxy host.docker.internal:8097
+    reverse_proxy trek:3000
   }
 
   @chatto host chat.harshvardhanrathi.com
