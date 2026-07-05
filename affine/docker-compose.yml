@@ -13,7 +13,6 @@ services:
       affine_migration:
         condition: service_completed_successfully
     volumes:
-      # custom configurations
       - ${UPLOAD_LOCATION}:/root/.affine/storage
       - ${CONFIG_LOCATION}:/root/.affine/config
     env_file:
@@ -22,9 +21,15 @@ services:
       - REDIS_SERVER_HOST=redis
       - DATABASE_URL=postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE:-affine}
       - AFFINE_INDEXER_ENABLED=false
+      - MAILER_HOST=${MAILER_HOST}
+      - MAILER_PORT=${MAILER_PORT}
+      - MAILER_SECURE=${MAILER_SECURE}
+      - MAILER_USER=${MAILER_USER}
+      - MAILER_PASSWORD=${MAILER_PASSWORD}
+      - MAILER_SENDER=${MAILER_SENDER}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"const http=require('http');http.get('http://localhost:3010',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e 'http.get(\"http://localhost:3010\",r=>{process.exit(r.statusCode<500?0:1)}).on(\"error\",()=>process.exit(1))'"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -34,7 +39,6 @@ services:
     image: ghcr.io/toeverything/affine:${AFFINE_REVISION:-stable}
     container_name: affine_migration_job
     volumes:
-      # custom configurations
       - ${UPLOAD_LOCATION}:/root/.affine/storage
       - ${CONFIG_LOCATION}:/root/.affine/config
     command: ['sh', '-c', 'node ./scripts/self-host-predeploy.js']
@@ -70,8 +74,6 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_DATABASE:-affine}
       POSTGRES_INITDB_ARGS: '--data-checksums'
-      # you better set a password for you database
-      # or you may add 'POSTGRES_HOST_AUTH_METHOD=trust' to ignore postgres security policy
       POSTGRES_HOST_AUTH_METHOD: trust
     healthcheck:
       test:
