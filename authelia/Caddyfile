@@ -194,6 +194,11 @@
     reverse_proxy livekit:7880
   }
 
+  @microbin host share.harshvardhanrathi.com
+  handle @microbin {
+    reverse_proxy 127.0.0.1:8099
+  }
+
   # Catch-all: return 404 for unmatched hosts instead of silent 200
   handle {
     respond 404
