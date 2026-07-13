@@ -196,7 +196,11 @@
 
   @microbin host share.harshvardhanrathi.com
   handle @microbin {
-    reverse_proxy 127.0.0.1:8099
+    @upload method POST
+    basicauth @upload {
+      butter $2a$14$9TK2H7diF/SkMqocjTVOteQkN/cs/3lozb9rzoiL2GEFHdU5kw8wS
+    }
+    reverse_proxy host.docker.internal:8099
   }
 
   # Catch-all: return 404 for unmatched hosts instead of silent 200
