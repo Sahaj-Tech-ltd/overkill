@@ -160,7 +160,15 @@
   }
 
   @sahajtech host sahajtech.dev www.sahajtech.dev
+
+  @fixate host fixate.sahajtech.dev
+  handle @fixate {
+    reverse_proxy fixate_web:8000
+  }
   handle @sahajtech {
+    handle /fixate* {
+      reverse_proxy fixate_web:8000
+    }
     reverse_proxy sahajtech:80
   }
 
