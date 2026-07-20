@@ -163,9 +163,15 @@
 
   @fixate host fixate.sahajtech.dev
   handle @fixate {
+    handle /ws* {
+      reverse_proxy 172.17.0.1:8097
+    }
     reverse_proxy 172.17.0.1:8096
   }
   handle @sahajtech {
+    handle /ws* {
+      reverse_proxy 172.17.0.1:8097
+    }
     handle /fixate* {
       reverse_proxy 172.17.0.1:8096
     }
