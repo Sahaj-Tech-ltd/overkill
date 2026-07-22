@@ -211,6 +211,11 @@
     reverse_proxy host.docker.internal:8099
   }
 
+  @cal host cal.harshvardhanrathi.com
+  handle @cal {
+    reverse_proxy host.docker.internal:8094
+  }
+
   # Catch-all: return 404 for unmatched hosts instead of silent 200
   handle {
     respond 404
