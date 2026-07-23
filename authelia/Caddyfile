@@ -216,6 +216,11 @@
     reverse_proxy host.docker.internal:8094
   }
 
+  @office host office.harshvardhanrathi.com
+  handle @office {
+    reverse_proxy collabora:9980
+  }
+
   # Catch-all: return 404 for unmatched hosts instead of silent 200
   handle {
     respond 404
