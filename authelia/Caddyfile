@@ -202,28 +202,26 @@
 
     # WebRTC voice WebSocket
     handle_path /voice {
-      reverse_proxy localhost:8082
+      reverse_proxy spacebar-server:8081
     }
 
-    # API + WebSocket upgrade
-    @server {
-      path /api/* /verify
-      header Connection *Upgrade*
-    }
+    # API routes (REST + WebSocket via transparent upgrade)
+    @server path /api/* /verify
     handle @server {
-      reverse_proxy localhost:4264
+      reverse_proxy spacebar-server:8080
     }
 
     # CDN and image proxy
     handle_path /cdn/* {
-      reverse_proxy localhost:4264
+      reverse_proxy spacebar-server:8080
     }
     handle_path /img/* {
-      reverse_proxy localhost:4264
+      reverse_proxy spacebar-server:8080
+    }
 
     # Everything else → client
     handle {
-      reverse_proxy localhost:4265
+      reverse_proxy spacebar-client:8080
     }
   }
 
