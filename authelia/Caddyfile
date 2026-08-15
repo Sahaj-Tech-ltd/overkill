@@ -65,16 +65,6 @@
     reverse_proxy host.docker.internal:3001
   }
 
-  @affine host affine.harshvardhanrathi.com
-  handle @affine {
-    reverse_proxy host.docker.internal:3010
-  }
-
-  @pdf host pdf.harshvardhanrathi.com
-  handle @pdf {
-    import protected
-    reverse_proxy host.docker.internal:8095
-  }
 
   @joules host joules.me
   handle @joules {
@@ -86,21 +76,6 @@
     reverse_proxy stillhere-api:8000
   }
 
-  @sync host sync.harshvardhanrathi.com
-  handle @sync {
-    import protected
-    reverse_proxy syncthing:8384 {
-      header_up Host localhost
-    }
-  }
-
-  @harsha host harshvardhanrathi.com www.harshvardhanrathi.com
-  handle @harsha {
-    handle_path /agentphone-webhook* {
-      reverse_proxy agentphone-webhook:8098
-    }
-    reverse_proxy shadow:3000
-  }
 
   @attentive host attentive.fyi
   handle @attentive {
@@ -112,15 +87,6 @@
     reverse_proxy host.docker.internal:8182
   }
 
-  @sign host sign.harshvardhanrathi.com
-  handle @sign {
-    reverse_proxy host.docker.internal:3002
-  }
-
-  @ntfy host ntfy.harshvardhanrathi.com
-  handle @ntfy {
-    reverse_proxy host.docker.internal:2586
-  }
 
   @ladder host ladder.harshvardhanrathi.com
   handle @ladder {
@@ -147,10 +113,6 @@
     }
   }
 
-  @nextcloud host cloud.harshvardhanrathi.com
-  handle @nextcloud {
-    reverse_proxy host.docker.internal:8093
-  }
 
   @addy host addy.databunker.uk
   handle @addy {
@@ -183,11 +145,6 @@
     reverse_proxy agentphone-webhook:8098
   }
 
-  @trek host trek.harshvardhanrathi.com
-  handle @trek {
-    import protected
-    reverse_proxy trek:3000
-  }
 
   @spacebar host chat.harshvardhanrathi.com
   handle @spacebar {
@@ -234,15 +191,6 @@
     reverse_proxy host.docker.internal:8099
   }
 
-  @cal host cal.harshvardhanrathi.com
-  handle @cal {
-    reverse_proxy host.docker.internal:8094
-  }
-
-  @office host office.harshvardhanrathi.com
-  handle @office {
-    reverse_proxy collabora:9980
-  }
 
   # Catch-all: return 404 for unmatched hosts instead of silent 200
   handle {
