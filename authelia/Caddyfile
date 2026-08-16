@@ -21,6 +21,16 @@
   }
 }
 
+# Affine tunnel ingress targets localhost:3010 directly (bypasses :80).
+# Interim: serve it here and forward to bunker over WireGuard.
+http://:3010 {
+  handle {
+    reverse_proxy 10.77.0.2:8888 {
+      header_up Host affine.harshvardhanrathi.com
+    }
+  }
+}
+
 :80 {
   # JSON access log for fail2ban
   log {
@@ -65,6 +75,18 @@
     reverse_proxy host.docker.internal:3001
   }
 
+  # ── Migrated to bunker (Aug 15 2026) — interim routing via WireGuard ──
+  @affine host affine.harshvardhanrathi.com
+  handle @affine {
+    reverse_proxy 10.77.0.2:8888
+  }
+
+  @pdf host pdf.harshvardhanrathi.com
+  handle @pdf {
+    import protected
+    reverse_proxy 10.77.0.2:8888
+  }
+
 
   @joules host joules.me
   handle @joules {
@@ -76,6 +98,20 @@
     reverse_proxy stillhere-api:8000
   }
 
+  @sync host sync.harshvardhanrathi.com
+  handle @sync {
+    import protected
+    reverse_proxy 10.77.0.2:8888
+  }
+
+  @harsha host harshvardhanrathi.com www.harshvardhanrathi.com
+  handle @harsha {
+    handle_path /agentphone-webhook* {
+      reverse_proxy agentphone-webhook:8098
+    }
+    reverse_proxy 10.77.0.2:8888
+  }
+
 
   @attentive host attentive.fyi
   handle @attentive {
@@ -85,6 +121,16 @@
   @builders host builders.harshvardhanrathi.com
   handle @builders {
     reverse_proxy host.docker.internal:8182
+  }
+
+  @sign host sign.harshvardhanrathi.com
+  handle @sign {
+    reverse_proxy 10.77.0.2:8888
+  }
+
+  @ntfy host ntfy.harshvardhanrathi.com
+  handle @ntfy {
+    reverse_proxy 10.77.0.2:8888
   }
 
 
@@ -121,6 +167,11 @@
     }
   }
 
+  @cloud host cloud.harshvardhanrathi.com
+  handle @cloud {
+    reverse_proxy 10.77.0.2:8888
+  }
+
   @sahajtech host sahajtech.dev www.sahajtech.dev
 
   @fixate host fixate.sahajtech.dev
@@ -143,6 +194,12 @@
   @agentphone host agentphone.databunker.uk
   handle @agentphone {
     reverse_proxy agentphone-webhook:8098
+  }
+
+  @trek host trek.harshvardhanrathi.com
+  handle @trek {
+    import protected
+    reverse_proxy 10.77.0.2:8888
   }
 
 
@@ -189,6 +246,16 @@
       butter $2a$14$9TK2H7diF/SkMqocjTVOteQkN/cs/3lozb9rzoiL2GEFHdU5kw8wS
     }
     reverse_proxy host.docker.internal:8099
+  }
+
+  @cal host cal.harshvardhanrathi.com
+  handle @cal {
+    reverse_proxy 10.77.0.2:8888
+  }
+
+  @office host office.harshvardhanrathi.com
+  handle @office {
+    reverse_proxy 10.77.0.2:8888
   }
 
 

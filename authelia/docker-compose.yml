@@ -59,6 +59,7 @@ services:
       - /home/harsh/claude/overkill-website:/srv/overkill.my:ro
     ports:
       - "127.0.0.1:8888:80"
+      - "127.0.0.1:3010:3010"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
