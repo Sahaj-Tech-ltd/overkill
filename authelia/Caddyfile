@@ -81,11 +81,6 @@ http://:3010 {
     reverse_proxy 10.77.0.2:8888
   }
 
-  @pdf host pdf.harshvardhanrathi.com
-  handle @pdf {
-    import protected
-    reverse_proxy 10.77.0.2:8888
-  }
 
 
   @joules host joules.me
@@ -98,11 +93,6 @@ http://:3010 {
     reverse_proxy stillhere-api:8000
   }
 
-  @sync host sync.harshvardhanrathi.com
-  handle @sync {
-    import protected
-    reverse_proxy 10.77.0.2:8888
-  }
 
   @harsha host harshvardhanrathi.com www.harshvardhanrathi.com
   handle @harsha {
@@ -196,11 +186,6 @@ http://:3010 {
     reverse_proxy agentphone-webhook:8098
   }
 
-  @trek host trek.harshvardhanrathi.com
-  handle @trek {
-    import protected
-    reverse_proxy 10.77.0.2:8888
-  }
 
 
   @spacebar host chat.harshvardhanrathi.com
