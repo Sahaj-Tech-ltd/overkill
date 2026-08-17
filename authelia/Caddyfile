@@ -94,13 +94,6 @@ http://:3010 {
   }
 
 
-  @harsha host harshvardhanrathi.com www.harshvardhanrathi.com
-  handle @harsha {
-    handle_path /agentphone-webhook* {
-      reverse_proxy agentphone-webhook:8098
-    }
-    reverse_proxy 10.77.0.2:8888
-  }
 
 
   @attentive host attentive.fyi
@@ -108,10 +101,6 @@ http://:3010 {
     reverse_proxy attentive:3003
   }
 
-  @builders host builders.harshvardhanrathi.com
-  handle @builders {
-    reverse_proxy host.docker.internal:8182
-  }
 
   @sign host sign.harshvardhanrathi.com
   handle @sign {
