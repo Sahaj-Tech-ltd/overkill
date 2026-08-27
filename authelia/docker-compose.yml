@@ -60,8 +60,6 @@ services:
     ports:
       - "127.0.0.1:8888:80"
       - "127.0.0.1:3010:3010"
-      - "80:80"
-      - "443:443"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

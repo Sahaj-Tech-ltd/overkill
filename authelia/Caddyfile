@@ -31,23 +31,6 @@ http://:3010 {
   }
 }
 
-# Plan B: immich direct (DNS-only, no Cloudflare) -> WG -> bunker Caddy :8888
-immich.harshvardhanrathi.com {
-  tls h@sahajtech.dev
-  log {
-    output file /var/log/caddy/immich-access.log {
-      roll_size 20mb
-      roll_keep 3
-    }
-  }
-  handle {
-    reverse_proxy http://10.77.0.2:8888 {
-      header_up Host immich.harshvardhanrathi.com
-      flush_interval -1
-    }
-  }
-}
-
 :80 {
   # JSON access log for fail2ban
   log {
