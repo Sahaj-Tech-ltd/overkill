@@ -60,7 +60,8 @@
     reverse_proxy authelia:9091
   }
 
-  @status host status.harshvardhanrathi.com
+  # status.harshvardhanrathi.com = Butter (VPS01) Kuma. status1.databunker.uk = historical alias, same Kuma.
+  @status host status.harshvardhanrathi.com status1.databunker.uk
   handle @status {
     reverse_proxy host.docker.internal:3001
   }
@@ -75,6 +76,12 @@
     reverse_proxy stillhere-api:8000
   }
 
+  @ladder host ladder.harshvardhanrathi.com ladder.databunker.uk
+  handle @ladder {
+    import protected
+    reverse_proxy host.docker.internal:8587
+  }
+
 
 
 
@@ -83,12 +90,6 @@
     reverse_proxy attentive:3003
   }
 
-
-  @ladder host ladder.harshvardhanrathi.com
-  handle @ladder {
-    import protected
-    reverse_proxy host.docker.internal:8587
-  }
 
   @overkill host overkill.my
   handle @overkill {
@@ -142,15 +143,6 @@
   }
 
 
-
-  @microbin host share.harshvardhanrathi.com
-  handle @microbin {
-    @upload method POST
-    basicauth @upload {
-      butter $2a$14$9TK2H7diF/SkMqocjTVOteQkN/cs/3lozb9rzoiL2GEFHdU5kw8wS
-    }
-    reverse_proxy host.docker.internal:8099
-  }
 
   @sahajbiogas host sahajbiogas.com www.sahajbiogas.com
   handle @sahajbiogas {
