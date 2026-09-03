@@ -118,6 +118,16 @@
     }
   }
 
+  # share.databunker.uk = MicroBin on bunker (moved Sep 2 2026).
+  # Tunnel still routes this hostname to VPS01, so proxy it over WG to
+  # bunker's Caddy, which owns the share block (basicauth on POST uploads).
+  @share host share.databunker.uk
+  handle @share {
+    reverse_proxy http://10.77.0.2:8888 {
+      header_up Host share.databunker.uk
+    }
+  }
+
   @sahajtech host sahajtech.dev www.sahajtech.dev
 
   @fixate host fixate.sahajtech.dev
