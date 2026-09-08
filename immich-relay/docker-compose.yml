@@ -1,0 +1,15 @@
+services:
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: immich-relay-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - ./logs:/var/log/caddy
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+volumes:
+  caddy-data:

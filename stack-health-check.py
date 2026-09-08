@@ -15,7 +15,7 @@ SERVICES = [
     ("Caddy",              "iV0rxk7NuG", "https://status1.databunker.uk",     False),
     ("Cloudflared",        "x8LdlgUEx1", "https://status1.databunker.uk",     False),
     ("PDF",                "4t1Jc9gyyL", "https://pdf.databunker.uk",        True),
-    ("Sync",               "WihMA9I4KJ", "https://sync.databunker.uk",       True),
+    ("Sync",               "WihMA9I4KJ", "https://sync.databunker.uk",       False),  # Syncthing has built-in auth; bunker serves it without Authelia (since Aug 2026 migration)
     ("Affine",             "6wA9lomyEL", "https://affine.databunker.uk",     False),
     ("Still Here API",     "d7d68e78c8", "http://127.0.0.1:8000/health",     False),
     ("Still Here Worker",  "01f5883677", None,                                False),

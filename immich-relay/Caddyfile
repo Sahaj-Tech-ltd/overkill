@@ -1,0 +1,30 @@
+immich.harshvardhanrathi.com {
+  tls h@sahajtech.dev
+  log {
+    output file /var/log/caddy/immich-access.log {
+      roll_size 20mb
+      roll_keep 3
+    }
+  }
+  handle {
+    reverse_proxy http://10.77.0.2:8888 {
+      header_up Host immich.harshvardhanrathi.com
+      flush_interval -1
+    }
+  }
+}
+
+stoat.databunker.uk {
+	tls /etc/letsencrypt/live/stoat.databunker.uk/fullchain.pem /etc/letsencrypt/live/stoat.databunker.uk/privkey.pem
+	reverse_proxy 10.77.0.2:8880
+}
+
+# sync.databunker.uk = Syncthing on bunker (migrated Aug 15 2026).
+# DNS is a direct A record to VPS01 (not CF-proxied), so this caddy is the TLS front.
+# Proxy over WG to bunker's Caddy, which owns the sync block.
+sync.databunker.uk {
+	tls h@sahajtech.dev
+	reverse_proxy http://10.77.0.2:8888 {
+		header_up Host sync.databunker.uk
+	}
+}
