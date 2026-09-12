@@ -128,6 +128,16 @@
     }
   }
 
+  # zap.databunker.uk = Zap Roulette on bunker (added Sep 13 2026).
+  # Its CF DNS points at the VPS01 tunnel, so relay over WG to bunker's
+  # Caddy, which owns the zap block.
+  @zap host zap.databunker.uk
+  handle @zap {
+    reverse_proxy http://10.77.0.2:8888 {
+      header_up Host zap.databunker.uk
+    }
+  }
+
   @sahajtech host sahajtech.dev www.sahajtech.dev
 
   @fixate host fixate.sahajtech.dev
