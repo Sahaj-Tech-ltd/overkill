@@ -20,12 +20,12 @@ jobs:
   # and so result-watchers can subscribe to tests specifically.
   lint-build:
     name: Lint + build (linux/amd64)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     defaults:
       run:
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -48,7 +48,7 @@ jobs:
   # Cross-compile sanity check on the other supported targets.
   cross-build:
     name: Cross build
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     defaults:
       run:
     timeout-minutes: 10
@@ -63,7 +63,7 @@ jobs:
           - goos: darwin
             goarch: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
