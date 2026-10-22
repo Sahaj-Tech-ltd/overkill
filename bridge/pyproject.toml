@@ -23,7 +23,7 @@ dev = [
     "mypy>=1.8",
 ]
 qdrant = [
-    "qdrant-client>=1.8.0",
+    "qdrant-client>=1.18.0",
 ]
 
 [tool.setuptools]
