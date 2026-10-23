@@ -117,9 +117,10 @@ func child() (resultErr error) {
 	if err != nil {
 		return err
 	}
+	phase := "open ordinary process token"
 	defer func() {
 		if resultErr != nil {
-			fmt.Fprintln(logFile, resultErr)
+			fmt.Fprintln(logFile, phase+":", resultErr)
 		}
 		_ = logFile.Close()
 	}()
@@ -138,10 +139,12 @@ func child() (resultErr error) {
 	if err != nil {
 		return err
 	}
-	restricted, err := token.IsRestricted()
-	if err != nil {
+	phase = "query ordinary token restrictions"
+	var restrictions, returned uint32
+	if err := windows.GetTokenInformation(token, windows.TokenHasRestrictions, (*byte)(unsafe.Pointer(&restrictions)), uint32(unsafe.Sizeof(restrictions)), &returned); err != nil {
 		return err
 	}
+	restricted := restrictions != 0
 	if admin || restricted {
 		return fmt.Errorf("acceptance requires an ordinary non-admin, non-restricted user token")
 	}
@@ -156,18 +159,30 @@ func child() (resultErr error) {
 	if !windows.EqualSid(current.User.Sid, expected) {
 		return fmt.Errorf("acceptance account SID mismatch")
 	}
+	phase = "resolve loaded ordinary profile"
 	home, err := token.GetUserProfileDirectory()
 	if err != nil {
 		return err
 	}
+	// Expandable default-profile registry paths use USERPROFILE. Do not let
+	// the elevated caller's inherited environment resolve them to its profile.
+	if err := os.Setenv("USERPROFILE", home); err != nil {
+		return err
+	}
+	if err := os.Setenv("HOME", home); err != nil {
+		return err
+	}
+	phase = "resolve ordinary LocalAppData"
 	local, err := windows.KnownFolderPath(windows.FOLDERID_LocalAppData, windows.KF_FLAG_CREATE)
 	if err != nil {
 		return err
 	}
+	phase = "resolve ordinary roaming AppData"
 	roaming, err := windows.KnownFolderPath(windows.FOLDERID_RoamingAppData, windows.KF_FLAG_CREATE)
 	if err != nil {
 		return err
 	}
+	phase = "create ordinary temporary directory"
 	temporary := filepath.Join(local, "Temp")
 	if err := os.MkdirAll(temporary, 0700); err != nil {
 		return err
@@ -178,6 +193,7 @@ func child() (resultErr error) {
 		}
 	}
 	fmt.Println("Native acceptance token verified: actual ordinary local account, administrator=false, restricted=false, own loaded profile")
+	phase = "run Node acceptance command"
 	cmd := exec.Command(os.Args[4], os.Args[5:]...)
 	cmd.Env = os.Environ()
 	cmd.Stdout, cmd.Stderr = logFile, logFile
