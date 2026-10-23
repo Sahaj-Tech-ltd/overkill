@@ -143,6 +143,21 @@ async function main() {
     artifact.installedAcceptance = 'passed: windows-installed-acceptance.json';
     await fs.writeFile(path.join(output, 'artifact.json'), JSON.stringify(artifact, null, 2) + '\n');
     console.log(JSON.stringify(report, null, 2));
+  } catch (error) {
+    if (application) { await application.close(); application = null; }
+    // Diagnose the unchanged installed backend with this disposable profile.
+    // Never include readiness tokens or generated database credentials.
+    let backendError = '';
+    try {
+      const backendHome = path.join(profile, 'backend');
+      await exec(path.join(install, 'resources/bin/overkill.exe'), ['desktop-server', '--postgres-bin', path.join(install, 'resources/postgres/bin'), '--data-dir', path.join(backendHome, 'postgres')], {cwd: backendHome, env: {...process.env, OVERKILL_HOME: backendHome, OVERKILL_DESKTOP_PROVIDER_KEY: fakeKey}, timeout: 20000, maxBuffer: 1024 * 1024, windowsHide: true});
+    } catch (diagnostic) {
+      backendError = String(diagnostic.stderr || diagnostic.message).split(fakeKey).join('[redacted]').replace(/postgres(?:ql)?:\/\/[^\s]+/g, '[database URL redacted]').slice(-16000);
+    }
+    const diagnostic = {passed:false, sourceCommit:artifact.sourceCommit, error:String(error.message), installedBackendError:backendError};
+    await fs.writeFile(path.join(output, 'windows-installed-diagnostics.json'), JSON.stringify(diagnostic, null, 2)+'\n');
+    console.error(JSON.stringify(diagnostic, null, 2));
+    throw error;
   } finally {
     if (application) await application.close();
     fixture.closeAllConnections(); await new Promise(resolve => fixture.close(resolve));

@@ -78,6 +78,7 @@ jobs:
             .cache/windows-desktop/artifact.json
             .cache/windows-desktop/input-inventory.json
             .cache/windows-desktop/windows-installed-acceptance.json
+            .cache/windows-desktop/windows-installed-diagnostics.json
             .cache/windows-desktop/windows-installed-*.png
             .cache/windows-desktop/installer.log
             .cache/windows-desktop/uninstaller.log

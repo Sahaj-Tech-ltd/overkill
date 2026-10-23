@@ -57,7 +57,7 @@ func TestWindowsPowerShellHookReceivesEvent(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(body), 0600))
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	require.NoError(t, err)
-	for _, owned := range []string{root, dir, path} {
+	for _, owned := range []string{path, dir, root} {
 		setTestHookDACL(t, owned, "D:P(A;;FA;;;"+user.User.Sid.String()+")(A;;FA;;;SY)(A;;FA;;;BA)")
 	}
 	hook := makeShellHook(path)
