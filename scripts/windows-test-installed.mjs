@@ -18,6 +18,12 @@ const {_electron} = require('playwright');
 const exec = promisify(execFile);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function bounded(operation, milliseconds, label) {
+  let timer;
+  try { return await Promise.race([operation, new Promise((_, reject) => {timer = setTimeout(() => reject(new Error(label + ' timed out')), milliseconds);})]); }
+  finally { clearTimeout(timer); }
+}
+
 async function missingSoon(file) {
   for (let attempt = 0; attempt < 100; attempt++) {
     try { await fs.access(file); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
@@ -65,6 +71,19 @@ async function main() {
   fixture.listen(0, '127.0.0.1'); await once(fixture, 'listening');
   const executablePath = path.join(install, 'Overkill.exe');
   const uninstaller = path.join(install, 'unins000.exe');
+  async function killOwnedProcesses() {
+    const encodedPath = Buffer.from(temp, 'utf8').toString('base64');
+    const script = `$needle=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPath}')); Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($needle,[StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+    try {await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {timeout: 15000, windowsHide: true});}
+    catch (error) {console.error('Owned acceptance process cleanup:', error.message);}
+  }
+  async function closeApp() {
+    const current = application; application = null;
+    if (!current) return;
+    try {await bounded(current.close(), 20000, 'Installed app graceful close');}
+    catch (error) {await killOwnedProcesses(); throw error;}
+  }
+
   async function launch() {
     const env = {...process.env}; delete env.ELECTRON_RUN_AS_NODE;
     delete env.OVERKILL_DESKTOP_RESOURCES; delete env.OVERKILL_DESKTOP_DATA_DIR;
@@ -116,7 +135,7 @@ async function main() {
     assert.ok(session);
     const before = await page.evaluate(id => window.overkill.messages(id), session.id);
     await page.screenshot({path: path.join(output, 'windows-installed-before-restart.png')});
-    await application.close(); application = null;
+    await closeApp();
     await missingSoon(path.join(profile, 'backend/postgres/postmaster.pid'));
     // Exercise the same installer over its installed destination. This tests
     // same-version replacement, not a cross-version migration promise.
@@ -131,26 +150,26 @@ async function main() {
     assert.equal(await fs.readFile(path.join(workspace, 'evidence.ts'), 'utf8'), source);
     assert.deepEqual(pageErrors, []);
     await page.screenshot({path: path.join(output, 'windows-installed-after-restart.png')});
-    await application.close(); application = null;
+    await closeApp();
     await missingSoon(path.join(profile, 'backend/postgres/postmaster.pid'));
     await exec(uninstaller, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', `/LOG=${path.join(output, 'uninstaller.log')}`], {windowsHide: true, timeout: 120000});
     await missingSoon(executablePath); uninstalled = true;
     // Uninstall intentionally preserves user data. Only this acceptance script
     // later removes its own temporary root.
     await fs.access(path.join(profile, 'settings.json'));
-    const report = {schema: 1, passed: true, acceptanceToken: process.env.OVERKILL_ACCEPTANCE_TOKEN || 'unspecified-native-user', completedAt: new Date().toISOString(), sourceCommit: artifact.sourceCommit, installer: path.basename(installer), installerSHA256: artifact.installerSHA256, host: {platform: process.platform, architecture: process.arch, release: os.release()}, credentialStorage: 'actual installed Electron45 Windows safeStorage; native encrypted roundtrip and automatic relaunch', encryption, providerCalls: calls, cases: ['silent native installer into path with spaces', 'manifest-bound installed backend', 'actual Windows safeStorage with encrypted saved key', 'bundled private PostgreSQL startup/migrations/shutdown', 'actual workspace source in provider HTTP request', 'renderer streamed response', 'same-version replacement', 'automatic encrypted settings startup and persisted history', 'no replay after restart', 'silent uninstall and intentional user-data retention'], limitations: ['controlled local provider; no paid provider', 'unsigned Authenticode; SmartScreen reputation not tested', 'GitHub runner Windows only; minimum Windows version not executed', 'same-version replacement; no cross-version migration', 'native dependency/source redistribution review separate'], distributionReady: false};
+    const report = {schema: 1, passed: true, acceptanceToken: process.env.OVERKILL_ACCEPTANCE_TOKEN || 'unspecified-native-user', completedAt: new Date().toISOString(), sourceCommit: artifact.sourceCommit, installer: path.basename(installer), installerSHA256: artifact.installerSHA256, host: {platform: process.platform, architecture: process.arch, release: os.release()}, acceptanceToken: process.env.OVERKILL_ACCEPTANCE_TOKEN, acceptanceUser: process.env.USERNAME, credentialStorage: 'actual installed Electron45 Windows safeStorage; native encrypted roundtrip and automatic relaunch', encryption, providerCalls: calls, cases: ['silent native installer into path with spaces', 'manifest-bound installed backend', 'actual Windows safeStorage with encrypted saved key', 'bundled private PostgreSQL startup/migrations/shutdown', 'actual workspace source in provider HTTP request', 'renderer streamed response', 'same-version replacement', 'automatic encrypted settings startup and persisted history', 'no replay after restart', 'silent uninstall and intentional user-data retention'], limitations: ['controlled local provider; no paid provider', 'unsigned Authenticode; SmartScreen reputation not tested', 'GitHub runner Windows only; minimum Windows version not executed', 'same-version replacement; no cross-version migration', 'native dependency/source redistribution review separate'], distributionReady: false};
     await fs.writeFile(path.join(output, 'windows-installed-acceptance.json'), JSON.stringify(report, null, 2) + '\n');
     artifact.installedAcceptance = 'passed: windows-installed-acceptance.json';
     await fs.writeFile(path.join(output, 'artifact.json'), JSON.stringify(artifact, null, 2) + '\n');
     console.log(JSON.stringify(report, null, 2));
   } catch (error) {
-    if (application) { await application.close(); application = null; }
+    if (application) {try {await closeApp();} catch (closeError) {console.error(closeError.message);}}
     // Diagnose the unchanged installed backend with this disposable profile.
     // Never include readiness tokens or generated database credentials.
     let backendError = '';
     try {
       const backendHome = path.join(profile, 'backend');
-      await exec(path.join(install, 'resources/bin/overkill.exe'), ['desktop-server', '--postgres-bin', path.join(install, 'resources/postgres/bin'), '--data-dir', path.join(backendHome, 'postgres')], {cwd: backendHome, env: {...process.env, OVERKILL_HOME: backendHome, OVERKILL_DESKTOP_PROVIDER_KEY: fakeKey}, timeout: 45000, maxBuffer: 1024 * 1024, windowsHide: true});
+      await exec(path.join(install, 'resources/bin/overkill.exe'), ['desktop-server', '--postgres-bin', path.join(install, 'resources/postgres/bin'), '--data-dir', path.join(backendHome, 'postgres')], {cwd: backendHome, env: {...process.env, OVERKILL_HOME: backendHome, OVERKILL_DESKTOP_PROVIDER_KEY: fakeKey}, timeout: 10000, maxBuffer: 1024 * 1024, windowsHide: true});
     } catch (diagnostic) {
       backendError = String(diagnostic.stderr || diagnostic.message).split(fakeKey).join('[redacted]').replace(/postgres(?:ql)?:\/\/[^\s]+/g, '[database URL redacted]').slice(-16000);
     }
@@ -159,12 +178,13 @@ async function main() {
     console.error(JSON.stringify(diagnostic, null, 2));
     throw error;
   } finally {
-    if (application) await application.close();
-    fixture.closeAllConnections(); await new Promise(resolve => fixture.close(resolve));
+    if (application) {try {await closeApp();} catch (closeError) {console.error(closeError.message);}}
+    await killOwnedProcesses();
+    fixture.closeAllConnections(); await bounded(new Promise(resolve => fixture.close(resolve)), 5000, 'Fixture close');
     if (!uninstalled) {
-      try { await exec(uninstaller, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'], {windowsHide: true, timeout: 120000}); } catch {}
+      try { await exec(uninstaller, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'], {windowsHide: true, timeout: 20000}); } catch {}
     }
-    await fs.rm(temp, {recursive: true, force: true, maxRetries: 10, retryDelay: 500});
+    try {await bounded(fs.rm(temp, {recursive: true, force: true, maxRetries: 3, retryDelay: 200}), 15000, 'Disposable files cleanup');} catch (cleanupError) {console.error(cleanupError.message);}
   }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

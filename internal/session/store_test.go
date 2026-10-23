@@ -41,7 +41,10 @@ func (s *StoreTestSuite) SetupTest() {
 }
 
 func (s *StoreTestSuite) TearDownTest() {
-	s.store.Close()
+	if s.store != nil {
+		s.store.Close()
+		s.store = nil
+	}
 }
 
 func TestStoreTestSuite(t *testing.T) {

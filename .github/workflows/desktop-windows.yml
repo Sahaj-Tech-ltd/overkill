@@ -73,8 +73,26 @@ jobs:
           if ($installers.Count -ne 1) { throw 'Expected exactly one native desktop installer' }
           go build -trimpath -o .cache/windows-user-runner.exe ./scripts/windows-user-runner
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./.cache/windows-user-runner.exe (Get-Command node).Source scripts/windows-test-installed.mjs $installers[0].FullName
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $user = 'oktest' + ([guid]::NewGuid().ToString('N').Substring(0, 10))
+          $password = [guid]::NewGuid().ToString('N') + 'aA9!'
+          Write-Output "::add-mask::$password"
+          $secure = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name $user -Password $secure -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
+          Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545').Name -Member $user
+          try {
+            $env:OVERKILL_ACCEPTANCE_USER = $user
+            $env:OVERKILL_ACCEPTANCE_PASSWORD = $password
+            $env:OVERKILL_ACCEPTANCE_LOG = Join-Path $env:GITHUB_WORKSPACE '.cache/windows-desktop/ordinary-user.log'
+            icacls $env:GITHUB_WORKSPACE /grant "${user}:(OI)(CI)RX" /Q
+            if ($LASTEXITCODE -ne 0) { throw 'Could not grant acceptance source read access' }
+            icacls (Join-Path $env:GITHUB_WORKSPACE '.cache/windows-desktop') /grant "${user}:(OI)(CI)M" /T /Q | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not grant acceptance artifact write access' }
+            ./.cache/windows-user-runner.exe (Get-Command node).Source (Join-Path $env:GITHUB_WORKSPACE 'scripts/windows-test-installed.mjs') $installers[0].FullName
+            if ($LASTEXITCODE -ne 0) { throw "Ordinary-user installed acceptance failed: $LASTEXITCODE" }
+          } finally {
+            Remove-Item Env:OVERKILL_ACCEPTANCE_PASSWORD -ErrorAction SilentlyContinue
+            Remove-LocalUser -Name $user -ErrorAction Continue
+          }
       - name: Preserve native compiler cache after acceptance failures
         if: always() && steps.native-go-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -98,5 +116,6 @@ jobs:
             .cache/windows-desktop/windows-installed-acceptance.json
             .cache/windows-desktop/windows-installed-diagnostics.json
             .cache/windows-desktop/windows-installed-*.png
+            .cache/windows-desktop/ordinary-user.log
             .cache/windows-desktop/installer.log
             .cache/windows-desktop/uninstaller.log
