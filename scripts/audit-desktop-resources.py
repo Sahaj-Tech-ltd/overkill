@@ -16,7 +16,8 @@ MACHO = {bytes.fromhex(value) for value in (
 
 
 def inspect_binary(path):
-    result = subprocess.run(['/usr/bin/dyld_info', '-dependents', '-platform', str(path)],
+    # Older Xcode tools omit rpaths from -dependents; request them explicitly.
+    result = subprocess.run(['/usr/bin/dyld_info', '-dependents', '-rpaths', '-platform', str(path)],
                             capture_output=True, text=True, timeout=15, check=True)
     architectures = {}
     current = None
