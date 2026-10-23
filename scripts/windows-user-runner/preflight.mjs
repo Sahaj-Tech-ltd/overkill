@@ -6,9 +6,11 @@ import {fileURLToPath} from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const {_electron} = createRequire(path.join(root, 'desktop/package.json'))('playwright');
 const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'Overkill Ordinary Preflight '));
+const lockProbe=path.join(profile,'lockfile'); const handle=await fs.open(lockProbe,'wx');await handle.close();await fs.unlink(lockProbe);
+console.log('Ordinary user can write fresh profile lockfile',profile);
 let app;
 try {
-  app = await _electron.launch({executablePath: path.join(root, 'desktop/node_modules/electron/dist/electron.exe'), args: ['-r', path.join(root, 'scripts/windows-user-runner/startup-diagnostics.cjs'), path.join(root, 'desktop'), `--overkill-profile=${profile}`], timeout: 30000});
+  app = await _electron.launch({executablePath: path.join(root, 'desktop/node_modules/electron/dist/electron.exe'), args: ['--enable-logging=stderr', '-r', path.join(root, 'scripts/windows-user-runner/startup-diagnostics.cjs'), path.join(root, 'desktop'), `--overkill-profile=${profile}`], timeout: 30000});
   await app.firstWindow();
   const result = await app.evaluate(async ({safeStorage}) => {
     if (!await safeStorage.isAsyncEncryptionAvailable()) throw new Error('Native credential encryption unavailable');

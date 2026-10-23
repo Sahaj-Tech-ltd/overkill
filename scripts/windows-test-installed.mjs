@@ -87,7 +87,7 @@ async function main() {
   async function launch() {
     const env = {...process.env}; delete env.ELECTRON_RUN_AS_NODE;
     delete env.OVERKILL_DESKTOP_RESOURCES; delete env.OVERKILL_DESKTOP_DATA_DIR;
-    application = await _electron.launch({executablePath, args: ['-r', path.join(root, 'scripts/windows-user-runner/startup-diagnostics.cjs'), `--overkill-profile=${profile}`], env, timeout: 45000});
+    application = await _electron.launch({executablePath, args: ['--enable-logging=stderr', '-r', path.join(root, 'scripts/windows-user-runner/startup-diagnostics.cjs'), `--overkill-profile=${profile}`], env, timeout: 45000});
     const page = await application.firstWindow();
     page.on('pageerror', error => pageErrors.push(error.message));
     assert.equal(await application.evaluate(({app}) => app.isPackaged), true);

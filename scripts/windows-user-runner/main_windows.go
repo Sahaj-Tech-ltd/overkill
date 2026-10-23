@@ -192,6 +192,16 @@ func child() (resultErr error) {
 			return err
 		}
 	}
+	phase = "probe Electron named mutex permissions"
+	mutexName, _ := windows.UTF16PtrFromString(`Local\OverkillProcessSingletonStartup`)
+	mutex, mutexErr := windows.CreateMutex(nil, false, mutexName)
+	if mutexErr != nil && mutexErr != windows.ERROR_ALREADY_EXISTS {
+		return fmt.Errorf("exact Electron startup mutex: %w", mutexErr)
+	}
+	if mutex != 0 {
+		_ = windows.CloseHandle(mutex)
+	}
+	fmt.Println("Ordinary user can create/open exact Electron startup mutex")
 	fmt.Println("Native acceptance token verified: actual ordinary local account, administrator=false, restricted=false, own loaded profile")
 	phase = "run Node acceptance command"
 	cmd := exec.Command(os.Args[4], os.Args[5:]...)
