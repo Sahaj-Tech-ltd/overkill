@@ -70,3 +70,6 @@ try {
 } finally {
     Remove-Item $work -Recurse -Force
 }
+# Expected rejection probes leave LASTEXITCODE nonzero; reaching here means
+# every assertion and the finally cleanup completed successfully.
+exit 0
