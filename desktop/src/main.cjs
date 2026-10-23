@@ -1,7 +1,7 @@
 const {app, BrowserWindow, ipcMain, dialog, safeStorage, Menu} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
-const {pathToFileURL} = require('node:url');
+const {allowLocalFiles} = require('./local-files.cjs');
 const {Backend} = require('./backend.cjs');
 const {validateCanvas} = require('./canvas.cjs');
 const {validateUsageReconciliation} = require('./usage-reconciliation-input.cjs');
@@ -24,10 +24,11 @@ let window, backend, settings, workspace = '', busy = false, starting = true, qu
 let stopLatched=false,stopGeneration=0,stopOperation=null;
 function requireWorkAdmission(){if(stopLatched)throw new Error('All agents in this app are stopped. Explicitly reconnect in Provider settings; queued requests may resume.');}
 const documentPath = path.join(__dirname, 'index.html');
-const documentURL = pathToFileURL(documentPath).href;
+const isDocumentURL = allowLocalFiles([documentPath]);
+const isBundledURL = allowLocalFiles(['index.html','renderer.js','history.js','workspace.js','contract-editor.js','request-review.js','request-agreements.js','style.css','canvas.js','canvas.css','canvas-panel.js','usage-reconciliation.js','clarification.js','flows.js','evolution.js'].map(name => path.join(__dirname, name)));
 const emit = value => { if (window && !window.isDestroyed()) window.webContents.send('desktop:event', value); };
 function trusted(event) {
-  if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== documentURL) throw new Error('Untrusted desktop request.');
+  if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !isDocumentURL(event.senderFrame.url)) throw new Error('Untrusted desktop request.');
 }
 function register(channel, fn) {
   ipcMain.handle(channel, async (event, ...args) => { trusted(event); return fn(...args); });
@@ -56,8 +57,7 @@ function makeWindow() {
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   window.webContents.session.setPermissionCheckHandler(() => false);
   window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
-    const allowed = [documentURL, pathToFileURL(path.join(__dirname, 'renderer.js')).href, pathToFileURL(path.join(__dirname, 'history.js')).href, pathToFileURL(path.join(__dirname, 'workspace.js')).href, pathToFileURL(path.join(__dirname, 'contract-editor.js')).href, pathToFileURL(path.join(__dirname, 'request-review.js')).href, pathToFileURL(path.join(__dirname, 'request-agreements.js')).href, pathToFileURL(path.join(__dirname, 'style.css')).href, ...['canvas.js','canvas.css','canvas-panel.js','usage-reconciliation.js','clarification.js','flows.js','evolution.js'].map(name=>pathToFileURL(path.join(__dirname,name)).href)];
-    callback({cancel: !allowed.includes(details.url)});
+    callback({cancel: !isBundledURL(details.url)});
   });
   window.loadFile(documentPath);
 }

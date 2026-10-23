@@ -1,7 +1,7 @@
 'use strict';
 const {BrowserWindow,nativeImage} = require('electron');
 const path = require('node:path');
-const {pathToFileURL} = require('node:url');
+const {allowLocalFiles} = require('./local-files.cjs');
 const active = new Set();
 function cancelCanvasSnapshots() { for (const window of active) if (!window.isDestroyed()) window.destroy(); }
 async function captureCanvasSnapshot(state, surfaceID, {alive = () => true, width = 960, height = 640} = {}) {
@@ -9,13 +9,13 @@ async function captureCanvasSnapshot(state, surfaceID, {alive = () => true, widt
   if (active.size) throw new Error('A canvas export is already running.');
   const capture = new BrowserWindow({show:false,width,height,useContentSize:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,backgroundThrottling:false,partition:`canvas-capture-${require('node:crypto').randomUUID()}`}});
   active.add(capture);
-  const allowed = new Set(['canvas-snapshot.html','canvas-snapshot.js','canvas-snapshot.css','canvas.js','canvas.css'].map(name => pathToFileURL(path.join(__dirname,name)).href));
+  const allowed = allowLocalFiles(['canvas-snapshot.html','canvas-snapshot.js','canvas-snapshot.css','canvas.js','canvas.css'].map(name => path.join(__dirname,name)));
   capture.webContents.setWindowOpenHandler(() => ({action:'deny'}));
   capture.webContents.on('will-navigate', event => event.preventDefault());
   capture.webContents.on('will-attach-webview', event => event.preventDefault());
   capture.webContents.session.setPermissionRequestHandler((_contents,_permission,callback) => callback(false));
   capture.webContents.session.setPermissionCheckHandler(() => false);
-  capture.webContents.session.webRequest.onBeforeRequest((details,callback) => callback({cancel:!allowed.has(details.url)}));
+  capture.webContents.session.webRequest.onBeforeRequest((details,callback) => callback({cancel:!allowed(details.url)}));
   let timeout;
   try {
     return await Promise.race([(async () => {

@@ -53,7 +53,7 @@ jobs:
         run: |
           node --test scripts/windows-package-desktop.test.mjs scripts/windows-go-notices.test.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test --test-concurrency=1 desktop/test/settings.test.cjs desktop/test/backend.test.cjs desktop/test/profile.test.cjs
+          node --test --test-concurrency=1 desktop/test/settings.test.cjs desktop/test/backend.test.cjs desktop/test/profile.test.cjs desktop/test/local-files.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build native desktop installer with bundled PostgreSQL
         run: |
