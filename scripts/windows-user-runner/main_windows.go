@@ -49,6 +49,11 @@ func run() error {
 		return err
 	}
 	defer restore()
+	restoreNamespace, err := grantSessionNamespace(sid)
+	if err != nil {
+		return err
+	}
+	defer restoreNamespace()
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -256,4 +261,49 @@ func grantDesktop(sid *windows.SID) (func(), error) {
 		})
 	}
 	return restore, nil
+}
+
+// A second interactive logon in the runner's existing desktop session does not
+// receive the first logon's BaseNamedObjects directory ACE automatically. Give
+// only the disposable SID ordinary directory query/traverse/create rights. This
+// changes test-host namespace access, not the app's mutex or singleton result.
+func grantSessionNamespace(sid *windows.SID) (func(), error) {
+	var session uint32
+	if err := windows.ProcessIdToSessionId(windows.GetCurrentProcessId(), &session); err != nil {
+		return nil, err
+	}
+	name, err := windows.NewNTUnicodeString(fmt.Sprintf(`\Sessions\%d\BaseNamedObjects`, session))
+	if err != nil {
+		return nil, err
+	}
+	attributes := windows.OBJECT_ATTRIBUTES{Length: uint32(unsafe.Sizeof(windows.OBJECT_ATTRIBUTES{})), ObjectName: name, Attributes: 0x40}
+	var handle windows.Handle
+	status, _, _ := windows.NewLazySystemDLL("ntdll.dll").NewProc("NtOpenDirectoryObject").Call(uintptr(unsafe.Pointer(&handle)), windows.READ_CONTROL|windows.WRITE_DAC, uintptr(unsafe.Pointer(&attributes)))
+	if uint32(status) != 0 {
+		return nil, fmt.Errorf("open acceptance session namespace: %w", windows.NTStatus(status))
+	}
+	sd, err := windows.GetSecurityInfo(handle, windows.SE_KERNEL_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		windows.CloseHandle(handle)
+		return nil, err
+	}
+	old, _, err := sd.DACL()
+	if err != nil {
+		windows.CloseHandle(handle)
+		return nil, err
+	}
+	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{AccessPermissions: 0xf, AccessMode: windows.GRANT_ACCESS, Trustee: windows.TRUSTEE{TrusteeForm: windows.TRUSTEE_IS_SID, TrusteeType: windows.TRUSTEE_IS_USER, TrusteeValue: windows.TrusteeValueFromSID(sid)}}}, old)
+	if err != nil {
+		windows.CloseHandle(handle)
+		return nil, err
+	}
+	if err := windows.SetSecurityInfo(handle, windows.SE_KERNEL_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
+		windows.CloseHandle(handle)
+		return nil, err
+	}
+	return func() {
+		_ = windows.SetSecurityInfo(handle, windows.SE_KERNEL_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, old, nil)
+		runtime.KeepAlive(sd)
+		_ = windows.CloseHandle(handle)
+	}, nil
 }
