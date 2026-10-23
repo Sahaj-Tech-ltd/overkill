@@ -71,7 +71,9 @@ jobs:
         run: |
           $installers = @(Get-ChildItem .cache/windows-desktop/Overkill-*-windows-x64-setup.exe)
           if ($installers.Count -ne 1) { throw 'Expected exactly one native desktop installer' }
-          node scripts/windows-test-installed.mjs $installers[0].FullName
+          go build -trimpath -o .cache/windows-user-runner.exe ./scripts/windows-user-runner
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./.cache/windows-user-runner.exe (Get-Command node).Source scripts/windows-test-installed.mjs $installers[0].FullName
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve native compiler cache after acceptance failures
         if: always() && steps.native-go-cache.outputs.cache-hit != 'true'
