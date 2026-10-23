@@ -23,7 +23,9 @@ func setTestHookDACL(t *testing.T, path, rule string) {
 	require.NoError(t, err)
 	acl, _, err := descriptor.DACL()
 	require.NoError(t, err)
-	require.NoError(t, windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil))
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	require.NoError(t, err)
+	require.NoError(t, windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, user.User.Sid, nil, acl, nil))
 }
 
 func TestWindowsHookRequiresSafeOwnershipAndDACL(t *testing.T) {
@@ -51,8 +53,11 @@ func TestWindowsPowerShellHookReceivesEvent(t *testing.T) {
 	output := filepath.Join(dir, "event.json")
 	body := "$event = [Console]::In.ReadToEnd(); [System.IO.File]::WriteAllText('" + strings.ReplaceAll(output, "'", "''") + "', $event)"
 	require.NoError(t, os.WriteFile(path, []byte(body), 0600))
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	require.NoError(t, err)
+	setTestHookDACL(t, path, "D:P(A;;FA;;;"+user.User.Sid.String()+")(A;;FA;;;SY)(A;;FA;;;BA)")
 	hook := makeShellHook(path)
-	_, err := hook(context.Background(), Event{ToolName: "fixture"})
+	_, err = hook(context.Background(), Event{ToolName: "fixture"})
 	require.NoError(t, err)
 	raw, err := os.ReadFile(output)
 	require.NoError(t, err)

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,7 +46,7 @@ func TestDefault_HasDataDir(t *testing.T) {
 	cfg := Default()
 	homeDir, err := os.UserHomeDir()
 	require.NoError(t, err)
-	expected := filepath.Join(homeDir, ".overkill", "data")
+	expected := filepath.Join(testDefaultConfigDir(t, homeDir), "data")
 	assert.Equal(t, expected, cfg.Session.DataDir)
 }
 
@@ -122,7 +123,7 @@ func TestConfigDir(t *testing.T) {
 
 	dir, err := ConfigDir()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(homeDir, ".overkill"), dir)
+	assert.Equal(t, testDefaultConfigDir(t, homeDir), dir)
 }
 
 func TestConfigPath(t *testing.T) {
@@ -131,7 +132,7 @@ func TestConfigPath(t *testing.T) {
 
 	path, err := ConfigPath()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(homeDir, ".overkill", "config.toml"), path)
+	assert.Equal(t, filepath.Join(testDefaultConfigDir(t, homeDir), "config.toml"), path)
 }
 
 func TestValidate_ValidConfig(t *testing.T) {
@@ -511,8 +512,8 @@ func TestDoctor_CreatesMissingDirs(t *testing.T) {
 	homeDir, err := os.UserHomeDir()
 	require.NoError(t, err)
 
-	configDir := filepath.Join(homeDir, ".overkill")
-	dataDir := filepath.Join(homeDir, ".overkill", "data")
+	configDir := testDefaultConfigDir(t, homeDir)
+	dataDir := filepath.Join(testDefaultConfigDir(t, homeDir), "data")
 
 	info, statErr := os.Stat(configDir)
 	assert.NoError(t, statErr, "config directory should exist")
@@ -527,4 +528,12 @@ func TestDoctor_CreatesMissingDirs(t *testing.T) {
 	}
 
 	_ = fixes
+}
+
+func testDefaultConfigDir(t *testing.T, homeDir string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" && os.Getenv("LOCALAPPDATA") != "" {
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), "overkill")
+	}
+	return filepath.Join(homeDir, ".overkill")
 }

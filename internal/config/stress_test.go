@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -220,6 +221,9 @@ func TestStress_ConcurrentLoadSave(t *testing.T) {
 
 // C-STRESS-10: Save to path with no write permissions
 func TestStress_SaveNoPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX chmod does not restrict Windows directory writes; Windows installer tests cover native persistence")
+	}
 	tmpDir := t.TempDir()
 	noPermDir := filepath.Join(tmpDir, "noperm")
 	requireNoErr(t, os.Mkdir(noPermDir, 0o500)) // r-x only

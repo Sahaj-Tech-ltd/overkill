@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -195,7 +196,7 @@ func (s *Summarizer) NarrateSession(ctx context.Context, dir, sessionID string) 
 		// an error. The recorder lazy-creates raw/ on first write;
 		// a session that ended without recording anything is a
 		// valid no-op for the narrator.
-		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
+		if errors.Is(err, os.ErrNotExist) {
 			return "", "", nil
 		}
 		return "", "", fmt.Errorf("journal: read session %s: %w", sessionID, err)

@@ -46,6 +46,8 @@ jobs:
         run: |
           npm ci --prefix desktop
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node desktop/node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node -e "const p=require('./scripts/windows-desktop-pins.json'); if(process.version!=='v'+p.node)throw Error('Node pin mismatch')"
       - name: Packaging and mocked storage regression tests
         run: |
