@@ -10,9 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -55,7 +57,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	args := append([]string{self, "--ordinary-child"}, os.Args[1:]...)
+	args := append([]string{self, "--ordinary-child", os.Getenv("OVERKILL_ACCEPTANCE_LOG"), user}, os.Args[1:]...)
 	quoted := make([]string, len(args))
 	for i, a := range args {
 		quoted[i] = syscall.EscapeArg(a)
@@ -74,7 +76,10 @@ func run() error {
 	var info windows.ProcessInformation
 	proc := windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateProcessWithLogonW")
 	// LOGON_WITH_PROFILE loads the actual ordinary user's HKCU/DPAPI profile.
-	ok, _, callErr := proc.Call(uintptr(unsafe.Pointer(up)), uintptr(unsafe.Pointer(domain)), uintptr(unsafe.Pointer(pw)), 1, uintptr(unsafe.Pointer(app)), uintptr(unsafe.Pointer(&command[0])), 0, 0, uintptr(unsafe.Pointer(dir)), uintptr(unsafe.Pointer(&startup)), uintptr(unsafe.Pointer(&info)))
+	environment := os.Environ()
+	sort.Slice(environment, func(i, j int) bool { return strings.ToUpper(environment[i]) < strings.ToUpper(environment[j]) })
+	block := utf16.Encode([]rune(strings.Join(environment, "\x00") + "\x00\x00"))
+	ok, _, callErr := proc.Call(uintptr(unsafe.Pointer(up)), uintptr(unsafe.Pointer(domain)), uintptr(unsafe.Pointer(pw)), 1, uintptr(unsafe.Pointer(app)), uintptr(unsafe.Pointer(&command[0])), windows.CREATE_UNICODE_ENVIRONMENT, uintptr(unsafe.Pointer(&block[0])), uintptr(unsafe.Pointer(dir)), uintptr(unsafe.Pointer(&startup)), uintptr(unsafe.Pointer(&info)))
 	if ok == 0 {
 		return fmt.Errorf("ordinary account logon launch: %w", callErr)
 	}
@@ -103,12 +108,12 @@ func run() error {
 	return nil
 }
 func child() (resultErr error) {
-	if len(os.Args) < 3 {
+	if len(os.Args) < 5 {
 		return fmt.Errorf("missing ordinary acceptance command")
 	}
 	// CreateProcessWithLogonW has no inherited-handle option. Persist the child
 	// transcript in the shared output tree; the parent emits it after bounded wait.
-	logFile, err := os.OpenFile(os.Getenv("OVERKILL_ACCEPTANCE_LOG"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	logFile, err := os.OpenFile(os.Args[2], os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -144,7 +149,7 @@ func child() (resultErr error) {
 	if err != nil {
 		return err
 	}
-	expected, _, _, err := windows.LookupSID("", os.Getenv("OVERKILL_ACCEPTANCE_USER"))
+	expected, _, _, err := windows.LookupSID("", os.Args[3])
 	if err != nil {
 		return err
 	}
@@ -167,13 +172,13 @@ func child() (resultErr error) {
 	if err := os.MkdirAll(temporary, 0700); err != nil {
 		return err
 	}
-	for k, v := range map[string]string{"HOME": home, "USERPROFILE": home, "LOCALAPPDATA": local, "APPDATA": roaming, "TEMP": temporary, "TMP": temporary, "USERNAME": os.Getenv("OVERKILL_ACCEPTANCE_USER"), "OVERKILL_ACCEPTANCE_TOKEN": "ordinary-local-user"} {
+	for k, v := range map[string]string{"HOME": home, "USERPROFILE": home, "LOCALAPPDATA": local, "APPDATA": roaming, "TEMP": temporary, "TMP": temporary, "USERNAME": os.Args[3], "OVERKILL_ACCEPTANCE_TOKEN": "ordinary-local-user"} {
 		if err := os.Setenv(k, v); err != nil {
 			return err
 		}
 	}
 	fmt.Println("Native acceptance token verified: actual ordinary local account, administrator=false, restricted=false, own loaded profile")
-	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd := exec.Command(os.Args[4], os.Args[5:]...)
 	cmd.Env = os.Environ()
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	return cmd.Run()
