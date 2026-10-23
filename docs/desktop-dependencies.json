@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-10-23T09:01:15.717227+00:00",
+  "generated_at": "2026-10-23T09:21:35.715989+00:00",
   "purpose": "Factual dependency and license evidence; no legal opinion or distribution certification",
   "distribution_ready": false,
   "snapshot": {
@@ -55,10 +55,10 @@
         ]
       },
       "electron": "45.0.0",
-      "backendSHA256": "d397b4772174be876074adad4a1b8129ae7b7e870a8d55daf2d1e8e410c0efa2",
+      "backendSHA256": "0bb4937a56a966e0d0909bb9ce480a24a8627dfd4dce6648cfa80c5a777cc029",
       "distributionReady": false
     },
-    "backend_sha256": "d397b4772174be876074adad4a1b8129ae7b7e870a8d55daf2d1e8e410c0efa2",
+    "backend_sha256": "0bb4937a56a966e0d0909bb9ce480a24a8627dfd4dce6648cfa80c5a777cc029",
     "backend_manifest_matches": true,
     "postgres_jar_sha256": "a1c2786acb0c398f9b2d76806fc52f5dc8b222cbc8e9383a9b9702084daaf3a5",
     "resource_file_count": 986,
@@ -12731,7 +12731,7 @@
       "path": "bin/overkill",
       "kind": "file",
       "bytes": 68413890,
-      "sha256": "d397b4772174be876074adad4a1b8129ae7b7e870a8d55daf2d1e8e410c0efa2",
+      "sha256": "0bb4937a56a966e0d0909bb9ce480a24a8627dfd4dce6648cfa80c5a777cc029",
       "component": "overkill-go-backend"
     },
     {
@@ -19626,7 +19626,7 @@
       "path": "resource-manifest.json",
       "kind": "file",
       "bytes": 2482,
-      "sha256": "2a2dc841604d1e4cf18f753ad8e849bb4d88c90c06c925ca9e5252bf732d2b82",
+      "sha256": "c898280ae753c5feff139c601aa5ca9e508a484df5334b9383068e39305718e6",
       "component": "resource-manifest"
     }
   ],
@@ -21264,7 +21264,7 @@
   ],
   "linked_copyleft_symbol_evidence": {
     "path": "research/desktop-dependencies/libsignal-linked-symbols.txt",
-    "sha256": "5f9919b2c31d585884d77945092e0b92706c825ed768a922ee1fad27d523eb83",
+    "sha256": "5c2e7d0dc3091103e6e68332e9b5417519d25b1a688fb6d3e40ed5ffed25ec18",
     "matched_symbols": 593,
     "observation": "Actual backend symbol table contains libsignal cipher and protocol code, beyond dependency metadata"
   },
@@ -21362,7 +21362,7 @@
   },
   "refresh": {
     "tool": "scripts/refresh-desktop-go-notices.py",
-    "at": "2026-10-23T09:01:15.717227+00:00",
+    "at": "2026-10-23T09:21:35.715989+00:00",
     "scope": "Prepared backend module/notice/hash refresh; prior native and Electron snapshots verified unchanged.",
     "notice_archive_bytes_verified": true,
     "native_inputs_unchanged": true
