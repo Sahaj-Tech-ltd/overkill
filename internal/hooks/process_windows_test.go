@@ -48,14 +48,18 @@ func TestWindowsHookRequiresSafeOwnershipAndDACL(t *testing.T) {
 }
 
 func TestWindowsPowerShellHookReceivesEvent(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "hooks")
+	require.NoError(t, os.Mkdir(dir, 0700))
 	path := filepath.Join(dir, "hook.ps1")
 	output := filepath.Join(dir, "event.json")
 	body := "$event = [Console]::In.ReadToEnd(); [System.IO.File]::WriteAllText('" + strings.ReplaceAll(output, "'", "''") + "', $event)"
 	require.NoError(t, os.WriteFile(path, []byte(body), 0600))
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	require.NoError(t, err)
-	setTestHookDACL(t, path, "D:P(A;;FA;;;"+user.User.Sid.String()+")(A;;FA;;;SY)(A;;FA;;;BA)")
+	for _, owned := range []string{root, dir, path} {
+		setTestHookDACL(t, owned, "D:P(A;;FA;;;"+user.User.Sid.String()+")(A;;FA;;;SY)(A;;FA;;;BA)")
+	}
 	hook := makeShellHook(path)
 	_, err = hook(context.Background(), Event{ToolName: "fixture"})
 	require.NoError(t, err)
