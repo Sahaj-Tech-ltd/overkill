@@ -718,12 +718,35 @@ func TestFactory_UnknownType(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown provider type")
 }
 
+// The fallback catalog is a curated suggestion list. Explicit configuration
+// must preserve model IDs even when those IDs are absent from that list.
+func TestFactory_ExplicitModelsOverrideFallbackCatalog(t *testing.T) {
+	for _, tt := range []struct {
+		provider string
+		ids      []string
+	}{
+		{"openai", []string{"o1", "o1-mini", "o3-mini", "custom-openai-model"}},
+		{"anthropic", []string{"claude-sonnet-4-20250514", "claude-3.5-haiku-20241022", "custom-anthropic-model"}},
+	} {
+		t.Run(tt.provider, func(t *testing.T) {
+			models := make([]Model, len(tt.ids))
+			for i, id := range tt.ids {
+				models[i] = Model{ID: id, Name: id, MaxTokens: 4096}
+			}
+			p, err := NewProvider(FactoryConfig{Type: tt.provider, APIKey: "test", Models: models})
+			require.NoError(t, err)
+			assert.Equal(t, models, p.Models())
+		})
+	}
+}
+
 func TestModels_OpenAI(t *testing.T) {
 	models := OpenAIModels()
 	assert.NotEmpty(t, models)
 
 	ids := make(map[string]bool)
 	for _, m := range models {
+		assert.False(t, ids[m.ID], "duplicate model ID %s", m.ID)
 		ids[m.ID] = true
 		assert.NotEmpty(t, m.ID)
 		assert.NotEmpty(t, m.Name)
@@ -731,9 +754,8 @@ func TestModels_OpenAI(t *testing.T) {
 	}
 
 	assert.True(t, ids["gpt-4o"], "should include gpt-4o")
-	assert.True(t, ids["o1"], "should include o1")
-	assert.True(t, ids["o1-mini"], "should include o1-mini")
-	assert.True(t, ids["o3-mini"], "should include o3-mini")
+	// Built-in models are fallback suggestions, not an exhaustive provider API
+	// whitelist. Configured model IDs remain usable even when absent here.
 }
 
 func TestModels_Anthropic(t *testing.T) {
@@ -742,14 +764,15 @@ func TestModels_Anthropic(t *testing.T) {
 
 	ids := make(map[string]bool)
 	for _, m := range models {
+		assert.NotEmpty(t, m.ID)
+		assert.NotEmpty(t, m.Name)
+		assert.False(t, ids[m.ID], "duplicate model ID %s", m.ID)
 		ids[m.ID] = true
 		assert.True(t, m.MaxTokens > 0)
 		assert.True(t, m.SupportsTools)
 		assert.True(t, m.SupportsStreaming)
 	}
 
-	assert.True(t, ids["claude-sonnet-4-20250514"])
-	assert.True(t, ids["claude-3.5-haiku-20241022"])
 	assert.True(t, ids["claude-opus-4-20250514"])
 }
 

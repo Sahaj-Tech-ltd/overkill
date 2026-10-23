@@ -1,0 +1,28 @@
+Name: ffmpeg
+URL: https://git.ffmpeg.org/ffmpeg.git
+Version: N/A
+Revision: DEPS
+License: bsd-2-clause, bsd-3-clause, isc, lgpl-2.1, mit
+License File: CREDITS.chromium
+Shipped: yes
+Security Critical: yes
+Update Mechanism: Manual
+Upstream Git: git://source.ffmpeg.org/ffmpeg.git
+Last Upstream Merge: a1050d48b0df3f7c3fa1c631ec8e82528b3f7c85, Aug 25 2026
+This file documents the layout of the Chromium copy of FFmpeg.
+See //media/ffmpeg/README for help with common tasks relating to this code.
+
+FFmpeg Layout:
+==============
+Chromium's copy of FFmpeg is a fork of the upstream git repository; see the
+tags above for the latest merged upstream revision. All Chromium-specific bits
+with the exception of GN files are located under the `chromium` directory.
+ - `BUILD.gn` has the targets for building FFmpeg for Chrome.
+ - `ffmpeg_generated.gni` is a pregenerated listing of files necessary to build
+   every platform.
+ - `chromium/config/` contains configuration headers for each
+   configuration/target/platform that we build for.
+ - `chromium/patches/README` is a list of all non-upstreamed commits in the
+   chromium fork of FFmpeg.
+ - `chromium/patches/config_flag_changes.txt` is a list of the configs we have
+   changed from default when building for all platforms.

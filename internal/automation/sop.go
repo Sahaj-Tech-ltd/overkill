@@ -2,11 +2,20 @@ package automation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 )
+
+// Degraded workflows cannot execute until their persistence failure is resolved.
+// A recovered running step has an unknown outcome and requires reconciliation;
+// it must never be replayed automatically.
+const SOPStatusDegraded SOPStatus = "degraded"
+
+var ErrSOPPersistence = errors.New("automation: SOP persistence failed")
+var ErrSOPUncertain = errors.New("automation: SOP step outcome requires reconciliation")
 
 type SOP struct {
 	ID          string            `json:"id"`
@@ -19,6 +28,8 @@ type SOP struct {
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 	Metadata    map[string]string `json:"metadata"`
+	// PersistenceError describes an in-memory degraded view, not a durable receipt.
+	PersistenceError string `json:"persistence_error,omitempty"`
 }
 
 type SOPStore interface {
@@ -32,347 +43,369 @@ type SOPEngine struct {
 	sops    map[string]*SOP
 	store   SOPStore
 	execute func(action string) (string, error)
+	running map[string]bool
+	// pending contains known outcomes that can safely be persisted again without
+	// repeating execution. It is deliberately not reconstructed from running steps.
+	pending map[string]*SOP
+	loadErr error
 }
 
 func NewSOPEngine(store SOPStore, executor func(action string) (string, error)) *SOPEngine {
-	return &SOPEngine{
-		sops:    make(map[string]*SOP),
-		store:   store,
-		execute: executor,
+	e := &SOPEngine{sops: map[string]*SOP{}, store: store, execute: executor, running: map[string]bool{}, pending: map[string]*SOP{}}
+	if store != nil {
+		saved, err := store.LoadSOPs()
+		if err != nil {
+			e.loadErr = fmt.Errorf("%w: load SOPs: %w", ErrSOPPersistence, err)
+			return e
+		}
+		for i := range saved {
+			sop := cloneSOP(&saved[i])
+			for _, step := range sop.Steps {
+				if step.Status == StepRunning {
+					sop.Status = SOPStatusDegraded
+					sop.PersistenceError = ErrSOPUncertain.Error()
+					break
+				}
+			}
+			e.sops[sop.ID] = sop
+		}
 	}
+	return e
+}
+
+func cloneSOP(sop *SOP) *SOP {
+	cp := *sop
+	cp.Steps = append([]Step(nil), sop.Steps...)
+	cp.Metadata = map[string]string{}
+	for k, v := range sop.Metadata {
+		cp.Metadata[k] = v
+	}
+	return &cp
+}
+
+// commitLocked persists an isolated snapshot before publishing it. Even stores
+// that retain the supplied pointer cannot mutate the engine's acknowledged state.
+func (e *SOPEngine) commitLocked(next *SOP) error {
+	next = cloneSOP(next)
+	next.UpdatedAt = time.Now().UTC()
+	if e.store != nil {
+		if err := e.store.SaveSOP(next); err != nil {
+			return fmt.Errorf("%w: SOP %s: %w", ErrSOPPersistence, next.ID, err)
+		}
+	}
+	e.sops[next.ID] = cloneSOP(next)
+	return nil
 }
 
 func (e *SOPEngine) Create(sop *SOP) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
+	if e.loadErr != nil {
+		return e.loadErr
+	}
+	if sop == nil {
+		return fmt.Errorf("automation: create SOP: %w", ErrInvalidState)
+	}
 	if _, exists := e.sops[sop.ID]; exists {
 		return fmt.Errorf("automation: create SOP %s: %w", sop.ID, ErrAlreadyExists)
 	}
-
-	now := time.Now().UTC()
-	sop.CreatedAt = now
-	sop.UpdatedAt = now
-	sop.Status = SOPStatusActive
-	sop.CurrentStep = 0
-
-	for i := range sop.Steps {
-		if sop.Steps[i].Status == "" {
-			sop.Steps[i].Status = StepPending
+	next := cloneSOP(sop)
+	next.CreatedAt = time.Now().UTC()
+	next.Status = SOPStatusActive
+	next.CurrentStep = 0
+	next.PersistenceError = ""
+	for i := range next.Steps {
+		if next.Steps[i].Status == "" {
+			next.Steps[i].Status = StepPending
 		}
 	}
-
-	cp := *sop
-	if cp.Metadata == nil {
-		cp.Metadata = make(map[string]string)
-	}
-	cp.Steps = make([]Step, len(sop.Steps))
-	copy(cp.Steps, sop.Steps)
-
-	e.sops[sop.ID] = &cp
-
-	if e.store != nil {
-		if err := e.store.SaveSOP(&cp); err != nil {
-			return fmt.Errorf("automation: persist SOP %s: %w", sop.ID, err)
-		}
-	}
-
-	return nil
+	return e.commitLocked(next)
 }
 
 func (e *SOPEngine) Execute(ctx context.Context, id string) error {
 	e.mu.Lock()
-	sop, exists := e.sops[id]
-	if !exists {
+	if err := e.beginLocked(id); err != nil {
 		e.mu.Unlock()
-		return fmt.Errorf("automation: execute SOP %s: %w", id, ErrNotFound)
+		return err
 	}
-
-	if sop.Status != SOPStatusActive {
-		e.mu.Unlock()
-		return fmt.Errorf("automation: execute SOP %s: status %s: %w", id, sop.Status, ErrInvalidState)
-	}
-
-	if len(sop.Steps) == 0 {
-		e.mu.Unlock()
-		return fmt.Errorf("automation: execute SOP %s: %w", id, ErrNoSteps)
-	}
-
 	e.mu.Unlock()
-
+	defer e.endExecution(id)
 	return e.executeSteps(ctx, id)
 }
 
-func (e *SOPEngine) executeSteps(ctx context.Context, id string) error {
-	indices := e.stepOrder(id)
-
-	// Seed prevOutput from the last already-done step so
-	// Find the closest preceding done step (B077). The prior
-	// implementation picked the last done step regardless of position,
-	// which broke the output→input chain when steps were interleaved.
-	var prevOutput string
-	e.mu.RLock()
-	if sop, ok := e.sops[id]; ok {
-		for _, idx := range indices {
-			if idx >= len(sop.Steps) {
-				continue
-			}
-			if sop.Steps[idx].Status == StepDone {
-				prevOutput = sop.Steps[idx].Output
-			}
-		}
-		// Find the closest preceding done step to the first executable index.
-		if len(indices) > 0 {
-			firstIdx := indices[0]
-			for i := firstIdx - 1; i >= 0; i-- {
-				if sop.Steps[i].Status == StepDone {
-					prevOutput = sop.Steps[i].Output
-					break
-				}
-			}
+func (e *SOPEngine) beginLocked(id string) error {
+	if e.loadErr != nil {
+		return e.loadErr
+	}
+	sop, exists := e.sops[id]
+	if !exists {
+		return fmt.Errorf("automation: execute SOP %s: %w", id, ErrNotFound)
+	}
+	if e.running[id] || sop.Status != SOPStatusActive {
+		return fmt.Errorf("automation: execute SOP %s: status %s: %w", id, sop.Status, ErrInvalidState)
+	}
+	if len(sop.Steps) == 0 {
+		return fmt.Errorf("automation: execute SOP %s: %w", id, ErrNoSteps)
+	}
+	for _, step := range sop.Steps {
+		if step.Status == StepRunning {
+			return fmt.Errorf("SOP %s: %w", id, ErrSOPUncertain)
 		}
 	}
-	e.mu.RUnlock()
+	e.running[id] = true
+	return nil
+}
+func (e *SOPEngine) endExecution(id string) { e.mu.Lock(); delete(e.running, id); e.mu.Unlock() }
 
+func (e *SOPEngine) executeSteps(ctx context.Context, id string) error {
+	indices := e.stepOrder(id)
+	var prevOutput string
 	for _, idx := range indices {
-		select {
-		case <-ctx.Done():
-			e.mu.Lock()
-			sop := e.sops[id]
-			if sop == nil {
-				e.mu.Unlock()
-				return fmt.Errorf("automation: execute SOP %s: %w", id, ctx.Err())
-			}
-			sop.Status = SOPStatusFailed
-			sop.UpdatedAt = time.Now().UTC()
-			e.mu.Unlock()
-			return fmt.Errorf("automation: execute SOP %s: %w", id, ctx.Err())
-		default:
-		}
-
-		// SAFETY (§LOW-12): The lock/unlock/re-lock pattern here is
-		// intentional.  We release the lock between status checks so
-		// that a concurrent Pause/Cancel signal can propagate without
-		// being blocked by a long-running step.  Each iteration
-		// re-acquires the lock and re-reads the SOP from the map — do
-		// NOT optimise this into a single locked section.
 		e.mu.Lock()
 		sop := e.sops[id]
-
 		if sop.Status == SOPStatusCancelled || sop.Status == SOPStatusPaused {
 			e.mu.Unlock()
 			return nil
 		}
-
-		step := &sop.Steps[idx]
-		// Skip steps already completed (Resume path) or explicitly
-		// skipped. Otherwise we re-run done work, defeating the
-		// resumable-from-last-completed-step guarantee.
-		if step.Status == StepDone || step.Status == StepSkipped {
+		if err := ctx.Err(); err != nil {
+			next := cloneSOP(sop)
+			next.Status = SOPStatusFailed
+			persistErr := e.commitLocked(next)
+			e.mu.Unlock()
+			return errors.Join(fmt.Errorf("automation: execute SOP %s: %w", id, err), persistErr)
+		}
+		step := sop.Steps[idx]
+		if step.Status == StepDone {
+			prevOutput = step.Output
 			e.mu.Unlock()
 			continue
 		}
-		step.Status = StepRunning
-		sop.CurrentStep = idx
-		sop.UpdatedAt = time.Now().UTC()
-
+		if step.Status == StepSkipped {
+			e.mu.Unlock()
+			continue
+		}
+		if step.Status == StepRunning {
+			e.mu.Unlock()
+			return fmt.Errorf("SOP %s step %s: %w", id, step.ID, ErrSOPUncertain)
+		}
+		next := cloneSOP(sop)
+		next.CurrentStep = idx
 		needsApproval := (sop.Mode == ModeSupervised || sop.Mode == ModeStepByStep) && step.RequiresApproval
 		if sop.Mode == ModeStepByStep {
 			needsApproval = true
 		}
-
 		if needsApproval {
-			step.Status = StepWaiting
-			if e.store != nil {
-				_ = e.store.SaveSOP(sop)
-			}
+			next.Steps[idx].Status = StepWaiting
+			err := e.commitLocked(next)
 			e.mu.Unlock()
+			if err != nil {
+				return err
+			}
 			return fmt.Errorf("automation: SOP %s step %s: %w", id, step.ID, ErrStepWaiting)
 		}
-
+		next.Steps[idx].Status = StepRunning
+		// Write-ahead checkpoint: no external action before durable intent. A crash
+		// after this boundary is uncertain, not permission to repeat the action.
+		if err := e.commitLocked(next); err != nil {
+			e.mu.Unlock()
+			return err
+		}
 		action := step.Action
 		if sop.Mode == ModeDeterministic && idx > 0 && prevOutput != "" {
 			action = prevOutput
 		}
-
 		e.mu.Unlock()
 
-		output, err := e.execute(action)
+		output, executeErr := e.execute(action)
 
 		e.mu.Lock()
-		sop = e.sops[id]
-		step = &sop.Steps[idx]
-
-		if err != nil {
-			step.Status = StepFailed
-			step.Error = err.Error()
-			sop.Status = SOPStatusFailed
-			sop.UpdatedAt = time.Now().UTC()
-			if e.store != nil {
-				_ = e.store.SaveSOP(sop)
+		next = cloneSOP(e.sops[id]) // preserve a concurrent durable Pause/Cancel
+		if executeErr != nil {
+			next.Steps[idx].Status = StepFailed
+			next.Steps[idx].Error = executeErr.Error()
+			if next.Status == SOPStatusActive {
+				next.Status = SOPStatusFailed
 			}
-			e.mu.Unlock()
-			return fmt.Errorf("automation: SOP %s step %s failed: %w", id, step.ID, err)
+		} else {
+			next.Steps[idx].Status = StepDone
+			next.Steps[idx].Output = output
+			next.Steps[idx].Error = ""
+			prevOutput = output
 		}
-
-		step.Status = StepDone
-		step.Output = output
-		prevOutput = output
-		sop.UpdatedAt = time.Now().UTC()
-		if e.store != nil {
-			_ = e.store.SaveSOP(sop)
+		err := e.commitLocked(next)
+		if err != nil {
+			e.degradeLocked(next, err)
 		}
 		e.mu.Unlock()
+		if executeErr != nil {
+			return errors.Join(fmt.Errorf("automation: SOP %s step %s failed: %w", id, step.ID, executeErr), err)
+		}
+		if err != nil {
+			return err
+		}
 	}
-
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	sop := e.sops[id]
-	sop.Status = SOPStatusCompleted
-	sop.UpdatedAt = time.Now().UTC()
-	if e.store != nil {
-		_ = e.store.SaveSOP(sop)
+	if sop.Status == SOPStatusCancelled || sop.Status == SOPStatusPaused {
+		return nil
 	}
-	e.mu.Unlock()
+	next := cloneSOP(sop)
+	next.Status = SOPStatusCompleted
+	if err := e.commitLocked(next); err != nil {
+		e.degradeLocked(next, err)
+		return err
+	}
+	return nil
+}
 
+func (e *SOPEngine) degradeLocked(outcome *SOP, err error) {
+	e.pending[outcome.ID] = cloneSOP(outcome)
+	view := cloneSOP(outcome)
+	view.Status = SOPStatusDegraded
+	view.PersistenceError = err.Error()
+	e.sops[outcome.ID] = view
+}
+
+// RetryPersistence retries only a known in-process outcome write. It never
+// invokes an executor. After a restart, StepRunning is intentionally uncertain
+// and cannot use this path: an operator must reconcile the external effect.
+func (e *SOPEngine) RetryPersistence(id string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.loadErr != nil {
+		return e.loadErr
+	}
+	if e.running[id] {
+		return fmt.Errorf("SOP %s: %w", id, ErrInvalidState)
+	}
+	next, ok := e.pending[id]
+	if !ok {
+		if _, exists := e.sops[id]; !exists {
+			return ErrNotFound
+		}
+		return ErrSOPUncertain
+	}
+	if err := e.commitLocked(next); err != nil {
+		e.degradeLocked(next, err)
+		return err
+	}
+	delete(e.pending, id)
 	return nil
 }
 
 func (e *SOPEngine) stepOrder(id string) []int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-
 	sop := e.sops[id]
 	indices := make([]int, len(sop.Steps))
 	for i := range indices {
 		indices[i] = i
 	}
-
 	if sop.Mode == ModePriority {
-		sort.Slice(indices, func(a, b int) bool {
-			return sop.Steps[indices[a]].Priority < sop.Steps[indices[b]].Priority
-		})
+		sort.SliceStable(indices, func(a, b int) bool { return sop.Steps[indices[a]].Priority < sop.Steps[indices[b]].Priority })
 	}
-
 	return indices
 }
 
-func (e *SOPEngine) ApproveStep(id string, stepID string) error {
+func (e *SOPEngine) ApproveStep(id, stepID string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
-	sop, exists := e.sops[id]
-	if !exists {
-		return fmt.Errorf("automation: approve SOP %s step %s: %w", id, stepID, ErrNotFound)
+	if e.loadErr != nil {
+		return e.loadErr
 	}
-
-	if sop.Status != SOPStatusActive {
-		return fmt.Errorf("automation: approve SOP %s: status %s: %w", id, sop.Status, ErrInvalidState)
+	sop, ok := e.sops[id]
+	if !ok {
+		return fmt.Errorf("automation: approve SOP %s: %w", id, ErrNotFound)
 	}
-
-	for i := range sop.Steps {
-		if sop.Steps[i].ID == stepID {
-			if sop.Steps[i].Status != StepWaiting {
-				return fmt.Errorf("automation: step %s status %s: %w", stepID, sop.Steps[i].Status, ErrInvalidState)
+	if sop.Status != SOPStatusActive || e.running[id] {
+		return fmt.Errorf("automation: approve SOP %s: %w", id, ErrInvalidState)
+	}
+	next := cloneSOP(sop)
+	for i := range next.Steps {
+		if next.Steps[i].ID == stepID {
+			if next.Steps[i].Status != StepWaiting {
+				return fmt.Errorf("automation: step %s: %w", stepID, ErrInvalidState)
 			}
-			sop.Steps[i].Status = StepPending
-			sop.Steps[i].RequiresApproval = false
-			sop.UpdatedAt = time.Now().UTC()
-			if e.store != nil {
-				_ = e.store.SaveSOP(sop)
-			}
-			return nil
+			next.Steps[i].Status = StepPending
+			next.Steps[i].RequiresApproval = false
+			return e.commitLocked(next)
 		}
 	}
-
 	return fmt.Errorf("automation: step %s in SOP %s: %w", stepID, id, ErrNotFound)
 }
 
-func (e *SOPEngine) Cancel(id string) error {
+func (e *SOPEngine) Cancel(id string) error { return e.transition(id, SOPStatusCancelled, false) }
+func (e *SOPEngine) Pause(id string) error  { return e.transition(id, SOPStatusPaused, true) }
+func (e *SOPEngine) transition(id string, status SOPStatus, requireActive bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
-	sop, exists := e.sops[id]
-	if !exists {
-		return fmt.Errorf("automation: cancel SOP %s: %w", id, ErrNotFound)
+	if e.loadErr != nil {
+		return e.loadErr
 	}
-
-	sop.Status = SOPStatusCancelled
-	sop.UpdatedAt = time.Now().UTC()
-	if e.store != nil {
-		_ = e.store.SaveSOP(sop)
+	sop, ok := e.sops[id]
+	if !ok {
+		return fmt.Errorf("automation: SOP %s: %w", id, ErrNotFound)
 	}
-	return nil
-}
-
-func (e *SOPEngine) Pause(id string) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	sop, exists := e.sops[id]
-	if !exists {
-		return fmt.Errorf("automation: pause SOP %s: %w", id, ErrNotFound)
+	if sop.Status == SOPStatusDegraded || (requireActive && sop.Status != SOPStatusActive) {
+		return fmt.Errorf("automation: SOP %s: %w", id, ErrInvalidState)
 	}
-
-	if sop.Status != SOPStatusActive {
-		return fmt.Errorf("automation: pause SOP %s: status %s: %w", id, sop.Status, ErrInvalidState)
-	}
-
-	sop.Status = SOPStatusPaused
-	sop.UpdatedAt = time.Now().UTC()
-	if e.store != nil {
-		_ = e.store.SaveSOP(sop)
-	}
-	return nil
+	next := cloneSOP(sop)
+	next.Status = status
+	return e.commitLocked(next)
 }
 
 func (e *SOPEngine) Resume(ctx context.Context, id string) error {
 	e.mu.Lock()
-
-	sop, exists := e.sops[id]
-	if !exists {
+	if e.loadErr != nil {
+		e.mu.Unlock()
+		return e.loadErr
+	}
+	sop, ok := e.sops[id]
+	if !ok {
 		e.mu.Unlock()
 		return fmt.Errorf("automation: resume SOP %s: %w", id, ErrNotFound)
 	}
-
-	if sop.Status != SOPStatusPaused {
+	if sop.Status != SOPStatusPaused || e.running[id] {
 		e.mu.Unlock()
-		return fmt.Errorf("automation: resume SOP %s: status %s: %w", id, sop.Status, ErrInvalidState)
+		return fmt.Errorf("automation: resume SOP %s: %w", id, ErrInvalidState)
 	}
-
-	sop.Status = SOPStatusActive
-	sop.UpdatedAt = time.Now().UTC()
-	if e.store != nil {
-		_ = e.store.SaveSOP(sop)
+	for _, step := range sop.Steps {
+		if step.Status == StepRunning {
+			e.mu.Unlock()
+			return fmt.Errorf("SOP %s: %w", id, ErrSOPUncertain)
+		}
+	}
+	next := cloneSOP(sop)
+	next.Status = SOPStatusActive
+	if err := e.commitLocked(next); err != nil {
+		e.mu.Unlock()
+		return err
+	}
+	if err := e.beginLocked(id); err != nil {
+		e.mu.Unlock()
+		return err
 	}
 	e.mu.Unlock()
-
+	defer e.endExecution(id)
 	return e.executeSteps(ctx, id)
 }
 
 func (e *SOPEngine) Get(id string) (*SOP, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-
-	sop, exists := e.sops[id]
-	if !exists {
+	sop, ok := e.sops[id]
+	if !ok {
 		return nil, false
 	}
-	cp := *sop
-	cp.Steps = make([]Step, len(sop.Steps))
-	copy(cp.Steps, sop.Steps)
-	return &cp, true
+	return cloneSOP(sop), true
 }
-
 func (e *SOPEngine) List() []*SOP {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-
 	result := make([]*SOP, 0, len(e.sops))
 	for _, sop := range e.sops {
-		cp := *sop
-		cp.Steps = make([]Step, len(sop.Steps))
-		copy(cp.Steps, sop.Steps)
-		result = append(result, &cp)
+		result = append(result, cloneSOP(sop))
 	}
 	return result
 }

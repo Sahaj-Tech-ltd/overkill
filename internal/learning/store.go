@@ -1,10 +1,12 @@
 package learning
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/lib/pq"
 
@@ -16,7 +18,7 @@ import (
 const DefaultMaxCorrections = 1000
 
 // Store persists corrections using PostgreSQL and provides retrieval
-// via LIKE keyword search.
+// via case-insensitive keyword search.
 type Store struct {
 	mu       sync.RWMutex
 	db       *sql.DB
@@ -30,7 +32,20 @@ func NewStore(db *sql.DB, maxItems int) (*Store, error) {
 		maxItems = DefaultMaxCorrections
 	}
 
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS corrections (
+	if db == nil {
+		return nil, fmt.Errorf("learning: database is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("learning: begin migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':overkill:learning', 0))`); err != nil {
+		return nil, fmt.Errorf("learning: lock migration: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS corrections (
 		id SERIAL PRIMARY KEY,
 		context TEXT NOT NULL,
 		wrong TEXT NOT NULL,
@@ -40,6 +55,10 @@ func NewStore(db *sql.DB, maxItems int) (*Store, error) {
 	)`)
 	if err != nil {
 		return nil, fmt.Errorf("learning: creating table: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("learning: commit migration: %w", err)
 	}
 
 	log.Info().Int("max_items", maxItems).Msg("corrections store opened")
@@ -111,13 +130,14 @@ func (s *Store) Save(c *Correction) error {
 // escapeLike escapes SQL LIKE wildcard characters % and _ in the
 // provided string so they are treated as literals.
 func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `%`, `\%`)
 	s = strings.ReplaceAll(s, `_`, `\_`)
 	return s
 }
 
 // FindCorrections returns up to topK corrections matching the query.
-// Matches are found via LIKE on the context and wrong columns against
+// Matches are found via ILIKE on the context and wrong columns against
 // each token in the query, ordered by timestamp DESC (most recent first).
 // Query tokens are escaped to prevent % and _ being treated as wildcards.
 func (s *Store) FindCorrections(query string, topK int) ([]*Correction, error) {
@@ -144,7 +164,7 @@ func (s *Store) FindCorrections(query string, topK int) ([]*Correction, error) {
 	var args []any
 	for i, tok := range queryTokens {
 		pattern := "%" + escapeLike(tok) + "%"
-		conditions = append(conditions, fmt.Sprintf("(context LIKE $%d ESCAPE '\\' OR wrong LIKE $%d ESCAPE '\\')", i*2+1, i*2+2))
+		conditions = append(conditions, fmt.Sprintf("(context ILIKE $%d ESCAPE '\\' OR wrong ILIKE $%d ESCAPE '\\')", i*2+1, i*2+2))
 		args = append(args, pattern, pattern)
 	}
 

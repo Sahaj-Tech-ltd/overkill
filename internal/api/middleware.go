@@ -1,9 +1,7 @@
 package api
 
 import (
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
@@ -19,16 +17,38 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(code int) {
+	if w.code != 0 {
+		return
+	}
 	w.code = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(p []byte) (int, error) {
+	if w.code == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *statusWriter) Flush() {
+	if w.code == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }
 
 // withRequestLog logs each request's method, path, status, and duration.
 func withRequestLog(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		sw := &statusWriter{ResponseWriter: w}
 		next(sw, r)
+		if sw.code == 0 {
+			sw.code = http.StatusOK
+		}
 		log.Printf("%s %s %d %s", r.Method, r.URL.Path, sw.code, time.Since(start))
 	}
 }
@@ -88,33 +108,12 @@ func withCORS(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// apiToken returns the configured API bearer token, or empty string if auth is disabled.
-func apiToken() string {
-	return os.Getenv("OVERKILL_API_TOKEN")
-}
-
-// withAPIAuth adds optional API token authentication. When OVERKILL_API_TOKEN
-// is set in the environment, all requests must include an Authorization header
-// of the form "Bearer <token>". When the env var is empty, auth is skipped
-// but a startup warning is logged. Set OVERKILL_API_TOKEN to enable auth
-// for production deployments.
-func withAPIAuth(next http.HandlerFunc) http.HandlerFunc {
-	token := apiToken()
-	if token == "" {
-		// Auto-generate a random token when none is configured.
-		// No process — even local ones — can call the API without it.
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			log.Printf("api: FATAL — failed to generate auth token: %v", err)
-			os.Exit(1)
-		}
-		token = hex.EncodeToString(b)
-		log.Printf("api: auto-generated API token (set OVERKILL_API_TOKEN to override)")
-	}
+// withAPIAuth uses the immutable credential owned by this server.
+func withAPIAuth(token string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		presented := strings.TrimPrefix(auth, "Bearer ")
-		if !strings.HasPrefix(auth, "Bearer ") || subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+		if token == "" || !strings.HasPrefix(auth, "Bearer ") || subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

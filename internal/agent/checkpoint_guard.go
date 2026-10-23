@@ -2,7 +2,8 @@ package agent
 
 import (
 	"encoding/json"
-	"strings"
+	"fmt"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 // CheckpointSnapshotter is the tiny interface the agent uses to take a
@@ -14,9 +15,20 @@ import (
 // adapter so the agent doesn't import internal/checkpoint directly.
 type CheckpointSnapshotter interface {
 	// Snapshot captures the listed paths under sessionID with a one-line
-	// reason. Returning an error must NOT block the tool call — the
-	// caller logs and proceeds. A missing snapshotter is a no-op.
+	// reason. Returning an error blocks the tool call when recovery is enabled.
+	// A missing snapshotter is a no-op for embedding/test callers.
 	Snapshot(sessionID, reason string, paths []string) error
+}
+
+// CheckpointReceipt exposes the actual recovery scope to user-facing clients.
+type CheckpointReceipt struct {
+	ID      string `json:"id"`
+	Scope   string `json:"scope"`
+	Entries int    `json:"entries"`
+	Notice  string `json:"notice"`
+}
+type checkpointReceipter interface {
+	SnapshotReceipt(sessionID, reason string, paths []string) (CheckpointReceipt, error)
 }
 
 // SetCheckpointSnapshotter installs the auto-snapshot hook. Pass nil to
@@ -40,23 +52,27 @@ func (a *Agent) SetCheckpointManager(cm *CheckpointManager) {
 // fires. No-op when no snapshotter is wired, when the tool isn't
 // destructive, or when no affected paths can be inferred. The error is
 // returned so callers can decide whether to emit an alert; the tool
-// call should NOT be blocked on snapshot failure — the user's intent is
-// always primary, the snapshot is a safety net.
+// call must be blocked on snapshot failure when recovery is enabled.
 func (a *Agent) preToolCheckpoint(toolName, args string) (string, error) {
+	if a.PrivilegeMode() == security.ModeReader {
+		return "", nil
+	}
 	a.mu.RLock()
 	snap := a.checkpointSnapshotter
 	cm := a.checkpointManager
-	sid := a.SessionID()
 	a.mu.RUnlock()
+	sid := a.SessionID()
 
 	// Auto-snapshot via the git-based checkpoint manager when the tool
-	// is risky. This is fire-and-forget — errors are returned so the
-	// caller can log them, but the tool call proceeds regardless.
+	// is risky. This legacy manager is explicitly installed by callers only;
+	// shared production assembly uses the filesystem snapshotter instead.
 	if cm != nil && IsRisky(toolName) {
 		// Synchronous snapshot: the checkpoint must capture state BEFORE
 		// the tool modifies files. The prior async goroutine raced with
 		// tool execution and could snapshot after changes landed.
-		_, _ = cm.Snapshot("auto-before-" + toolName)
+		if _, err := cm.Snapshot("auto-before-" + toolName); err != nil {
+			return "auto-before-" + toolName, err
+		}
 	}
 
 	if snap == nil {
@@ -70,6 +86,14 @@ func (a *Agent) preToolCheckpoint(toolName, args string) (string, error) {
 		return "", nil
 	}
 	reason := "pre-" + toolName + " auto-snapshot"
+	if receiver, ok := snap.(checkpointReceipter); ok {
+		receipt, err := receiver.SnapshotReceipt(sid, reason, paths)
+		if err != nil {
+			return reason, err
+		}
+		a.emit("checkpoint_created", map[string]any{"checkpoint": receipt, "session_id": sid, "tool": toolName})
+		return fmt.Sprintf("Checkpoint %s saved (%s; %d files). %s", receipt.ID, receipt.Scope, receipt.Entries, receipt.Notice), nil
+	}
 	if err := snap.Snapshot(sid, reason, paths); err != nil {
 		return reason, err
 	}
@@ -83,60 +107,70 @@ func (a *Agent) preToolCheckpoint(toolName, args string) (string, error) {
 // missed rollback.
 func destructivePaths(toolName, args string) []string {
 	switch toolName {
-	case "patch", "fs_write", "write_file", "fs_edit", "fs_delete":
+	case "fs", "patch", "fs_patch", "apply_patch", "fs_write", "write_file", "fs_edit", "edit_file", "fs_delete":
 		var v struct {
-			Path string `json:"path"`
-			File string `json:"file"`
+			Action   string   `json:"action"`
+			Path     string   `json:"path"`
+			File     string   `json:"file"`
+			FilePath string   `json:"file_path"`
+			Paths    []string `json:"paths"`
+			Files    []struct {
+				Path     string `json:"path"`
+				File     string `json:"file"`
+				FilePath string `json:"file_path"`
+			} `json:"files"`
 		}
-		if err := json.Unmarshal([]byte(args), &v); err != nil {
+		// Invalid input is rejected by the actual tool parser, before any mutation.
+		if json.Unmarshal([]byte(args), &v) != nil {
 			return nil
 		}
-		switch {
-		case v.Path != "":
-			return []string{v.Path}
-		case v.File != "":
-			return []string{v.File}
+		if toolName == "fs" {
+			switch v.Action {
+			case "read", "glob", "stat", "mkdir":
+				return nil
+			}
 		}
-		return nil
-	case "shell", "pty_shell", "execute_command":
-		// Shell commands are opaque — we can't know the exact paths
-		// they'll touch. Snapshot the whole working tree by passing an
-		// empty paths slice with a sentinel reason; the snapshotter is
-		// expected to treat empty paths as "everything tracked".
+		paths := append([]string(nil), v.Paths...)
+		for _, path := range []string{v.Path, v.File, v.FilePath} {
+			if path != "" {
+				paths = append(paths, path)
+			}
+		}
+		for _, file := range v.Files {
+			for _, path := range []string{file.Path, file.File, file.FilePath} {
+				if path != "" {
+					paths = append(paths, path)
+				}
+			}
+		}
+		if len(paths) == 0 {
+			return []string{}
+		} // opaque mutation: capture the workspace
+		return paths
+	case "shell", "bash", "pty_shell", "execute_command":
 		var v struct {
 			Command string `json:"command"`
 			Cmd     string `json:"cmd"`
 		}
-		if err := json.Unmarshal([]byte(args), &v); err != nil {
+		if json.Unmarshal([]byte(args), &v) != nil {
 			return nil
 		}
-		cmd := v.Command
-		if cmd == "" {
-			cmd = v.Cmd
+		command := v.Command
+		if command == "" {
+			command = v.Cmd
 		}
-		if !looksDestructiveShell(cmd) {
-			return nil
+		if looksDestructiveShell(command) {
+			return []string{}
 		}
-		// Empty slice → snapshotter snapshots the whole workspace.
+	case "git":
+		// Git can change the working tree; automatic checkpoints never stage or
+		// commit the user's index. Git metadata itself is outside the file scope.
 		return []string{}
 	}
 	return nil
 }
 
-// looksDestructiveShell flags shell commands that modify or delete files.
-// Conservative: false positives are fine (we just snapshot more often
-// than strictly needed); false negatives miss a rollback.
-func looksDestructiveShell(cmd string) bool {
-	low := strings.ToLower(cmd)
-	for _, needle := range []string{
-		"rm ", "rm\t", " rm\n", "rmdir ", "mv ", "cp -f", "cp --force",
-		">", ">>", "tee ", "sed -i", "perl -i", "truncate ",
-		"git reset --hard", "git clean", "git checkout --",
-		"chmod ", "chown ", "mkfs", "dd if=", "shred ",
-	} {
-		if strings.Contains(low, needle) {
-			return true
-		}
-	}
-	return false
-}
+// Arbitrary shell programs, including apparent observations, may write through
+// options, hooks, substitutions or wrappers. Initially every shell call requires
+// a checkpoint; this deliberately avoids a second incomplete shell allowlist.
+func looksDestructiveShell(command string) bool { return command != "" }

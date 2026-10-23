@@ -4,20 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bridge"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python bridge for Overkill AI coding agent"
 requires-python = ">=3.11"
 dependencies = [
-    "grpcio>=1.62.0",
-    "grpcio-tools>=1.62.0",
-    "protobuf>=4.25.0",
+    "grpcio>=1.80.0",
+    "protobuf>=6.31.1",
     "numpy>=1.26.0",
-    "sentence-transformers>=5.5.1",
+    "grpcio-health-checking>=1.80.0",
+    "psycopg2-binary>=2.9.9",
+    "pgvector>=0.3.0",
 ]
 
+[project.scripts]
+overkill-bridge = "server:main"
+
 [project.optional-dependencies]
+ml = ["sentence-transformers>=5.5.1"]
 dev = [
+    "grpcio-tools>=1.80.0",
+    "build>=1.2.0",
     "pytest>=8.0",
+    "pytest-timeout>=2.3.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.3.0",
     "mypy>=1.8",
@@ -27,7 +35,7 @@ qdrant = [
 ]
 
 [tool.setuptools]
-py-modules = []
+py-modules = ["server", "overkill_pb2", "overkill_pb2_grpc", "model_runtime"]
 packages = ["memory", "embeddings", "reranking", "compaction", "proto"]
 
 [tool.setuptools.package-dir]

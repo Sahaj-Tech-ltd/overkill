@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Box, Text } from "ink";
 import type { BackendClient } from "../../backend/client.ts";
 import type { QueueStatus } from "../../backend/types.ts";
@@ -7,6 +7,7 @@ import type { Theme } from "../../themes/definitions.ts";
 
 interface QueuePanelProps {
   backend: BackendClient;
+  sessionId: string | null;
 }
 
 function getStatusColor(status: string, theme: Theme): string {
@@ -54,48 +55,45 @@ function truncate(s: string, maxLen: number): string {
   return s.slice(0, maxLen - 3) + "...";
 }
 
-export function QueuePanel({ backend }: QueuePanelProps): React.JSX.Element {
+export function QueuePanel({ backend, sessionId }: QueuePanelProps): React.JSX.Element {
   const { theme } = useTheme();
   const [status, setStatus] = useState<QueueStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchStatus = useCallback(() => {
-    backend
-      .call<QueueStatus>("sequential.queue")
-      .then((result) => {
-        setStatus(result);
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if ((err as Error).message !== "AbortError") {
-          setError((err as Error).message);
-        }
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [backend]);
-
+  // State carries its owner so a render for a new selection cannot expose
+  // the previous queue even before effect cleanup runs.
+  const ownerRef = useRef<string | null>(null);
   useEffect(() => {
-    setLoading(true);
-    fetchStatus();
-
-    intervalRef.current = setInterval(fetchStatus, 2000);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+    let disposed = false;
+    ownerRef.current = sessionId;
+    setStatus(null);
+    setError(null);
+    setLoading(Boolean(sessionId));
+    if (!sessionId) return;
+    const fetchStatus = () => {
+      backend.call<QueueStatus>("sequential.queue", { session_id: sessionId })
+        .then((result) => {
+          if (disposed) return;
+          setStatus(result);
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          if (!disposed && (err as Error).message !== "AbortError") setError((err as Error).message);
+        })
+        .finally(() => { if (!disposed) setLoading(false); });
     };
-  }, [fetchStatus]);
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 2000);
+    return () => { disposed = true; clearInterval(interval); };
+  }, [backend, sessionId]);
+  const currentStatus = ownerRef.current === sessionId ? status : null;
+  const currentError = ownerRef.current === sessionId ? error : null;
 
-  const items = status?.items ?? [];
-  const active = status?.active ?? false;
-  const total = status?.total ?? 0;
-  const done = status?.done ?? 0;
-  const failed = status?.failed ?? 0;
+  const items = currentStatus?.items ?? [];
+  const active = currentStatus?.active ?? false;
+  const total = currentStatus?.total ?? 0;
+  const done = currentStatus?.done ?? 0;
+  const failed = currentStatus?.failed ?? 0;
 
   return (
     <Box flexDirection="column" overflow="hidden">
@@ -108,21 +106,21 @@ export function QueuePanel({ backend }: QueuePanelProps): React.JSX.Element {
       </Box>
 
       {/* Loading */}
-      {loading && !status && (
+      {loading && !currentStatus && (
         <Box paddingX={1}>
           <Text color={theme.warning}>Loading...</Text>
         </Box>
       )}
 
       {/* Error */}
-      {error && !status && (
+      {currentError && !currentStatus && (
         <Box paddingX={1} flexDirection="column">
-          <Text color={theme.error}>Error: {error}</Text>
+          <Text color={theme.error}>Error: {currentError}</Text>
         </Box>
       )}
 
       {/* Summary bar */}
-      {status && (
+      {currentStatus && (
         <Box paddingX={1} marginTop={1}>
           <Text dimColor>
             {total > 0 ? `${done}/${total} done` : "No items queued"}
@@ -167,14 +165,14 @@ export function QueuePanel({ backend }: QueuePanelProps): React.JSX.Element {
       )}
 
       {/* Empty state */}
-      {!loading && !status && !error && (
+      {!loading && !currentStatus && !currentError && (
         <Box paddingX={1} marginTop={1}>
           <Text dimColor>No items in queue.</Text>
         </Box>
       )}
 
       {/* Idle state */}
-      {!loading && status && !active && items.length === 0 && (
+      {!loading && currentStatus && !active && items.length === 0 && (
         <Box paddingX={1} marginTop={1}>
           <Text dimColor>
             Use /think to enable multi-item processing. Dump a list and I'll

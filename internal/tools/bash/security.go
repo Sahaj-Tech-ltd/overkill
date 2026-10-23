@@ -79,6 +79,7 @@ type Validator func(ctx ValidationCtx) Result
 var AllValidators = []Validator{
 	validateEmpty,
 	validateIncomplete,
+	validateShellSyntax,
 	validateShellMetacharacters,
 	validateDangerousPatterns,
 	validateZshDangerous, // deny-first before command sub

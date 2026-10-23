@@ -37,6 +37,10 @@ func Doctor() ([]string, error) {
 		}
 	}
 
+	if err := cfg.Security.ValidateSupported(); err != nil {
+		return fixes, err
+	}
+
 	if cfg.Version != CurrentVersion {
 		var migrateChanges []string
 		cfg, migrateChanges, err = cfg.Migrate()

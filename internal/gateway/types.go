@@ -73,6 +73,20 @@ type AgentSender interface {
 	IsBusy() bool
 }
 
+// SessionAgentProvider optionally binds operations to an immutable session.
+// Multi-session API adapters implement this; existing single-agent gateways
+// retain SetSessionID behavior.
+type SessionAgentProvider interface {
+	AgentForSession(context.Context, string) (AgentSender, error)
+}
+
+// SessionStopper lets adapters report cancellation that cannot be guaranteed.
+// The original void AgentSender methods remain compatible with legacy agents.
+type SessionStopper interface {
+	InterruptSession() error
+	EmergencyStop() error
+}
+
 // Inbound is one user-authored message arriving from any channel.
 // ChatKey is the gateway-stable identifier for the conversation
 // (e.g. "telegram:12345" or "bridge:whatsapp:+15551234"). Thread is

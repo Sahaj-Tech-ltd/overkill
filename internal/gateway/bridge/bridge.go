@@ -83,6 +83,16 @@ type Bridge struct {
 	server    *http.Server
 	suspender Suspender
 	running   atomic.Bool
+	// Configure before Start. Accepted work has no unbounded ingress queue.
+	MaxConcurrentInbound int
+	WorkTimeout          time.Duration
+	workMu               sync.Mutex
+	accepting            bool
+	workCtx              context.Context
+	workCancel           context.CancelFunc
+	workSlots            chan struct{}
+	controlSlots         chan struct{}
+	workWG               sync.WaitGroup
 }
 
 // subscriber holds one SSE subscriber's channel and a done signal.
@@ -94,7 +104,10 @@ type subscriber struct {
 
 // New returns a Bridge ready to register on a Hub.
 func New(d *gateway.Dispatcher, token, listen string) *Bridge {
-	return &Bridge{
+	if d != nil {
+		d.RejectBusy = true
+	}
+	return &Bridge{MaxConcurrentInbound: 16, WorkTimeout: 5 * time.Minute,
 		Dispatcher: d,
 		Token:      token,
 		Listen:     listen,
@@ -126,55 +139,105 @@ var _ gateway.HealthChecker = (*Bridge)(nil)
 // connect over loopback by default — exposing this publicly without a
 // reverse proxy is a foot-gun.
 func (b *Bridge) Run(ctx context.Context) error {
+	done, err := b.Start(ctx)
+	if err != nil {
+		return err
+	}
+	return <-done
+}
+
+// Addr is the actual bound address after Start, including an OS-chosen port.
+func (b *Bridge) Addr() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.server == nil {
+		return ""
+	}
+	return "http://" + b.server.Addr
+}
+
+// Start binds synchronously so callers can report configuration/listener errors.
+// Existing gateway callers may continue using blocking Run.
+func (b *Bridge) Start(ctx context.Context) (<-chan error, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !b.running.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("bridge: already running")
+	}
+	failed := true
+	defer func() {
+		if failed {
+			b.running.Store(false)
+		}
+	}()
 	addr := b.Listen
 	if addr == "" {
 		addr = "127.0.0.1:7799"
 	}
-	// Refuse to start without auth unless the bind is loopback-only.
-	// Empty Token + non-loopback listen made the bridge an open RCE
-	// shim — anyone reachable on the network could POST /v1/in and
-	// have it dispatched to the agent. Loopback-only with empty
-	// token is still allowed for trusted local sidecars.
 	if b.Token == "" && !bindsLoopback(addr) {
-		return fmt.Errorf("bridge: refusing to start on %s with empty token — set Token or bind to 127.0.0.1/::1", addr)
+		return nil, fmt.Errorf("bridge: refusing to start on %s with empty token — set Token or bind to 127.0.0.1/::1", addr)
 	}
-
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("bridge: listen: %w", err)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/in", b.handleIn)
 	mux.HandleFunc("/v1/out", b.handleOut)
-	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	b.server = &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	server := &http.Server{Addr: listener.Addr().String(), Handler: mux, ReadHeaderTimeout: 5 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
+	b.mu.Lock()
+	b.server = server
+	b.mu.Unlock()
+	b.workMu.Lock()
+	limit := b.MaxConcurrentInbound
+	if limit <= 0 {
+		limit = 16
 	}
-	errCh := make(chan error, 1)
+	b.workCtx, b.workCancel = context.WithCancel(ctx)
+	b.workSlots = make(chan struct{}, limit)
+	b.controlSlots = make(chan struct{}, 4)
+	b.accepting = true
+	b.workMu.Unlock()
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.Serve(listener) }()
+	done := make(chan error, 1)
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				b.Logger.Printf("bridge: ListenAndServe goroutine panic: %v\n%s", r, debug.Stack())
+		var outcome error
+		select {
+		case <-ctx.Done():
+			b.stopInbound()
+			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := server.Shutdown(shutdown); err != nil {
+				_ = server.Close()
 			}
-		}()
-		b.running.Store(true)
-		errCh <- b.server.ListenAndServe()
-	}()
-	b.Logger.Printf("bridge: listening on %s", addr)
-
-	select {
-	case <-ctx.Done():
-		b.running.Store(false)
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = b.server.Shutdown(shutCtx)
-		return ctx.Err()
-	case err := <-errCh:
-		if err == http.ErrServerClosed {
-			return nil
+			cancel()
+			<-serveErr
+			if err := b.waitInbound(); err != nil {
+				outcome = err
+			} else {
+				outcome = ctx.Err()
+			}
+		case err := <-serveErr:
+			b.stopInbound()
+			_ = server.Close()
+			if workErr := b.waitInbound(); workErr != nil {
+				err = workErr
+			}
+			if err == http.ErrServerClosed {
+				err = nil
+			}
+			outcome = err
 		}
-		return err
-	}
+		b.running.Store(false)
+		done <- outcome
+		close(done)
+	}()
+
+	failed = false
+	b.Logger.Printf("bridge: listening on %s", listener.Addr())
+	return done, nil
 }
 
 func (b *Bridge) authorized(r *http.Request) bool {
@@ -259,11 +322,76 @@ func (b *Bridge) handleIn(w http.ResponseWriter, r *http.Request) {
 		chatKey: in.ChatKey,
 		thread:  in.Thread,
 	}
-	// Use a context detached from the HTTP request lifecycle so the
-	// dispatched goroutine isn't killed when the handler returns 202.
-	// Values from the request context (tracing, etc.) are still propagated.
-	go b.Dispatcher.Handle(context.WithoutCancel(r.Context()), in, reply)
+	if b.Dispatcher == nil {
+		http.Error(w, "dispatcher unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	// Cancellation/control commands have their own finite reserve so a full
+	// set of held turns cannot prevent /stop from being admitted.
+	command := strings.Fields(strings.TrimSpace(p.Text))
+	control := len(command) > 0 && (command[0] == "/stop" || command[0] == "/estop")
+	if !strings.HasPrefix(strings.TrimSpace(p.Text), "/") && b.Dispatcher.SessionActive(in) {
+		http.Error(w, "session busy; retry after its current turn", http.StatusTooManyRequests)
+		return
+	}
+	work, finish, status := b.admitInbound(control)
+	if status != 0 {
+		http.Error(w, "bridge busy or shutting down; retry later", status)
+		return
+	}
+	go func() {
+		defer finish()
+		defer func() {
+			if panicValue := recover(); panicValue != nil {
+				b.Logger.Printf("bridge: inbound panic: %v\n%s", panicValue, debug.Stack())
+				_ = reply.Error(work, "", fmt.Errorf("bridge dispatch failed"))
+			}
+		}()
+		b.Dispatcher.Handle(work, in, reply)
+	}()
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (b *Bridge) admitInbound(control bool) (context.Context, func(), int) {
+	b.workMu.Lock()
+	defer b.workMu.Unlock()
+	if !b.accepting || b.workCtx == nil || b.workCtx.Err() != nil {
+		return nil, nil, http.StatusServiceUnavailable
+	}
+	slots := b.workSlots
+	if control {
+		slots = b.controlSlots
+	}
+	select {
+	case slots <- struct{}{}:
+	default:
+		return nil, nil, http.StatusTooManyRequests
+	}
+	timeout := b.WorkTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(b.workCtx, timeout)
+	b.workWG.Add(1)
+	return ctx, func() { cancel(); <-slots; b.workWG.Done() }, 0
+}
+func (b *Bridge) stopInbound() {
+	b.workMu.Lock()
+	b.accepting = false
+	if b.workCancel != nil {
+		b.workCancel()
+	}
+	b.workMu.Unlock()
+}
+func (b *Bridge) waitInbound() error {
+	done := make(chan struct{})
+	go func() { b.workWG.Wait(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("bridge: accepted work did not stop after cancellation")
+	}
 }
 
 // handleOut opens an SSE stream for one channel name. Sidecars that

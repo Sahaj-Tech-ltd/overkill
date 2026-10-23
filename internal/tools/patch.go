@@ -17,8 +17,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -63,28 +61,14 @@ func (p *PatchTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 		return nil, fmt.Errorf("patch: patch is required")
 	}
 
-	// Path-traversal guard matching tools/fs.go semantics: clean the
-	// path, compare via filepath.Rel against the cleaned rootDir,
-	// reject any path that escapes the root (rel starts with "..").
-	// Absolute paths are resolved + checked the same way — prior
-	// code accepted `/etc/passwd` and `../../etc/passwd` unconditionally.
-	full := in.Path
-	if !filepath.IsAbs(full) {
-		full = filepath.Join(p.rootDir, in.Path)
-	}
-	full = filepath.Clean(full)
-	root, rerr := filepath.Abs(p.rootDir)
-	if rerr != nil {
-		return nil, fmt.Errorf("patch: resolve root: %w", rerr)
-	}
-	root = filepath.Clean(root)
-	rel, relErr := filepath.Rel(root, full)
-	if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("patch: path traversal rejected: %s", in.Path)
-	}
-	src, err := os.ReadFile(full)
+	root, name, err := openWorkspace(p.rootDir, in.Path)
 	if err != nil {
-		return nil, fmt.Errorf("patch: read %s: %w", full, err)
+		return nil, fmt.Errorf("patch: %w", err)
+	}
+	defer root.Close()
+	src, err := root.ReadFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("patch: read %s: %w", name, err)
 	}
 	hunks, err := ParseUnifiedDiff(in.Patch)
 	if err != nil {
@@ -99,15 +83,15 @@ func (p *PatchTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	// editor's changes get silently overwritten because our patch was
 	// computed against stale content. If the file has moved on, refuse
 	// and surface the diff so the caller can retry on fresh content.
-	current, err := os.ReadFile(full)
+	current, err := root.ReadFile(name)
 	if err != nil {
-		return nil, fmt.Errorf("patch: re-read %s: %w", full, err)
+		return nil, fmt.Errorf("patch: re-read %s: %w", name, err)
 	}
 	if !bytes.Equal(current, src) {
-		return nil, fmt.Errorf("patch: %s was modified between read and write; aborting to avoid clobbering external changes", full)
+		return nil, fmt.Errorf("patch: %s was modified between read and write; aborting to avoid clobbering external changes", name)
 	}
-	if err := os.WriteFile(full, []byte(out), 0o600); err != nil {
-		return nil, fmt.Errorf("patch: write %s: %w", full, err)
+	if err := atomicWorkspaceWrite(root, name, []byte(out)); err != nil {
+		return nil, fmt.Errorf("patch: write %s: %w", name, err)
 	}
 	return json.Marshal(PatchOutput{
 		Path:         in.Path,

@@ -49,7 +49,7 @@ type Capability struct {
 	// MaxBytesPerCall caps the byte size of arguments passed to a
 	// tool call. 0 means no cap.
 	MaxBytesPerCall int `json:"max_bytes_per_call,omitempty"`
-	// Trusted, when true, bypasses the unknown-tool check. Path
+	// Trusted permits any tool only when no explicit allowlist is present. Path
 	// and byte limits still apply.
 	Trusted bool `json:"trusted,omitempty"`
 }
@@ -79,6 +79,11 @@ func (p *Policy) Set(c Capability) error {
 	if strings.TrimSpace(c.ServerName) == "" {
 		return errors.New("mcpshield: server name required")
 	}
+	if c.MaxBytesPerCall < 0 {
+		return errors.New("mcpshield: byte limit cannot be negative")
+	}
+	c.AllowedTools = append([]string(nil), c.AllowedTools...)
+	c.AllowedPathPrefixes = append([]string(nil), c.AllowedPathPrefixes...)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.caps[c.ServerName] = c
@@ -91,6 +96,8 @@ func (p *Policy) Get(serverName string) (Capability, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	c, ok := p.caps[serverName]
+	c.AllowedTools = append([]string(nil), c.AllowedTools...)
+	c.AllowedPathPrefixes = append([]string(nil), c.AllowedPathPrefixes...)
 	return c, ok
 }
 
@@ -107,6 +114,8 @@ func (p *Policy) All() []Capability {
 	defer p.mu.RUnlock()
 	out := make([]Capability, 0, len(p.caps))
 	for _, c := range p.caps {
+		c.AllowedTools = append([]string(nil), c.AllowedTools...)
+		c.AllowedPathPrefixes = append([]string(nil), c.AllowedPathPrefixes...)
 		out = append(out, c)
 	}
 	return out
@@ -130,29 +139,27 @@ func (p *Policy) CheckCall(serverName, toolName string, paths []string, argSize 
 	if !ok {
 		return Decision{Reason: fmt.Sprintf("mcpshield: no capability declared for server %q", serverName)}
 	}
-	// When Trusted, bypass the unknown-tool check. Path and byte limits still apply.
-	if !c.Trusted {
-		// Empty AllowedTools on a non-trusted server = deny all tools.
-		if len(c.AllowedTools) == 0 {
-			return Decision{Reason: fmt.Sprintf("mcpshield: no tools allowed for non-trusted server %q", serverName)}
+	// Explicit lists always constrain calls, even when the server is trusted.
+	if len(c.AllowedTools) > 0 || !c.Trusted {
+		found := false
+		for _, tool := range c.AllowedTools {
+			if tool == toolName {
+				found = true
+				break
+			}
 		}
-		if len(c.AllowedTools) > 0 {
-			found := false
-			for _, t := range c.AllowedTools {
-				if t == toolName {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return Decision{Reason: fmt.Sprintf("mcpshield: tool %q not in allow-list for %q", toolName, serverName)}
-			}
+		if !found {
+			return Decision{Reason: fmt.Sprintf("mcpshield: tool not in allow-list for server %q", serverName)}
 		}
 	}
+
 	if c.MaxBytesPerCall > 0 && argSize > c.MaxBytesPerCall {
 		return Decision{Reason: fmt.Sprintf("mcpshield: argument size %d exceeds cap %d for %q", argSize, c.MaxBytesPerCall, serverName)}
 	}
 	if len(c.AllowedPathPrefixes) > 0 {
+		if paths == nil {
+			return Decision{Reason: "mcpshield: path-limited MCP calls are unavailable without trusted argument-path bindings; use a separately restricted server or remove the path declaration only after reviewing its host access"}
+		}
 		for _, raw := range paths {
 			path := filepath.Clean(raw)
 			if !anyPrefixMatch(path, c.AllowedPathPrefixes) {
@@ -169,7 +176,8 @@ func (p *Policy) CheckCall(serverName, toolName string, paths []string, argSize 
 func anyPrefixMatch(path string, prefixes []string) bool {
 	for _, p := range prefixes {
 		clean := filepath.Clean(p)
-		if path == clean || strings.HasPrefix(path, clean+string(filepath.Separator)) {
+		relative, err := filepath.Rel(clean, path)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return true
 		}
 	}

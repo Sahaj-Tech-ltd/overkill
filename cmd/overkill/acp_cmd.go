@@ -7,10 +7,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/acp"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/api"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/db"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
@@ -43,7 +45,10 @@ var acpServeCmd = &cobra.Command{
 			return fmt.Errorf("migrate database: %w", err)
 		}
 
-		store := session.NewPostgresStore(database)
+		store, err := session.NewPostgresStore(database)
+		if err != nil {
+			return fmt.Errorf("initialize session store: %w", err)
+		}
 
 		addr := config.DefaultACPAddr
 		if cfg != nil && cfg.ACP.Listen != "" {
@@ -58,12 +63,29 @@ var acpServeCmd = &cobra.Command{
 		if cfg != nil {
 			allowedOrigins = cfg.ACP.AllowedOrigins
 		}
+		home, err := config.ConfigDir()
+		if err != nil {
+			return err
+		}
+		services, err := newRuntimeServices(cfg, database, home)
+		if err != nil {
+			return fmt.Errorf("initialize runtime: %w", err)
+		}
+		sessionService := api.NewServer(services.APIConfig(store))
+		defer sessionService.Close()
 
+		taskStore := acp.NewTaskStore(database)
+		if err := taskStore.Migrate(cmd.Context()); err != nil {
+			return fmt.Errorf("ACP task storage: %w", err)
+		}
 		srv := acp.NewServer(acp.Config{
 			Addr:           addr,
 			Token:          token,
 			AllowedOrigins: allowedOrigins,
 			Store:          store,
+			Tasks:          taskStore,
+			Coordination:   services.Coordination,
+			ResolveSender:  sessionService.ResolveACPSender,
 			Name:           "overkill",
 			Version:        Version,
 		})
@@ -74,11 +96,17 @@ var acpServeCmd = &cobra.Command{
 		fmt.Printf("ACP server listening on %s\n", srv.Addr())
 
 		// Wait for shutdown signal.
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
+		runCtx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		if err := sessionService.StartBackground(runCtx); err != nil {
+			_ = srv.Shutdown(context.Background())
+			return err
+		}
+		<-runCtx.Done()
 		fmt.Fprintln(os.Stderr, "\nshutting down...")
-		return srv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
 	},
 }
 

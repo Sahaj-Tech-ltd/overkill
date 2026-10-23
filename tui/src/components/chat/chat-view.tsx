@@ -17,6 +17,7 @@ interface ChatViewProps {
   provider?: string;
   onOpenPalette: () => void;
   isDialogOpen: boolean;
+  inputFocused?: boolean;
   /** Memo banner props */
   userMessage?: string;
   statusPhase?: string;
@@ -40,6 +41,7 @@ export function ChatView({
   provider,
   onOpenPalette,
   isDialogOpen,
+  inputFocused = true,
   userMessage,
   statusPhase,
   thinkingElapsed,
@@ -49,7 +51,7 @@ export function ChatView({
   fileChanges,
 }: ChatViewProps): React.JSX.Element {
   useInput((input, key) => {
-    if (isDialogOpen) return;
+    if (isDialogOpen || !inputFocused) return;
 
     if (key.ctrl && input === "c" && isLoading) {
       onCancel();
@@ -85,7 +87,7 @@ export function ChatView({
       />
       <Prompt
         onSubmit={sendMessage}
-        disabled={isLoading}
+        disabled={isLoading || isDialogOpen || !inputFocused}
         model={model}
         provider={provider}
         showKeybindHint={!isDialogOpen}

@@ -165,10 +165,10 @@ func resolveMaxSteps(cfg SpawnConfig) int {
 }
 
 func resolveMaxTokens(cfg SpawnConfig) int {
-	if cfg.MaxTokensOverride > 0 {
+	if cfg.MaxTokensOverride != 0 {
 		return cfg.MaxTokensOverride
 	}
-	return 16384
+	return 0
 }
 
 func resolveTimeout(cfg SpawnConfig) time.Duration {

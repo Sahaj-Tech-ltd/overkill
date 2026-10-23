@@ -1,10 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/processrunner"
 	"io"
 	"log"
 	"os"
@@ -21,16 +22,10 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/bridge"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/api"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automemory"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/browser"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/browser/devbrowser"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/checkpoint"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/compaction"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/credit"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/cron"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/db"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/drift"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
 	eventsinks "github.com/Sahaj-Tech-ltd/overkill/internal/events/sinks"
@@ -39,31 +34,19 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hotreload"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/input"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/instructions"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/lats"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/lsp"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/memory"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/multimodal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/pipeline"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/plan"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/playbooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/rewriter"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
 	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/tags"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/tasks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
-	imagegen "github.com/Sahaj-Tech-ltd/overkill/internal/tools/imagegen"
-	messaging "github.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging"
-	ttspkg "github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/walls"
 )
 
 var (
@@ -81,8 +64,19 @@ var runCmd = &cobra.Command{
 	RunE:  runAgent,
 }
 
-func runAgent(cmd *cobra.Command, args []string) error {
+func runAgent(cmd *cobra.Command, args []string) (runErr error) {
 	providerCfg, modelName := resolveProvider()
+	// --no-personality is a runtime override, including delegated children.
+	// Snapshot configuration rather than saving the flag into user settings.
+	runConfig := config.Default()
+	if cfg != nil {
+		snapshot := *cfg
+		runConfig = &snapshot
+	}
+	cfg := runConfig
+	if noPersonality {
+		cfg.Personality.Level = "off"
+	}
 
 	if providerCfg == nil {
 		fmt.Printf("%s✗ No provider configured.%s\n", colorRed, colorReset)
@@ -107,6 +101,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	provider, err := providers.NewProvider(providers.FactoryConfig{
 		Name:    providerCfg.Name,
+		Models:  providerCfg.ProviderModels(),
 		Type:    providerCfg.Type,
 		APIKey:  apiKey,
 		BaseURL: providerCfg.BaseURL,
@@ -115,6 +110,9 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating provider: %w", err)
 	}
+
+	// Background memory extraction must not emit its internal facts as user-facing JSONL replies.
+	memoryExtractionProvider := provider
 
 	// JSONL output: wrap the provider so every Complete call emits a
 	// JSONL record to stdout. The wrapper also exposes EmitUser so we
@@ -125,270 +123,105 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		provider = jl
 	}
 
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
 	homeDir, err := config.ConfigDir()
 	if err != nil {
-		homeDir = ""
+		return err
 	}
-
-	// Playbooks: ACE-style evolving playbook store (§8.2 Phase 5 #6).
-	playbookStore := playbooks.NewStore(filepath.Join(homeDir, "playbooks"))
-
-	// AutoCommitter: religious commits per stage (§4.8).
-	// All stages disabled by default — the user enables via config or
-	// the agent enables specific stages via autocommit_stage tool.
-	autoCommitter := automation.NewAutoCommitter(cwd, nil, nil)
-
-	// Wire sub-agent system: router, registry, manager.
-	subagentInfra := setupSubagentSystem(cfg)
-
-	// LSP manager — best-effort; skip if no servers configured.
-	lspMgr := lsp.NewManager(cfg.LSP, cwd)
-	lspAdapter := newLSPManagerAdapter(lspMgr)
-
-	// CheckpointManager — best-effort; skip if directory cannot be created.
-	var checkpointMgr *checkpoint.Manager
-	if cm, cerr := checkpoint.NewManager(filepath.Join(homeDir, "checkpoints"), 5); cerr == nil {
-		checkpointMgr = cm
-	} else {
-		log.Printf("[wiring] checkpoint manager unavailable: %v", cerr)
+	signalCtx, stopSignals := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	databaseOwner, err := openCommandDatabase(signalCtx, cmd, cfg, false)
+	if err != nil {
+		return err
 	}
-
-	// TagsManager — best-effort; skip if store cannot be opened.
-	var tagsMgr *tags.Manager
-	if tm, terr := tags.NewManager(filepath.Join(homeDir, "tags")); terr == nil {
-		tagsMgr = tm
-	} else {
-		log.Printf("[wiring] tags manager unavailable: %v", terr)
+	defer func() { runErr = errors.Join(runErr, databaseOwner.Close()) }()
+	ctx := databaseOwner.Context
+	runtimeDB := databaseOwner.DB
+	services, err := newRuntimeServices(cfg, runtimeDB, homeDir)
+	if err != nil {
+		return err
 	}
-
-	// Resolve database connection string early so goal/learning stores can be
-	// created before the toolDeps literal. The same connString is reused later
-	// for the learning-from-corrections store and memory orchestrator.
-	earlyConnString := os.Getenv("DATABASE_URL")
-	if earlyConnString == "" && cfg != nil {
-		earlyConnString = cfg.DatabaseURL
+	sessionMetadata := session.NewSession(cwd)
+	sessionMetadata.Model = modelName
+	sessionMetadata.Provider = providerCfg.Name
+	sessionMetadata, err = api.CanonicalSession(sessionMetadata)
+	if err != nil {
+		return err
 	}
-
-	// PlanQuerier — no error return; always succeeds.
-	planStore := plan.NewStore(filepath.Join(homeDir, "plans"), "")
-
-	// LearningsQuerier — JSONL-backed learning store (§6.2 self-learning loop).
-	learningsStore := plan.NewLearningsStore(filepath.Join(homeDir, "learnings"))
-
-	// LearnRecorder — in-session skill-suggestion trigger (§6.2).
-	learnTrigger := skills.NewLearnTrigger(0, nil)
-
-	// GoalQuerier — Postgres-backed goal store; best-effort.
-	var goalQuerier tools.GoalQuerier
-	if earlyConnString != "" {
-		if goalDB, gdbErr := db.Open(earlyConnString); gdbErr == nil {
-			if gs, gsErr := agent.NewGoalStore(goalDB); gsErr == nil {
-				goalQuerier = tools.NewSessionGoalQuerier(goalStoreAdapter{gs}, func() string { return "" })
-				defer goalDB.Close()
-			} else {
-				goalDB.Close()
-				log.Printf("[wiring] goal store unavailable: %v", gsErr)
-			}
-		} else {
-			log.Printf("[wiring] goal db unavailable: %v", gdbErr)
+	var sessionStore *session.PostgresStore
+	if runtimeDB != nil {
+		sessionStore, err = session.NewPostgresStore(runtimeDB)
+		if err != nil {
+			return err
+		}
+		if err = sessionStore.Create(ctx, sessionMetadata); err != nil {
+			return fmt.Errorf("create CLI session: %w", err)
 		}
 	}
-
-	// Active session ID — closure-captured by CheckpointSessionFn /
-	// SessionIDProvider; set after agent creation so tools resolve to the
-	// live session.
-	var activeSessionID string
-
-	// TasksStore — file-backed task tracker (§8.3).
-	taskStore := tasks.NewStore(filepath.Join(homeDir, "tasks"))
-
-	// SegmentsStore — code region segmenter for granular context.
-	segStore := memory.NewSegmentStore(filepath.Join(homeDir, "segments"), cwd)
-
-	// StandingOrdersStore — persistent standing orders (§7.2).
-	soStore, soErr := automation.NewOrdersFile(filepath.Join(homeDir, "standing-orders.jsonl"))
-	if soErr != nil {
-		log.Printf("[wiring] standing orders store unavailable: %v", soErr)
-		soStore = nil
-	}
-
-	// FailHypoQuerier — failed hypothesis store for avoiding repeated mistakes.
-	fhStore := journal.NewFailedHypothesisStore(filepath.Join(homeDir, "failed_hypotheses"))
-
-	// JournalQuerier + JournalReader — FlightRecorder implements both.
-	flightRec := journal.NewFlightRecorder(filepath.Join(homeDir, "journal"), "")
-
-	// AutomationLister + CronLister — Postgres-backed; best-effort.
-	var sopLister tools.AutomationLister
-	var cronLister tools.CronLister
-	if earlyConnString != "" {
-		if pgDB, pgErr := db.Open(earlyConnString); pgErr == nil {
-			if s, sErr := automation.NewPostgresSOPStore(pgDB); sErr == nil {
-				sopLister = s
-			} else {
-				log.Printf("[wiring] SOP store unavailable: %v", sErr)
-			}
-			if c, cErr := cron.NewPostgresJobStore(pgDB); cErr == nil {
-				cronLister = c
-			} else {
-				log.Printf("[wiring] cron store unavailable: %v", cErr)
-			}
-			if sopLister == nil && cronLister == nil {
-				pgDB.Close()
-			}
-			// pgDB intentionally kept open when at least one store succeeded;
-			// closes at process exit.
-		} else {
-			log.Printf("[wiring] automation/cron db unavailable: %v", pgErr)
+	var syncManager *syncpkg.Manager
+	if cfg.Sync.AutoPush {
+		if sessionStore == nil {
+			return fmt.Errorf("sync auto-push requires a persistent session database")
 		}
+		backend, err := syncpkg.NewBackend(cfg.Sync)
+		if err != nil {
+			return fmt.Errorf("sync auto-push backend: %w", err)
+		}
+		if backend == nil {
+			return fmt.Errorf("sync auto-push requires a configured backend")
+		}
+		syncManager = syncpkg.NewManager(sessionStore, backend)
+		defer func() {
+			flushCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			runErr = errors.Join(runErr, syncManager.CloseAutoPush(flushCtx))
+		}()
 	}
 
-	// ── Share uploader (TODO) ──
-	// share.NewUploader(cfg.Share) exists at internal/share/upload.go:24
-	// but there is no share Tool registered in the tools package. The
-	// uploader is only used by the `overkill share <sessionID>` CLI
-	// command (share_cmd.go). Wire a share tool here when one is created.
-	browserOpts := browser.Options{}
-	if cfg != nil && cfg.Browser.Enabled {
-		browserOpts = browser.Options{
-			Headless:   cfg.Browser.Headless,
-			ChromePath: cfg.Browser.ChromePath,
-			UserAgent:  cfg.Browser.UserAgent,
+	if services.FlowQueue != nil {
+		release, acquired, err := services.FlowQueue.TrySessionOperation(ctx, sessionMetadata.ID)
+		if err != nil {
+			return err
 		}
-	}
-	// Browser host policy: AllowedHosts / BlockedHosts from config.
-	// TODO: BrowserConfig.Timeout is not yet wired — browser.Options
-	// does not expose a timeout field; the chromedp layer uses its own
-	// default timeouts. Wire when browser.Manager supports it.
-	browserPolicy := tools.BrowserHostPolicy{
-		Allowed: cfg.Browser.AllowedHosts,
-		Blocked: cfg.Browser.BlockedHosts,
-	}
-
-	toolDeps := tools.FactoryDeps{
-		CWD:                 cwd,
-		PlaybooksStore:      playbookStore,
-		AutoCommitter:       autoCommitter,
-		CheckpointManager:   checkpointMgr,
-		CheckpointSessionFn: func() string { return activeSessionID },
-		TagsManager:         tagsMgr,
-		PlanQuerier:         planStore,
-		SubagentManager:     subagentInfra.Manager,
-		ExtraTools: []tools.Tool{
-			ttspkg.New(cfg.TTS),
-			messaging.New(cfg.Gateways),
-			imagegen.New(cfg.ImageGen),
-		},
-		// PCA-9: RegressionBank — persisted behavioral regression tests.
-		RegressionBank: walls.NewRegressionBank(walls.NewMemRegressionStore(), nil),
-		// PCA-10: MultimodalRegistry — file content extraction (PDF, DOCX, audio, images).
-		MultimodalRegistry: multimodal.DefaultRegistry(nil),
-		// LSP querier + manager.
-		LSPQuerier: lspAdapter,
-		LSPManager: lspMgr,
-		// Pipeline runner — zero-value Config uses defaults; provider wired below.
-		PipelineRunner: &pipelineRunnerAdapter{exec: pipeline.NewExecutor(pipeline.Config{})},
-		// Learnings: JSONL-backed querier + in-session skill-suggestion trigger.
-		LearningsQuerier: learningsStore,
-		LearnRecorder:    learnTrigger,
-		// GoalQuerier — Postgres-backed; nil when DATABASE_URL is unset.
-		GoalQuerier: goalQuerier,
-		// Tasks + SessionID (§8.3).
-		TasksStore:        taskStore,
-		SessionIDProvider: sessIDProvider(func() string { return activeSessionID }),
-		// Segments + Standing Orders (§7.2).
-		SegmentsStore:       segStore,
-		StandingOrdersStore: soStore,
-		// Journal querier + reader (FlightRecorder implements both).
-		JournalQuerier: flightRec,
-		JournalReader:  flightRec,
-		// Automation + Cron listers (Postgres-backed; nil when DB is absent).
-		AutomationLister: sopLister,
-		CronLister:       cronLister,
-		// FailHypo — failed hypothesis store.
-		FailHypoQuerier: fhStore,
-		// ProjectRootResolver — returns CWD for arch/glossary reads.
-		ProjectRootResolver: func() string { return cwd },
-		// AskUserBridge — CLI stub that cancels (no interactive TUI in CLI mode).
-		AskUserBridge: func(ctx context.Context, prompt string, choices []string) (string, int, bool) {
-			return "", -1, true
-		},
-		// BrowserManager — full Playwright-equivalent browser.
-		BrowserManager: browser.NewManager(browserOpts),
-		BrowserPolicy:  browserPolicy,
-		// DevBrowserManager — sandboxed AI-safe browser.
-		DevBrowserManager: devbrowser.NewManager(),
-		// ArchitectureWall — enforces import/layer rules.
-		ArchitectureWall: walls.NewArchitectureWall(walls.ArchitectureConfig{}),
-		// OuroborosWall — detects self-referential loops. Wired from config
-		// when cfg.Ouroboros.Enabled is true; uses a separate provider so
-		// the review model is independent of the main agent.
-		OuroborosWall: func() *walls.OuroborosWall {
-			if cfg != nil && cfg.Ouroboros.Enabled {
-				ouroCfg := cfg.Ouroboros
-				ouroKey := ouroCfg.APIKey
-				if ouroKey == "" {
-					ouroKey = os.Getenv(providerEnvVar(ouroCfg.Provider))
-				}
-				if ouroKey != "" && ouroCfg.Provider != "" {
-					ouroProv, err := providers.NewProvider(providers.FactoryConfig{
-						Name:    ouroCfg.Provider,
-						Type:    ouroCfg.Provider,
-						APIKey:  ouroKey,
-						BaseURL: ouroCfg.BaseURL,
-					})
-					if err == nil {
-						return walls.NewOuroborosWall(walls.OuroborosConfig{
-							Enabled:    true,
-							Provider:   ouroProv,
-							Model:      ouroCfg.Model,
-							StrictMode: ouroCfg.StrictMode,
-						})
-					}
-				}
-			}
-			return walls.NewOuroborosWall(walls.OuroborosConfig{})
-		}(),
-		// Introspect / Skill Extract directories.
-		IntrospectDir:   filepath.Join(homeDir, "introspection"),
-		SkillExtractDir: filepath.Join(homeDir, "skills"),
-	}
-	// VisionDescriber — config-driven with env-var fallback.
-	if cfg != nil && cfg.Vision.Enabled {
-		visionKey := cfg.Vision.APIKey
-		if visionKey == "" {
-			visionKey = os.Getenv("ANTHROPIC_API_KEY")
+		if !acquired {
+			return fmt.Errorf("CLI session is busy in another runtime")
 		}
-		visionModel := cfg.Vision.Model
-		if visionModel == "" {
-			visionModel = "claude-opus-4-5"
-		}
-		if visionKey != "" {
-			toolDeps.VisionDescriber = vision.NewAnthropic(visionKey, visionModel)
-		}
-	} else if visionKey := os.Getenv("ANTHROPIC_API_KEY"); visionKey != "" {
-		// Legacy env-var-only fallback when config is not present.
-		toolDeps.VisionDescriber = vision.NewAnthropic(visionKey, "claude-opus-4-5")
+		defer release()
 	}
-	// AlarmGateway — best-effort; skip if daemon socket is unavailable.
-	// Must be wired before NewDefaultRegistry so the factory's nil-check registers the tools.
-	if gw, err := newDaemonAlarmGateway(); err == nil {
-		toolDeps.AlarmGateway = gw
-		toolDeps.AlarmSessionFn = func() string { return activeSessionID }
-	} else {
-		log.Printf("[wiring] alarm gateway unavailable (is the daemon running?): %v", err)
+	toolDeps, runtime, err := services.bindSession(ctx, sessionMetadata)
+	if err != nil {
+		return err
 	}
+	defer runtime.Cleanup()
+	console := newCLIConsole(os.Stdin, os.Stderr, outputFormat == "jsonl")
 	toolReg := tools.NewDefaultRegistry(toolDeps)
+	if err := toolReg.Register(&cliAskTool{console: console}); err != nil {
+		return fmt.Errorf("register CLI ask_user: %w", err)
+	}
 
 	// ── Security: PermissionManager (interactive allow/deny tracking) ──
 	permMgr := security.NewPermissionManager()
 
+	limits := providers.TokenLimitsFor(provider.Models(), cfg.Agent.MaxOutputTokens)
+	contextWindow, outputTokens, err := limits(modelName)
+	if err != nil {
+		return fmt.Errorf("agent token limits: %w", err)
+	}
+	instructionSource, err := instructions.New(cwd, cfg.Agent.Instructions)
+	if err != nil {
+		return err
+	}
 	agentCfg := agent.Config{
-		Provider:    provider,
-		Tools:       toolReg,
-		Compressors: tools.NewCompressorRegistry(),
-		Hooks:       hooks.NewRegistry(),
+		Workspace:         cwd,
+		InstructionSource: instructionSource,
+		Provider:          provider,
+		SessionID:         sessionMetadata.ID,
+		Tools:             toolReg,
+		Compressors:       tools.NewCompressorRegistry(),
+		Hooks:             runtime.Hooks,
 		Scanners: []security.Scanner{
 			security.NewCommandScanner(
 				security.WithProjectPath(cwd),
@@ -399,12 +232,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 			),
 			security.NewInjectionScanner(),
 		},
-		Tokenizer:    tokenizer.NewEstimator(),
-		Steering:     agent.NewSteeringQueue(agent.SteeringDrainAll),
-		Model:        modelName,
-		MaxTokens:    200000,
-		SystemPrompt: buildSystemPrompt(cfg),
-		MaxSteps:     cfg.Agent.MaxTurns,
+		Tokenizer:     tokenizer.NewEstimator(),
+		Steering:      agent.NewSteeringQueue(agent.SteeringDrainAll),
+		Model:         modelName,
+		MaxTokens:     outputTokens,
+		ContextWindow: contextWindow,
+		TokenLimits:   limits,
+		SystemPrompt:  buildSystemPrompt(cfg),
+		MaxSteps:      cfg.Agent.MaxTurns,
 	}
 
 	// Wiring nil-seat hook: logs every nil pointer/interface field in
@@ -428,16 +263,33 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	})
 
 	a := agent.New(agentCfg)
+	defer a.Shutdown()
+	if sessionStore != nil {
+		defer func() {
+			commitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			runErr = errors.Join(runErr, api.PersistAgentSession(commitCtx, sessionStore, sessionMetadata.ID, a))
+		}()
+	}
+
+	a.SetSkillRegistry(skillRegistry)
+	a.SetGoalStore(runtime.GoalStore)
+	a.SetPostWriteVerifier(runtime.PostWriteVerifier)
+	a.SetCheckpointSnapshotter(runtime.CheckpointSnapshotter)
+	a.SetFlowStore(runtime.FlowStore, nil)
+	a.SetCompletionAuditor(runtime.CompletionAuditor)
+	if runtime.EvolutionFactory != nil {
+		engine, evolutionErr := runtime.EvolutionFactory(provider)
+		if evolutionErr != nil {
+			return evolutionErr
+		}
+		a.SetEvolutionEngine(engine)
+	}
 
 	// Wire autonomy level from config when set.
 	if cfg.Security.AutonomyLevel != "" {
 		a.SetAutoMode(cfg.Security.AutonomyLevel)
 	}
-
-	// Wire the active session ID back into the closure-captured variable
-	// so tools that depend on SessionIDProvider / CheckpointSessionFn
-	// resolve to the live session.
-	activeSessionID = a.SessionID()
 
 	// BeatRecorder — relationship arc tracking.
 	a.SetBeatRecorder(&beatRecorderAdapter{tracker: personality.NewRelationshipTracker()})
@@ -489,7 +341,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Personality subsystem wiring (§4.16). Wire all five detectors into
 	// the agent's user-input observer and personality provider so the
 	// agent adapts its tone and behaviour across turns.
-	if !noPersonality {
+	if personality.ParseLevel(cfg.Personality.Level) != personality.LevelOff {
 		// 1. BlindSpotDetector — tracks repeated task patterns and
 		//    surfaces gentle heads-ups when the user is stuck on the
 		//    same verb (fix, refactor, debug, …) across turns.
@@ -534,7 +386,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		// injection (but detectors still observe for analytics).
 		a.SetPersonalityProvider(func() string {
 			// Respect cfg.Personality.Level — "off" means no injection.
-			if cfg != nil && cfg.Personality.Level == "off" {
+			if cfg != nil && personality.ParseLevel(cfg.Personality.Level) == personality.LevelOff {
 				return ""
 			}
 			var parts []string
@@ -574,99 +426,59 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		// opening question so the user knows Overkill is learning
 		// their style. The answer is handled naturally on the next
 		// turn — we don't block the REPL.
-		if coldStart != nil && coldStart.IsColdStart() {
+		if outputFormat != "jsonl" && coldStart != nil && coldStart.IsColdStart() {
 			fmt.Printf("\n%s%s%s\n\n", colorYellow, coldStart.OpeningQuestion(), colorReset)
 		}
 	}
 
-	// Wire the learning-from-corrections store (§6.5). This persists
-	// user corrections so future turns benefit from past feedback.
-	connString := os.Getenv("DATABASE_URL")
-	if connString == "" && cfg != nil {
-		connString = cfg.DatabaseURL
-	}
-	if connString != "" {
-		// Open a shared DB connection for learning store and memory orchestrator.
-		sharedDB, dbErr := db.Open(connString)
-		if dbErr == nil {
-			if ls, err := learning.NewStore(sharedDB, 1000); err == nil {
-				a.SetLearningStore(ls)
-			}
+	a.SetLearningStore(services.Learning)
+
+	// Agent-specific memory retrieval borrows the same application pool.
+	if runtimeDB != nil {
+		memStore, err := memory.NewPostgresStore(runtimeDB)
+		if err != nil {
+			return fmt.Errorf("runtime: memory store: %w", err)
 		}
-	}
-
-	// PCA-6: Memory orchestrator — always-on Postgres-backed memory store.
-	// Optionally enriched with embeddings/semantic search when the Python
-	// gRPC bridge is available (OVERKILL_BRIDGE_ADDR).
-	if connString != "" {
-		if memDB, dbErr := db.Open(connString); dbErr == nil {
-			if memStore, msErr := memory.NewPostgresStore(memDB); msErr == nil {
-				orch := memory.NewOrchestrator(memStore, provider, modelName)
-
-				// Optional: attach bridge-based embeddings for semantic search.
-				if bridgeAddr := os.Getenv("OVERKILL_BRIDGE_ADDR"); bridgeAddr != "" {
-					if bc, bcErr := bridge.NewClient(bridgeAddr); bcErr == nil {
-						adapter := memory.NewBridgeAdapter(bc)
-						orch.AttachEmbeddings(adapter, memory.SemanticConfig{
-							EmbedModel:      "text-embedding-3-small",
-							SearchThreshold: 0.7,
-						})
-					}
-				}
-
-				a.SetMemoryRetriever(&memoryOrchRetriever{orch: orch})
-				// Ownership: these close at process exit.
-			} else {
-				memDB.Close()
+		orchestrator := memory.NewOrchestrator(memStore, provider, modelName)
+		if address := os.Getenv("OVERKILL_BRIDGE_ADDR"); address != "" {
+			client, err := bridge.NewClient(address)
+			if err != nil {
+				return fmt.Errorf("runtime: memory bridge: %w", err)
 			}
+			defer client.Close()
+			orchestrator.AttachEmbeddings(memory.NewBridgeAdapter(client), memory.SemanticConfig{EmbedModel: "text-embedding-3-small", SearchThreshold: 0.7})
 		}
+		a.SetMemoryRetriever(&memoryOrchRetriever{orch: orchestrator})
+		bookmarks, err := gateway.NewBookmarkStore(runtimeDB)
+		if err != nil {
+			return fmt.Errorf("runtime: bookmark store: %w", err)
+		}
+		a.SetSessionBookmarkStore(&bookmarkStoreAdapter{store: bookmarks})
 	}
 
-	// Bookmark store: PostgreSQL-backed session bookmarks (§7.4).
-	// Wired when a database connection is available; silently skipped
-	// when DATABASE_URL is not set.
-	if connString != "" {
-		if bmDB, bmErr := db.Open(connString); bmErr == nil {
-			if bs, bsErr := gateway.NewBookmarkStore(bmDB); bsErr == nil {
-				a.SetSessionBookmarkStore(&bookmarkStoreAdapter{store: bs})
-				// bmDB closes at process exit alongside other DB connections.
-				defer bmDB.Close()
-			} else {
-				bmDB.Close()
-			}
-		}
+	// Automatic memory is explicitly opted in and shares the API extractor.
+	autoMem, err := automemory.NewConfigured(homeDir, cwd, memoryExtractionProvider, modelName, cfg.AutoMemory)
+	if err != nil {
+		return fmt.Errorf("runtime: automatic memory: %w", err)
 	}
-
-	// ── AutoMemory: post-turn memory extraction to ~/.overkill/memory/ ──
-	if homeDir, err := config.ConfigDir(); err == nil && homeDir != "" {
-		autoMem := automemory.NewExtractor(homeDir)
-		a.SetAutoMemory(autoMem)
-	}
+	a.SetAutoMemory(autoMem)
 
 	// PCA-7: Prompt rewriter middleware ($4.10). When enabled the agent
 	// pipes every user message through the rewriter before the model sees
 	// it — stripping sycophancy, catching anti-patterns, and optionally
 	// expanding ambiguous/complex prompts via LLM.
 	if cfg != nil && cfg.Rewriter.Enabled {
-		rwModel := cfg.Rewriter.Model
-		if rwModel == "" {
-			rwModel = modelName
-		}
-		rw := rewriter.NewLLMRewriter(provider, rwModel)
-		// TODO: cfg.Rewriter.StripSycophancy — the SycophancyReducer is
-		// always active in NewLLMRewriter. Add a configurable toggle.
-		// TODO: cfg.Rewriter.AntiPatternGuard — no anti-pattern guard
-		// exists yet. Wire when anti-pattern detection is implemented.
-		// TODO: cfg.Rewriter.LLMRewrite — the LLM expansion path is
-		// always active for ambiguous/complex prompts. Add a toggle to
-		// skip the LLM call and fall through to passthrough instead.
+		rw := rewriter.NewConfiguredRewriter(provider, modelName, cfg.Rewriter)
 		a.SetRewriter(rw)
 	}
 
-	// P0: context compaction — wire LCM-based compactor.
-	if compactProv := provider; compactProv != nil {
-		compactor := compaction.NewAgentCompactor(compactProv, tokenizer.NewEstimator(), 20)
-		a.SetCompactor(compactor, true)
+	// Use the same session-bound durable strategy as API/TUI/desktop agents.
+	if runtime.HistoryCompactorFactory != nil {
+		c, use, err := runtime.HistoryCompactorFactory(provider)
+		if err != nil {
+			return fmt.Errorf("runtime: compactor: %w", err)
+		}
+		a.SetCompactor(c, use)
 	}
 
 	// P0: hotreload — wire config file watcher.
@@ -674,8 +486,11 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		homeDir, _ := config.ConfigDir()
 		if homeDir != "" {
 			userYAML := filepath.Join(homeDir, "user.yaml")
-			if _, err := hotreload.WireAgent(context.Background(), hotReloadBus, a, userYAML, hotreload.DiscardReporter()); err != nil {
-				log.Printf("hotreload: wire agent: %v", err)
+			reporter := hotreload.NewLogReporter(log.Printf, a.SessionID())
+			if unsubscribe, err := hotreload.WireAgent(context.Background(), hotReloadBus, a, userYAML, reporter); err != nil {
+				reporter.OnReload(nil, err)
+			} else {
+				defer unsubscribe()
 			}
 		}
 	}
@@ -702,37 +517,32 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	defer prefetcher.Stop()
 
 	// P2: extensions manager.
-	if extensionsMgr != nil {
+	if runtime.ExtensionsManager != nil {
+		a.SetExtensionsManager(wrapExtensions(runtime.ExtensionsManager))
+	} else if extensionsMgr != nil {
 		a.SetExtensionsManager(wrapExtensions(extensionsMgr))
 	}
 
 	fmt.Printf("overkill > %s %s\n", providerCfg.Name, modelName)
 	fmt.Printf("Type a message, /help for commands, Ctrl+D to exit.\n\n")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		fmt.Printf("\n%sShutting down...%s\n", colorYellow, colorReset)
-		finalizeSession(a, providerCfg.Name, modelName)
-		cancel()
-		os.Exit(0)
-	}()
-
-	scanner := bufio.NewScanner(os.Stdin)
-
 	for {
 		fmt.Printf("%s>%s ", colorGreen, colorReset)
-		if !scanner.Scan() {
+		line, readErr := console.readLine(ctx)
+		if readErr != nil {
+			if ctx.Err() != nil {
+				finalizeSession(a, providerCfg.Name, modelName)
+				return nil
+			}
+			if !errors.Is(readErr, io.EOF) {
+				return fmt.Errorf("CLI input: %w", readErr)
+			}
 			fmt.Println("\nGoodbye.")
 			finalizeSession(a, providerCfg.Name, modelName)
 			return nil
 		}
 
-		raw := strings.TrimSpace(scanner.Text())
+		raw := strings.TrimSpace(line)
 		if raw == "" {
 			continue
 		}
@@ -742,7 +552,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 			fmt.Print("\r\033[K")
 			fmt.Printf("%s$ %s%s\n", colorDim, raw, colorReset)
 			// Execute shell command directly.
-			runShellCommand(raw)
+			runShellCommand(ctx, raw)
 			continue
 		}
 
@@ -761,9 +571,15 @@ func runAgent(cmd *cobra.Command, args []string) error {
 				fmt.Println("  /clear       - clear history")
 				fmt.Println("  /history     - show history")
 				fmt.Println("  /model <id>  - switch model")
+				fmt.Println("  /audit start|run <JSON claims> - capture baseline or run completion checks")
 			case "/clear":
 				a.ClearHistory()
 				fmt.Printf("%sHistory cleared.%s\n", colorGreen, colorReset)
+			case "/audit":
+				history, _ := json.Marshal(a.History())
+				if err := runAuditCommand(ctx, runtime.CompletionAuditor, strings.TrimSpace(strings.TrimPrefix(input, parts[0])), string(history)); err != nil {
+					fmt.Printf("Audit: %v\n", err)
+				}
 			case "/history":
 				for i, msg := range a.History() {
 					fmt.Printf("  %d [%s] %s\n", i+1, msg.Role, truncate(msg.Content, 200))
@@ -804,7 +620,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 				}
 				return "completed", r.Response, nil
 			})
-			results, latsErr := lats.Race(context.Background(), branches, runner, nil, lats.Options{
+			results, latsErr := lats.Race(ctx, branches, runner, nil, lats.Options{
 				MaxBranches:      2,
 				PerBranchTimeout: 5 * time.Minute,
 				FallbackWorkdir:  cwd,
@@ -832,10 +648,19 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		fmt.Printf("\n%s%d steps · %d tools · %d tokens%s\n\n",
 			colorDim, result.Steps, result.ToolCalls, result.TotalTokens, colorReset)
 
-		// Mirror TUI behaviour: optional non-blocking sync push after each
-		// successful turn. Errors land on stderr so the user sees them
-		// without breaking the REPL.
-		syncpkg.AutoPushIfEnabled(cfg, nil, a.SessionID(), func(err error) {
+		// Push only committed turns: loading the store before persistence would
+		// upload an empty or previous transcript. The manager coalesces subsequent
+		// turns while an upload is running, and shutdown drains the last upload.
+		if sessionStore != nil {
+			commitCtx, commitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			commitErr := api.PersistAgentSession(commitCtx, sessionStore, sessionMetadata.ID, a)
+			commitCancel()
+			if err := commitErr; err != nil {
+				fmt.Fprintf(os.Stderr, "%ssession persistence failed: %s%s\n", colorYellow, err.Error(), colorReset)
+				continue
+			}
+		}
+		syncpkg.AutoPushIfEnabled(cfg, syncManager, a.SessionID(), func(err error) {
 			fmt.Fprintf(os.Stderr, "%ssync auto-push failed: %s%s\n", colorYellow, err.Error(), colorReset)
 		})
 	}
@@ -997,8 +822,8 @@ func finalizeSession(a *agent.Agent, providerName, modelName string) {
 }
 
 // runShellCommand executes a shell command directly and prints output.
-func runShellCommand(cmd string) {
-	out, err := execShellCommand(cmd)
+func runShellCommand(ctx context.Context, cmd string) {
+	out, err := execShellCommand(ctx, cmd)
 	if err != nil {
 		fmt.Printf("%s✗ %s%s\n", colorRed, err, colorReset)
 		return
@@ -1007,7 +832,7 @@ func runShellCommand(cmd string) {
 }
 
 // execShellCommand runs a shell command and returns its output.
-func execShellCommand(cmd string) (string, error) {
+func execShellCommand(ctx context.Context, cmd string) (string, error) {
 	sh := os.Getenv("SHELL")
 	if sh == "" {
 		sh = "/bin/sh"
@@ -1015,13 +840,14 @@ func execShellCommand(cmd string) (string, error) {
 	c := exec.Command(sh, "-c", cmd)
 	c.Env = os.Environ()
 	c.Stdin = os.Stdin
-	var stdout, stderr strings.Builder
-	c.Stdout = &stdout
-	c.Stderr = &stderr
-	err := c.Run()
-	out := stdout.String()
+	stdout, stderr := processrunner.NewOutputCapture(1024*1024), processrunner.NewOutputCapture(64*1024)
+	c.Stdout = stdout
+	c.Stderr = stderr
+	err := processrunner.Run(ctx, c)
+	out, _, _ := stdout.Snapshot()
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", stderr.String(), err)
+		diagnostic, _, _ := stderr.Snapshot()
+		return "", fmt.Errorf("%s: %w", diagnostic, err)
 	}
 	return out, nil
 }
@@ -1195,23 +1021,20 @@ func exportMemoryIfNeeded(homeDir string) {
 }
 
 func buildSystemPrompt(cfg *config.Config) string {
-	name := cfg.Agent.Name
-	if name == "" {
-		name = "Overkill"
+	if cfg == nil {
+		cfg = config.Default()
 	}
-	base := fmt.Sprintf(`You are %s, a vibe-coding agent with discipline.
+	base := strings.TrimSpace(cfg.Agent.SystemPrompt)
+	if base == "" {
+		name := cfg.Agent.Name
+		if name == "" {
+			name = "Overkill"
+		}
+		base = fmt.Sprintf(`You are %s, a coding agent.
 You can run shell commands, read/write files, search code, and interact with git.
 Be concise and direct. Never guess URLs. Follow existing code conventions.`, name)
-
-	// Wire cfg.Personality.Language into the system prompt. When set to a
-	// non-English locale, instruct the model to respond in that language.
-	// TODO: cfg.Personality.Level ("subtle"/"witty"/"full") should also
-	// modulate the system prompt's tone/verbosity. Currently only "off"
-	// is respected (via the personality provider in runAgent).
-	if cfg.Personality.Language != "" && cfg.Personality.Language != "en" {
-		base += fmt.Sprintf("\nRespond in %s.", cfg.Personality.Language)
 	}
-	return base
+	return personality.WithPromptStyle(base, personality.ParseLevel(cfg.Personality.Level), cfg.Personality.Language)
 }
 
 func providerEnvVar(name string) string {

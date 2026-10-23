@@ -134,6 +134,7 @@ func (d *DelegateTool) executeBatch(ctx context.Context, tasks []delegateSubTask
 			GoalStr:    t.Goal,
 			ContextStr: t.Context,
 			ModelVal:   t.Model,
+			ToolsetVal: []string{"fs", "patch"},
 		}
 	}
 

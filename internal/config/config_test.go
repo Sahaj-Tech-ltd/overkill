@@ -100,8 +100,8 @@ func TestLoad_InvalidTOML(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("not valid [[[toml"), 0o600))
 
 	cfg, err := Load(path)
-	require.NoError(t, err)
-	assert.Equal(t, CurrentVersion, cfg.Version, "should return defaults on parse error")
+	require.ErrorContains(t, err, "failed to parse config file")
+	assert.Nil(t, cfg)
 }
 
 func TestSave_CreateDir(t *testing.T) {
@@ -283,7 +283,7 @@ func TestWarnings_FullAutonomyNoSandbox(t *testing.T) {
 	warns := cfg.Warnings()
 	found := false
 	for _, w := range warns {
-		if w.String() == "full autonomy without sandbox enabled; consider enabling sandbox for safety" {
+		if w.String() == "full autonomy: execution sandbox unavailable — tools run on the host" {
 			found = true
 		}
 	}

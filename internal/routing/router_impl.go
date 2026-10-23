@@ -3,8 +3,10 @@ package routing
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/models"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
@@ -14,7 +16,7 @@ type SmartRouter struct {
 	classifier   *Classifier
 	providers    []ProviderModels
 	defaultModel string
-	costPriority bool
+	costPriority atomic.Bool
 	// catalog, when attached via WithCatalog, is consulted by the
 	// family-aware + capability-aware lookups (§4.2 + §5.2). Nil
 	// means "no catalog, use legacy providers slice only".
@@ -29,131 +31,183 @@ func NewSmartRouter(classifier *Classifier, providers []ProviderModels, defaultM
 	}
 }
 
+// SetCostPriority switches from legacy complexity tiers to the lowest known
+// request estimate, after capability and token-budget filtering. It is safe to
+// toggle while routing. This is a cost preference, not a measured quality score.
 func (r *SmartRouter) SetCostPriority(enabled bool) {
-	r.costPriority = enabled
+	r.costPriority.Store(enabled)
 }
 
 func (r *SmartRouter) Route(ctx context.Context, req RouteRequest) (*RouteResult, error) {
-	score := r.classifier.Classify(req)
-
-	needsVision := hasCapability(req.RequiredCapabilities, "vision")
-	needsTools := hasCapability(req.RequiredCapabilities, "tools")
-
-	candidates := r.collectCandidates(needsVision, needsTools)
-	if len(candidates) == 0 {
-		if r.defaultModel == "" {
-			return nil, fmt.Errorf("routing: no models available for complexity %s", score.Level)
-		}
-		return r.defaultResult(score), nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-
-	// Pass the real capability requirements through. The old call to
-	// ModelForComplexity ignored needsTools entirely and only set
-	// needsVision when the request was Critical-tier — so a Simple
-	// request that needed tools picked from the cheapest model list,
-	// missed it on the tools filter, then silently fell back to
-	// defaultModel even when capability-matched candidates existed.
-	chosenID, _, err := r.modelForComplexityWithCaps(score.Level, needsVision, needsTools)
-	if err != nil {
-		if r.defaultModel != "" {
-			return r.defaultResult(score), nil
+	for _, capability := range req.RequiredCapabilities {
+		if capability != "vision" && capability != "tools" {
+			return nil, fmt.Errorf("routing: unsupported required capability %q", capability)
 		}
+	}
+	if req.EstimatedTokens < 0 || req.EstimatedOutputTokens < 0 {
+		return nil, fmt.Errorf("routing: estimated token counts must be non-negative")
+	}
+	inputTokens := req.EstimatedTokens
+	if inputTokens == 0 {
+		inputTokens = estimateTokens(req.UserInput)
+	}
+	outputTokens := req.EstimatedOutputTokens
+	if outputTokens == 0 {
+		outputTokens = DefaultEstimatedOutputTokens
+	}
+	req.EstimatedTokens = inputTokens
+	score := r.classifier.Classify(req)
+	needsVision := req.HasAttachments || hasCapability(req.RequiredCapabilities, "vision")
+	needsTools := hasCapability(req.RequiredCapabilities, "tools")
+	candidates := r.collectCandidates(needsVision, needsTools)
+	eligible := candidates[:0]
+	for _, candidate := range candidates {
+		// A cost preference never bypasses known context/output ceilings. Use
+		// the same resolver as execution, including legacy MaxTokens semantics.
+		contextWindow, _, err := providers.ResolveTokenLimits([]providers.Model{candidate.model}, candidate.model.ID, outputTokens)
+		if err != nil || inputTokens > contextWindow-outputTokens {
+			continue
+		}
+		eligible = append(eligible, candidate)
+	}
+	if len(eligible) == 0 {
+		return nil, fmt.Errorf("routing: no configured models satisfy required capabilities (vision=%t, tools=%t) and token estimates (input=%d, output=%d)", needsVision, needsTools, inputTokens, outputTokens)
+	}
+	costPriority := r.costPriority.Load()
+	chosen, err := selectCandidate(eligible, score.Level, costPriority, inputTokens, outputTokens)
+	if err != nil {
 		return nil, fmt.Errorf("routing: %w", err)
 	}
-
-	chosenCandidate := findCandidate(candidates, chosenID)
-	if chosenCandidate == nil {
-		if r.defaultModel != "" {
-			return r.defaultResult(score), nil
-		}
-		return nil, fmt.Errorf("routing: selected model %s not found in available providers", chosenID)
+	costEstimate := 0.0
+	if chosen.pricingKnown {
+		costEstimate = requestCost(chosen.model, inputTokens, outputTokens)
+	}
+	reason := fmt.Sprintf("complexity %s (score %.2f) → %s", score.Level, score.Score, chosen.model.ID)
+	if costPriority {
+		reason += "; cost priority: lowest estimated request cost among eligible models"
+	}
+	if !chosen.pricingKnown {
+		reason += "; price unavailable (not a free-cost estimate)"
 	}
 
-	costEstimate := chosenCandidate.model.CostIn + chosenCandidate.model.CostOut
-
 	return &RouteResult{
-		ModelID:      chosenCandidate.model.ID,
-		ModelName:    chosenCandidate.model.Name,
-		Provider:     chosenCandidate.provider,
-		Complexity:   score,
-		CostEstimate: costEstimate,
-		Reason:       fmt.Sprintf("complexity %s (score %.2f) → %s", score.Level, score.Score, chosenCandidate.model.ID),
+		ModelID:               chosen.model.ID,
+		ModelName:             chosen.model.Name,
+		Provider:              chosen.provider,
+		Complexity:            score,
+		CostEstimate:          costEstimate,
+		CostEstimateKnown:     chosen.pricingKnown,
+		EstimatedInputTokens:  inputTokens,
+		EstimatedOutputTokens: outputTokens,
+		Reason:                reason,
 	}, nil
 }
 
 // ModelForComplexity preserves the legacy signature for callers that
 // don't know their capability requirements. Internally delegates to
 // modelForComplexityWithCaps with no-caps; new code should call the
-// capability-aware form directly.
+// capability-aware form directly. Without a request token mix, this method
+// ranks equal input/output volumes; Route uses its explicit token assumptions.
 func (r *SmartRouter) ModelForComplexity(level ComplexityLevel) (string, string, error) {
-	return r.modelForComplexityWithCaps(level, level == ComplexityCritical, false)
+	id, provider, err := r.modelForComplexityWithCaps(level, level == ComplexityCritical, false)
+	// This legacy API expresses a complexity preference, not required vision.
+	// Route uses the strict helper with the request's actual requirements.
+	if err != nil && level == ComplexityCritical {
+		return r.modelForComplexityWithCaps(level, false, false)
+	}
+	return id, provider, err
 }
 
 func (r *SmartRouter) modelForComplexityWithCaps(level ComplexityLevel, needsVision, needsTools bool) (string, string, error) {
-	allModels := r.collectCandidates(needsVision, needsTools)
-	// Capability fallback: if the caller wanted vision but no candidate
-	// has it, return the best non-vision model. Preserves the legacy
-	// behaviour where TestModelForComplexity_NoVisionModels expected
-	// critical complexity to gracefully degrade rather than error out.
-	if len(allModels) == 0 && needsVision {
-		allModels = r.collectCandidates(false, needsTools)
+	chosen, err := selectCandidate(r.collectCandidates(needsVision, needsTools), level, r.costPriority.Load(), 1, 1)
+	if err != nil {
+		return "", "", err
 	}
-	// Sort by total cost ascending so position 0 = cheapest, len-1 =
-	// most expensive. Mirrors the legacy allSortedModels ordering that
-	// the complexity tiers index into.
-	sort.Slice(allModels, func(i, j int) bool {
-		ci := allModels[i].model.CostIn + allModels[i].model.CostOut
-		cj := allModels[j].model.CostIn + allModels[j].model.CostOut
-		return ci < cj
+	return chosen.model.ID, chosen.provider, nil
+}
+
+func requestCost(model providers.Model, inputTokens, outputTokens int) float64 {
+	// Divide before multiplying to avoid intermediate overflow for finite rates.
+	return float64(inputTokens)/1_000_000*model.CostIn + float64(outputTokens)/1_000_000*model.CostOut
+}
+
+func selectCandidate(candidates []modelCandidate, level ComplexityLevel, costPriority bool, inputTokens, outputTokens int) (modelCandidate, error) {
+	if level < ComplexitySimple || level > ComplexityCritical {
+		return modelCandidate{}, fmt.Errorf("unknown complexity level %d", level)
+	}
+	eligible := make([]modelCandidate, 0, len(candidates))
+	knownAvailable := false
+	for _, c := range candidates {
+		if c.pricingKnown && !math.IsInf(requestCost(c.model, inputTokens, outputTokens), 0) {
+			knownAvailable = true
+		}
+	}
+	for _, c := range candidates {
+		// Preserve unpriced custom-model fallback in complexity mode, but never
+		// rank absent prices as cheaper or more capable than priced candidates.
+		if (costPriority || knownAvailable) && !c.pricingKnown {
+			continue
+		}
+		if c.pricingKnown && math.IsInf(requestCost(c.model, inputTokens, outputTokens), 0) {
+			continue
+		}
+		eligible = append(eligible, c)
+	}
+	if len(eligible) == 0 {
+		return modelCandidate{}, fmt.Errorf("no eligible models with known valid pricing for complexity %s", level)
+	}
+	sort.SliceStable(eligible, func(i, j int) bool {
+		if costPriority {
+			return requestCost(eligible[i].model, inputTokens, outputTokens) < requestCost(eligible[j].model, inputTokens, outputTokens)
+		}
+		return eligible[i].model.CostIn+eligible[i].model.CostOut < eligible[j].model.CostIn+eligible[j].model.CostOut
 	})
-
-	switch level {
-	case ComplexitySimple, ComplexityModerate, ComplexityComplex:
-		if len(allModels) == 0 {
-			return "", "", fmt.Errorf("no models available for complexity level %s", level)
-		}
-		switch level {
-		case ComplexitySimple:
-			m := allModels[0]
-			return m.model.ID, m.provider, nil
-		case ComplexityModerate:
-			idx := len(allModels) / 2
-			m := allModels[idx]
-			return m.model.ID, m.provider, nil
-		case ComplexityComplex:
-			m := allModels[len(allModels)-1]
-			return m.model.ID, m.provider, nil
-		}
-	case ComplexityCritical:
-		// allModels is already capability-filtered by needsVision +
-		// needsTools (it's collectCandidates output). Just pick the
-		// most capable: convention here is end-of-slice = most expensive
-		// = most capable.
-		if len(allModels) > 0 {
-			return allModels[len(allModels)-1].model.ID, allModels[len(allModels)-1].provider, nil
-		}
-		return "", "", fmt.Errorf("no capable model available for critical complexity")
+	if costPriority || level == ComplexitySimple {
+		return eligible[0], nil
 	}
+	if level == ComplexityModerate {
+		return eligible[len(eligible)/2], nil
+	}
+	return eligible[len(eligible)-1], nil
+}
 
-	return "", "", fmt.Errorf("unknown complexity level %d", level)
+func validModelPrice(m providers.Model) bool {
+	return m.CostIn >= 0 && m.CostOut >= 0 && !math.IsNaN(m.CostIn) && !math.IsNaN(m.CostOut) && !math.IsInf(m.CostIn, 0) && !math.IsInf(m.CostOut, 0)
 }
 
 type modelCandidate struct {
-	model    providers.Model
-	provider string
+	model        providers.Model
+	provider     string
+	pricingKnown bool
 }
 
 func (r *SmartRouter) collectCandidates(needsVision, needsTools bool) []modelCandidate {
 	var candidates []modelCandidate
 	for _, pm := range r.providers {
+		if strings.TrimSpace(pm.ProviderName) == "" {
+			continue
+		}
 		for _, m := range pm.Models {
+			if strings.TrimSpace(m.ID) == "" {
+				continue
+			}
 			if needsVision && !m.SupportsVision {
 				continue
 			}
 			if needsTools && !m.SupportsTools {
 				continue
 			}
-			candidates = append(candidates, modelCandidate{model: m, provider: pm.ProviderName})
+			if !validModelPrice(m) {
+				continue
+			}
+			known, explicit := pm.PricingKnown[m.ID]
+			if !explicit {
+				known = m.CostIn > 0 || m.CostOut > 0
+			}
+			candidates = append(candidates, modelCandidate{model: m, provider: pm.ProviderName, pricingKnown: known})
 		}
 	}
 	return candidates
@@ -162,79 +216,18 @@ func (r *SmartRouter) collectCandidates(needsVision, needsTools bool) []modelCan
 // CheapestModel returns the single cheapest model matching the given
 // capability requirements. Used by the built-in agent system to assign
 // cost-appropriate models: Explore/Plan get the cheapest reader, Verify
-// gets the cheapest tool-capable model, General-purpose inherits.
+// gets the cheapest tool-capable model, General-purpose inherits. With no
+// request mix this compares equal input/output volumes and requires known prices.
 func (r *SmartRouter) CheapestModel(needsVision, needsTools bool) (modelID, provider string) {
 	candidates := r.collectCandidates(needsVision, needsTools)
 	if len(candidates) == 0 {
-		// Capability fallback: if no model matches, try without tools.
-		if needsTools {
-			candidates = r.collectCandidates(needsVision, false)
-		}
-		if len(candidates) == 0 {
-			return r.defaultModel, ""
-		}
+		return "", ""
 	}
-	// Sort by cost ascending, pick cheapest.
-	sort.Slice(candidates, func(i, j int) bool {
-		ci := candidates[i].model.CostIn + candidates[i].model.CostOut
-		cj := candidates[j].model.CostIn + candidates[j].model.CostOut
-		return ci < cj
-	})
-	return candidates[0].model.ID, candidates[0].provider
-}
-
-func (r *SmartRouter) allSortedModels(needsVision bool) []modelCandidate {
-	var candidates []modelCandidate
-	for _, pm := range r.providers {
-		for _, m := range pm.Models {
-			if needsVision && !m.SupportsVision {
-				continue
-			}
-			candidates = append(candidates, modelCandidate{model: m, provider: pm.ProviderName})
-		}
+	chosen, err := selectCandidate(candidates, ComplexitySimple, true, 1, 1)
+	if err != nil {
+		return "", ""
 	}
-
-	sort.Slice(candidates, func(i, j int) bool {
-		ci := candidates[i].model.CostIn + candidates[i].model.CostOut
-		cj := candidates[j].model.CostIn + candidates[j].model.CostOut
-		return ci < cj
-	})
-
-	return candidates
-}
-
-func (r *SmartRouter) defaultResult(score ComplexityScore) *RouteResult {
-	var modelName string
-	var provider string
-	for _, pm := range r.providers {
-		for _, m := range pm.Models {
-			if m.ID == r.defaultModel {
-				modelName = m.Name
-				provider = pm.ProviderName
-				break
-			}
-		}
-	}
-	if modelName == "" {
-		modelName = r.defaultModel
-	}
-	return &RouteResult{
-		ModelID:      r.defaultModel,
-		ModelName:    modelName,
-		Provider:     provider,
-		Complexity:   score,
-		CostEstimate: 0,
-		Reason:       fmt.Sprintf("fallback to default model %s (complexity %s)", r.defaultModel, score.Level),
-	}
-}
-
-func findCandidate(candidates []modelCandidate, modelID string) *modelCandidate {
-	for _, c := range candidates {
-		if c.model.ID == modelID {
-			return &c
-		}
-	}
-	return nil
+	return chosen.model.ID, chosen.provider
 }
 
 func hasCapability(caps []string, cap string) bool {

@@ -101,7 +101,7 @@ func (s *Store) ListContributions(ctx context.Context, kind FlowKind, surface Fl
 	}
 	defer rows.Close()
 
-	var out []FlowContribution
+	out := make([]FlowContribution, 0)
 	for rows.Next() {
 		var r FlowRecord
 		if err := rows.Scan(&r.ID, &r.Kind, &r.Surface, &r.Value, &r.Label,

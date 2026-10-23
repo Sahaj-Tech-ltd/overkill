@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/processrunner"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
+	"time"
 )
 
 const protocolVersion = "2024-11-05"
@@ -36,6 +39,25 @@ type Result struct {
 	Text    string        `json:"-"`
 }
 
+// ToolExecutionError is an MCP tools/call result marked isError. The original
+// content is retained for diagnostics while Go callers receive an actual failure.
+type ToolExecutionError struct {
+	Server string
+	Tool   string
+	Result Result
+}
+
+func (err *ToolExecutionError) Error() string {
+	message := err.Result.Text
+	if message == "" {
+		message = "remote tool reported failure without text"
+	}
+	if len(message) > 2048 {
+		message = message[:2048] + " [truncated]"
+	}
+	return fmt.Sprintf("mcp: %s/%s: %s", err.Server, err.Tool, message)
+}
+
 // ContentItem matches the MCP `content` block (text/image/resource).
 type ContentItem struct {
 	Type string `json:"type"`
@@ -59,7 +81,11 @@ type Client struct {
 
 	// wg tracks background goroutines (readLoop + stderr drainer) so
 	// that Start can wait for them to exit on initialization failure.
-	wg sync.WaitGroup
+	wg        sync.WaitGroup
+	runCancel context.CancelFunc
+	runDone   chan struct{}
+	readDone  chan struct{}
+	closeMu   sync.Mutex
 }
 
 // NewClient prepares a client; call Start to spawn the subprocess and run
@@ -111,74 +137,50 @@ func (c *Client) Start(ctx context.Context) error {
 	c.stdout = stdout
 	c.stderr = stderr
 
-	if err := c.cmd.Start(); err != nil {
-		return fmt.Errorf("mcp: start %s: %w", c.name, err)
-	}
-
 	c.conn = newJSONRPCConn(stdin, stdout)
+	runCtx, cancel := context.WithCancel(ctx)
+	c.runCancel = cancel
+	c.runDone = make(chan struct{})
+	c.readDone = make(chan struct{})
 	c.wg.Add(2)
 	go func() {
 		defer c.wg.Done()
-		if err := c.conn.readLoop(); err != nil {
-			c.setError(err)
+		defer close(c.readDone)
+		err := c.conn.readLoop()
+		if err == nil {
+			err = io.EOF
 		}
-	}()
-	// Drain stderr so the server doesn't block on a full pipe.
-	go func() {
-		defer c.wg.Done()
-		buf := make([]byte, 4096)
-		for {
-			if _, err := stderr.Read(buf); err != nil {
-				return
-			}
-		}
-	}()
-
-	// initialize handshake
-	initParams := map[string]any{
-		"protocolVersion": protocolVersion,
-		"capabilities": map[string]any{
-			"tools":     map[string]any{},
-			"resources": map[string]any{},
-		},
-		"clientInfo": map[string]any{
-			"name":    "overkill",
-			"version": "0.1",
-		},
-	}
-	if _, err := c.conn.Call(ctx, "initialize", initParams); err != nil {
 		c.setError(err)
-		// Close the transport to signal background goroutines to exit,
-		// then wait for them to drain before returning the error.
-		if c.conn != nil {
-			c.conn.close()
+	}()
+	go func() { defer c.wg.Done(); _, _ = io.Copy(io.Discard, stderr) }()
+	go func() {
+		defer close(c.runDone)
+		err := processrunner.Run(runCtx, c.cmd)
+		if err == nil {
+			err = io.EOF
 		}
+		c.setError(err)
+		c.conn.close()
 		_ = stdout.Close()
 		_ = stderr.Close()
-		if c.cmd != nil && c.cmd.Process != nil {
-			_ = c.cmd.Process.Kill()
-		}
-		c.wg.Wait()
-		return fmt.Errorf("mcp: initialize %s: %w", c.name, err)
+	}()
+	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer handshakeCancel()
+	initParams := map[string]any{"protocolVersion": protocolVersion, "capabilities": map[string]any{"tools": map[string]any{}, "resources": map[string]any{}}, "clientInfo": map[string]any{"name": "overkill", "version": "0.1"}}
+	if _, err := c.conn.Call(handshakeCtx, "initialize", initParams); err != nil {
+		_ = c.Close()
+		return fmt.Errorf("mcp: initialization failed for %s", c.name)
 	}
 	if err := c.conn.Notify("notifications/initialized", map[string]any{}); err != nil {
-		c.setError(err)
-		if c.conn != nil {
-			c.conn.close()
-		}
-		_ = stdout.Close()
-		_ = stderr.Close()
-		if c.cmd != nil && c.cmd.Process != nil {
-			_ = c.cmd.Process.Kill()
-		}
-		c.wg.Wait()
-		return fmt.Errorf("mcp: initialized notification %s: %w", c.name, err)
+		_ = c.Close()
+		return fmt.Errorf("mcp: initialization notification failed for %s", c.name)
 	}
-	tools, err := c.ListTools(ctx)
+	tools, err := c.ListTools(handshakeCtx)
 	if err != nil {
-		// Some servers don't expose tools — that's fine; mark connected.
-		tools = nil
+		_ = c.Close()
+		return fmt.Errorf("mcp: tool discovery failed for %s", c.name)
 	}
+
 	c.mu.Lock()
 	c.connected = true
 	c.tools = tools
@@ -202,6 +204,16 @@ func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, fmt.Errorf("mcp: decode tools: %w", err)
 	}
+	if len(resp.Tools) > 256 {
+		return nil, fmt.Errorf("mcp: catalog exceeds 256 tools")
+	}
+	seen := make(map[string]bool)
+	for _, tool := range resp.Tools {
+		if tool.Name == "" || len(tool.Name) > 128 || strings.ContainsAny(tool.Name, ":\r\n") || seen[tool.Name] || len(tool.Description) > 8192 || len(tool.InputSchema) > 1024*1024 {
+			return nil, fmt.Errorf("mcp: unsupported or oversized tool catalog")
+		}
+		seen[tool.Name] = true
+	}
 	return resp.Tools, nil
 }
 
@@ -210,13 +222,22 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 	if c.conn == nil {
 		return Result{}, fmt.Errorf("mcp: not started")
 	}
-	var argsAny any = map[string]any{}
-	if len(args) > 0 {
-		var v any
-		if err := json.Unmarshal(args, &v); err == nil {
-			argsAny = v
-		}
+	if len(args) == 0 {
+		args = json.RawMessage(`{}`)
 	}
+	if len(args) > maxMCPArgumentBytes {
+		return Result{}, fmt.Errorf("mcp: arguments exceed transport byte limit")
+	}
+	value, err := decodeCallArguments(args)
+	if err != nil {
+		return Result{}, err
+	}
+	if _, err := encodedJSONSize(value, maxMCPArgumentBytes); err != nil {
+		return Result{}, err
+	}
+	// Preserve numeric lexemes exactly; decoding into float64 would corrupt large integers.
+	argsAny := args
+
 	raw, err := c.conn.Call(ctx, "tools/call", map[string]any{
 		"name":      name,
 		"arguments": argsAny,
@@ -235,6 +256,9 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 			}
 			res.Text += ci.Text
 		}
+	}
+	if res.IsError {
+		return res, &ToolExecutionError{Server: c.name, Tool: name, Result: res}
 	}
 	return res, nil
 }
@@ -261,28 +285,26 @@ func (c *Client) ListResources(ctx context.Context) ([]Resource, error) {
 // Close kills the subprocess and tears down pipes. Waits for background
 // goroutines to drain before returning.
 func (c *Client) Close() error {
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+	if c.runCancel != nil {
+		c.runCancel()
+	}
 	if c.conn != nil {
 		c.conn.close()
 	}
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 	}
-	// Explicitly close the stdout + stderr pipes so the read goroutines
-	// (jsonrpc reader on stdout, stderr drain) exit deterministically.
-	// Killing the process eventually closes them via the kernel, but
-	// the drainer's exit was timing-dependent — each supervise restart
-	// cycle accumulated another live drainer goroutine.
 	if c.stdout != nil {
 		_ = c.stdout.Close()
 	}
 	if c.stderr != nil {
 		_ = c.stderr.Close()
 	}
-	if c.cmd != nil && c.cmd.Process != nil {
-		_ = c.cmd.Process.Kill()
-		_, _ = c.cmd.Process.Wait()
+	if c.runDone != nil {
+		<-c.runDone
 	}
-	// Wait for background goroutines (readLoop, stderr drainer) to exit.
 	c.wg.Wait()
 	c.mu.Lock()
 	c.connected = false

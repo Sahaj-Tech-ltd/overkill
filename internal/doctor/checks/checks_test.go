@@ -550,6 +550,7 @@ func TestDB_OK(t *testing.T) {
 }
 
 func TestDB_MissingURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
 	cfg := config.Default()
 	cfg.DatabaseURL = ""
 	d := newTestDeps(t, cfg)

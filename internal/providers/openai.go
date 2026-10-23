@@ -67,15 +67,26 @@ type openaiToolFunc struct {
 	Parameters  json.RawMessage `json:"parameters"`
 }
 
+// OpenAIStreamUsageMetadataKey controls the explicit compatibility opt-out.
+// Set Request.Metadata[OpenAIStreamUsageMetadataKey] to boolean false for a
+// gateway that rejects stream_options. The default and boolean true request
+// usage. No rejected model request is automatically replayed without the option.
+const OpenAIStreamUsageMetadataKey = "openai_stream_usage"
+
+type openaiStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 type openaiRequest struct {
-	Model           string          `json:"model"`
-	Messages        []openaiMessage `json:"messages"`
-	Tools           []openaiTool    `json:"tools,omitempty"`
-	MaxTokens       int             `json:"max_tokens,omitempty"`
-	Temperature     float64         `json:"temperature,omitempty"`
-	Stream          bool            `json:"stream,omitempty"`
-	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
-	Thinking        *openaiThinking `json:"thinking,omitempty"`
+	Model           string               `json:"model"`
+	Messages        []openaiMessage      `json:"messages"`
+	Tools           []openaiTool         `json:"tools,omitempty"`
+	MaxTokens       int                  `json:"max_tokens,omitempty"`
+	Temperature     float64              `json:"temperature,omitempty"`
+	Stream          bool                 `json:"stream,omitempty"`
+	StreamOptions   *openaiStreamOptions `json:"stream_options,omitempty"`
+	ReasoningEffort string               `json:"reasoning_effort,omitempty"`
+	Thinking        *openaiThinking      `json:"thinking,omitempty"`
 }
 
 type openaiThinking struct {
@@ -83,10 +94,10 @@ type openaiThinking struct {
 }
 
 type openaiResponse struct {
-	ID      string          `json:"id"`
-	Model   string          `json:"model"`
-	Choices []openaiChoice  `json:"choices"`
-	Usage   openaiUsageResp `json:"usage"`
+	ID      string           `json:"id"`
+	Model   string           `json:"model"`
+	Choices []openaiChoice   `json:"choices"`
+	Usage   *openaiUsageResp `json:"usage"`
 }
 
 type openaiChoice struct {
@@ -95,16 +106,22 @@ type openaiChoice struct {
 	FinishReason string        `json:"finish_reason"`
 }
 
+type openaiStreamError struct {
+	Message string `json:"message"`
+}
+
 type openaiStreamChunk struct {
+	Error   *openaiStreamError   `json:"error,omitempty"`
 	ID      string               `json:"id"`
 	Choices []openaiStreamChoice `json:"choices"`
 	Usage   *openaiUsageResp     `json:"usage,omitempty"`
 }
 
 type openaiStreamChoice struct {
-	Index        int               `json:"index"`
-	Delta        openaiStreamDelta `json:"delta"`
-	FinishReason *string           `json:"finish_reason"`
+	Error        *openaiStreamError `json:"error,omitempty"`
+	Index        int                `json:"index"`
+	Delta        openaiStreamDelta  `json:"delta"`
+	FinishReason *string            `json:"finish_reason"`
 }
 
 type openaiStreamDelta struct {
@@ -114,8 +131,39 @@ type openaiStreamDelta struct {
 }
 
 type openaiUsageResp struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	PromptTokensDetails *struct {
+		CachedTokens *int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
+	// DeepSeek's legacy equivalent of prompt_tokens_details.cached_tokens.
+	PromptCacheHitTokens *int `json:"prompt_cache_hit_tokens,omitempty"`
+}
+
+func (wire *openaiUsageResp) usage() Usage {
+	if wire == nil {
+		return Usage{}
+	}
+	usage := Usage{InputTokens: wire.PromptTokens, OutputTokens: wire.CompletionTokens}
+	// Cached tokens are a subset of prompt tokens, never an extra charge.
+	if wire.PromptTokensDetails != nil && wire.PromptTokensDetails.CachedTokens != nil {
+		usage.CachedInputTokens = *wire.PromptTokensDetails.CachedTokens
+	} else if wire.PromptCacheHitTokens != nil {
+		usage.CachedInputTokens = *wire.PromptCacheHitTokens
+	}
+	return usage
+}
+
+func openAIStreamUsageEnabled(req Request) (bool, error) {
+	value, exists := req.Metadata[OpenAIStreamUsageMetadataKey]
+	if !exists {
+		return true, nil
+	}
+	enabled, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("providers: metadata %s must be a boolean", OpenAIStreamUsageMetadataKey)
+	}
+	return enabled, nil
 }
 
 type OpenAIProvider struct {
@@ -151,6 +199,9 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req Request) (Response, e
 }
 
 func (p *OpenAIProvider) Stream(ctx context.Context, req Request) (<-chan Chunk, error) {
+	if _, err := openAIStreamUsageEnabled(req); err != nil {
+		return nil, err
+	}
 	body := p.buildRequestBody(req, true)
 
 	resp, err := p.doRequest(ctx, http.MethodPost, "/chat/completions", body)
@@ -191,6 +242,13 @@ func (p *OpenAIProvider) buildRequestBody(req Request, stream bool) openaiReques
 		Stream:      stream,
 	}
 
+	if stream {
+		enabled, err := openAIStreamUsageEnabled(req)
+		if err == nil && enabled {
+			body.StreamOptions = &openaiStreamOptions{IncludeUsage: true}
+		}
+	}
+
 	if len(req.Tools) > 0 {
 		body.Tools = openAITools(req.Tools)
 	}
@@ -213,27 +271,30 @@ func (p *OpenAIProvider) buildRequestBody(req Request, stream bool) openaiReques
 
 func (p *OpenAIProvider) parseResponse(result *openaiResponse) (Response, error) {
 	resp := Response{
-		ID:    result.ID,
-		Model: result.Model,
-		Usage: Usage{
-			InputTokens:  result.Usage.PromptTokens,
-			OutputTokens: result.Usage.CompletionTokens,
-		},
+		ID:            result.ID,
+		Model:         result.Model,
+		Usage:         result.Usage.usage(),
+		UsageReported: result.Usage != nil,
 	}
 
 	if len(result.Choices) == 0 {
-		return Response{}, fmt.Errorf("providers: openai returned empty choices (no model response)")
+		return resp, fmt.Errorf("providers: openai returned empty choices (no model response)")
 	}
 
 	choice := result.Choices[0]
-	// Response content always comes back as a string for our request
-	// shape (we don't ask for tool-use blocks or images out). Defensive
-	// assertion in case the API ever evolves — non-string falls back
-	// to empty rather than panicking.
-	if s, ok := choice.Message.Content.(string); ok {
-		resp.Content = s
-	} else if choice.FinishReason != "stop" {
-		return Response{}, fmt.Errorf("providers: openai response content is not a string (type: %T, finish_reason: %s)", choice.Message.Content, choice.FinishReason)
+	// Tool-call responses legitimately omit content or set it to null. A
+	// non-null value must still be a string; malformed content must never
+	// become an apparently successful empty response because finish_reason=stop.
+	switch content := choice.Message.Content.(type) {
+	case string:
+		resp.Content = content
+	case nil:
+		hasCompleteCalls := len(choice.Message.ToolCalls) > 0 && (choice.FinishReason == "tool_calls" || choice.FinishReason == "stop" || choice.FinishReason == "")
+		if !hasCompleteCalls && choice.FinishReason != "stop" {
+			return resp, fmt.Errorf("providers: openai response has no content or tool calls (finish_reason: %s)", choice.FinishReason)
+		}
+	default:
+		return resp, fmt.Errorf("providers: openai response content is not a string (type: %T, finish_reason: %s)", choice.Message.Content, choice.FinishReason)
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
@@ -273,6 +334,8 @@ func (p *OpenAIProvider) readSSEStream(ctx context.Context, body io.Reader, ch c
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	var usage *Usage
+	var streamErr error
+	var sawDone, sawFinish bool
 	// OpenAI streams tool_calls as a sequence of deltas, each carrying
 	// an `index` plus partial id / function.name / function.arguments
 	// fragments. Arguments is a JSON string that is NOT valid mid-stream
@@ -326,23 +389,39 @@ func (p *OpenAIProvider) readSSEStream(ctx context.Context, body io.Reader, ch c
 			return true
 		}
 		if payload == "[DONE]" {
+			sawDone = true
 			return false
 		}
 		var chunk openaiStreamChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			log.Warn().Err(err).Str("data", payload).Msg("providers: failed to parse openai stream chunk")
-			return true
+			streamErr = fmt.Errorf("openai stream: decode event: %w", err)
+			return false
 		}
 		if chunk.Usage != nil {
-			usage = &Usage{
-				InputTokens:  chunk.Usage.PromptTokens,
-				OutputTokens: chunk.Usage.CompletionTokens,
+			reported := chunk.Usage.usage()
+			usage = &reported
+			// Publish now, rather than waiting for Done: a later transport
+			// failure must not erase usage already received from the provider.
+			if !sendChunk(ctx, ch, Chunk{Usage: usage}) {
+				return false
 			}
+		}
+		if chunk.Error != nil {
+			streamErr = fmt.Errorf("openai stream: provider error: %s", chunk.Error.Message)
+			return false
 		}
 		if len(chunk.Choices) == 0 {
 			return true
 		}
 		choice := chunk.Choices[0]
+		if choice.Error != nil {
+			streamErr = fmt.Errorf("openai stream: provider choice error: %s", choice.Error.Message)
+			return false
+		}
+		if choice.FinishReason != nil && *choice.FinishReason == "error" {
+			streamErr = fmt.Errorf("openai stream: provider returned error finish reason")
+			return false
+		}
 		if choice.Delta.Content != "" {
 			if !sendChunk(ctx, ch, Chunk{Content: choice.Delta.Content}) {
 				return false
@@ -374,6 +453,7 @@ func (p *OpenAIProvider) readSSEStream(ctx context.Context, body io.Reader, ch c
 			}
 		}
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			sawFinish = true
 			if tools := flushTools(); len(tools) > 0 {
 				if !sendChunk(ctx, ch, Chunk{ToolCalls: tools}) {
 					return false
@@ -411,30 +491,33 @@ func (p *OpenAIProvider) readSSEStream(ctx context.Context, body io.Reader, ch c
 		}
 		dataBuf.WriteString(seg)
 	}
-	// Last event (no trailing blank line on close).
-	if pending := dataBuf.String(); pending != "" {
-		if strings.TrimSpace(pending) == "[DONE]" {
-			return
-		}
-		if !sendChunk(ctx, ch, Chunk{Content: pending}) {
-			return
+	// A final event without a blank delimiter still uses the JSON/SSE
+	// dispatcher. Raw wire JSON must never become assistant content.
+	if streamErr == nil && scanner.Err() == nil && !sawDone {
+		if pending := dataBuf.String(); pending != "" {
+			dispatch(pending)
 		}
 	}
-
-	// Belt + suspenders: some proxies drop finish_reason. Flush anything
-	// still accumulated before signalling Done.
+	if streamErr == nil && scanner.Err() != nil {
+		streamErr = fmt.Errorf("openai stream: %w", scanner.Err())
+	}
+	if streamErr == nil && ctx.Err() != nil {
+		streamErr = context.Cause(ctx)
+	}
+	if streamErr == nil && !sawDone && !sawFinish {
+		streamErr = fmt.Errorf("openai stream: incomplete response: %w", io.ErrUnexpectedEOF)
+	}
+	if streamErr != nil {
+		logSendChunk(ctx, ch, Chunk{Err: streamErr, Usage: usage})
+		return
+	}
+	// Legacy compatible gateways may close cleanly after finish_reason and
+	// omit [DONE]/usage. That is a completed response with unknown usage.
+	// Otherwise a transport error or unfinished EOF never reports Done.
 	if tools := flushTools(); len(tools) > 0 {
 		if !sendChunk(ctx, ch, Chunk{ToolCalls: tools}) {
 			return
 		}
-	}
-
-	// Transport-level error (TCP reset, proxy timeout, body close) leaves the
-	// scanner in a non-nil err state. Surface it as a stream error instead of
-	// faking a clean Done — the consumer must NOT commit partial content.
-	if err := scanner.Err(); err != nil {
-		logSendChunk(ctx, ch, Chunk{Err: fmt.Errorf("openai stream: %w", err)})
-		return
 	}
 	logSendChunk(ctx, ch, Chunk{Done: true, Usage: usage})
 }

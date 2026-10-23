@@ -40,8 +40,8 @@ func TestDecomposer_BatchSize(t *testing.T) {
 	}{
 		{0, 0, 3}, // both zero → NewManager defaults MaxChildren=3
 		{0, 3, 3}, // only MaxChildren → use it
-		{5, 3, 5}, // MaxTasksPerChild takes priority
-		{6, 2, 6}, // explicit MaxTasksPerChild
+		{5, 3, 3}, // limit is capped at available capacity
+		{6, 2, 2}, // oversized explicit limit is capped
 	}
 	for _, tt := range tests {
 		cfg := Config{MaxTasksPerChild: tt.maxTasks, MaxChildren: tt.maxChild}

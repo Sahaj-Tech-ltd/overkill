@@ -83,7 +83,12 @@ export function Sidebar({
 
   // Keyboard handlers for file scrolling
   useInput(
-    (_input, key) => {
+    (input, key) => {
+      if (key.tab) {
+        const index = TABS.findIndex((tab) => tab.id === activeTab);
+        onTabChange?.(TABS[(index + (key.shift ? -1 : 1) + TABS.length) % TABS.length]!.id);
+        return;
+      }
       if (key.downArrow && canScrollDown) {
         setFileScrollOffset((prev) =>
           Math.min(prev + 1, totalFiles - MAX_VISIBLE_FILES),
@@ -125,6 +130,7 @@ export function Sidebar({
         )}
       </Box>
 
+      <Text dimColor>{isInputFocused ? "Ctrl+B: focus sidebar" : "Tab: next panel · Ctrl+B: chat"}</Text>
       {/* Tabs — horizontal row */}
       <Box flexDirection="row" flexShrink={0} paddingBottom={1} flexWrap="wrap">
         {TABS.map((tab) => (

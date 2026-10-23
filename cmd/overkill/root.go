@@ -46,6 +46,7 @@ var (
 	featureMgr *features.Manager
 	// extensionsManager holds the unified extensions registry.
 	extensionsMgr *extensions.Manager
+	skillRegistry *skills.Registry
 )
 
 var rootCmd = &cobra.Command{
@@ -53,6 +54,7 @@ var rootCmd = &cobra.Command{
 	Short:   "The vibe-coding agent that actually has discipline.",
 	Version: Version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		stopApplicationHotReload()
 		if verbose {
 			zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		}
@@ -118,7 +120,8 @@ var rootCmd = &cobra.Command{
 			log.Warn().Err(e).Msg("config validation")
 		}
 
-		for _, w := range cfg.Warnings() {
+		warningConfig := databaseWarningConfig(cmd, cfg)
+		for _, w := range warningConfig.Warnings() {
 			log.Warn().Str("warning", w.String()).Msg("config")
 		}
 
@@ -132,17 +135,7 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
-		// P1: hotreload bus — watches user.yaml and notifies subscribers.
 		homeDir, _ := config.ConfigDir()
-		if homeDir != "" {
-			userYAML := filepath.Join(homeDir, "user.yaml")
-			hotReloadBus = hotreload.New(hotreload.Paths{
-				SkillsDir:      filepath.Join(homeDir, "skills"),
-				AgentsDir:      filepath.Join(homeDir, "agents"),
-				PluginsDir:     filepath.Join(homeDir, "plugins"),
-				UserConfigFile: userYAML,
-			})
-		}
 
 		// P1: feature flags — load from ~/.overkill/features.toml if present.
 		featureMgr = features.NewManager()
@@ -153,23 +146,25 @@ var rootCmd = &cobra.Command{
 		// P2: extensions manager — register known backends.
 		extensionsMgr = extensions.NewManager()
 
-		// Wire skills backend into the extensions manager so skill
-		// toggling works through the unified extensions surface.
+		// One registry powers both extension toggles and executing agents.
+		skillRegistry = skills.NewRegistry()
 		if homeDir != "" {
-			userSkillDir := filepath.Join(homeDir, "skills")
-			bundledSkillDir := os.Getenv("OVERKILL_BUNDLED_SKILLS")
-			loader := skills.NewLoader(bundledSkillDir, userSkillDir)
-			if loaded, err := loader.LoadAll(); err == nil && len(loaded) > 0 {
-				reg := skills.NewRegistry()
-				for i := range loaded {
-					_ = reg.Register(&loaded[i])
+			var err error
+			skillRegistry, err = skills.NewPersistentRegistry(filepath.Join(homeDir, "skill-state"))
+			if err != nil {
+				return err
+			}
+			loaded, err := skills.NewLoader(os.Getenv("OVERKILL_BUNDLED_SKILLS"), filepath.Join(homeDir, "skills")).LoadAll()
+			if err != nil {
+				return fmt.Errorf("load skills: %w", err)
+			}
+			for i := range loaded {
+				if err := skillRegistry.Register(&loaded[i]); err != nil {
+					return err
 				}
-				extensionsMgr.AddBackend(extensions.NewSkillsBackend(reg))
-				log.Debug().Int("count", len(loaded)).Msg("extensions: skills backend registered")
-			} else if err != nil {
-				log.Warn().Err(err).Msg("extensions: skills load failed, backend not registered")
 			}
 		}
+		extensionsMgr = extensions.NewConfiguredManager(skillRegistry, cfg, homeDir)
 
 		// Apply settings defaults from ~/.overkill/settings.toml.
 		// LoadAll is a no-op when no groups are registered, but when
@@ -181,8 +176,12 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
+		if err := startApplicationHotReload(cmd.Context(), homeDir); err != nil {
+			return fmt.Errorf("hotreload startup: %w", err)
+		}
 		return nil
 	},
+	PersistentPostRun: func(_ *cobra.Command, _ []string) { stopApplicationHotReload() },
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// If no provider is configured, route to setup wizard instead of
 		// opening the TUI (which needs a working LLM backend).
@@ -195,28 +194,7 @@ var rootCmd = &cobra.Command{
 			return runSetup(cmd, args)
 		}
 
-		err := runInkTUI(cmd, args)
-		if err != nil {
-			// TUI failed to launch — most likely running from go install
-			// binary without the repo clone (tui/ dir not found, npm missing).
-			fmt.Println()
-			fmt.Printf("%s%s⚠ TUI not available%s\n", colorBold, colorYellow, colorReset)
-			fmt.Println()
-			fmt.Println("  The Ink TUI needs Node.js + the repo clone. The install script handles this:")
-			fmt.Println("    curl -fsSL https://overkill.my/install | sh")
-			fmt.Println()
-			fmt.Println("  Or manually:")
-			fmt.Println("    git clone --depth 1 https://github.com/Sahaj-Tech-ltd/overkill ~/.overkill/repo")
-			fmt.Println("    cd ~/.overkill/repo/tui && npm install")
-			fmt.Println()
-			fmt.Println("  For now, use the CLI directly:")
-			fmt.Printf("    %soverkill run%s            (single-turn agent loop)\n", colorBold, colorReset)
-			fmt.Printf("    %soverkill setup%s          (configure a provider)\n", colorBold, colorReset)
-			fmt.Printf("    %soverkill config setup%s   (full config wizard)\n", colorBold, colorReset)
-			fmt.Printf("    %soverkill --help%s         (all commands)\n", colorBold, colorReset)
-			fmt.Println()
-		}
-		return nil
+		return runInkTUI(cmd, args)
 	},
 }
 

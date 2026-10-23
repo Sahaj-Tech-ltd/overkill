@@ -2,13 +2,10 @@ package walls
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"testing"
 	"time"
-
-	_ "github.com/lib/pq"
 )
 
 func TestRegressionBank_RecordValidation(t *testing.T) {
@@ -119,15 +116,7 @@ func TestRegressionBank_Delete(t *testing.T) {
 }
 
 func TestPostgresRegressionStore_Roundtrip(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set — skipping Postgres regression store test")
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatalf("postgres open: %v", err)
-	}
-	defer db.Close()
+	db, _ := testpg.Open(t)
 	store, err := NewPostgresRegressionStore(db)
 	if err != nil {
 		t.Fatalf("postgres store: %v", err)

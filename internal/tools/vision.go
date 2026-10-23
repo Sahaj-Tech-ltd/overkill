@@ -7,13 +7,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io"
 	"strings"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/browser"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
+
+const maxVisionImageBytes = 20 << 20
 
 // VisionDescribeTool wraps a vision.Describer and (optionally) the
 // browser manager so the agent can describe web pages without a
@@ -23,8 +24,7 @@ type VisionDescribeTool struct {
 	Mgr       *browser.Manager  // optional; required for url/screenshot modes
 	Policy    BrowserHostPolicy // re-uses the same SSRF policy as browser tools
 	// RootDir bounds the `file:` mode so `vision_describe` can't read
-	// arbitrary paths like /etc/shadow. Empty disables the check
-	// (legacy behaviour); production callers should always set it.
+	// arbitrary paths like /etc/shadow. File mode fails closed without a root.
 	RootDir string
 }
 
@@ -41,6 +41,14 @@ func (t *VisionDescribeTool) WithRootDir(dir string) *VisionDescribeTool {
 }
 
 func (t *VisionDescribeTool) Name() string { return "vision_describe" }
+
+func (t *VisionDescribeTool) Description() string {
+	return "Describe an image file within this workspace, a browser URL, or the current browser viewport. File images are limited to 20 MiB. URL and viewport modes require a configured browser and its host policy."
+}
+
+func (t *VisionDescribeTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","maxLength":16384},"selector":{"type":"string","maxLength":4096},"file":{"type":"string","maxLength":4096},"prompt":{"type":"string","maxLength":8192},"width":{"type":"integer","minimum":0,"maximum":4096},"height":{"type":"integer","minimum":0,"maximum":4096}},"additionalProperties":false}`)
+}
 
 type visionDescribeInput struct {
 	URL      string `json:"url"`      // navigate, screenshot, describe
@@ -59,10 +67,24 @@ func (t *VisionDescribeTool) Execute(ctx context.Context, in json.RawMessage) (j
 		return errorJSON("vision_describe: no vision describer configured (set [vision] api_key + model)"), nil
 	}
 	var args visionDescribeInput
+	if len(in) > 32768 {
+		return nil, fmt.Errorf("vision_describe: input exceeds bound")
+	}
 	if len(in) > 0 {
-		if err := json.Unmarshal(in, &args); err != nil {
+		dec := json.NewDecoder(strings.NewReader(string(in)))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&args); err != nil {
 			return nil, fmt.Errorf("vision_describe: %w", err)
 		}
+		if err := dec.Decode(new(any)); err != io.EOF {
+			return nil, fmt.Errorf("vision_describe: one input object required")
+		}
+	}
+	if len(args.URL) > 16384 || len(args.Selector) > 4096 || len(args.File) > 4096 || len(args.Prompt) > 8192 || args.Width < 0 || args.Width > 4096 || args.Height < 0 || args.Height > 4096 {
+		return nil, fmt.Errorf("vision_describe: input field exceeds bound")
+	}
+	if args.URL != "" && args.File != "" {
+		return nil, fmt.Errorf("vision_describe: choose one image source")
 	}
 
 	var (
@@ -92,32 +114,37 @@ func (t *VisionDescribeTool) Execute(ctx context.Context, in json.RawMessage) (j
 		}
 		source = args.URL
 	case args.File != "":
-		path := args.File
-		if !filepath.IsAbs(path) {
-			base := t.RootDir
-			if base == "" {
-				base, _ = os.Getwd()
-			}
-			path = filepath.Join(base, path)
+		if t.RootDir == "" {
+			return errorJSON("vision_describe: file mode requires a workspace root"), nil
 		}
-		path = filepath.Clean(path)
-		// Containment check via filepath.Rel — without this the LLM
-		// could `file: "/etc/shadow"` and bypass FSTool's guards
-		// entirely. RootDir empty preserves legacy permissive mode for
-		// CLI usage without a workspace.
-		if t.RootDir != "" {
-			root, rerr := filepath.Abs(t.RootDir)
-			if rerr == nil {
-				rel, relErr := filepath.Rel(filepath.Clean(root), path)
-				if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-					return errorJSON(fmt.Sprintf("vision_describe: path %q is outside workspace", args.File)), nil
-				}
-			}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		png, err = os.ReadFile(path)
+		root, name, err := openWorkspace(t.RootDir, args.File)
+		if err != nil {
+			return errorJSON(fmt.Sprintf("vision_describe: workspace path: %v", err)), nil
+		}
+		defer root.Close()
+		file, err := openVisionFile(root, name)
 		if err != nil {
 			return errorJSON(fmt.Sprintf("vision_describe: read file: %v", err)), nil
 		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			return errorJSON("vision_describe: image must be a regular file"), nil
+		}
+		if info.Size() > maxVisionImageBytes {
+			return errorJSON("vision_describe: image exceeds 20 MiB limit"), nil
+		}
+		png, err = io.ReadAll(io.LimitReader(file, maxVisionImageBytes+1))
+		if err != nil {
+			return errorJSON(fmt.Sprintf("vision_describe: read file: %v", err)), nil
+		}
+		if len(png) > maxVisionImageBytes {
+			return errorJSON("vision_describe: image exceeds 20 MiB limit"), nil
+		}
+
 		source = "file:" + args.File
 	default:
 		if t.Mgr == nil {
@@ -135,6 +162,9 @@ func (t *VisionDescribeTool) Execute(ctx context.Context, in json.RawMessage) (j
 		source = "viewport:" + cur
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	mime := vision.MIMEFromBytes(png)
 	desc, err := t.Describer.Describe(ctx, []vision.Image{{Bytes: png, Mime: mime}}, args.Prompt)
 	if err != nil {

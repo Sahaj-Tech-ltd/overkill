@@ -6,9 +6,11 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chromedp/cdproto/dom"
@@ -19,9 +21,14 @@ import (
 // Options configures the browser process. An empty Options is valid and uses
 // chromedp defaults (headless, auto-detected Chrome path).
 type Options struct {
+	// Headless=true is retained for existing callers. False uses the default
+	// headless mode; use Visible to explicitly open a visible window.
 	Headless   bool
+	Visible    bool
 	ChromePath string
 	UserAgent  string
+	// Timeout caps each launch/action; zero retains operation defaults.
+	Timeout time.Duration
 }
 
 // Browser wraps a chromedp session. Methods are safe to call from a single
@@ -40,6 +47,7 @@ type Browser struct {
 // New constructs a Browser with the given options. Options.Headless defaults
 // to true when zero-value (Open will set it explicitly).
 func New(opts Options) *Browser {
+	opts.Headless = !opts.Visible
 	return &Browser{opts: opts}
 }
 
@@ -48,21 +56,18 @@ func New(opts Options) *Browser {
 func (b *Browser) Open(parent context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.opts.Timeout < 0 {
+		return fmt.Errorf("browser: timeout must be non-negative")
+	}
 	if b.open {
 		return nil
 	}
 
 	allocOpts := append([]chromedp.ExecAllocatorOption{}, chromedp.DefaultExecAllocatorOptions[:]...)
-	if !b.opts.Headless {
-		// Strip the headless flag from the default set.
-		filtered := allocOpts[:0]
-		for _, o := range allocOpts {
-			// chromedp doesn't expose a simple "is headless flag" API, so just
-			// override below with Flag("headless", false).
-			filtered = append(filtered, o)
-		}
-		allocOpts = append(filtered, chromedp.Flag("headless", false))
+	if b.opts.Visible {
+		allocOpts = append(allocOpts, chromedp.Flag("headless", false))
 	}
+
 	if b.opts.ChromePath != "" {
 		allocOpts = append(allocOpts, chromedp.ExecPath(b.opts.ChromePath))
 	}
@@ -79,10 +84,23 @@ func (b *Browser) Open(parent context.Context) error {
 	allocCtx, allocCancel := chromedp.NewExecAllocator(parent, allocOpts...)
 	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
 
-	// Force a Run() so Chrome actually launches before we return.
-	startCtx, startCancel := context.WithTimeout(browserCtx, 30*time.Second)
-	defer startCancel()
-	if err := chromedp.Run(startCtx); err != nil {
+	// The first Run owns chromedp's target/transport lifetime. Keep its
+	// context alive after a successful launch; cancel it only on startup timeout.
+	var timedOut atomic.Bool
+	timeoutDone := make(chan struct{})
+	timer := time.AfterFunc(b.operationTimeout(30*time.Second), func() {
+		timedOut.Store(true)
+		browserCancel()
+		close(timeoutDone)
+	})
+	err := chromedp.Run(browserCtx)
+	if !timer.Stop() {
+		<-timeoutDone
+	}
+	if timedOut.Load() {
+		err = errors.Join(err, context.DeadlineExceeded)
+	}
+	if err != nil {
 		browserCancel()
 		allocCancel()
 		return fmt.Errorf("browser: launch chrome: %w", err)
@@ -93,7 +111,6 @@ func (b *Browser) Open(parent context.Context) error {
 	b.ctx = browserCtx
 	b.ctxClose = browserCancel
 	b.open = true
-	_ = parent // reserved for future signal-aware shutdown
 	return nil
 }
 
@@ -122,15 +139,27 @@ func (b *Browser) IsOpen() bool {
 
 // runTimeout wraps the configured timeout around chromedp Run.
 func (b *Browser) runTimeout(timeout time.Duration, actions ...chromedp.Action) error {
+	if b.opts.Timeout < 0 {
+		return fmt.Errorf("browser: timeout must be non-negative")
+	}
 	if !b.open {
 		return fmt.Errorf("browser: not open")
 	}
+	ctx, cancel := context.WithTimeout(b.ctx, b.operationTimeout(timeout))
+	defer cancel()
+	return chromedp.Run(ctx, actions...)
+}
+
+// operationTimeout preserves shorter explicit operation waits while applying
+// the configured maximum. Parent cancellation still wins over either deadline.
+func (b *Browser) operationTimeout(timeout time.Duration) time.Duration {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(b.ctx, timeout)
-	defer cancel()
-	return chromedp.Run(ctx, actions...)
+	if b.opts.Timeout > 0 && b.opts.Timeout < timeout {
+		return b.opts.Timeout
+	}
+	return timeout
 }
 
 // Navigate loads the given URL. Waits for ready state.

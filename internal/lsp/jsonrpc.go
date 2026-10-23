@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type jsonrpcMessage struct {
@@ -34,9 +35,10 @@ func (e *jsonrpcError) Error() string {
 }
 
 type jsonrpcConn struct {
-	w       io.Writer
-	r       *bufio.Reader
-	writeMu sync.Mutex
+	w            io.Writer
+	r            *bufio.Reader
+	writeGate    chan struct{}
+	readerCloser io.Closer
 
 	nextID  atomic.Int64
 	pending sync.Map // int64 -> chan *jsonrpcMessage
@@ -47,22 +49,30 @@ type jsonrpcConn struct {
 }
 
 func newJSONRPCConn(w io.Writer, r io.Reader, maxMessageBytes int) *jsonrpcConn {
-	return &jsonrpcConn{w: w, r: bufio.NewReaderSize(r, 64*1024), maxMessageBytes: maxMessageBytes}
+	c := &jsonrpcConn{w: w, r: bufio.NewReaderSize(r, 64*1024), maxMessageBytes: maxMessageBytes, writeGate: make(chan struct{}, 1)}
+	c.readerCloser, _ = r.(io.Closer)
+	return c
 }
 
 // readLoop reads Content-Length framed messages.
 func (c *jsonrpcConn) readLoop() error {
 	for {
 		var contentLength int
-		// Read headers
+		// Bound framing as well as body size: ReadString can grow without
+		// limit before a buggy server ever emits a newline.
+		headerBytes := 0
 		for {
-			line, err := c.r.ReadString('\n')
+			lineBytes, err := c.r.ReadSlice('\n')
+			headerBytes += len(lineBytes)
+			if err == nil && headerBytes > 64*1024 {
+				err = fmt.Errorf("lsp: headers exceed 64 KiB cap")
+			}
 			if err != nil {
 				c.closed.Store(true)
 				c.failAllPending(err)
 				return err
 			}
-			line = strings.TrimRight(line, "\r\n")
+			line := strings.TrimRight(string(lineBytes), "\r\n")
 			if line == "" {
 				break
 			}
@@ -120,13 +130,13 @@ func (c *jsonrpcConn) dispatch(msg *jsonrpcMessage) {
 }
 
 func (c *jsonrpcConn) failAllPending(err error) {
-	c.pending.Range(func(k, v any) bool {
-		ch := v.(chan *jsonrpcMessage)
-		select {
-		case ch <- &jsonrpcMessage{Error: &jsonrpcError{Code: -32000, Message: err.Error()}}:
-		default:
+	c.pending.Range(func(k, _ any) bool {
+		// Dispatch and close must compete for ownership of each response. A
+		// Range value can outlive deletion by dispatch; sending through it
+		// could otherwise fill the channel before dispatch and block the reader.
+		if value, ok := c.pending.LoadAndDelete(k); ok {
+			value.(chan *jsonrpcMessage) <- &jsonrpcMessage{Error: &jsonrpcError{Code: -32000, Message: err.Error()}}
 		}
-		c.pending.Delete(k)
 		return true
 	})
 }
@@ -148,8 +158,15 @@ func (c *jsonrpcConn) Call(ctx context.Context, method string, params any) (json
 	req := jsonrpcMessage{JSONRPC: "2.0", ID: idRaw, Method: method, Params: paramsRaw}
 	ch := make(chan *jsonrpcMessage, 1)
 	c.pending.Store(id, ch)
-	if err := c.writeMessage(&req); err != nil {
+	if c.closed.Load() {
 		c.pending.Delete(id)
+		return nil, fmt.Errorf("lsp: connection closed")
+	}
+	if err := c.writeMessage(ctx, &req); err != nil {
+		c.pending.Delete(id)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, err
 	}
 	select {
@@ -157,6 +174,9 @@ func (c *jsonrpcConn) Call(ctx context.Context, method string, params any) (json
 		c.pending.Delete(id)
 		return nil, ctx.Err()
 	case resp := <-ch:
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if resp.Error != nil {
 			return nil, resp.Error
 		}
@@ -165,6 +185,12 @@ func (c *jsonrpcConn) Call(ctx context.Context, method string, params any) (json
 }
 
 func (c *jsonrpcConn) Notify(method string, params any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return c.NotifyContext(ctx, method, params)
+}
+
+func (c *jsonrpcConn) NotifyContext(ctx context.Context, method string, params any) error {
 	var paramsRaw json.RawMessage
 	if params != nil {
 		b, err := json.Marshal(params)
@@ -174,10 +200,10 @@ func (c *jsonrpcConn) Notify(method string, params any) error {
 		paramsRaw = b
 	}
 	msg := jsonrpcMessage{JSONRPC: "2.0", Method: method, Params: paramsRaw}
-	return c.writeMessage(&msg)
+	return c.writeMessage(ctx, &msg)
 }
 
-func (c *jsonrpcConn) writeMessage(msg *jsonrpcMessage) error {
+func (c *jsonrpcConn) writeMessage(ctx context.Context, msg *jsonrpcMessage) error {
 	if c.closed.Load() {
 		return fmt.Errorf("lsp: connection closed")
 	}
@@ -186,8 +212,22 @@ func (c *jsonrpcConn) writeMessage(msg *jsonrpcMessage) error {
 		return err
 	}
 	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body))
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
+	select {
+	case c.writeGate <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-c.writeGate }()
+	if c.closed.Load() {
+		return fmt.Errorf("lsp: connection closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Closing an owned stdio connection is the cancellation boundary for a
+	// blocked pipe write; no detached per-write goroutine is created.
+	stop := context.AfterFunc(ctx, c.close)
+	defer stop()
 	if _, err := c.w.Write([]byte(header)); err != nil {
 		return err
 	}
@@ -197,4 +237,13 @@ func (c *jsonrpcConn) writeMessage(msg *jsonrpcMessage) error {
 	return nil
 }
 
-func (c *jsonrpcConn) close() { c.closed.Store(true) }
+func (c *jsonrpcConn) close() {
+	c.closed.Store(true)
+	if closer, ok := c.w.(io.Closer); ok {
+		_ = closer.Close()
+	}
+	if c.readerCloser != nil {
+		_ = c.readerCloser.Close()
+	}
+	c.failAllPending(io.ErrClosedPipe)
+}

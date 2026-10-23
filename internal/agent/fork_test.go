@@ -13,7 +13,10 @@ import (
 // the store reference so callers can inspect session state.
 func newForker(t *testing.T) (func(ctx context.Context, parentID, name string) (string, error), *session.PostgresStore) {
 	t.Helper()
-	store := session.NewPostgresStore(openTestDB(t))
+	store, err := session.NewPostgresStore(openTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	t.Cleanup(func() { store.Close() })
 

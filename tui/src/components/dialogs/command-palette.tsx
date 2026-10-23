@@ -54,8 +54,7 @@ function fuzzyMatch(
   return { score, indices };
 }
 
-function highlightText(text: string, indices: number[]): React.JSX.Element[] {
-  const { theme } = useTheme();
+function highlightText(text: string, indices: number[], accent: string): React.JSX.Element[] {
   if (indices.length === 0) return [<Text key={0}>{text}</Text>];
 
   const parts: React.JSX.Element[] = [];
@@ -68,7 +67,7 @@ function highlightText(text: string, indices: number[]): React.JSX.Element[] {
         parts.push(<Text key={`t-${lastIdx}`}>{text.slice(lastIdx, i)}</Text>);
       }
       parts.push(
-        <Text key={`h-${i}`} color={theme.accent} bold>
+        <Text key={`h-${i}`} color={accent} bold>
           {text[i]}
         </Text>,
       );
@@ -183,7 +182,7 @@ export function CommandPalette({
                     bold={isSelected}
                   >
                     {titleIndices.length > 0
-                      ? highlightText(result.cmd.title, titleIndices)
+                      ? highlightText(result.cmd.title, titleIndices, theme.accent)
                       : result.cmd.title}
                   </Text>
                   {result.cmd.keybind && (
@@ -192,7 +191,7 @@ export function CommandPalette({
                 </Box>
                 <Text dimColor>
                   {descIndices.length > 0
-                    ? highlightText(result.cmd.description, descIndices)
+                    ? highlightText(result.cmd.description, descIndices, theme.accent)
                     : result.cmd.description}
                 </Text>
               </Box>

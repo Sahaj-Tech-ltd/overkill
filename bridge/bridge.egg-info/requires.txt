@@ -1,14 +1,21 @@
-grpcio>=1.62.0
-grpcio-tools>=1.62.0
-protobuf>=4.25.0
+grpcio>=1.80.0
+protobuf>=6.31.1
 numpy>=1.26.0
-sentence-transformers>=2.6.0
+grpcio-health-checking>=1.80.0
+psycopg2-binary>=2.9.9
+pgvector>=0.3.0
 
 [dev]
+grpcio-tools>=1.80.0
+build>=1.2.0
 pytest>=8.0
-pytest-cov>=4.1
+pytest-timeout>=2.3.1
+pytest-cov>=7.1.0
 ruff>=0.3.0
 mypy>=1.8
+
+[ml]
+sentence-transformers>=5.5.1
 
 [qdrant]
 qdrant-client>=1.8.0

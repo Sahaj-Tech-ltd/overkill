@@ -22,7 +22,7 @@ import { SteerDialog } from "./components/dialogs/steer-dialog.tsx";
 import { SettingsPanel } from "./components/settings/SettingsPanel.tsx";
 import { DashboardCard } from "./components/dashboard/DashboardCard.tsx";
 import { SessionPanel } from "./components/sidebar/session-panel.tsx";
-import { SubagentPanel } from "./components/sidebar/subagent-panel.tsx";
+import { CoordinationPanel } from "./components/sidebar/coordination-panel.tsx";
 import { SelfEvalPanel } from "./components/sidebar/self-eval-panel.tsx";
 import { TestPanel } from "./components/sidebar/test-panel.tsx";
 import { WizardPanel } from "./components/sidebar/wizard-panel.tsx";
@@ -118,6 +118,7 @@ export function App(): React.JSX.Element {
     sendMessage,
     cancelMessage,
     clearChat,
+    switchSession,
     undoLastExchange,
     retryLastMessage,
     isLoading,
@@ -148,7 +149,7 @@ export function App(): React.JSX.Element {
   useClarifyPoll(backend, showClarify, clarifyOpen);
   const { visible: sidebarVisible, activeTab, toggle, setTab } = useSidebar();
   const { exit } = useApp();
-  const { theme, themeName, setTheme } = useTheme();
+  const { theme, themeName, setTheme, themeError } = useTheme(backend);
   const { toasts } = useToast();
   const gitBranch = useGitBranch();
 
@@ -167,6 +168,7 @@ export function App(): React.JSX.Element {
     backend
       .call("session.load", { id: session.id })
       .then(() => {
+        switchSession(session.id);
         showToast(`Session: ${session.name || session.folder}`, "success");
       })
       .catch((err: unknown) => {
@@ -278,6 +280,7 @@ export function App(): React.JSX.Element {
   return (
     <KeybindingProvider>
       <Box flexDirection="column" width="100%" height="100%">
+        {themeError&&<Text color={theme.error}>{themeError}</Text>}
         {/* Main area: Chat + Sidebar */}
         <Box flexDirection="row" flexGrow={1} width="100%" overflow="hidden">
           <ChatView
@@ -291,6 +294,7 @@ export function App(): React.JSX.Element {
             provider={provider}
             onOpenPalette={() => open("command-palette")}
             isDialogOpen={isDialogOpen}
+            inputFocused={!sidebarVisible}
             userMessage={lastUserMessage}
             statusPhase={statusPhase}
             thinkingElapsed={thinkingElapsed}
@@ -303,7 +307,7 @@ export function App(): React.JSX.Element {
             title={sessionId || "Overkill"}
             directory={process.cwd()}
             branch={gitBranch}
-            isInputFocused={!isLoading && !isDialogOpen}
+            isInputFocused={!sidebarVisible || isDialogOpen}
             files={fileChanges.map(
               (fc: { path: string; added: number; removed: number }) => ({
                 file: fc.path.split("/").pop() ?? fc.path,
@@ -315,14 +319,14 @@ export function App(): React.JSX.Element {
             activeTab={activeTab}
             onTabChange={setTab}
             panels={{
-              todos: <TodoPanel active={sidebarVisible} backend={backend} />,
-              skills: <SkillsPanel active={sidebarVisible} backend={backend} />,
-              sessions: <SessionPanel backend={backend} />,
-              agents: <SubagentPanel backend={backend} />,
-              "self-eval": <SelfEvalPanel backend={backend} />,
-              tests: <TestPanel backend={backend} />,
+              todos: <TodoPanel key={sessionId} sessionId={sessionId} active={sidebarVisible && activeTab === "todos" && !isDialogOpen} backend={backend} />,
+              skills: <SkillsPanel active={sidebarVisible && activeTab === "skills" && !isDialogOpen} backend={backend} />,
+              sessions: <SessionPanel backend={backend} currentSessionId={sessionId} onSessionSelect={handleSessionSelect} active={sidebarVisible && !isDialogOpen} />,
+              agents: <CoordinationPanel backend={backend} sessionId={sessionId} active={sidebarVisible && activeTab === "agents" && !isDialogOpen} />,
+              "self-eval": <SelfEvalPanel backend={backend} sessionId={sessionId} />,
+              tests: <TestPanel backend={backend} sessionId={sessionId} />,
               wizard: <WizardPanel backend={backend} />,
-              queue: <QueuePanel backend={backend} />,
+              queue: <QueuePanel backend={backend} sessionId={sessionId} />,
             }}
           />
         </Box>
@@ -373,6 +377,7 @@ export function App(): React.JSX.Element {
         backend={backend}
       />
       <DashboardCard
+        sessionId={sessionId}
         open={openDialog === "dashboard"}
         onClose={close}
         backend={backend}
@@ -389,19 +394,10 @@ export function App(): React.JSX.Element {
         onCancel={() => {
           // Send a cancel signal to unblock the agent.
           if (clarifyCallback) {
-            clarifyCallback("", -1);
+            clarifyCallback("", -1, true);
           }
           dismissClarify();
-          // Also send the cancel via RPC so the agent doesn't wait for timeout.
-          backend
-            .call("agent.answer", {
-              session_id: sessionId || "",
-              text: "",
-              index: -1,
-            })
-            .catch((err: unknown) => {
-              log.error("agent.answer cancel failed:", err);
-            });
+
         }}
       />
     </KeybindingProvider>

@@ -118,6 +118,9 @@ func (w *memAuditWriter) Entries() []AuditEntry {
 // conservative: the enforcer prefers false negatives (over-allow) to false
 // positives that would cripple a legitimate child.
 var writeLikeTools = map[string]bool{
+	"acp_send":        true,
+	"acp_submit":      true,
+	"acp_cancel":      true,
 	"fs_write":        true,
 	"fs":              false, // depends on action; handled below
 	"patch":           true,
@@ -232,6 +235,9 @@ func (e *EnforcedTool) writeAudit(tool, path string, allowed bool, reason string
 // extractPath pulls the most likely target path out of a tool's JSON input.
 // Looks at common field names (path, file, target, dst). Best-effort.
 func (e *EnforcedTool) extractPath(input json.RawMessage) string {
+	if e.inner.Name() == "canvas" {
+		return ""
+	} // Canvas effects have no filesystem scope.
 	if t, ok := e.inner.(ToolWithPath); ok {
 		if p := t.IntendedPath(input); p != "" {
 			return p
@@ -256,6 +262,11 @@ func isWriteLikeCall(name string, input json.RawMessage) bool {
 		return true
 	}
 	switch name {
+	case "canvas":
+		var in struct {
+			Action string `json:"action"`
+		}
+		return json.Unmarshal(input, &in) != nil || in.Action != "state"
 	case "shell", "pty_shell":
 		var sh struct {
 			Command string `json:"command"`

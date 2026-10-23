@@ -63,7 +63,7 @@ func (m *mockSubagentProvider) Models() []providers.Model {
 func (m *mockSubagentProvider) Name() string { return "mock" }
 
 func TestManager_SpawnSingle(t *testing.T) {
-	m := NewManager(Config{
+	m := newSimulatedManager(Config{
 		MaxChildren:  5,
 		MaxDepth:     2,
 		ChildTimeout: 5 * time.Second,
@@ -88,7 +88,7 @@ func TestManager_SpawnSingle(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestManager_SpawnBatch(t *testing.T) {
-	m := NewManager(Config{
+	m := newSimulatedManager(Config{
 		MaxChildren:  5,
 		MaxDepth:     2,
 		ChildTimeout: 5 * time.Second,
@@ -124,7 +124,7 @@ func TestManager_SpawnBatch(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestManager_DepthLimit(t *testing.T) {
-	m := NewManager(Config{
+	m := newSimulatedManager(Config{
 		MaxDepth:     2,
 		MaxChildren:  5,
 		ChildTimeout: 5 * time.Second,
@@ -147,7 +147,7 @@ func TestManager_DepthLimit(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestManager_CapacityLimit(t *testing.T) {
-	m := NewManager(Config{
+	m := newSimulatedManager(Config{
 		MaxChildren:  1,
 		MaxDepth:     2,
 		ChildTimeout: 5 * time.Second,
@@ -172,7 +172,7 @@ func TestManager_CapacityLimit(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestManager_ValidationFails(t *testing.T) {
-	m := NewManager(Config{
+	m := newSimulatedManager(Config{
 		MaxChildren:  5,
 		MaxDepth:     2,
 		ChildTimeout: 5 * time.Second,
@@ -194,7 +194,7 @@ func TestManager_ValidationFails(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestManager_ActiveChildren(t *testing.T) {
-	m := NewManager(Config{
+	m := newSimulatedManager(Config{
 		MaxChildren:  5,
 		MaxDepth:     2,
 		ChildTimeout: 5 * time.Second,
@@ -220,7 +220,7 @@ func TestManager_ActiveChildren(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestManager_CostRollup(t *testing.T) {
-	m := NewManager(Config{
+	m := newSimulatedManager(Config{
 		MaxChildren:  5,
 		MaxDepth:     2,
 		ChildTimeout: 5 * time.Second,
@@ -256,7 +256,7 @@ func TestManager_CostRollup(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestManager_CancelAll(t *testing.T) {
-	m := NewManager(Config{
+	m := newSimulatedManager(Config{
 		MaxChildren:  5,
 		MaxDepth:     2,
 		ChildTimeout: 10 * time.Second,
@@ -289,4 +289,14 @@ func TestManager_CancelAll(t *testing.T) {
 	if panicked.Load() {
 		t.Error("Spawn panicked on context cancellation")
 	}
+}
+
+// Simulation is explicit and confined to test builds; no environment key can
+// cause these lifecycle tests to make a real provider request.
+func newSimulatedManager(cfg Config) *Manager {
+	m := NewManager(cfg)
+	m.SetWorkerFactory(func(cfg RealWorkerConfig) (WorkerRunner, error) {
+		return NewWorker(WorkerConfig{Goal: cfg.Goal, Context: cfg.Context, MaxSteps: cfg.MaxSteps, Timeout: cfg.Timeout, TaskIndex: cfg.TaskIndex}), nil
+	})
+	return m
 }

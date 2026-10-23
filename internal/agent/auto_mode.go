@@ -14,7 +14,9 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -113,6 +115,7 @@ const (
 	PhaseDone
 	PhaseFailed
 	PhaseSkipped
+	PhaseDeferred
 )
 
 func (s PhaseStatus) String() string {
@@ -125,6 +128,8 @@ func (s PhaseStatus) String() string {
 		return "done"
 	case PhaseFailed:
 		return "failed"
+	case PhaseDeferred:
+		return "deferred"
 	case PhaseSkipped:
 		return "skipped"
 	default:
@@ -134,12 +139,13 @@ func (s PhaseStatus) String() string {
 
 // AutoMode manages autonomous plan execution state.
 type AutoMode struct {
-	Level         AutonomyLevel
-	Plan          *Plan
-	CurrentPhase  int
-	Questions     []string // batched clarifying questions
-	QuestionsDone bool
-	ContextBudget int // token budget for auto-compress
+	RequirePhaseEvaluation bool // durable continuations retain evaluation without raising tool authority
+	Level                  AutonomyLevel
+	Plan                   *Plan
+	CurrentPhase           int
+	Questions              []string // batched clarifying questions
+	QuestionsDone          bool
+	ContextBudget          int // token budget for auto-compress
 
 	// SelfEval ties Reflector + ErrorRecovery + ConfidenceAssessment into
 	// the L4 closed-loop self-revision pattern (§7.4). When non-nil and
@@ -179,6 +185,8 @@ func (am *AutoMode) IsSafe() bool {
 	return am.Level == AutonomySafe
 }
 
+const MaxPlanBytes = 2 * 1024 * 1024
+
 // LoadPlan reads a plan from a markdown file. Plans use ## headings for phases.
 // Format:
 //
@@ -193,6 +201,13 @@ func LoadPlan(path string) (*Plan, error) {
 	if err != nil {
 		abs = path
 	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("auto: cannot inspect plan %s: %w", abs, err)
+	}
+	if !info.Mode().IsRegular() || info.Size() > MaxPlanBytes {
+		return nil, fmt.Errorf("auto: plan must be a regular file of at most %d bytes", MaxPlanBytes)
+	}
 	f, err := os.Open(abs)
 	if err != nil {
 		return nil, fmt.Errorf("auto: cannot read plan %s: %w", abs, err)
@@ -200,7 +215,14 @@ func LoadPlan(path string) (*Plan, error) {
 	defer f.Close()
 
 	plan := &Plan{Source: abs}
-	scanner := bufio.NewScanner(f)
+	data, err := io.ReadAll(io.LimitReader(f, MaxPlanBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("auto: cannot read plan: %w", err)
+	}
+	if len(data) > MaxPlanBytes {
+		return nil, fmt.Errorf("auto: plan exceeds %d bytes", MaxPlanBytes)
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 2*1024*1024) // 2MB max
 
@@ -307,7 +329,7 @@ func (am *AutoMode) HasFailed() bool {
 		return false
 	}
 	for _, p := range am.Plan.Phases {
-		if p.Status == PhaseFailed {
+		if p.Status == PhaseFailed || p.Status == PhaseDeferred {
 			return true
 		}
 	}
@@ -318,7 +340,7 @@ func (am *AutoMode) HasFailed() bool {
 // use the L4 self-evaluate loop. True when SelfEval is wired AND level
 // is AutonomyAuto (fully autonomous).
 func (am *AutoMode) ShouldSelfEvaluate() bool {
-	return am != nil && am.SelfEval != nil && am.Level == AutonomyAuto
+	return am != nil && am.SelfEval != nil && (am.Level == AutonomyAuto || am.RequirePhaseEvaluation)
 }
 
 // SetSelfEval wires the self-evaluate loop. Pass nil to disable.

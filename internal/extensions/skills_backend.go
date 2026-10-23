@@ -55,6 +55,8 @@ func (b *SkillsBackend) List() ([]Extension, error) {
 			Description: s.Description,
 			Source:      source,
 			Enabled:     s.Enabled,
+			CanToggle:   true,
+			ToggleScope: "application",
 			Metadata:    md,
 		})
 	}
@@ -104,6 +106,8 @@ func (b *SkillsBackend) Get(id string) (*Extension, error) {
 		Description: s.Description,
 		Source:      source,
 		Enabled:     s.Enabled,
+		CanToggle:   true,
+		ToggleScope: "application",
 		Metadata:    md,
 	}, nil
 }

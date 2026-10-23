@@ -1,10 +1,10 @@
 import React, { createContext, useContext } from "react";
 import type { Theme } from "../themes/definitions.ts";
-import { catppuccin as catppuccinMocha } from "../themes/all-themes.ts";
+import {useTheme as useSharedTheme} from "../hooks/use-theme.ts";
 
 // ─── Theme Context ─────────────────────────────────────────────────────────
 
-const ThemeContext = createContext<Theme>(catppuccinMocha);
+const ThemeContext = createContext<Theme | null>(null);
 
 export interface ThemeProviderProps {
   readonly theme: Theme;
@@ -27,5 +27,7 @@ export function ThemeProvider({
  * when used outside a ThemeProvider.
  */
 export function useTheme(): Theme {
-  return useContext(ThemeContext);
+  const explicit=useContext(ThemeContext);
+  const shared=useSharedTheme();
+  return explicit??shared.theme;
 }

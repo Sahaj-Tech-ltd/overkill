@@ -25,7 +25,19 @@ func NewPostgresJobStore(db *sql.DB) (*PostgresJobStore, error) {
 }
 
 func (s *PostgresJobStore) migrate() error {
-	ctx := context.Background()
+	if s.db == nil {
+		return fmt.Errorf("database is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':overkill:cron', 0))`); err != nil {
+		return fmt.Errorf("lock migration: %w", err)
+	}
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS cron_jobs (
 			id              TEXT PRIMARY KEY,
@@ -58,10 +70,13 @@ func (s *PostgresJobStore) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_cron_run_logs_job_id ON cron_run_logs (job_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_cron_run_logs_run_at ON cron_run_logs (run_at)`,
 	}
-	for _, q := range queries {
-		if _, err := s.db.ExecContext(ctx, q); err != nil {
-			return err
+	for i, q := range queries {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("migration statement %d: %w", i+1, err)
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration: %w", err)
 	}
 	return nil
 }

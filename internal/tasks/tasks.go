@@ -408,3 +408,27 @@ func (s *Store) ExportJSONL(w *bufio.Writer) error {
 	}
 	return w.Flush()
 }
+
+// UpdateIntent edits a task in its owning session without changing lifecycle,
+// linked commits, or creation metadata.
+func (s *Store) UpdateIntent(id, sessionID, intent string) (*Task, error) {
+	intent = strings.TrimSpace(intent)
+	if intent == "" {
+		return nil, errors.New("tasks: intent required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, err := s.loadLocked(id)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil || task.SessionID != sessionID {
+		return nil, errors.New("tasks: task not found in active session")
+	}
+	task.Intent = intent
+	task.UpdatedAt = time.Now().UTC()
+	if err := s.saveLocked(task); err != nil {
+		return nil, err
+	}
+	return task, nil
+}

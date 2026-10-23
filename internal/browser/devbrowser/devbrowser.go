@@ -1,26 +1,14 @@
-// Package devbrowser — sandboxed AI-safe browser (Batch J).
+// Package devbrowser provides a narrow structured Chrome interface.
 //
-// Why a second browser when internal/browser exists?
+// Restricted-network browsing is currently unavailable: the default manager
+// refuses browser operations before starting Chrome or resolving a destination.
+// An application can deliberately opt into trusted-network browsing using
+// NewManagerWithOptions. That mode permits local/private network access and
+// uses ordinary Chrome networking, including page scripts and redirects. It
+// provides no request-time destination isolation or DNS-rebinding protection.
 //
-// internal/browser is the full Playwright-equivalent: any chromedp
-// op, full DOM access, Evaluate() for arbitrary JS. Powerful, but
-// the agent can do anything the user could in a browser including
-// reading the local filesystem (file://), reaching internal infra,
-// or running JS that exfiltrates from the page.
-//
-// devbrowser is the OPPOSITE design point: a narrow, opinionated
-// surface that an agent can drive safely without supervision. Four
-// ops: Open, Snapshot, Click, Type. Each runs URL safety checks,
-// budget-bounded timeouts, structured-not-raw results. No Evaluate
-// exposed. No file downloads. No cookies persisted across pages.
-// "snapshotForAI" returns the page as a JSON summary, not raw HTML
-// — the model gets a scannable handle on the page without consuming
-// 100KB of markup tokens per turn.
-//
-// Page lifecycle: pages are named ("login-flow", "search"), persist
-// for the session, get GC'd by the Manager after IdleTimeout. The
-// agent can have multiple pages open at once and refer to them by
-// name across tool calls.
+// The interface exposes Open, Snapshot, Click and Type, with structured results
+// and operation timeouts. A narrow operation set is not a network sandbox.
 package devbrowser
 
 import (
@@ -57,7 +45,9 @@ type Manager struct {
 	parent       context.Context
 	parentCancel context.CancelFunc
 
-	pages map[string]*Page
+	// Immutable application policy; not an agent-controlled operation argument.
+	trustedNetwork bool
+	pages          map[string]*Page
 	// PageTimeout caps how long any single op (Open, Snapshot,
 	// Click, Type) can take. Default 30s.
 	PageTimeout time.Duration
@@ -66,13 +56,19 @@ type Manager struct {
 	IdleTimeout time.Duration
 }
 
-// NewManager returns a fresh manager. The browser doesn't start
-// until the first Open call.
-func NewManager() *Manager {
+// NewManager constructs the default restricted-network manager. Restricted
+// browsing is unavailable, so browser operations fail closed without traffic.
+func NewManager() *Manager { return NewManagerWithOptions(Options{}) }
+
+// NewManagerWithOptions accepts explicit application-owned network policy.
+// TrustedNetwork permits local/private access; it is not an isolation bypass
+// that an agent can request through Open, Click, Type or Snapshot arguments.
+func NewManagerWithOptions(options Options) *Manager {
 	return &Manager{
-		pages:       map[string]*Page{},
-		PageTimeout: 30 * time.Second,
-		IdleTimeout: 30 * time.Minute,
+		pages:          map[string]*Page{},
+		trustedNetwork: options.TrustedNetwork,
+		PageTimeout:    30 * time.Second,
+		IdleTimeout:    30 * time.Minute,
 	}
 }
 
@@ -94,6 +90,9 @@ func (m *Manager) Shutdown() {
 // ensureBrowser lazy-starts the underlying chromedp browser. Returns
 // the parent context for tab creation.
 func (m *Manager) ensureBrowser() (context.Context, error) {
+	if err := m.checkNetworkMode(); err != nil {
+		return nil, err
+	}
 	if m.parent != nil {
 		return m.parent, nil
 	}
@@ -126,13 +125,16 @@ func (m *Manager) ensureBrowser() (context.Context, error) {
 // Open navigates a named page to a URL. Creates the page on first
 // call; reuses it on subsequent calls (so "search" → "google.com"
 // then "search" → "duckduckgo.com" walks the same tab). URLs are
-// run through validateURL before the navigation — file:// and
-// private IPs reject here.
+// checked for http(s) syntax and rejected userinfo. Only explicitly trusted
+// networking can open pages; private/local destinations are allowed in that mode.
 func (m *Manager) Open(name, rawURL string) (*Snapshot, error) {
 	if name == "" {
 		return nil, errors.New("dev-browser: page name required")
 	}
-	u, err := validateURL(rawURL)
+	if err := m.checkNetworkMode(); err != nil {
+		return nil, err
+	}
+	u, err := parseHTTPURL(rawURL)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +160,9 @@ func (m *Manager) Open(name, rawURL string) (*Snapshot, error) {
 	}
 	m.mu.Unlock()
 
+	if err := m.checkNetworkMode(); err != nil {
+		return nil, err
+	}
 	page.mu.Lock()
 	defer page.mu.Unlock()
 	page.LastUsed = time.Now().UTC()
@@ -180,6 +185,9 @@ func (m *Manager) Open(name, rawURL string) (*Snapshot, error) {
 func (m *Manager) Snapshot(name string) (*Snapshot, error) {
 	page, err := m.lookupPage(name)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.checkNetworkMode(); err != nil {
 		return nil, err
 	}
 	page.mu.Lock()
@@ -209,6 +217,9 @@ func (m *Manager) Click(name, selector string) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := m.checkNetworkMode(); err != nil {
+		return nil, err
+	}
 	page.mu.Lock()
 	defer page.mu.Unlock()
 	page.LastUsed = time.Now().UTC()
@@ -236,6 +247,9 @@ func (m *Manager) Type(name, selector, text string) (*Snapshot, error) {
 	}
 	page, err := m.lookupPage(name)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.checkNetworkMode(); err != nil {
 		return nil, err
 	}
 	page.mu.Lock()

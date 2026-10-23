@@ -477,7 +477,7 @@ func TestLSPInitializeAndHover(t *testing.T) {
 	s2cR, s2cW := io.Pipe()
 	c2sR, c2sW := io.Pipe()
 	go runFakeLSP(t, c2sR, s2cW)
-	c := &Client{language: "fake"}
+	c := &Client{language: "fake", rootURI: "file:///tmp"}
 	c.conn = newJSONRPCConn(c2sW, s2cR, 0)
 	go func() { _ = c.conn.readLoop() }()
 	defer func() { c.conn.close(); _ = c2sW.Close() }()
@@ -715,8 +715,8 @@ func TestClient_ValidatePath(t *testing.T) {
 	// Test with unset rootURI
 	c2 := &Client{}
 	err := c2.validatePath("/tmp/x.go")
-	if err != nil {
-		t.Logf("unset rootURI: %v (expected pass or soft error)", err)
+	if err == nil {
+		t.Fatal("unset rootURI must fail closed")
 	}
 }
 

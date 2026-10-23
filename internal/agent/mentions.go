@@ -7,16 +7,18 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
 
 // mentionRe matches @path tokens. Path = a non-whitespace sequence with no
-// leading slash that contains at least one path-friendly char.
+// at least one path-friendly char. All paths still require workspace containment.
 var mentionRe = regexp.MustCompile(`(?:^|\s)@([\w./\-+_]+)`)
 
 const (
@@ -33,7 +35,18 @@ func containsAtMention(userInput string) bool {
 // loadAtMentions scans userInput for @path tokens and returns a formatted
 // block with the contents of each referenced file. Returns "" if none found.
 func loadAtMentions(userInput string) string {
-	matches := mentionRe.FindAllStringSubmatch(userInput, -1)
+	root, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return loadWorkspaceMentions(context.Background(), root, userInput)
+}
+
+func loadWorkspaceMentions(ctx context.Context, root, userInput string) string {
+	if root == "" {
+		return ""
+	}
+	matches := mentionRe.FindAllStringSubmatch(userInput, 128)
 	if len(matches) == 0 {
 		return ""
 	}
@@ -52,27 +65,16 @@ func loadAtMentions(userInput string) string {
 	}
 	sort.Strings(paths)
 
-	cwd, _ := os.Getwd()
 	var b strings.Builder
 	for _, p := range paths {
-		full := p
-		if !filepath.IsAbs(full) {
-			full = filepath.Join(cwd, p)
-		}
-		info, err := os.Stat(full)
-		if err != nil || info.IsDir() {
-			fmt.Fprintf(&b, "@%s — (not a readable file)\n", p)
+		if len(p) > 4096 {
+			fmt.Fprintf(&b, "@%s… — (path exceeds workspace read bound)\n", p[:128])
 			continue
 		}
-		data, err := os.ReadFile(full)
+		data, truncated, err := tools.ReadWorkspaceFile(ctx, root, p, maxMentionFileBytes)
 		if err != nil {
-			fmt.Fprintf(&b, "@%s — read error: %s\n", p, err.Error())
+			fmt.Fprintf(&b, "@%s — (not a readable file within workspace)\n", p)
 			continue
-		}
-		truncated := false
-		if len(data) > maxMentionFileBytes {
-			data = data[:maxMentionFileBytes]
-			truncated = true
 		}
 		fmt.Fprintf(&b, "--- @%s ---\n%s\n", p, string(data))
 		if truncated {

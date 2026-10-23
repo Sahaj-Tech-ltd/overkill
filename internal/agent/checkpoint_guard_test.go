@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"strings"
 	"sync"
 	"testing"
@@ -81,9 +82,9 @@ func TestPreToolCheckpoint_ShellDestructive(t *testing.T) {
 		{`{"command":"rm -rf build/"}`, true},
 		{`{"command":"git reset --hard HEAD~1"}`, true},
 		{`{"command":"echo hi > out.txt"}`, true},
-		{`{"command":"ls -la"}`, false},
-		{`{"command":"go test ./..."}`, false},
-		{`{"command":"cat README.md"}`, false},
+		{`{"command":"ls -la"}`, true},
+		{`{"command":"go test ./..."}`, true},
+		{`{"command":"cat README.md"}`, true},
 	}
 	for _, tc := range cases {
 		s.mu.Lock()
@@ -130,3 +131,49 @@ var errFakeSnapshot = &fakeErr{"intentional"}
 type fakeErr struct{ msg string }
 
 func (e *fakeErr) Error() string { return e.msg }
+
+func TestPreToolCheckpointActualFSAndOpaqueShell(t *testing.T) {
+	for _, tc := range []struct {
+		name, args string
+		want       bool
+	}{
+		{"fs", `{"action":"write","path":"a"}`, true},
+		{"fs", `{"action":"edit","path":"a"}`, true},
+		{"fs", `{"action":"read","path":"a"}`, false},
+		{"fs_patch", `{"files":[{"path":"a"},{"file_path":"b"}]}`, true},
+		{"shell", `{"command":"r''m x"}`, true},
+		{"shell", `{"command":"python3 -c 'open(\"x\",\"w\").write(\"x\")'"}`, true},
+		{"shell", `{"command":"echo $(touch x)"}`, true},
+		{"shell", `{"command":"rg text . > results"}`, true},
+		{"shell", `{"command":"find . -exec rm {} ;"}`, true},
+	} {
+		t.Run(tc.name+tc.args, func(t *testing.T) {
+			s := &fakeSnapshotter{}
+			a := &Agent{_sessionID: "s"}
+			a.SetCheckpointSnapshotter(s)
+			_, err := a.preToolCheckpoint(tc.name, tc.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(s.calls) > 0) != tc.want {
+				t.Fatalf("checkpoint calls=%d want=%v", len(s.calls), tc.want)
+			}
+		})
+	}
+}
+
+func TestPreToolCheckpointReaderCreatesNoRecoveryFiles(t *testing.T) {
+	a := &Agent{_sessionID: "s"}
+	snap := &fakeSnapshotter{}
+	a.SetCheckpointSnapshotter(snap)
+	a.privilege.Store(security.NewPrivilegeGate(security.ModeReader))
+	for _, tool := range []string{"fs", "patch", "shell"} {
+		_, err := a.preToolCheckpoint(tool, `{"action":"write","path":"a","command":"touch a"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(snap.calls) != 0 {
+		t.Fatal("reader operation created checkpoints")
+	}
+}

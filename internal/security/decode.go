@@ -112,6 +112,13 @@ func (s *CommandScanner) decodeAndScan(input string) []Finding {
 		if decoded == "" {
 			continue
 		}
+		if structural, err := ShellSyntaxFindings(decoded); err == nil {
+			for _, f := range structural {
+				f.Type = "encoded_bypass"
+				f.Match = m
+				out = append(out, f)
+			}
+		}
 		for _, p := range s.patterns {
 			locs := p.regex.FindAllStringIndex(decoded, -1)
 			for range locs {
@@ -139,6 +146,13 @@ func (s *CommandScanner) decodeAndScan(input string) []Finding {
 		decoded := tryHex(m)
 		if decoded == "" {
 			continue
+		}
+		if structural, err := ShellSyntaxFindings(decoded); err == nil {
+			for _, f := range structural {
+				f.Type = "encoded_bypass"
+				f.Match = m
+				out = append(out, f)
+			}
 		}
 		for _, p := range s.patterns {
 			locs := p.regex.FindAllStringIndex(decoded, -1)

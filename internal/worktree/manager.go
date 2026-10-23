@@ -1,34 +1,11 @@
-// Package worktree — Manager orchestrates per-subagent worktrees
-// (Phase 5 §8.5 parallel agents).
-//
-// Why: when multiple subagents run concurrently in the same repo,
-// they trample each other's working tree — one writes foo.go, the
-// other reads stale bytes, both commit on top of unexpected state.
-// The fix is one git worktree per subagent: separate checkout,
-// separate branch, independent index. The agent doesn't have to
-// think about it; the Manager hands out a worktree at the start of
-// a task and reclaims it at the end.
-//
-// Design:
-//
-//   - One worktree per active task. Branch named
-//     `overkill/parallel/<task-id>` so it's grep-able + git-log-
-//     greppable + safe to delete later.
-//   - Worktrees live under `<repo>/.overkill-worktrees/<task-id>`.
-//     We deliberately do NOT use `git worktree add` defaults
-//     (which sprinkle worktrees next to the repo) — putting them
-//     under a dot-prefixed subdir keeps cleanup tractable and
-//     stays out of the user's file tree.
-//   - Lockfile-based mutual exclusion: an `Acquire` for an
-//     already-held task ID returns the same path (idempotent for
-//     retries), but two concurrent Acquires for distinct tasks
-//     get distinct worktrees and never collide.
-//   - Release deletes the worktree but leaves the branch alone by
-//     default — the user can inspect / merge / drop it manually.
-//     Pass DeleteBranch=true to drop the branch too.
+// Package worktree manages isolated task checkouts without discarding user work.
 package worktree
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -38,241 +15,426 @@ import (
 	"time"
 )
 
-// ManagedTree is one allocated worktree.
 type ManagedTree struct {
 	TaskID    string
 	Path      string
 	Branch    string
 	CreatedAt time.Time
+	// GitDir binds the allocation to Git's administrative identity, not merely a path.
+	GitDir       string
+	AllocationID string
+	LockReason   string
 }
 
-// Manager holds the live allocation map. Concurrency-safe. The
-// repoDir is the source-of-truth repo whose worktrees we manage.
 type Manager struct {
-	repoDir string
-	subDir  string
-	mu      sync.Mutex
-	active  map[string]*ManagedTree
+	repoDir, subDir string
+	mu              sync.Mutex
+	active          map[string]*ManagedTree
 }
 
-// NewManager returns a Manager rooted at repoDir. The subDir is the
-// directory NAME (not full path) under repoDir where worktrees
-// land; pass "" to use the default `.overkill-worktrees`.
-func NewManager(repoDir string, subDir string) *Manager {
+func NewManager(repoDir, subDir string) *Manager {
+	if canonical, err := filepath.EvalSymlinks(repoDir); err == nil {
+		repoDir = canonical
+	}
+	if absolute, err := filepath.Abs(repoDir); err == nil {
+		repoDir = absolute
+	}
 	if subDir == "" {
 		subDir = ".overkill-worktrees"
 	}
-	return &Manager{
-		repoDir: repoDir,
-		subDir:  subDir,
-		active:  map[string]*ManagedTree{},
-	}
+	return &Manager{repoDir: repoDir, subDir: subDir, active: map[string]*ManagedTree{}}
 }
 
-// AcquireOptions tunes Acquire behaviour. Zero-value is the
-// recommended default: branch derived from task ID, no custom
-// reason, no force-fresh.
 type AcquireOptions struct {
-	// Branch overrides the default `overkill/parallel/<task-id>`.
-	// Empty → use the default.
 	Branch string
-	// ForceFresh removes any pre-existing worktree at the target
-	// path before creating a new one. Useful when a prior session
-	// crashed mid-task and left a stale tree on disk.
+	// ForceFresh replaces a clean, verified allocation only; dirty files are preserved.
 	ForceFresh bool
-	// LockReason is passed to `git worktree lock` so `git worktree
-	// prune` doesn't reap an in-flight subagent's tree.
 	LockReason string
 }
-
-// Acquire allocates (or reuses) a worktree for the given task ID.
-// Idempotent: calling Acquire twice with the same taskID returns
-// the same ManagedTree without re-doing the git work.
-func (m *Manager) Acquire(taskID string, opts AcquireOptions) (*ManagedTree, error) {
-	if strings.TrimSpace(taskID) == "" {
-		return nil, errors.New("worktree manager: task id required")
-	}
-	if m.repoDir == "" {
-		return nil, errors.New("worktree manager: repo dir required")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if existing, ok := m.active[taskID]; ok {
-		return existing, nil
-	}
-
-	branch := opts.Branch
-	if branch == "" {
-		branch = "overkill/parallel/" + sanitizeBranch(taskID)
-	}
-	path := filepath.Join(m.repoDir, m.subDir, sanitizePath(taskID))
-
-	if opts.ForceFresh {
-		// Best-effort remove; if there was no prior tree, this no-
-		// ops. We use --force because the caller asked for clean.
-		_ = RemoveForce(m.repoDir, path)
-		_ = os.RemoveAll(path)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return nil, fmt.Errorf("worktree manager: mkdir: %w", err)
-	}
-	if err := Add(m.repoDir, path, branch); err != nil {
-		return nil, fmt.Errorf("worktree manager: acquire %s: %w", taskID, err)
-	}
-	if opts.LockReason != "" {
-		if err := Lock(m.repoDir, path, opts.LockReason); err != nil {
-			// Lock failed — clean up the worktree we just created so
-			// we don't leave an orphaned tree on disk.
-			_ = RemoveForce(m.repoDir, path)
-			_ = os.RemoveAll(path)
-			return nil, fmt.Errorf("worktree manager: lock %s: %w", taskID, err)
-		}
-	}
-
-	mt := &ManagedTree{
-		TaskID:    taskID,
-		Path:      path,
-		Branch:    branch,
-		CreatedAt: time.Now().UTC(),
-	}
-	m.active[taskID] = mt
-	return mt, nil
-}
-
-// ReleaseOptions tunes Release.
 type ReleaseOptions struct {
-	// DeleteBranch removes the branch after the worktree. Default
-	// false — keep the branch around so the user can inspect /
-	// merge it. Skip when the branch is going to be auto-merged
-	// later by upstream tooling.
 	DeleteBranch bool
-	// Force passes --force to `git worktree remove`, dropping any
-	// uncommitted changes. Useful for crashed subagents whose tree
-	// is dirty but irrelevant.
+	// Force is retained for compatibility. Managed cleanup never discards dirty work.
 	Force bool
 }
 
-// Release tears down the worktree for taskID. Idempotent: releasing
-// an unknown task is a no-op (returns nil).
-func (m *Manager) Release(taskID string, opts ReleaseOptions) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	mt, ok := m.active[taskID]
-	if !ok {
-		return nil
+func validateTask(task string) error {
+	if strings.TrimSpace(task) == "" || len(task) > 1024 || task == "." || task == ".." {
+		return errors.New("worktree manager: invalid task id")
 	}
-	// Unlock first; otherwise `git worktree remove` refuses.
-	_ = Unlock(m.repoDir, mt.Path)
-	var rmErr error
-	if opts.Force {
-		rmErr = RemoveForce(m.repoDir, mt.Path)
-	} else {
-		rmErr = Remove(m.repoDir, mt.Path)
-	}
-	if rmErr != nil {
-		return fmt.Errorf("worktree manager: release %s: %w", taskID, rmErr)
-	}
-	delete(m.active, taskID)
-	if opts.DeleteBranch && mt.Branch != "" {
-		// Branch deletion is best-effort and uses -D so dirty
-		// branches don't block cleanup. The user can recover via
-		// reflog if they regret it.
-		_, _ = runGit(m.repoDir, "branch", "-D", mt.Branch)
+	for _, c := range task {
+		if c < 32 || c == 127 {
+			return errors.New("worktree manager: task id contains control characters")
+		}
 	}
 	return nil
 }
+func allocationName(task string) string {
+	sum := sha256.Sum256([]byte(task))
+	prefix := sanitizeBranch(task)
+	if len(prefix) > 48 {
+		prefix = prefix[:48]
+	}
+	return prefix + "-" + hex.EncodeToString(sum[:])
+}
+func (m *Manager) root() string { return filepath.Join(m.repoDir, m.subDir) }
+func (m *Manager) record(task string) string {
+	return filepath.Join(m.root(), allocationName(task)+".json")
+}
 
-// List returns the currently allocated worktrees. Order is not
-// guaranteed; callers can sort by CreatedAt if they want.
+// guard serializes independent managers/processes using a kernel lock released on exit.
+// The managed root must be a real immediate directory; repository aliases are canonicalized.
+func (m *Manager) guard() (func(), error) {
+	if m.repoDir == "" || m.subDir == "." || m.subDir == ".." || strings.EqualFold(m.subDir, ".git") || filepath.Base(m.subDir) != m.subDir || strings.ContainsAny(m.subDir, "/\\") {
+		return nil, errors.New("worktree manager: invalid allocation root")
+	}
+	top, err := runGit(m.repoDir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := filepath.EvalSymlinks(strings.TrimSpace(top))
+	if err != nil || canonical != m.repoDir {
+		return nil, errors.New("worktree manager: repo must be the checkout root")
+	}
+	common, err := runGit(m.repoDir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return nil, err
+	}
+	lockPath := filepath.Join(strings.TrimSpace(common), "overkill-worktrees.lock")
+	if info, err := os.Lstat(lockPath); err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()) {
+		return nil, errors.New("worktree manager: unsafe lock file")
+	}
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err = lockManagerFile(f); err != nil {
+		f.Close()
+		return nil, err
+	}
+	unlock := func() { _ = unlockManagerFile(f); _ = f.Close() }
+	if info, err := os.Lstat(m.root()); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			unlock()
+			return nil, errors.New("worktree manager: allocation root must not be a symlink or file")
+		}
+	} else if !os.IsNotExist(err) {
+		unlock()
+		return nil, err
+	} else if err = os.Mkdir(m.root(), 0750); err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
+}
+func clone(mt *ManagedTree) *ManagedTree { c := *mt; return &c }
+
+func (m *Manager) load(task string) (*ManagedTree, error) {
+	path := m.record(task)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 16*1024 {
+		return nil, errors.New("worktree manager: invalid ownership record")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var mt ManagedTree
+	if err = json.Unmarshal(data, &mt); err != nil {
+		return nil, err
+	}
+	if mt.TaskID != task || mt.Path != filepath.Join(m.root(), allocationName(task)) || mt.GitDir == "" || len(mt.AllocationID) != 64 || mt.Branch == "" {
+		return nil, errors.New("worktree manager: ownership record mismatch")
+	}
+	return &mt, nil
+}
+func (m *Manager) verify(mt *ManagedTree) error {
+	if mt.Path != filepath.Join(m.root(), allocationName(mt.TaskID)) {
+		return errors.New("worktree manager: allocation path mismatch")
+	}
+	info, err := os.Lstat(mt.Path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("worktree manager: allocation is not a real directory")
+	}
+	trees, err := List(m.repoDir)
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, tree := range trees {
+		if tree.Path == mt.Path && tree.Branch == "refs/heads/"+mt.Branch && !tree.Bare && !tree.Detached {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return errors.New("worktree manager: Git registration or branch changed; preserving checkout")
+	}
+	gitDir, err := runGit(mt.Path, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(gitDir) != mt.GitDir {
+		return errors.New("worktree manager: Git administrative identity changed")
+	}
+	tokenPath := filepath.Join(mt.GitDir, "overkill-owner")
+	tokenInfo, err := os.Lstat(tokenPath)
+	if err != nil || !tokenInfo.Mode().IsRegular() || tokenInfo.Size() != 64 {
+		return errors.New("worktree manager: allocation ownership token missing or invalid")
+	}
+	token, err := os.ReadFile(tokenPath)
+	if err != nil || string(token) != mt.AllocationID {
+		return errors.New("worktree manager: allocation ownership changed; preserving checkout")
+	}
+
+	return nil
+}
+func (m *Manager) save(mt *ManagedTree) error {
+	data, err := json.Marshal(mt)
+	if err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(m.root(), ".allocation-*")
+	if err != nil {
+		return err
+	}
+	name := file.Name()
+	defer os.Remove(name)
+	if _, err = file.Write(data); err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(name, m.record(mt.TaskID))
+}
+func (m *Manager) Acquire(task string, opts AcquireOptions) (*ManagedTree, error) {
+	if err := validateTask(task); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	unlock, err := m.guard()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	mt, err := m.load(task)
+	if err == nil {
+		if opts.Branch != "" && opts.Branch != mt.Branch {
+			return nil, errors.New("worktree manager: task already allocated to another branch")
+		}
+		if err = m.verify(mt); err != nil {
+			return nil, err
+		}
+		if !opts.ForceFresh {
+			m.active[task] = mt
+			return clone(mt), nil
+		}
+		if err = m.remove(mt, ReleaseOptions{}); err != nil {
+			return nil, err
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	path := filepath.Join(m.root(), allocationName(task))
+	if _, err = os.Lstat(path); !os.IsNotExist(err) {
+		return nil, errors.New("worktree manager: unowned allocation path exists; preserving it")
+	}
+	branch := opts.Branch
+	if branch == "" {
+		branch = "overkill/parallel/" + allocationName(task)
+	}
+	if err = Add(m.repoDir, path, branch); err != nil {
+		return nil, err
+	}
+	gitDir, err := runGit(path, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return nil, err
+	}
+	var nonce [32]byte
+	if _, err = rand.Read(nonce[:]); err != nil {
+		return nil, err
+	}
+	allocationID := hex.EncodeToString(nonce[:])
+	mt = &ManagedTree{TaskID: task, Path: path, Branch: branch, CreatedAt: time.Now().UTC(), GitDir: strings.TrimSpace(gitDir), AllocationID: allocationID, LockReason: opts.LockReason}
+	token, err := os.OpenFile(filepath.Join(mt.GitDir, "overkill-owner"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, err
+	}
+	_, err = token.WriteString(allocationID)
+	closeErr := token.Close()
+	if err != nil {
+		return nil, err
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if err = m.save(mt); err != nil {
+		return nil, fmt.Errorf("worktree manager: persist ownership (checkout retained): %w", err)
+	}
+	if opts.LockReason != "" {
+		if err = Lock(m.repoDir, path, opts.LockReason); err != nil {
+			return nil, fmt.Errorf("worktree manager: lock (allocation retained): %w", err)
+		}
+	}
+	m.active[task] = mt
+	return clone(mt), nil
+}
+func (m *Manager) remove(mt *ManagedTree, opts ReleaseOptions) error {
+	if err := m.verify(mt); err != nil {
+		return err
+	}
+	status, err := runGit(mt.Path, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(status) != "" {
+		return errors.New("worktree manager: checkout contains modified, untracked or ignored files; preserving work")
+	}
+	trees, err := List(m.repoDir)
+	if err != nil {
+		return err
+	}
+	locked := false
+	for _, tree := range trees {
+		if tree.Path == mt.Path {
+			locked = tree.Locked
+			if locked && (mt.LockReason == "" || tree.LockReason != mt.LockReason) {
+				return errors.New("worktree manager: checkout has an external Git lock; preserving it")
+			}
+		}
+	}
+	if locked {
+		if err = Unlock(m.repoDir, mt.Path); err != nil {
+			return err
+		}
+	}
+	if err = Remove(m.repoDir, mt.Path); err != nil {
+		if locked {
+			_ = Lock(m.repoDir, mt.Path, mt.LockReason)
+		}
+		return err
+	}
+	if err = os.Remove(m.record(mt.TaskID)); err != nil {
+		return err
+	}
+	delete(m.active, mt.TaskID)
+	if opts.DeleteBranch { // Only delete merged branches; unmerged commits remain recoverable by name.
+		if _, err = runGit(m.repoDir, "branch", "-d", "--", mt.Branch); err != nil {
+			return fmt.Errorf("worktree removed; branch preserved: %w", err)
+		}
+	}
+	return nil
+}
+func (m *Manager) Release(task string, opts ReleaseOptions) error {
+	if err := validateTask(task); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	unlock, err := m.guard()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	mt, err := m.load(task)
+	if os.IsNotExist(err) {
+		delete(m.active, task)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return m.remove(mt, opts)
+}
 func (m *Manager) List() []*ManagedTree {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]*ManagedTree, 0, len(m.active))
 	for _, mt := range m.active {
-		dup := *mt
-		out = append(out, &dup)
+		out = append(out, clone(mt))
 	}
 	return out
 }
-
-// Get returns the ManagedTree for taskID, or nil if none.
-func (m *Manager) Get(taskID string) *ManagedTree {
+func (m *Manager) Get(task string) *ManagedTree {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if mt, ok := m.active[taskID]; ok {
-		dup := *mt
-		return &dup
+	if mt := m.active[task]; mt != nil {
+		return clone(mt)
 	}
 	return nil
 }
-
-// Reclaim attempts to recover allocations after a daemon restart.
-// Scans `git worktree list` for trees under our subDir, infers
-// task IDs from path basenames, and registers them as active.
-// Idempotent.
 func (m *Manager) Reclaim() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	trees, err := List(m.repoDir)
+	unlock, err := m.guard()
 	if err != nil {
-		return fmt.Errorf("worktree manager: reclaim: %w", err)
+		return err
 	}
-	subPrefix := filepath.Join(m.repoDir, m.subDir) + string(filepath.Separator)
-	for _, t := range trees {
-		if !strings.HasPrefix(t.Path, subPrefix) {
+	defer unlock()
+	records, err := os.ReadDir(m.root())
+	if err != nil {
+		return err
+	}
+	restored := map[string]*ManagedTree{}
+	for _, record := range records {
+		if record.IsDir() || !strings.HasSuffix(record.Name(), ".json") {
 			continue
 		}
-		taskID := filepath.Base(t.Path)
-		if _, ok := m.active[taskID]; ok {
+		info, err := record.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Size() > 16*1024 {
 			continue
 		}
-		m.active[taskID] = &ManagedTree{
-			TaskID: taskID,
-			Path:   t.Path,
-			Branch: t.Branch,
-			// CreatedAt unknown — leave zero so callers can
-			// distinguish reclaimed-from-disk allocations from
-			// in-process ones.
+		data, err := os.ReadFile(filepath.Join(m.root(), record.Name()))
+		if err != nil {
+			return err
 		}
+		var hint ManagedTree
+		if json.Unmarshal(data, &hint) != nil || validateTask(hint.TaskID) != nil || record.Name() != allocationName(hint.TaskID)+".json" {
+			continue
+		}
+		mt, err := m.load(hint.TaskID)
+		if err != nil {
+			continue
+		}
+		if m.verify(mt) != nil {
+			continue
+		}
+		restored[mt.TaskID] = mt
 	}
+	m.active = restored
 	return nil
 }
-
-// sanitizeBranch makes a task ID safe for use as a git branch name.
-// Replaces characters git rejects (whitespace, `..`, control chars)
-// with hyphens. Caller-provided IDs are usually UUIDs; this is for
-// human-supplied or path-shaped IDs.
 func sanitizeBranch(taskID string) string {
 	var b strings.Builder
 	for _, r := range taskID {
 		switch {
-		case r >= 'a' && r <= 'z',
-			r >= 'A' && r <= 'Z',
-			r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-' || r == '_':
 			b.WriteRune(r)
-		case r == '-' || r == '_':
-			b.WriteRune(r)
-		case r == '/':
-			b.WriteRune('-')
 		default:
-			b.WriteRune('-')
+			b.WriteByte('-')
 		}
 	}
 	s := strings.Trim(b.String(), "-")
 	if s == "" {
 		return "task"
 	}
-	// B056: Git branch names have a 250-byte practical limit; truncate to
-	// 200 chars for safety (leaves room for prefix/suffix in callers).
 	if len(s) > 200 {
 		s = s[:200]
 	}
 	return s
 }
-
-// sanitizePath strips slashes so the task ID can be used as a
-// single directory name under subDir.
-func sanitizePath(taskID string) string {
-	return strings.ReplaceAll(taskID, "/", "-")
-}
+func sanitizePath(taskID string) string { return allocationName(taskID) }

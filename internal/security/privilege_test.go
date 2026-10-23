@@ -28,7 +28,7 @@ func TestPrivilegeGate_ReaderBlocksWriteLike(t *testing.T) {
 		{"shell-rm", ``, false},
 		{"git-push", ``, false},
 		{"fs-read", `{"action":"read","path":"x"}`, true},
-		{"shell-echo", ``, true},
+		{"shell-echo", ``, false},
 		{"grep", `{}`, true},
 	}
 	for _, tc := range cases {
@@ -76,12 +76,43 @@ func TestIsWriteLikeTool_FsActionBranches(t *testing.T) {
 		{"write", true},
 		{"create", true},
 		{"delete", true},
-		{"unknown", false},
+		{"unknown", true},
 	}
 	for _, tc := range cases {
 		raw, _ := json.Marshal(map[string]string{"action": tc.action})
 		if got := IsWriteLikeTool("fs", raw); got != tc.want {
 			t.Errorf("fs/%s got=%v want=%v", tc.action, got, tc.want)
 		}
+	}
+}
+
+func TestPrivilegeDurableExternalTaskMutations(t *testing.T) {
+	gate := NewPrivilegeGate(ModeReader)
+	for _, name := range []string{"acp_submit", "acp_cancel", "acp_send"} {
+		if ok, _ := gate.Allow(name, json.RawMessage(`{}`)); ok {
+			t.Fatalf("reader admitted external mutation %s", name)
+		}
+	}
+	for _, name := range []string{"acp_status", "acp_await", "acp_sessions"} {
+		if ok, _ := gate.Allow(name, json.RawMessage(`{}`)); !ok {
+			t.Fatalf("reader blocked observation %s", name)
+		}
+	}
+}
+
+func TestReaderRequiresExplicitObservation(t *testing.T) {
+	gate := NewPrivilegeGate(ModeReader)
+	for _, name := range []string{"unclassified_extension", "mcp_custom_tool", "delegate_task", "shell", "pty_shell", "git", "agent_send", "agent_reply", "agent_cancel", "agent_contract"} {
+		if allowed, _ := gate.Allow(name, json.RawMessage(`{}`)); allowed {
+			t.Fatalf("opaque/mutating tool admitted: %s", name)
+		}
+	}
+	for _, raw := range []string{`{`, `null`, `{}`, `{"action":"edit"}`, `{"action":"READ"}`, `{"action":"unknown"}`} {
+		if allowed, _ := gate.Allow("fs", json.RawMessage(raw)); allowed {
+			t.Fatalf("unclassified fs action admitted: %s", raw)
+		}
+	}
+	if allowed, _ := gate.Allow("agent_contract", json.RawMessage(`{"action":"readiness"}`)); !allowed {
+		t.Fatal("contract observation blocked")
 	}
 }

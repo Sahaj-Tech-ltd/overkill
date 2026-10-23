@@ -8,7 +8,7 @@ import type { BackendClient } from "../../backend/client.ts";
 
 export interface GoalData {
   objective: string;
-  status: "active" | "blocked" | "complete" | "budget_limited";
+  status: "active" | "paused" | "blocked" | "complete" | "budget_limited";
   token_budget: number | null;
   tokens_used: number;
   time_used_s: number;
@@ -29,20 +29,11 @@ export interface PlanData {
 
 // ─── Fetchers ──────────────────────────────────────────────────────────────
 
-export async function fetchGoal(backend: BackendClient): Promise<GoalData> {
-  const result = await backend.call<GoalData>("goal.get", {});
-  return (
-    result ?? {
-      objective: "",
-      status: "active",
-      token_budget: null,
-      tokens_used: 0,
-      time_used_s: 0,
-    }
-  );
+export async function fetchGoal(backend: BackendClient, sessionId: string, signal?: AbortSignal): Promise<GoalData | null> {
+  const result = await backend.get<GoalData | {goal: null}>("/api/goal", {session_id: sessionId}, {signal});
+  return "goal" in result ? null : result;
 }
-
-export async function fetchPlan(backend: BackendClient): Promise<PlanData> {
-  const result = await backend.call<PlanData>("plan.get", {});
-  return result ?? { title: "", items: [] };
+export async function fetchPlan(backend: BackendClient, sessionId: string, signal?: AbortSignal): Promise<PlanData | null> {
+  const result = await backend.get<PlanData | {plan: null}>("/api/plan", {session_id: sessionId}, {signal});
+  return "plan" in result ? null : result;
 }

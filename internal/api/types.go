@@ -257,8 +257,9 @@ type GatewayTestResult struct {
 // --- status ---
 
 type HealthResult struct {
-	Status  string `json:"status"`
-	Version int    `json:"version"`
+	Coordination map[string]bool `json:"coordination,omitempty"`
+	Status       string          `json:"status"`
+	Version      int             `json:"version"`
 }
 
 // --- wizard.catalog ---

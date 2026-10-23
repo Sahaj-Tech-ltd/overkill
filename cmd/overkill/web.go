@@ -70,7 +70,10 @@ func runWeb(cmd *cobra.Command, args []string) error {
 	}
 
 	// Session store (Postgres).
-	sstore := session.NewPostgresStore(database)
+	sstore, err := session.NewPostgresStore(database)
+	if err != nil {
+		return fmt.Errorf("initialize session store: %w", err)
+	}
 
 	// Resolve provider / model from config (same logic as run.go).
 	providerCfg, modelName := resolveProvider()
@@ -85,6 +88,7 @@ func runWeb(cmd *cobra.Command, args []string) error {
 
 	provider, err := providers.NewProvider(providers.FactoryConfig{
 		Name:    providerCfg.Name,
+		Models:  providerCfg.ProviderModels(),
 		Type:    providerCfg.Type,
 		APIKey:  apiKey,
 		BaseURL: providerCfg.BaseURL,
@@ -131,14 +135,21 @@ func runWeb(cmd *cobra.Command, args []string) error {
 	})
 
 	// Build the agent.
+	limits := providers.TokenLimitsFor(provider.Models(), loadedCfg.Agent.MaxOutputTokens)
+	contextWindow, outputTokens, err := limits(modelName)
+	if err != nil {
+		return fmt.Errorf("agent token limits: %w", err)
+	}
 	a := agent.New(agent.Config{
-		Provider:     provider,
-		Tools:        toolReg,
-		Tokenizer:    tokenizer.NewEstimator(),
-		Model:        modelName,
-		MaxTokens:    200000,
-		SystemPrompt: buildSystemPrompt(loadedCfg),
-		MaxSteps:     30,
+		Provider:      provider,
+		Tools:         toolReg,
+		Tokenizer:     tokenizer.NewEstimator(),
+		Model:         modelName,
+		MaxTokens:     outputTokens,
+		ContextWindow: contextWindow,
+		TokenLimits:   limits,
+		SystemPrompt:  buildSystemPrompt(loadedCfg),
+		MaxSteps:      30,
 		Scanners: []security.Scanner{
 			security.NewCommandScanner(
 				security.WithProjectPath(cwd),
@@ -171,16 +182,30 @@ func runWeb(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build and start the web server.
+	flowStore := web.NewFlowStore(database)
+	if err := flowStore.Migrate(cmd.Context()); err != nil {
+		return fmt.Errorf("web flow storage: %w", err)
+	}
+	canvasStore := web.NewCanvasStore(database)
+	migrationCtx, cancelMigration := context.WithTimeout(cmd.Context(), 10*time.Second)
+	err = canvasStore.Migrate(migrationCtx)
+	cancelMigration()
+	if err != nil {
+		return fmt.Errorf("web canvas storage: %w", err)
+	}
 	srv := web.NewServer(web.Config{
-		Addr:         webListen,
-		Token:        tok,
-		NoAuth:       webNoAuth,
-		Agent:        a,
-		Store:        sstore,
-		Catalog:      catalog,
-		PairingStore: security.NewPairingStore(pairingDir()),
-		Provider:     providerCfg.Name,
-		Version:      Version,
+		Addr:             webListen,
+		Token:            tok,
+		NoAuth:           webNoAuth,
+		Agent:            a,
+		Store:            sstore,
+		Flows:            flowStore,
+		Canvas:           canvasStore,
+		CanvasChromePath: loadedCfg.Browser.ChromePath,
+		Catalog:          catalog,
+		PairingStore:     security.NewPairingStore(pairingDir()),
+		Provider:         providerCfg.Name,
+		Version:          Version,
 	})
 
 	if err := srv.Start(); err != nil {

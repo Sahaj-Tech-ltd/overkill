@@ -4,26 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"strings"
 	"testing"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/memory"
-	_ "github.com/lib/pq"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set — skipping Postgres test")
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatalf("postgres open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	database, _ := testpg.Open(t)
+	return database
 }
 
 func newOrch(t *testing.T) *memory.Orchestrator {

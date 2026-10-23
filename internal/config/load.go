@@ -36,7 +36,7 @@ func Default() *Config {
 	// The user can override by setting database_url in config.toml.
 	dbURL := os.Getenv("DATABASE_URL")
 
-	return &Config{
+	cfg := &Config{
 		Version: CurrentVersion,
 		Agent: AgentConfig{
 			Name:       "Overkill",
@@ -72,6 +72,7 @@ func Default() *Config {
 			WarnAtPercent:    80,
 		},
 		Compaction: CompactionConfig{
+			Strategy:           "auto",
 			SoftTriggerPercent: 50,
 			HardTriggerPercent: 95,
 			PreserveMessages:   20,
@@ -100,16 +101,34 @@ func Default() *Config {
 			PushTimeoutSec: 30,
 		},
 	}
+	if dbURL != "" {
+		cfg.secretBindings = map[string]secretBinding{"database_url": {Reference: "${DATABASE_URL}", Resolved: dbURL}}
+	}
+	return cfg
+
 }
 
 func Load(path string) (*Config, error) {
+	if path == "" {
+		var err error
+		path, err = ConfigPath()
+		if err != nil {
+			return nil, err
+		}
+	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: resolve source path: %w", err)
+	}
+	path = absolutePath
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Warn().Str("path", path).Msg("config file not found, creating default")
 			cfg := Default()
+			cfg.sourcePath = path
 			if writeErr := cfg.Save(path); writeErr != nil {
-				log.Warn().Err(writeErr).Msg("failed to write default config")
+				return nil, fmt.Errorf("config: bootstrap default configuration: %w", writeErr)
 			}
 			return cfg, nil
 		}
@@ -121,9 +140,17 @@ func Load(path string) (*Config, error) {
 	// "user set false" from "user didn't set this at all" — so use_lcm = false
 	// was silently overridden to true. Defaults-first fixes this.
 	cfg := *Default()
+	cfg.sourcePath = path
 	if err := toml.Unmarshal(data, &cfg); err != nil {
-		log.Warn().Err(err).Str("path", path).Msg("failed to parse config file, using defaults")
-		return Default(), nil
+		return nil, fmt.Errorf("config: failed to parse config file %s: %w", path, err)
+	}
+
+	// Reject unenforced security guarantees before migration or persistence.
+	if err := cfg.MCP.ValidateLimits(); err != nil {
+		return nil, err
+	}
+	if err := cfg.Security.ValidateSupported(); err != nil {
+		return nil, err
 	}
 
 	// Apply env var fallbacks for any unset fields.
@@ -140,13 +167,31 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// PersistencePath returns the selected loaded profile, or the default for a new config.
+func (c *Config) PersistencePath() (string, error) {
+	if c.sourcePath != "" {
+		return c.sourcePath, nil
+	}
+	return ConfigPath()
+}
+
 func (c *Config) Save(path string) error {
+	if err := c.MCP.ValidateLimits(); err != nil {
+		return err
+	}
+	if err := c.Security.ValidateSupported(); err != nil {
+		return err
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("config: creating directory %s: %w", dir, err)
 	}
 
-	data, err := toml.Marshal(c)
+	persisted, err := c.persistenceCopy()
+	if err != nil {
+		return err
+	}
+	data, err := toml.Marshal(persisted)
 	if err != nil {
 		return fmt.Errorf("config: marshaling toml: %w", err)
 	}

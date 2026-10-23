@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,26 +16,20 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
-	_ "github.com/lib/pq"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatalf("postgres: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	database, _ := testpg.Open(t)
+	return database
 }
 
 func newTestStore(t *testing.T) *session.PostgresStore {
 	t.Helper()
-	st := session.NewPostgresStore(openTestDB(t))
+	st, err := session.NewPostgresStore(openTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = st.Close() })
 	return st
 }

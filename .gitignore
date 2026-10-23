@@ -14,6 +14,8 @@ docs/book/
 # HTML (except web UI static)
 *.html
 !internal/web/static/index.html
+!desktop/src/index.html
+!desktop/notices/electron/LICENSES.chromium.html
 
 # Compiled plugin binaries
 examples/plugins/*/git-stats
@@ -60,3 +62,6 @@ prod/bin/
 inspiration/
 plans/
 research/
+
+# Generated local research catalogues are not application release sources.
+/docs/harness-research/

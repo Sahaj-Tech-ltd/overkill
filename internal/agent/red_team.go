@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/modelusage"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 
 	"github.com/rs/zerolog/log"
@@ -240,6 +241,9 @@ Tests MUST compile and run — no syntax errors, no missing imports.`
 	}
 	userContent += "\nGenerate adversarial tests for these changes. Output valid JSON."
 
+	if err := modelusage.Before(ctx); err != nil {
+		return nil, err
+	}
 	resp, err := rt.cfg.Provider.Complete(ctx, providers.Request{
 		Model:        rt.cfg.Model,
 		SystemPrompt: systemPrompt,
@@ -247,6 +251,9 @@ Tests MUST compile and run — no syntax errors, no missing imports.`
 			{Role: "user", Content: userContent},
 		},
 	})
+	if usageErr := modelusage.RecordSample(ctx, rt.cfg.Model, resp.Usage, resp.UsageReported); usageErr != nil {
+		return nil, usageErr
+	}
 	if err != nil {
 		return nil, fmt.Errorf("red-team: LLM call failed: %w", err)
 	}
@@ -259,6 +266,9 @@ Tests MUST compile and run — no syntax errors, no missing imports.`
 
 		// Retry once with a fix prompt.
 		fixPrompt := fmt.Sprintf("Your previous response was not valid JSON. The error was: %v. Please output ONLY valid JSON in this format: {\"filename_test.go\": \"test code here\"}", err)
+		if err := modelusage.Before(ctx); err != nil {
+			return nil, err
+		}
 		resp2, err2 := rt.cfg.Provider.Complete(ctx, providers.Request{
 			Model:        rt.cfg.Model,
 			SystemPrompt: systemPrompt,
@@ -268,6 +278,9 @@ Tests MUST compile and run — no syntax errors, no missing imports.`
 				{Role: "user", Content: fixPrompt},
 			},
 		})
+		if usageErr := modelusage.RecordSample(ctx, rt.cfg.Model, resp2.Usage, resp2.UsageReported); usageErr != nil {
+			return nil, usageErr
+		}
 		if err2 != nil {
 			return nil, fmt.Errorf("red-team: retry failed: %w", err2)
 		}

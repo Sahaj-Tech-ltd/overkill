@@ -11,8 +11,6 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    defaults:
-      run:
     strategy:
       matrix:
         include:
@@ -31,11 +29,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
 
       - name: Build
         env:
-          CGO_ENABLED: 0
+          CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
@@ -79,6 +77,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: overkill-*
@@ -93,9 +92,14 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
+          python3 scripts/verify-release-assets.py dist
+          prerelease=()
+          if [[ "$VERSION" == *-* ]]; then prerelease+=(--prerelease); fi
           gh release create "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "$VERSION" \
-            --notes-file CHANGELOG.md \
+            --generate-notes "${prerelease[@]}" \
             dist/overkill-* dist/checksums.txt

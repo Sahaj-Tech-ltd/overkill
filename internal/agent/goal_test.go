@@ -3,57 +3,14 @@ package agent
 import (
 	"context"
 	"database/sql"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"testing"
-
-	_ "github.com/lib/pq"
 )
 
 func openGoalDB(t *testing.T) *sql.DB {
 	t.Helper()
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		connStr = os.Getenv("PG_TEST_URL")
-	}
-	if connStr == "" {
-		connStr = "postgres://postgres:postgres@localhost:5432/overkill_test?sslmode=disable"
-	}
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		t.Skipf("skipping: cannot open postgres: %v", err)
-	}
-	if err := db.Ping(); err != nil {
-		db.Close()
-		t.Skipf("skipping: cannot ping postgres: %v (set PG_TEST_URL or DATABASE_URL)", err)
-	}
-	// Create goals table if it doesn't exist.
-	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS goals (
-		session_id TEXT PRIMARY KEY,
-		text TEXT NOT NULL DEFAULT '',
-		active BOOLEAN NOT NULL DEFAULT true,
-		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		token_budget INTEGER NOT NULL DEFAULT 0,
-		tokens_used INTEGER NOT NULL DEFAULT 0,
-		time_budget_seconds INTEGER NOT NULL DEFAULT 0,
-		time_used_seconds INTEGER NOT NULL DEFAULT 0,
-		status TEXT NOT NULL DEFAULT ''
-	)`)
-	// Add missing columns for existing tables.
-	for _, col := range []string{
-		`ALTER TABLE goals ADD COLUMN IF NOT EXISTS token_budget INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE goals ADD COLUMN IF NOT EXISTS tokens_used INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE goals ADD COLUMN IF NOT EXISTS time_budget_seconds INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE goals ADD COLUMN IF NOT EXISTS time_used_seconds INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE goals ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT ''`,
-	} {
-		_, _ = db.Exec(col)
-	}
-	t.Cleanup(func() {
-		db.Exec("DELETE FROM goals WHERE session_id LIKE 'test-%'")
-		db.Close()
-	})
-	return db
+	database, _ := testpg.Open(t)
+	return database
 }
 
 func TestGoal_SetAndGet(t *testing.T) {

@@ -18,9 +18,9 @@ $ErrorActionPreference = "Stop"
 
 $Repo = "Sahaj-Tech-ltd/overkill"
 $GoPkg = "github.com/Sahaj-Tech-ltd/overkill/cmd/overkill"
-$ReleaseBase = "https://github.com/$Repo/releases/latest/download"
+$ReleaseBase = if ($env:OVERKILL_RELEASE_BASE) { $env:OVERKILL_RELEASE_BASE } else { "https://github.com/$Repo/releases/latest/download" }
 
-$OverkillHome = "$env:LOCALAPPDATA\overkill"
+$OverkillHome = if ($env:OVERKILL_HOME) { $env:OVERKILL_HOME } else { "$env:LOCALAPPDATA\overkill" }
 $InstallDir = "$OverkillHome\bin"
 $BinPath = "$InstallDir\overkill.exe"
 $Verbose = [bool]($env:INSTALL_VERBOSE -eq "1")
@@ -73,7 +73,7 @@ function Step-BuildFromSource {
 function Step-DownloadBinary {
     $asset = "overkill-windows-amd64.exe"
     $url = "$ReleaseBase/$asset"
-    $shaUrl = "$url.sha256"
+    $shaUrl = "$ReleaseBase/checksums.txt"
     $tmpDir = Join-Path $env:TEMP "overkill-install-$(Get-Random)"
     Ensure-Dir $tmpDir
     $tmpBin = Join-Path $tmpDir "overkill.exe"
@@ -86,19 +86,16 @@ function Step-DownloadBinary {
             Die "failed to download $url — try `$env:OVERKILL_BUILD_FROM_SOURCE=1 with Go on PATH`n$($_.Exception.Message)"
         }
 
-        # SHA256 verify if available
-        try {
-            $tmpSha = Join-Path $tmpDir "overkill.exe.sha256"
-            Invoke-WebRequest -Uri $shaUrl -OutFile $tmpSha -ErrorAction Stop
-            Say "verifying SHA256"
-            $expected = (Get-Content $tmpSha).Split(" ")[0].Trim()
-            $actual = (Get-FileHash -Path $tmpBin -Algorithm SHA256).Hash.ToLower()
-            if ($actual -ne $expected) {
-                Die "SHA256 mismatch: expected $expected got $actual"
-            }
-        } catch {
-            VSay "no .sha256 sibling found, skipping checksum verification (pre-release)"
-        }
+        # Verification is mandatory. Missing/malformed manifests and network
+        # errors must propagate before replacing any installed executable.
+        $tmpSha = Join-Path $tmpDir "checksums.txt"
+        Invoke-WebRequest -Uri $shaUrl -OutFile $tmpSha -ErrorAction Stop
+        $checksumEntries = @(Get-Content $tmpSha | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s+$([regex]::Escape($asset))$" })
+        if ($checksumEntries.Count -ne 1) { Die "missing or ambiguous checksum for $asset" }
+        $expected = ($checksumEntries[0] -split '\s+')[0].ToLowerInvariant()
+        $actual = (Get-FileHash -Path $tmpBin -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -ne $expected) { Die "SHA256 mismatch for $asset" }
+        Say "SHA256 verified"
 
         Move-Item -Path $tmpBin -Destination $BinPath -Force
         Say "installed binary to $BinPath"
@@ -152,25 +149,8 @@ function Step-BootstrapHome {
 
     $cfg = Join-Path $OverkillHome "config.toml"
     if (-not (Test-Path $cfg)) {
-        @"
-# overkill config — edit freely. Run `overkill doctor` to validate.
-
-[agent]
-default_model = "anthropic/claude-sonnet-4-5"
-max_tokens    = 8192
-temperature   = 0.2
-
-[providers.anthropic]
-type    = "anthropic"
-api_key = "`${ANTHROPIC_API_KEY}"
-
-[providers.openai]
-type    = "openai"
-api_key = "`${OPENAI_API_KEY}"
-
-[ui]
-theme = "catppuccin-mocha"
-"@ | Out-File -FilePath $cfg -Encoding UTF8 -NoNewline
+        & $BinPath --config $cfg config init
+        if ($LASTEXITCODE -ne 0) { Die "default configuration initialization failed" }
         Say "wrote default config to $cfg"
     } else {
         VSay "config already present at $cfg, leaving untouched"
@@ -189,7 +169,7 @@ function Step-Finish {
     }
     Write-Host ""
     Write-Host "Next steps:"
-    Write-Host "  1. run 'overkill' to launch the TUI"
+    Write-Host "  1. configure PostgreSQL and install frontend assets before interactive mode"
     Write-Host "  2. run 'overkill doctor' to self-check every subsystem"
     Write-Host "  3. run 'overkill --help' for the CLI surface"
     Write-Host ""
@@ -208,4 +188,4 @@ function Main {
     Step-Finish
 }
 
-Main
+if ($env:OVERKILL_INSTALLER_SOURCE_ONLY -ne "1") { Main }

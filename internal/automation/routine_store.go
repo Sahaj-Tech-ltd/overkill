@@ -6,12 +6,14 @@
 package automation
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/dbschema"
 	_ "github.com/lib/pq"
 )
 
@@ -79,20 +81,9 @@ func NewPostgresRoutineStore(db *sql.DB) (*PostgresRoutineStore, error) {
 }
 
 func (s *PostgresRoutineStore) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS automation_routines (
-			id         TEXT PRIMARY KEY,
-			name       TEXT NOT NULL DEFAULT '',
-			trigger    TEXT NOT NULL DEFAULT '',
-			action     TEXT NOT NULL DEFAULT '',
-			cooldown_ns BIGINT NOT NULL DEFAULT 0,
-			enabled    BOOLEAN NOT NULL DEFAULT true,
-			last_fired TIMESTAMPTZ,
-			fire_count INTEGER NOT NULL DEFAULT 0,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)
-	`)
-	return err
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return dbschema.Routines(ctx, s.db)
 }
 
 func (s *PostgresRoutineStore) Save(r *Routine) error {

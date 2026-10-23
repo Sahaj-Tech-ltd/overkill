@@ -1,5 +1,9 @@
 compaction
 embeddings
 memory
+model_runtime
+overkill_pb2
+overkill_pb2_grpc
 proto
 reranking
+server

@@ -1,0 +1,413 @@
+{
+  "version": 1,
+  "commit": "34b3fab9d33bff34e0b00ae7e120498e0e6a79ee",
+  "scope": "Exact ordered DDL extracted from baseline source; historical Go code is not executed. The known non-immutable timestamp date index is expected to fail, preserving prior DDL as that constructor did.",
+  "sources": [
+    {
+      "path": "internal/db/db.go",
+      "git_blob": "3ff49011fccc99a812c913194da8d8df65565529",
+      "source_sha256": "cae123f322eb19ba51b5d9a420ec45230ceba31ec9601981376ea12376adc21d",
+      "statements": [
+        {
+          "start_line": 58,
+          "end_line": 64,
+          "sha256": "35f5f82810aec6becf5b174d146cc63dbb5d86ee5d452c4da60df9365836f37c",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS agent_flows (\n\t\t\tid          TEXT PRIMARY KEY,\n\t\t\tsession_id  TEXT NOT NULL,\n\t\t\tstate       JSONB NOT NULL DEFAULT '{}',\n\t\t\tstep        INTEGER NOT NULL DEFAULT 0,\n\t\t\tupdated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 65,
+          "end_line": 65,
+          "sha256": "f32aef25a6ee54bce594de16de1f67cb55cba5e790efa74c15d9936594d80408",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_flows_session ON agent_flows (session_id)"
+        },
+        {
+          "start_line": 68,
+          "end_line": 74,
+          "sha256": "5c0522c809520fba65b476a7598b7da8dd8d482d8fa9b7abd59995a3a0211e9b",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS goals (\n\t\t\tsession_id  TEXT PRIMARY KEY,\n\t\t\ttext        TEXT NOT NULL DEFAULT '',\n\t\t\tactive      BOOLEAN NOT NULL DEFAULT true,\n\t\t\tcreated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n\t\t\tupdated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 77,
+          "end_line": 81,
+          "sha256": "f09c432ab62edd3d2b3873d32438714437b1231689e04131d80e70d84d772350",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS input_history (\n\t\t\tchat_key    TEXT PRIMARY KEY,\n\t\t\tmessages    JSONB NOT NULL DEFAULT '[]',\n\t\t\tupdated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 84,
+          "end_line": 89,
+          "sha256": "885996eaf0a245897aa88cc5075890d8fcdcba6dec12afd7548023d391ef73c4",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS suspensions (\n\t\t\tid           TEXT PRIMARY KEY,\n\t\t\tsession_id   TEXT NOT NULL,\n\t\t\tstate        JSONB NOT NULL DEFAULT '{}',\n\t\t\tsuspended_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 90,
+          "end_line": 90,
+          "sha256": "f4b2a5e279ed6269d057cc388fac132dc43e312d0f626c3d623dcbc52793147f",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_suspensions_session ON suspensions (session_id)"
+        },
+        {
+          "start_line": 93,
+          "end_line": 100,
+          "sha256": "8604b026ccf70be3e5222f7eb64b8f70cc9d45a2e3bfe4c0538ef69c84b5f1fe",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS memory_entries (\n\t\t\tid         SERIAL PRIMARY KEY,\n\t\t\tkey        TEXT NOT NULL UNIQUE,\n\t\t\tvalue      JSONB NOT NULL DEFAULT '{}',\n\t\t\tcategory   TEXT NOT NULL DEFAULT 'general',\n\t\t\tcreated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n\t\t\tupdated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 103,
+          "end_line": 109,
+          "sha256": "cd804cc9332a42efeb442724937d58597c80148e66680dbb5e402566d27d759f",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS automation_routines (\n\t\t\tid         TEXT PRIMARY KEY,\n\t\t\tname       TEXT NOT NULL DEFAULT '',\n\t\t\tsteps      JSONB NOT NULL DEFAULT '[]',\n\t\t\tenabled    BOOLEAN NOT NULL DEFAULT true,\n\t\t\tcreated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 112,
+          "end_line": 119,
+          "sha256": "fc4fb401d5cfd7b3d028a5ed394ac17e0e5208f8d91f6a7c20a1304f96821aea",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS automation_alarms (\n\t\t\tid         TEXT PRIMARY KEY,\n\t\t\tname       TEXT NOT NULL DEFAULT '',\n\t\t\tschedule   TEXT NOT NULL,\n\t\t\taction     TEXT NOT NULL DEFAULT '',\n\t\t\tenabled    BOOLEAN NOT NULL DEFAULT true,\n\t\t\tcreated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 122,
+          "end_line": 127,
+          "sha256": "7a331197627cb2dbb28df01cdee8078e586b6c37a7d40c3026ee4ee2c3b94325",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS bookmarks (\n\t\t\tid          SERIAL PRIMARY KEY,\n\t\t\tsession_id  TEXT NOT NULL,\n\t\t\tlabel       TEXT NOT NULL,\n\t\t\tcreated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 128,
+          "end_line": 128,
+          "sha256": "746c3ab3e91b535c7225118eda9bce84176bb8a7ab2b5932593e7af0b4547d41",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_bookmarks_session ON bookmarks (session_id)"
+        },
+        {
+          "start_line": 129,
+          "end_line": 129,
+          "sha256": "8a8abd0c0087b54d8c2e9248ccea5817863aa3ee802779fe47d6b770f7aea0c9",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_bookmarks_label   ON bookmarks (label)"
+        }
+      ]
+    },
+    {
+      "path": "internal/session/postgres.go",
+      "git_blob": "119f4649a977d142290bc5bb6a233f0d4aa86a46",
+      "source_sha256": "7e47381c2d335a9ea96d0043675bd4c5c449185e0ad6465649af39edb3cc1723",
+      "statements": [
+        {
+          "start_line": 46,
+          "end_line": 62,
+          "sha256": "3d213b0b29c32fcc1c232bdaf2a2fe147a5ad8270af617aac8b69ea5340faeb9",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS sessions (\n\t\t\tid          TEXT PRIMARY KEY,\n\t\t\ttitle       TEXT NOT NULL DEFAULT '',\n\t\t\tfolder      TEXT NOT NULL DEFAULT '',\n\t\t\tparent_id   TEXT,\n\t\t\tstatus      TEXT NOT NULL DEFAULT 'active',\n\t\t\tmessages    JSONB NOT NULL DEFAULT '[]',\n\t\t\tmodel       TEXT NOT NULL DEFAULT '',\n\t\t\tprovider    TEXT NOT NULL DEFAULT '',\n\t\t\ttotal_cost  DOUBLE PRECISION NOT NULL DEFAULT 0,\n\t\t\tmetadata    JSONB NOT NULL DEFAULT '{}',\n\t\t\ttoken_count BIGINT NOT NULL DEFAULT 0,\n\t\t\tchildren    JSONB NOT NULL DEFAULT '[]',\n\t\t\tbranched_at_turn INTEGER NOT NULL DEFAULT 0,\n\t\t\tcreated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n\t\t\tupdated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 63,
+          "end_line": 71,
+          "sha256": "b08690bf53edce22a036c382974f7b4aa9f56dfc94951849699fd89dc54098e1",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS session_router (\n\t\t\tchannel    TEXT NOT NULL,\n\t\t\tchat_key   TEXT NOT NULL,\n\t\t\tthread     TEXT NOT NULL DEFAULT '',\n\t\t\tsession_id TEXT NOT NULL,\n\t\t\tfollow     TEXT NOT NULL DEFAULT '',\n\t\t\tupdated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n\t\t\tPRIMARY KEY (channel, chat_key, thread)\n\t\t)"
+        },
+        {
+          "start_line": 72,
+          "end_line": 72,
+          "sha256": "374ca68f07622b0aac357fe657648c9adce030daea773c02c4a2fb5569dcd3e0",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_session_router_session_id ON session_router (session_id)"
+        },
+        {
+          "start_line": 73,
+          "end_line": 73,
+          "sha256": "bc86bdd5a7480697de5f026e21dbdd607e743430669a51efd5e1b4d4e1859469",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_sessions_folder ON sessions (folder)"
+        },
+        {
+          "start_line": 74,
+          "end_line": 74,
+          "sha256": "0e5cfdf3742ea1b2b2b9913a5832d763ac7ceaf1e3bc4ae19a1a30ad8c7d5394",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions (parent_id)"
+        },
+        {
+          "start_line": 75,
+          "end_line": 75,
+          "sha256": "294600db5c2e0ef5038d9459542baa868fce4bd9b1d969642ce543e4d82452c0",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions (status)"
+        },
+        {
+          "start_line": 76,
+          "end_line": 76,
+          "sha256": "81dbf5c7f60da7dc6433ecab74315db4978c4e5a465c51f9791d323bf07c9f01",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at DESC)"
+        },
+        {
+          "start_line": 89,
+          "end_line": 89,
+          "sha256": "8413fd1992371361df5add086afec79587e8a4d2ed1813e546335ee0c4908839",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'"
+        },
+        {
+          "start_line": 90,
+          "end_line": 90,
+          "sha256": "48302ba3606cdebce5a1d7dbca394f09c1718f59efd61caa32f759a78b99bf51",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS token_count BIGINT NOT NULL DEFAULT 0"
+        },
+        {
+          "start_line": 91,
+          "end_line": 91,
+          "sha256": "ae65c666227fe644f62157ca03d73e02cf9041189239bb5afaf9c466ef5ebef3",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS children JSONB NOT NULL DEFAULT '[]'"
+        }
+      ]
+    },
+    {
+      "path": "internal/agent/goal.go",
+      "git_blob": "0705c789ffb1a4fb32f5509a244aceb68502b91f",
+      "source_sha256": "afea74e5d155f7db5e40a4eaf37b55133a168266f0374ef13a3d7d1ebc3ec559",
+      "statements": [
+        {
+          "start_line": 42,
+          "end_line": 55,
+          "sha256": "260557e17cb7e14805ec59c97d2823b2e7ab07efea80e784d346850b492a6224",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS goals (\n\t\t\tsession_id  TEXT PRIMARY KEY,\n\t\t\ttext        TEXT NOT NULL DEFAULT '',\n\t\t\tactive      BOOLEAN NOT NULL DEFAULT true,\n\t\t\tcreated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n\t\t\tupdated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n\t\t\ttoken_budget       INTEGER NOT NULL DEFAULT 0,\n\t\t\ttokens_used        INTEGER NOT NULL DEFAULT 0,\n\t\t\ttime_budget_seconds INTEGER NOT NULL DEFAULT 0,\n\t\t\ttime_used_seconds  INTEGER NOT NULL DEFAULT 0,\n\t\t\tstatus       TEXT NOT NULL DEFAULT ''\n\t\t)"
+        },
+        {
+          "start_line": 61,
+          "end_line": 61,
+          "sha256": "d8c4ee0c532d3612b895aed41d5a74061fc8113fcf230f353071fed7a3835b6f",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE goals ADD COLUMN IF NOT EXISTS token_budget INTEGER NOT NULL DEFAULT 0"
+        },
+        {
+          "start_line": 62,
+          "end_line": 62,
+          "sha256": "85fbe1b41de744fe42b98a16d899f401990afd10a3fe50f565c62a080ccf9616",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE goals ADD COLUMN IF NOT EXISTS tokens_used INTEGER NOT NULL DEFAULT 0"
+        },
+        {
+          "start_line": 63,
+          "end_line": 63,
+          "sha256": "1a5c995a54bff876a5a7ffcdb98f02efdeb91fa19d190aa71374ee5e92f0d4b5",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE goals ADD COLUMN IF NOT EXISTS time_budget_seconds INTEGER NOT NULL DEFAULT 0"
+        },
+        {
+          "start_line": 64,
+          "end_line": 64,
+          "sha256": "333be7b64ee0053f29738457cde151178795c1ff4659745d240495add8cf243f",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE goals ADD COLUMN IF NOT EXISTS time_used_seconds INTEGER NOT NULL DEFAULT 0"
+        },
+        {
+          "start_line": 65,
+          "end_line": 65,
+          "sha256": "63fc6e35c69b9ebf6000622fcf08497f3b84f71f130119e87a7d5a2ef1c7f87b",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE goals ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT ''"
+        }
+      ]
+    },
+    {
+      "path": "internal/cost/postgres.go",
+      "git_blob": "05035dd6c771ba96ce2412334f9486d24406c103",
+      "source_sha256": "b3e3ad6c5cfc377915f53cf0a94e6942c0c7bbba8428801220ced198e12f14d7",
+      "statements": [
+        {
+          "start_line": 38,
+          "end_line": 52,
+          "sha256": "20660abdce283f7f17d08ac18f92cd464b6b2de9720d29513225cca770138db4",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS cost_records (\n\t\t\tid              TEXT PRIMARY KEY,\n\t\t\tsession_id      TEXT NOT NULL DEFAULT '',\n\t\t\tmodel           TEXT NOT NULL DEFAULT '',\n\t\t\tprovider        TEXT NOT NULL DEFAULT '',\n\t\t\tinput_tokens    BIGINT NOT NULL DEFAULT 0,\n\t\t\toutput_tokens   BIGINT NOT NULL DEFAULT 0,\n\t\t\tcached_tokens   BIGINT NOT NULL DEFAULT 0,\n\t\t\tcost_usd        DOUBLE PRECISION NOT NULL DEFAULT 0,\n\t\t\ttask_id         TEXT NOT NULL DEFAULT '',\n\t\t\ttimestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n\t\t\tcreated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 58,
+          "end_line": 58,
+          "sha256": "75dec8d4988b49af279eb0a6d7b1e41a618a668947f0a2df2e37aa06e270b37a",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE cost_records ALTER COLUMN input_tokens  TYPE BIGINT"
+        },
+        {
+          "start_line": 59,
+          "end_line": 59,
+          "sha256": "10a1e401d1c1892d6882ef4c0f366f797703ae968740014eba3392ee9a97eb46",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE cost_records ALTER COLUMN output_tokens TYPE BIGINT"
+        },
+        {
+          "start_line": 60,
+          "end_line": 60,
+          "sha256": "f9a69bc40aed0a0f90650f19e3bf11e4c9b004ba1f7e2b435060325749728a50",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE cost_records ALTER COLUMN cached_tokens TYPE BIGINT"
+        },
+        {
+          "start_line": 69,
+          "end_line": 69,
+          "sha256": "83af1a957824383d2f9b91c3539083eff761123c98265b3efa0b55962ad8226f",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_cost_records_session ON cost_records (session_id)"
+        },
+        {
+          "start_line": 70,
+          "end_line": 70,
+          "sha256": "c7600920e2a5edde65ecf70b80a63c3d39d919866f9e3254a2a1404a2f6494fa",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_cost_records_timestamp ON cost_records (timestamp)"
+        },
+        {
+          "start_line": 71,
+          "end_line": 71,
+          "sha256": "2f11b0cd5d419bea6c4ae707b432cf6e333149b42329b0bed0628824a45d00d3",
+          "expected_sqlstate": "42P17",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_cost_records_date ON cost_records ((timestamp::date))"
+        }
+      ]
+    },
+    {
+      "path": "internal/learning/store.go",
+      "git_blob": "d408e5314f5c39bd22901b35fc1e8a4645d2256c",
+      "source_sha256": "e1f177de8a68d87003cdc439673b47c9ceaed24496e994cd75c3d4f0cbb1c81a",
+      "statements": [
+        {
+          "start_line": 33,
+          "end_line": 40,
+          "sha256": "754c58d88fcc61d3d237c60eae7fe17ca5d0d4255efde66dd73d79ce3514feec",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS corrections (\n\t\tid SERIAL PRIMARY KEY,\n\t\tcontext TEXT NOT NULL,\n\t\twrong TEXT NOT NULL,\n\t\tcorrect TEXT NOT NULL,\n\t\ttimestamp BIGINT NOT NULL,\n\t\tUNIQUE(context, wrong)\n\t)"
+        }
+      ]
+    },
+    {
+      "path": "internal/cron/store.go",
+      "git_blob": "6dc68674effec92a38de24c599b436cbf647ef42",
+      "source_sha256": "75d410b2696276bd4009df67c0c2bac0f7b3c4a634ee5592e6ad9ea67d7a3fe2",
+      "statements": [
+        {
+          "start_line": 30,
+          "end_line": 47,
+          "sha256": "6c5fb0e99352bfa0a5d82098f0c7f5a59961fd55db11d859afb059b1090ead17",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS cron_jobs (\n\t\t\tid              TEXT PRIMARY KEY,\n\t\t\tname            TEXT NOT NULL DEFAULT '',\n\t\t\tschedule        TEXT NOT NULL DEFAULT '',\n\t\t\ttimezone        TEXT NOT NULL DEFAULT 'UTC',\n\t\t\tcommand         TEXT NOT NULL DEFAULT '',\n\t\t\texecution_style TEXT NOT NULL DEFAULT 'main',\n\t\t\tsession_id      TEXT NOT NULL DEFAULT '',\n\t\t\tstatus          TEXT NOT NULL DEFAULT 'active',\n\t\t\tenabled         BOOLEAN NOT NULL DEFAULT true,\n\t\t\tlast_run        TIMESTAMPTZ,\n\t\t\tnext_run        TIMESTAMPTZ,\n\t\t\trun_count       INTEGER NOT NULL DEFAULT 0,\n\t\t\tfailure_count   INTEGER NOT NULL DEFAULT 0,\n\t\t\tmax_retries     INTEGER NOT NULL DEFAULT 3,\n\t\t\tmetadata        JSONB NOT NULL DEFAULT '{}',\n\t\t\tcreated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 48,
+          "end_line": 55,
+          "sha256": "97c98d833cf0504e5131787c9f4346ca1e578294489fdecd2b5ab39faa6c3da5",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS cron_run_logs (\n\t\t\tid          BIGSERIAL PRIMARY KEY,\n\t\t\tjob_id      TEXT NOT NULL REFERENCES cron_jobs(id) ON DELETE CASCADE,\n\t\t\toutput      TEXT NOT NULL DEFAULT '',\n\t\t\terror       TEXT NOT NULL DEFAULT '',\n\t\t\tsuccess     BOOLEAN NOT NULL DEFAULT false,\n\t\t\trun_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 56,
+          "end_line": 56,
+          "sha256": "b81ba40b6069a409b1074c15b4958e942407830417c004a9bf9805ca09fb386a",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_cron_jobs_session_id ON cron_jobs (session_id)"
+        },
+        {
+          "start_line": 57,
+          "end_line": 57,
+          "sha256": "33bf6cca396a2658d61c447bac55a7ba387bd121c1fc420db6228ebb3041f835",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_cron_jobs_status ON cron_jobs (status)"
+        },
+        {
+          "start_line": 58,
+          "end_line": 58,
+          "sha256": "27e52a196cf5bd0febb0348024d25e81022e4aa49b2fff96eb718d4ef330af4a",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_cron_run_logs_job_id ON cron_run_logs (job_id)"
+        },
+        {
+          "start_line": 59,
+          "end_line": 59,
+          "sha256": "eab9a59f8eb085b37c1e16c25fd781f2409e6ceb233abfaecf3f398ddc598ad0",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_cron_run_logs_run_at ON cron_run_logs (run_at)"
+        }
+      ]
+    },
+    {
+      "path": "internal/daemon/jobs.go",
+      "git_blob": "6c6d601f76dee513a248cc17334252bc33676395",
+      "source_sha256": "bd90ee46a8b44fba70241abe70089a5dd67bfb7f974d9ab137be76126f495b18",
+      "statements": [
+        {
+          "start_line": 74,
+          "end_line": 87,
+          "sha256": "2096dca6a087c34b68b1b2e34e8c3a415453c9dab9ef1b4e82293901c79d3777",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS daemon_jobs (\n\t\t\tid          TEXT PRIMARY KEY,\n\t\t\tsession_id  TEXT NOT NULL DEFAULT '',\n\t\t\tintent      TEXT NOT NULL DEFAULT '',\n\t\t\tstatus      TEXT NOT NULL DEFAULT 'queued',\n\t\t\tchannel     TEXT NOT NULL DEFAULT '',\n\t\t\tchat_key    TEXT NOT NULL DEFAULT '',\n\t\t\tprofile     TEXT NOT NULL DEFAULT '',\n\t\t\terror_msg   TEXT NOT NULL DEFAULT '',\n\t\t\tcreated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n\t\t\tupdated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()\n\t\t)"
+        },
+        {
+          "start_line": 91,
+          "end_line": 91,
+          "sha256": "44c263535efe83cfbe4f5e7ffaa3406a49723d002b985fc23033dd33c57ecc40",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_daemon_jobs_status ON daemon_jobs (status)"
+        }
+      ]
+    },
+    {
+      "path": "internal/memory/postgres.go",
+      "git_blob": "742e40da50e15d80c9d72fa19d2316ec381ac772",
+      "source_sha256": "2b560265a7b2ee9059c09fc0ae7995919b2fbc3bff09bde1919012602f26cbcb",
+      "statements": [
+        {
+          "start_line": 90,
+          "end_line": 101,
+          "sha256": "8ca23ac056470eb5c1dfe06915fecc5bfe883d72efb3ee5a3daae1d9dfa91717",
+          "expected_sqlstate": "",
+          "sql": "CREATE TABLE IF NOT EXISTS memory_items (\n\t\t\tid          TEXT PRIMARY KEY,\n\t\t\ttype        TEXT NOT NULL DEFAULT '',\n\t\t\tcontent     TEXT NOT NULL DEFAULT '',\n\t\t\tcontent_hash TEXT,\n\t\t\ttags        JSONB NOT NULL DEFAULT '[]',\n\t\t\tsession_id  TEXT NOT NULL DEFAULT '',\n\t\t\ttimestamp   TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n\t\t\tmetadata    JSONB NOT NULL DEFAULT '{}'\n\t\t)"
+        },
+        {
+          "start_line": 106,
+          "end_line": 106,
+          "sha256": "cad76385e1018af18035d293e9dca6983a6d5c5f9ac0b1138f80a372ba0e0a1b",
+          "expected_sqlstate": "",
+          "sql": "ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS content_hash TEXT"
+        },
+        {
+          "start_line": 110,
+          "end_line": 110,
+          "sha256": "20e2c9a7f2a9fd33a498d4350b8c08d8fbfe0efc8b9556a1b210c622eaf1c74f",
+          "expected_sqlstate": "",
+          "sql": "CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_content_hash ON memory_items (content_hash)"
+        },
+        {
+          "start_line": 114,
+          "end_line": 114,
+          "sha256": "de5b5499c111317f9d08c305acbad85466582aa5ad5168278bdfff03adbd737b",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_memory_items_type ON memory_items (type)"
+        },
+        {
+          "start_line": 115,
+          "end_line": 115,
+          "sha256": "96e4cd01aff6467427b5ef4604548cc73725b2d5efa8c0e8ba6feac6967135ac",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_memory_items_session ON memory_items (session_id)"
+        },
+        {
+          "start_line": 116,
+          "end_line": 116,
+          "sha256": "23acdc60ed7fefa3ff6f8c9b492a624fa2f37169baa031a99509c7e46d38d2b1",
+          "expected_sqlstate": "",
+          "sql": "CREATE INDEX IF NOT EXISTS idx_memory_items_timestamp ON memory_items (timestamp DESC)"
+        }
+      ]
+    }
+  ]
+}

@@ -3,38 +3,44 @@ package worktree
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
 
 // Worktree describes one entry from `git worktree list --porcelain`.
 type Worktree struct {
-	Path     string
-	HEAD     string
-	Branch   string
-	Bare     bool
-	Detached bool
-	Locked   bool
-	Prunable bool
+	Path       string
+	HEAD       string
+	Branch     string
+	Bare       bool
+	Detached   bool
+	Locked     bool
+	LockReason string
+	Prunable   bool
 }
 
 // List parses `git worktree list --porcelain` from repoDir.
 func List(repoDir string) ([]Worktree, error) {
-	out, err := runGit(repoDir, "worktree", "list", "--porcelain")
+	out, err := runGit(repoDir, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("worktree: list: %w", err)
 	}
-	return parsePorcelain(out), nil
+	return parsePorcelainFields(strings.Split(out, "\x00")), nil
 }
 
 // parsePorcelain splits the porcelain output into Worktree records.
 // Records are separated by a blank line; each line is a key/value pair.
 func parsePorcelain(out string) []Worktree {
+	return parsePorcelainFields(strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n"))
+}
+
+func parsePorcelainFields(fields []string) []Worktree {
 	var trees []Worktree
 	var cur Worktree
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimRight(line, "\r")
+	for _, line := range fields {
 		if line == "" {
 			if cur.Path != "" {
 				trees = append(trees, cur)
@@ -55,6 +61,7 @@ func parsePorcelain(out string) []Worktree {
 			cur.Detached = true
 		case strings.HasPrefix(line, "locked"):
 			cur.Locked = true
+			cur.LockReason = strings.TrimPrefix(strings.TrimPrefix(line, "locked"), " ")
 		case strings.HasPrefix(line, "prunable"):
 			cur.Prunable = true
 		}
@@ -70,10 +77,16 @@ func parsePorcelain(out string) []Worktree {
 func Add(repoDir, path, branch string) error {
 	args := []string{"worktree", "add"}
 	if branch != "" {
-		// -B reuses an existing branch or creates one.
-		args = append(args, "-B", branch, path)
+		if _, err := runGit(repoDir, "check-ref-format", "--branch", branch); err != nil {
+			return fmt.Errorf("worktree: invalid branch: %w", err)
+		}
+		if _, err := runGit(repoDir, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+			args = append(args, "--", path, branch)
+		} else {
+			args = append(args, "-b", branch, "--", path)
+		}
 	} else {
-		args = append(args, path)
+		args = append(args, "--", path)
 	}
 	if _, err := runGit(repoDir, args...); err != nil {
 		return fmt.Errorf("worktree: add: %w", err)
@@ -119,7 +132,21 @@ func Unlock(repoDir, path string) error {
 }
 
 func runGit(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	return runGitContext(context.Background(), dir, args...)
+}
+
+func runGitContext(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	// Repository selection must come from dir, not inherited Git plumbing variables.
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		switch key {
+		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES":
+			continue
+		}
+		cmd.Env = append(cmd.Env, entry)
+	}
+	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0")
 	if dir != "" {
 		cmd.Dir = dir
 	}

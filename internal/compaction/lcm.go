@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/modelusage"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 )
@@ -179,11 +180,17 @@ func (c *LCMCompactor) callLLM(ctx context.Context, prompt, model string) (strin
 	if model == "" {
 		return "", fmt.Errorf("compaction: no model available — provider has no models listed and no CompactionModel configured")
 	}
+	if err := modelusage.Before(ctx); err != nil {
+		return "", err
+	}
 	resp, err := c.provider.Complete(ctx, providers.Request{
 		Model:     model,
 		Messages:  []providers.Message{{Role: "user", Content: prompt}},
 		MaxTokens: 4096,
 	})
+	if usageErr := modelusage.RecordSample(ctx, model, resp.Usage, resp.UsageReported); usageErr != nil {
+		return "", usageErr
+	}
 	if err != nil {
 		return "", fmt.Errorf("compaction: LLM call failed: %w", err)
 	}

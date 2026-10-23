@@ -1,4 +1,13 @@
+README.md
+model_runtime.py
+overkill_pb2.py
+overkill_pb2_grpc.py
 pyproject.toml
+server.py
+./model_runtime.py
+./overkill_pb2.py
+./overkill_pb2_grpc.py
+./server.py
 ./compaction/__init__.py
 ./compaction/service.py
 ./embeddings/__init__.py
@@ -6,6 +15,7 @@ pyproject.toml
 ./memory/__init__.py
 ./memory/postgres_backend.py
 ./memory/service.py
+./memory/validation.py
 ./proto/overkill_pb2.py
 ./proto/overkill_pb2.pyi
 ./proto/overkill_pb2_grpc.py
@@ -14,6 +24,7 @@ pyproject.toml
 bridge.egg-info/PKG-INFO
 bridge.egg-info/SOURCES.txt
 bridge.egg-info/dependency_links.txt
+bridge.egg-info/entry_points.txt
 bridge.egg-info/requires.txt
 bridge.egg-info/top_level.txt
 compaction/__init__.py
@@ -23,9 +34,13 @@ embeddings/service.py
 memory/__init__.py
 memory/postgres_backend.py
 memory/service.py
+memory/validation.py
 proto/overkill_pb2.py
 proto/overkill_pb2.pyi
 proto/overkill_pb2_grpc.py
 reranking/__init__.py
 reranking/service.py
+tests/test_model_runtime.py
+tests/test_postgres_vectors.py
+tests/test_rpc_validation.py
 tests/test_server.py

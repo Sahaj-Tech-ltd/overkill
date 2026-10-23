@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"path/filepath"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testsocket"
 	"testing"
 	"time"
 
@@ -15,7 +15,7 @@ import (
 // AlarmClock, and returns a Client + cleanup.
 func startTestSocket(t *testing.T) (*automation.AlarmClock, *daemon.Client) {
 	t.Helper()
-	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	sockPath := testsocket.Path(t)
 	clock := automation.NewAlarmClockWithStore(
 		func(*automation.Alarm) error { return nil },
 		automation.NewMemoryAlarmStore(),
@@ -108,7 +108,7 @@ func TestAlarmRPC_BadParamsReturnsRPCError(t *testing.T) {
 func TestAlarmRPC_PingHandlerStillWorks(t *testing.T) {
 	// Sanity check: registering alarm handlers doesn't blow away the
 	// ping handler if the daemon registered both.
-	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	sockPath := testsocket.Path(t)
 	clock := automation.NewAlarmClock(func(*automation.Alarm) error { return nil })
 	srv := daemon.NewServer(sockPath)
 	srv.Register("ping", func(ctx context.Context, req daemon.Request) (daemon.Response, error) {

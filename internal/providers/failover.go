@@ -2,7 +2,9 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -44,6 +46,9 @@ func (fc *FailoverChain) Complete(ctx context.Context, req Request) (Response, e
 			fc.ResetCooldown(p.Name())
 			return resp, nil
 		}
+		if !fc.recordFailure(ctx, p.Name(), err) {
+			return resp, err
+		}
 		lastErr = err
 		log.Warn().
 			Err(err).
@@ -73,8 +78,14 @@ func (fc *FailoverChain) Stream(ctx context.Context, req Request) (<-chan Chunk,
 	for _, p := range providers {
 		ch, err := p.Stream(ctx, req)
 		if err == nil {
-			fc.ResetCooldown(p.Name())
-			return ch, nil
+			if ch == nil {
+				err = fmt.Errorf("provider returned a nil stream")
+			} else {
+				return fc.observeStream(ctx, p.Name(), ch), nil
+			}
+		}
+		if !fc.recordFailure(ctx, p.Name(), err) {
+			return nil, err
 		}
 		lastErr = err
 		log.Warn().
@@ -84,6 +95,68 @@ func (fc *FailoverChain) Stream(ctx context.Context, req Request) (<-chan Chunk,
 	}
 
 	return nil, fmt.Errorf("providers: all providers failed: %w", lastErr)
+}
+
+// recordFailure returns false only for caller cancellation. Request-specific
+// validation failures may use another provider, but do not mark a healthy
+// provider unavailable for unrelated requests.
+func (fc *FailoverChain) recordFailure(ctx context.Context, name string, err error) bool {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	classified := NewErrorClassifier().Classify(err)
+	switch classified.Reason {
+	case ReasonContextOverflow, ReasonModelNotFound:
+		return true
+	case ReasonFormat:
+		fc.MarkFailed(name, 5*time.Second)
+	case ReasonAuth:
+		fc.MarkFailed(name, time.Minute)
+	default:
+		if classified.Cooldown > 0 {
+			fc.MarkFailed(name, classified.Cooldown)
+		}
+	}
+	return true
+}
+
+// Once a stream is published, never retry model work on another provider: the
+// consumer may already have acted on its content. Observe its eventual health
+// while forwarding real usage and failure receipts unchanged.
+func (fc *FailoverChain) observeStream(ctx context.Context, name string, input <-chan Chunk) <-chan Chunk {
+	out := make(chan Chunk, 16)
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case chunk, ok := <-input:
+				if !ok {
+					if ctx.Err() == nil {
+						err := fmt.Errorf("provider stream closed without completion: %w", io.ErrUnexpectedEOF)
+						fc.MarkFailed(name, 5*time.Second)
+						_ = sendChunk(ctx, out, Chunk{Err: err})
+					}
+					return
+				}
+				if chunk.Err != nil {
+					fc.recordFailure(ctx, name, chunk.Err)
+					_ = sendChunk(ctx, out, chunk)
+					return
+				}
+				if chunk.Done {
+					fc.ResetCooldown(name)
+					_ = sendChunk(ctx, out, chunk)
+					return
+				}
+				if !sendChunk(ctx, out, chunk) {
+					return
+				}
+			}
+		}
+	}()
+	return out
 }
 
 func (fc *FailoverChain) MarkFailed(name string, cooldown time.Duration) {

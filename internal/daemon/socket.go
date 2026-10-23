@@ -10,7 +10,7 @@
 //   - Filesystem permissions act as the access boundary (0600 on the
 //     socket file → same user only)
 //   - No port allocation, no localhost binding to fight firewalls
-//   - Trivial to test with a t.TempDir() socket path
+//   - Tests use a short private socket directory on macOS
 package daemon
 
 import (
@@ -22,6 +22,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -91,6 +92,15 @@ func (s *Server) Register(op string, h Handler) {
 // Start begins accepting connections. Returns after the listener is
 // bound; the accept loop runs in a goroutine until Stop().
 func (s *Server) Start() error {
+	maxPath := 107
+	switch runtime.GOOS {
+	case "darwin", "freebsd", "netbsd", "openbsd", "dragonfly":
+		maxPath = 103
+	}
+	if len(s.path) > maxPath {
+		return fmt.Errorf("daemon socket: path is %d bytes; maximum on %s is %d bytes (use a shorter socket directory)", len(s.path), runtime.GOOS, maxPath)
+	}
+
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Overkill</title>
+  <link rel="stylesheet" href="style.css"><link rel="stylesheet" href="canvas.css">
+  <script src="contract-editor.js" defer></script>
+  <script src="request-review.js" defer></script><script src="request-agreements.js" defer></script>
+  <script src="usage-reconciliation.js" defer></script>
+  <script src="history.js" defer></script><script src="workspace.js" defer></script>
+  <script src="canvas.js" defer></script><script src="canvas-panel.js" defer></script>
+  <script src="clarification.js" defer></script>
+  <script src="flows.js" defer></script>
+  <script src="evolution.js" defer></script>
+  <script src="renderer.js" defer></script>
+</head>
+<body>
+  <aside>
+    <div class="brand"><span class="brand-mark">O</span><div>OVERKILL <span>Build together.</span></div></div>
+    <button id="workspace">Choose workspace</button>
+    <p id="workspace-path" class="muted">Select a folder for your agent.</p>
+    <button id="new-session" disabled>+ New chat</button>
+    <div class="section-label">Workspace chats</div>
+    <nav id="sessions" aria-label="Chats"></nav>
+    <button id="settings-button" class="settings-button">Provider settings</button>
+  </aside>
+  <main>
+    <header><div><h1 id="chat-title">Your next idea starts here.</h1><p id="connection" class="muted" role="status">Starting…</p></div><div class="header-actions"><button id="canvas-toggle" aria-expanded="false" aria-controls="canvas-panel">Canvas</button><button id="agents-toggle" aria-expanded="true" aria-controls="agents-panel">Agents</button><button id="refresh">Refresh chats</button><button id="emergency-stop" type="button" disabled>Stop all agents</button></div></header>
+    <div id="error" role="alert" hidden></div>
+    <p id="emergency-stop-status" role="status" hidden></p>
+    <section id="flow-status" class="muted" aria-live="polite" hidden></section>
+    <details id="project-skills"><summary>Project skills</summary><p class="muted">Completed turns are recorded with secrets redacted. Generate proposals using this chat’s provider and budget. Review their contents before applying; only applied skills guide this workspace. You can roll them back.</p><button id="skill-refresh" type="button">Refresh proposals</button><button id="skill-generate" type="button">Generate drafts</button><p id="skill-status" role="status"></p><div id="skill-drafts"></div></details>
+    <section id="transcript" aria-label="Conversation" aria-live="polite"><div class="empty">Choose a workspace, then start a chat.<br><span class="muted">Your conversations stay on this Mac.</span></div></section>
+    <section id="canvas-panel" class="canvas-panel" aria-label="Canvas" hidden><div class="canvas-toolbar"><label for="canvas-surface">Surface</label><select id="canvas-surface"></select><button id="canvas-refresh" type="button">Refresh canvas</button><button id="canvas-save" type="button" disabled>Save PNG</button><span id="canvas-status" class="canvas-status" role="status"></span></div><p id="canvas-error" class="canvas-error" role="alert" hidden></p><p id="canvas-export-status" class="canvas-status" role="status" hidden></p><div id="canvas-content"></div></section>
+    <form id="composer"><label for="message" class="sr-only">Message</label><textarea id="message" placeholder="What would you like to build?" maxlength="64000" rows="3" disabled></textarea><div class="composer-actions"><span id="activity" class="muted">Ready when you are.</span><button type="button" id="stop" hidden>Stop response</button><button type="submit" id="send" disabled>Send ↑</button></div></form>
+  </main>
+  <section id="agents-panel" aria-label="Agents">
+    <div class="agents-heading"><div><div class="section-label">WORKSPACE TEAM</div><h2>Agents</h2></div><button id="agents-refresh" type="button">Refresh</button></div>
+    <div class="team-tabs" role="tablist" aria-label="Workspace details">
+      <button id="team-tab-tasks" role="tab" aria-selected="true" aria-controls="team-view-tasks">Tasks</button><button id="team-tab-contracts" role="tab" aria-selected="false" aria-controls="team-view-contracts">Contracts</button><button id="team-tab-checks" role="tab" aria-selected="false" aria-controls="team-view-checks">Checks</button>
+    </div>
+    <div id="team-view-tasks" role="tabpanel" aria-labelledby="team-tab-tasks">
+    <p class="muted">Register this chat to work with agents in this checkout, or opt into the repository’s other Git worktrees. Requests run automatically when the recipient is available; accepted means queued, not completed.</p>
+    <p id="agents-status" role="status">Select a chat to discover agents.</p>
+    <p id="agents-error" role="alert" hidden></p>
+    <form id="agent-registration"><label>Agent name<input id="agent-name" maxlength="64" pattern="[a-z][a-z0-9_-]{0,63}" placeholder="frontend" required></label><label>Role<input id="agent-role" maxlength="256" placeholder="Build the frontend" required></label><label class="registration-scope"><input id="agent-repository-scope" type="checkbox"> Include other worktrees of this Git repository</label><p class="muted">Requires a Git checkout root. Scope is fixed at registration; existing checkout-only chats stay separate.</p><button id="agent-register" type="submit">Register this chat</button></form>
+    <div id="agent-identity" hidden></div>
+    <div id="peer-scope-heading" class="section-label">THIS CHECKOUT</div><div id="agent-peers"></div>
+    <form id="peer-composer"><label>Recipient<select id="peer-recipient" required></select></label><label>Message<textarea id="peer-message" maxlength="16000" placeholder="Ask for an update or request work…" rows="3" required></textarea></label><details class="request-options"><summary>Task name, token limit and prerequisites</summary><label>Task name <span class="muted">(optional)</span><input id="peer-task-name" maxlength="128" placeholder="users-endpoint"></label><label>Token limit <span class="muted">(optional)</span><input id="peer-token-limit" type="number" min="0" max="1000000000000" step="1" placeholder="100000"></label><label>Prerequisite request IDs <span class="muted">(optional)</span><textarea id="peer-dependencies" maxlength="1280" rows="2" placeholder="Request UUIDs, separated by spaces or commas"></textarea></label><p class="muted">Work waits for every prerequisite to complete. A failed or cancelled prerequisite fails this request. Saved prerequisites cannot be changed.</p><label>Required agreements <span class="muted">(optional)</span><textarea id="peer-contract-pins" readonly rows="2" placeholder="No agreements required"></textarea></label><button id="peer-choose-agreements" type="button">Choose agreements</button><p class="muted">The recipient must acknowledge each pinned agreement before work starts. Changed or deleted agreements stop the request. Use Contracts to review and acknowledge.</p><p class="muted">Shared across this task's peers. Zero disables the limit. Already-running requests can exceed the remaining allowance.</p></details><p id="peer-reuse-note" class="muted" hidden></p><button id="peer-reuse-clear" type="button" hidden>Start a new request</button><button id="peer-send" type="submit">Send request</button></form>
+    <div class="section-label">CORRESPONDENCE</div><div id="peer-messages" aria-live="polite"></div><button id="peer-older" hidden>Load older messages</button>
+    <div class="section-label">RECORDED BLOCKERS</div><div id="recorded-reviews"></div><button id="reviews-more" hidden>More blockers</button>
+    <p class="muted">Runtime presence expires after missed heartbeats. Registration and task outcomes are separate. Cancellation cannot undo earlier effects.</p>
+    </div>
+    <div id="team-view-contracts" role="tabpanel" aria-labelledby="team-tab-contracts" hidden><p class="muted">Shared interfaces, owned paths, artifacts, and pinned dependencies.</p><button id="contract-new" type="button" disabled>New contract</button><div id="workspace-contracts"></div></div>
+    <div id="team-view-checks" role="tabpanel" aria-labelledby="team-tab-checks" hidden><div id="workspace-checks"></div></div>
+  </section>
+  <dialog id="task-inspector" aria-labelledby="task-title"><div class="inspector-heading"><div><div class="section-label">TASK DETAILS</div><h2 id="task-title">Peer request</h2></div><button id="task-close" type="button" aria-label="Close task details">Close</button></div><div class="task-toolbar"><span id="task-state" class="state-badge">Loading</span><button id="task-refresh" type="button">Refresh task</button></div><p id="task-reference" class="muted"></p><p id="task-error" role="alert"></p><h3>Prerequisite graph</h3><div id="task-dependencies"></div><h3>Reported usage</h3><div id="task-usage"></div><button id="task-review" type="button" hidden>Review budget and replay</button><button id="task-reconcile" type="button" hidden>Inspect usage evidence</button><h3>Message</h3><pre id="task-payload"></pre><h3>Activity</h3><ol id="task-events"></ol><button id="task-more" hidden>Load more activity</button></dialog>
+  <dialog id="request-agreements" aria-labelledby="request-agreement-title"><h2 id="request-agreement-title">Required agreements</h2><p class="muted">Choose exact revisions for this request. Saved pins stay selected until you explicitly change them.</p><div id="request-agreement-list"></div><p id="request-agreement-error" role="alert"></p><div class="dialog-actions"><button id="request-agreement-cancel" type="button">Cancel</button><button id="request-agreement-apply" type="button">Use selection</button></div></dialog>
+  <dialog id="settings">
+    <form id="settings-form">
+      <h2>Connect your provider</h2><p class="muted">Your API key is encrypted using macOS Keychain. It is never returned to the chat window.</p>
+      <label>Provider<select id="provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="custom">OpenAI compatible</option></select></label>
+      <label>Model ID<input id="model" required maxlength="200" placeholder="Your provider's model ID" autocomplete="off"></label>
+      <label>API base URL <span class="muted">(optional for native providers)</span><input id="base-url" type="url" placeholder="https://your-provider.example/v1" autocomplete="off"></label>
+      <label>API key<input id="api-key" type="password" autocomplete="off" maxlength="8192" placeholder="Enter API key"></label>
+      <fieldset class="workspace-preferences"><legend>Workspace guidance and review</legend><label><input id="workspace-instructions" type="checkbox"> Use workspace AGENTS.md</label><p class="muted">Authorize guidance from the selected workspace's root AGENTS.md. Files are reread for each request.</p><label><input id="autonomous-mode" type="checkbox"> Autonomous mode with answer review</label><p class="muted">Enable auto mode, which skips tool approval prompts and can revise answers through additional provider calls. Existing safety checks and turn limits still apply. Confidence is not a test result.</p></fieldset>
+      <p id="settings-stop-warning" role="status" hidden>All agents in this app remain stopped. Reconnecting allows queued requests to resume. Earlier effects cannot be undone; external agents are unaffected.</p>
+      <p id="settings-error" role="alert"></p><div class="dialog-actions"><button type="button" id="settings-cancel">Cancel</button><button type="submit" id="settings-save">Save and connect</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

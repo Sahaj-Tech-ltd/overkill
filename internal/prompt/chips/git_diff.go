@@ -13,12 +13,17 @@ import (
 // GitDiffChip reports the git diff summary via `git diff --stat HEAD`.
 // Returns a compact overview of uncommitted changes.
 type GitDiffChip struct {
-	enabled bool
+	enabled    bool
+	workingDir string
 }
 
 // NewGitDiffChip returns a GitDiffChip that starts enabled.
-func NewGitDiffChip() *GitDiffChip {
-	return &GitDiffChip{enabled: true}
+func NewGitDiffChip(workingDir ...string) *GitDiffChip {
+	directory := ""
+	if len(workingDir) > 0 {
+		directory = workingDir[0]
+	}
+	return &GitDiffChip{enabled: true, workingDir: directory}
 }
 
 // Kind implements prompt.Chip.
@@ -35,6 +40,7 @@ func (c *GitDiffChip) Value(ctx context.Context) (string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", "diff", "--stat", "HEAD")
+	cmd.Dir = c.workingDir
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = nil

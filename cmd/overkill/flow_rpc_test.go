@@ -1,7 +1,7 @@
 package main
 
 import (
-	"path/filepath"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testsocket"
 	"testing"
 	"time"
 
@@ -12,7 +12,7 @@ import (
 
 func startTestFlowSocket(t *testing.T) (agent.FlowStore, *automation.AlarmClock, *daemon.Client) {
 	t.Helper()
-	sockPath := filepath.Join(t.TempDir(), "flow.sock")
+	sockPath := testsocket.Path(t)
 	store := agent.NewMemoryFlowStore()
 	clock := automation.NewAlarmClockWithStore(
 		func(*automation.Alarm) error { return nil },

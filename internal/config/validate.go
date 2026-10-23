@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/rs/zerolog/log"
 )
 
@@ -15,6 +16,12 @@ func (w Warning) String() string {
 
 func (c *Config) Validate() []error {
 	var errs []error
+	if err := c.MCP.ValidateLimits(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := c.Security.ValidateSupported(); err != nil {
+		errs = append(errs, err)
+	}
 
 	if c.Version <= 0 {
 		errs = append(errs, fmt.Errorf("config: version must be >= 1, got %d", c.Version))
@@ -37,9 +44,10 @@ func (c *Config) Validate() []error {
 		"witty":  true,
 		"full":   true,
 		"off":    true,
+		"none":   true,
 	}
 	if !validPersonality[c.Personality.Level] {
-		errs = append(errs, fmt.Errorf("config: personality.level must be one of [subtle, witty, full, off], got %q", c.Personality.Level))
+		errs = append(errs, fmt.Errorf("config: personality.level must be one of [subtle, witty, full, off, none], got %q", c.Personality.Level))
 	}
 
 	if c.Agent.DefaultProvider != "" {
@@ -56,6 +64,11 @@ func (c *Config) Validate() []error {
 	}
 
 	for i, p := range c.Providers {
+		for j, model := range ProviderModels(p.Models) {
+			if _, _, err := providers.ResolveTokenLimits([]providers.Model{model}, model.ID, p.Models[j].MaxOutputTokens); err != nil {
+				errs = append(errs, fmt.Errorf("config: providers[%d].models[%d]: %w", i, j, err))
+			}
+		}
 		if p.Name == "" {
 			errs = append(errs, fmt.Errorf("config: providers[%d].name is required", i))
 		}
@@ -115,6 +128,10 @@ func (c *Config) Validate() []error {
 		errs = append(errs, fmt.Errorf("config: gateways.update_every_ms must be >= 1, got %d", c.Gateways.UpdateEveryMs))
 	}
 
+	if _, err := c.Compaction.ResolveStrategy(true); err != nil {
+		errs = append(errs, err)
+	}
+
 	if c.Compaction.SoftTriggerPercent < 0 || c.Compaction.SoftTriggerPercent > 100 {
 		errs = append(errs, fmt.Errorf("config: compaction.soft_trigger_percent must be 0-100, got %d", c.Compaction.SoftTriggerPercent))
 	}
@@ -132,7 +149,7 @@ func (c *Config) Warnings() []Warning {
 		warns = append(warns, Warning("no providers configured; agent will not be able to make LLM calls"))
 	}
 
-	if c.DatabaseURL == "" && os.Getenv("DATABASE_URL") == "" {
+	if c.DatabaseURL == "" && os.Getenv("DATABASE_URL") == "" && !c.LocalDatabase.Enabled {
 		warns = append(warns, Warning("database_url not configured and DATABASE_URL env var not set; all persistent stores (sessions, memory, learning) require Postgres — set with: overkill config set database_url <connection-string>"))
 	}
 
@@ -140,10 +157,10 @@ func (c *Config) Warnings() []Warning {
 
 	// Sandbox warnings for high-autonomy modes (these are safety-relevant, keep them)
 	if c.Security.AutonomyLevel == "auto" && !c.Security.SandboxEnabled {
-		warns = append(warns, Warning("auto autonomy without sandbox enabled; auto-mode will execute without human confirmation — sandbox strongly recommended"))
+		warns = append(warns, Warning("auto autonomy executes without human confirmation; execution sandbox unavailable — tools run on the host"))
 	}
 	if (c.Security.AutonomyLevel == "full" || c.Security.AutonomyLevel == "yolo") && !c.Security.SandboxEnabled {
-		warns = append(warns, Warning(fmt.Sprintf("%s autonomy without sandbox enabled; consider enabling sandbox for safety", c.Security.AutonomyLevel)))
+		warns = append(warns, Warning(fmt.Sprintf("%s autonomy: execution sandbox unavailable — tools run on the host", c.Security.AutonomyLevel)))
 	}
 
 	return warns

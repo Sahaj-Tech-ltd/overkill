@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/credentials"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
@@ -215,7 +216,6 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 		ps = config.ProviderSetup{Name: customName_, DefaultBase: customURL}
 		providerKey = customName_
-		model = model
 	} else {
 		// Built-in provider
 		ps = all[providerKey]
@@ -238,7 +238,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 				fmt.Printf("\n%s▸ API Key — using %s%s\n", colorBold, ps.APIKeyEnv, colorReset)
 				fmt.Printf("  %s✓ %s=%s (from environment)%s\n", colorGreen, ps.APIKeyEnv, config.MaskKey(envVal), colorReset)
 				apiKey = envVal
-				wizard.ApplyStep("api_key", envVal)
+				wizard.ApplyStep("api_key", "${"+ps.APIKeyEnv+"}")
 			} else {
 				fmt.Printf("\n%s▸ API Key%s\n", colorBold, colorReset)
 				fmt.Printf("  Required: %s\n\n", ps.APIKeyEnv)
@@ -329,7 +329,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 		path = p
 	}
-	if err := cfg.Save(path); err != nil {
+	if err := cfg.SaveWithCredentials(path, credentials.NativeStore{}); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
@@ -418,9 +418,10 @@ func arrowSelect(title string, items []providerInfo) (string, error) {
 			// is just ESC. To distinguish: do a non-blocking read for the next
 			// 2 bytes. If nothing arrives within a few ms, it's standalone Esc.
 			rest := make([]byte, 2)
-			syscall.SetNonblock(fd, true)
-			n, _ := syscall.Read(fd, rest)
-			syscall.SetNonblock(fd, false)
+			n, err := readEscapeTail(os.Stdin, rest)
+			if err != nil {
+				return "", fmt.Errorf("read terminal escape sequence: %w", err)
+			}
 			if n <= 0 {
 				// Standalone Esc — no more bytes in buffer
 				if pendingCancel {

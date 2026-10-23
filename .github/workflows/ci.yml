@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.26"
 
 jobs:
   # Build-correctness gates: gofmt, vet, and a native+cross-target build
@@ -22,8 +22,6 @@ jobs:
     name: Lint + build (linux/amd64)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    defaults:
-      run:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -49,8 +47,6 @@ jobs:
   cross-build:
     name: Cross build
     runs-on: ubuntu-latest
-    defaults:
-      run:
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -62,6 +58,8 @@ jobs:
             goarch: amd64
           - goos: darwin
             goarch: arm64
+          - goos: windows
+            goarch: amd64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -76,3 +74,82 @@ jobs:
         run: |
           go build -trimpath -ldflags="-s -w -X main.Version=ci-${{ github.sha }}" \
             -o /tmp/overkill-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/overkill
+
+  terminal-ui:
+    name: Terminal UI (Node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 22]
+    defaults:
+      run:
+        working-directory: tui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: tui/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test:build
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Authenticated frontend/backend integration
+        working-directory: .
+        env:
+          OVERKILL_REQUIRE_FRONTEND_TEST: '1'
+        run: go test -count=1 -timeout=5m ./internal/api
+
+  workflow-and-hooks:
+    name: Workflow schema and local hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install workflow validator
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      - name: Validate GitHub Actions schema
+        run: actionlint -shellcheck= -pyflakes=
+      - name: Verify local hook failure reporting
+        env:
+          OVERKILL_INSTALLER_TEST_BINARY: ${{ runner.temp }}/overkill-installer-fixture
+          CGO_ENABLED: '0'
+        run: |
+          go build -trimpath -o "$OVERKILL_INSTALLER_TEST_BINARY" ./cmd/overkill
+          python -m unittest discover -s scripts/tests -v
+
+  windows-platform-tests:
+    name: Windows hooks, journal and configuration
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Native Windows platform regressions
+        run: go test -count=1 -timeout=120s ./internal/hooks ./internal/journal ./internal/config
+      - name: Native Windows installer checksum and schema fixtures
+        shell: pwsh
+        env:
+          OVERKILL_INSTALLER_TEST_BINARY: ${{ runner.temp }}/overkill-installer-fixture.exe
+        run: |
+          go build -trimpath -o "$env:OVERKILL_INSTALLER_TEST_BINARY" ./cmd/overkill
+          if ($LASTEXITCODE -ne 0) { throw 'Installer fixture build failed' }
+          ./scripts/tests/test_installer_windows.ps1

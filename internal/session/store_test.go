@@ -3,13 +3,12 @@ package session
 import (
 	"context"
 	"database/sql"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -17,16 +16,15 @@ import (
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatalf("postgres: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	database, _ := testpg.Open(t)
+	return database
+}
+
+func newTestStore(t *testing.T, database *sql.DB) *PostgresStore {
+	t.Helper()
+	store, err := NewPostgresStore(database)
+	require.NoError(t, err)
+	return store
 }
 
 type StoreTestSuite struct {
@@ -39,7 +37,7 @@ type StoreTestSuite struct {
 func (s *StoreTestSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.db = openTestDB(s.T())
-	s.store = NewPostgresStore(s.db)
+	s.store = newTestStore(s.T(), s.db)
 }
 
 func (s *StoreTestSuite) TearDownTest() {
@@ -348,7 +346,7 @@ func (s *StoreTestSuite) TestListWithAfter() {
 
 func TestListSortedByUpdatedAtDesc_Table(t *testing.T) {
 	db := openTestDB(t)
-	store := NewPostgresStore(db)
+	store := newTestStore(t, db)
 	defer store.Close()
 
 	ctx := context.Background()

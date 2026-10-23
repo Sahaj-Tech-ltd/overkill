@@ -92,57 +92,9 @@ export function allCommands(ctx: CommandContext): Command[] {
       description: "Resend your last message to the agent",
       action: () => ctx.retryLastMessage(),
     },
-    {
-      id: "theme-dark",
-      title: "Theme: Dark",
-      description: "Switch to dark theme (Catppuccin-inspired)",
-      action: () => {
-        ctx.setTheme?.("dark");
-        ctx.backend
-          .call?.("config.theme", { theme: "dark" })
-          .catch((err: unknown) => {
-            log.error("config.theme (dark) failed:", err);
-          });
-      },
-    },
-    {
-      id: "theme-light",
-      title: "Theme: Light",
-      description: "Switch to light theme",
-      action: () => {
-        ctx.setTheme?.("light");
-        ctx.backend
-          .call?.("config.theme", { theme: "light" })
-          .catch((err: unknown) => {
-            log.error("config.theme (light) failed:", err);
-          });
-      },
-    },
-    {
-      id: "theme-cyberpunk",
-      title: "Theme: Cyberpunk",
-      description: "Switch to cyberpunk theme (green/purple)",
-      action: () => {
-        ctx.setTheme?.("cyberpunk");
-        ctx.backend
-          .call?.("config.theme", { theme: "cyberpunk" })
-          .catch((err: unknown) => {
-            log.error("config.theme (cyberpunk) failed:", err);
-          });
-      },
-    },
-    {
-      id: "theme-ocean",
-      title: "Theme: Ocean",
-      description: "Switch to ocean theme (blue/cyan)",
-      action: () => {
-        ctx.setTheme?.("ocean");
-        ctx.backend
-          .call?.("config.theme", { theme: "ocean" })
-          .catch((err: unknown) => {
-            log.error("config.theme (ocean) failed:", err);
-          });
-      },
-    },
+    ...(['dark','light','cyberpunk','ocean'] as const).map(name=>({
+      id:`theme-${name}`,title:`Theme: ${name[0]!.toUpperCase()+name.slice(1)}`,description:`Select and save the ${name} terminal theme`,
+      action:()=>{void Promise.resolve().then(()=>{if(!ctx.setTheme)throw new Error('Theme control is unavailable.');return ctx.setTheme(name);}).catch((error:unknown)=>log.error('Theme selection failed:',error));},
+    })),
   ];
 }

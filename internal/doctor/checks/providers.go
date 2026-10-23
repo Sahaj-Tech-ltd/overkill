@@ -2,9 +2,12 @@ package checks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
@@ -23,33 +26,30 @@ func ProviderEndpoint(p struct {
 }) (url, header, prefix string) {
 	switch p.Type {
 	case "openai", "anthropic", "gemini", "deepseek", "openrouter":
-		base := p.BaseURL
-		if base == "" {
-			base = providers.CanonicalBaseURL(p.Type)
-		}
-		suffix := "/v1/models"
-		if p.Type == "gemini" {
-			suffix = "/v1beta/models"
+		base, err := providers.ResolveBaseURL(p.Type, p.BaseURL)
+		if err != nil {
+			return "", "", ""
 		}
 		header, prefix := "Authorization", "Bearer "
 		if p.Type == "anthropic" {
 			header, prefix = "x-api-key", ""
 		}
 		if p.Type == "gemini" {
-			header, prefix = "", "?key="
+			header, prefix = "x-goog-api-key", ""
 		}
-		return base + suffix, header, prefix
+		return base + "/models", header, prefix
 	case "ollama":
-		base := p.BaseURL
-		if base == "" {
-			base = providers.CanonicalBaseURL("ollama")
+		base, err := providers.ResolveBaseURL(p.Type, p.BaseURL)
+		if err != nil {
+			return "", "", ""
 		}
 		return base + "/api/tags", "", ""
 	case "custom":
-		if p.BaseURL == "" {
+		base, err := providers.ResolveBaseURL(p.Type, p.BaseURL)
+		if err != nil {
 			return "", "", ""
 		}
-		return p.BaseURL + "/models", "Authorization", "Bearer "
+		return base + "/models", "Authorization", "Bearer "
 	}
 	return "", "", ""
 }
@@ -83,7 +83,11 @@ func RegisterProviders(r *doctor.Runner, d Deps) {
 			Name:     "Provider reachable: " + p.Name,
 			Category: doctor.CatProvider,
 			Parallel: true,
-			Fn: func(ctx context.Context) doctor.Result {
+			Fn: func(ctx context.Context) (result doctor.Result) {
+				defer func() {
+					result.Detail = redactProbeText(result.Detail, p.APIKey)
+					result.Fix = redactProbeText(result.Fix, p.APIKey)
+				}()
 				url, header, prefix := ProviderEndpoint(struct {
 					Type    string
 					BaseURL string
@@ -96,12 +100,7 @@ func RegisterProviders(r *doctor.Runner, d Deps) {
 						"no api key configured for provider %q", p.Name)
 				}
 
-				// Build the probe URL — Gemini and similar providers that use
-				// query-param auth have their key marker in prefix.
 				probeURL := url
-				if prefix != "" {
-					probeURL = url + prefix + p.APIKey
-				}
 				req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
 				if err != nil {
 					return failf("file a bug — request build failed", "build request: %v", err)
@@ -109,13 +108,20 @@ func RegisterProviders(r *doctor.Runner, d Deps) {
 				if header != "" {
 					req.Header.Set(header, prefix+p.APIKey)
 				}
-				resp, err := d.HTTP.Do(req)
+				if p.Type == "anthropic" {
+					req.Header.Set("anthropic-version", providers.DefaultAnthropicAPIVersion)
+				}
+				client := http.Client{}
+				if d.HTTP != nil {
+					client = *d.HTTP
+				}
+				// A diagnostic probe must never forward provider credentials to
+				// a redirect target, including custom x-api-key headers.
+				client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+				resp, err := client.Do(req)
 				if err != nil {
 					var nerr net.Error
-					if e, ok := err.(net.Error); ok && e.Timeout() {
-						nerr = e
-					}
-					if nerr != nil {
+					if errors.As(err, &nerr) && nerr.Timeout() {
 						return warnf("retry on a working network — request timed out",
 							"network timeout reaching %s", probeURL)
 					}
@@ -139,4 +145,14 @@ func RegisterProviders(r *doctor.Runner, d Deps) {
 			},
 		})
 	}
+}
+
+func redactProbeText(text, key string) string {
+	if key == "" {
+		return text
+	}
+	for _, form := range []string{key, url.QueryEscape(key), url.PathEscape(key)} {
+		text = strings.ReplaceAll(text, form, "[redacted]")
+	}
+	return text
 }

@@ -3,12 +3,15 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/modelusage"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
 type EventType int
@@ -88,72 +91,178 @@ func (a *Agent) StreamWithProvenance(ctx context.Context, userInput string, atta
 // bytes themselves bypass the text command scanners since they wouldn't
 // produce meaningful matches against image data.
 func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, attachments []providers.Attachment) (<-chan StreamEvent, error) {
-	for _, scanner := range a.scanners {
-		result, err := scanner.Scan(userInput)
-		if err != nil {
-			return nil, fmt.Errorf("agent: security scan failed: %w", err)
+	return a.streamWithAttachments(ctx, userInput, attachments, false, false)
+}
+func (a *Agent) streamWithAttachments(ctx context.Context, userInput string, attachments []providers.Attachment, continuing bool, admitted bool) (<-chan StreamEvent, error) {
+	ctx = a.observedVerificationContext(ctx)
+	if !admitted && a.running.Swap(true) {
+		return nil, fmt.Errorf("agent: already running — wait for current turn to finish or use /stop")
+	}
+	a.FireSessionStart(ctx)
+	a.archivePlanObservation()
+	if continuing {
+		a.activateFlowPlan(ctx)
+	}
+	launched := false
+	defer func() {
+		if !launched && !isSequentialItem(ctx) {
+			a.running.Store(false)
 		}
-		if result.Blocked {
-			ch := make(chan StreamEvent, 1)
-			ch <- StreamEvent{
-				Type: EventDone,
-				Result: &RunResult{
-					Blocked:     true,
-					BlockReason: fmt.Sprintf("blocked by %s: %s", scanner.Name(), result.Findings[0].Description),
-					Model:       a.Model(),
-				},
+	}()
+	if !continuing {
+		if err := func() error {
+			if isSequentialItem(ctx) {
+				return nil
 			}
-			close(ch)
-			return ch, nil
+			return a.beginFlowTurn(ctx)
+		}(); err != nil {
+			return nil, err
+		}
+		for _, scanner := range a.scanners {
+			result, err := scanner.Scan(userInput)
+			if err != nil {
+				return nil, fmt.Errorf("agent: security scan failed: %w", err)
+			}
+			if result.Blocked {
+				ch := make(chan StreamEvent, 1)
+				ch <- StreamEvent{
+					Type: EventDone,
+					Result: &RunResult{
+						Blocked:     true,
+						BlockReason: fmt.Sprintf("blocked by %s: %s", scanner.Name(), result.Findings[0].Description),
+						Model:       a.Model(),
+					},
+				}
+				close(ch)
+				return ch, nil
+			}
+		}
+
+		// §7.5 Slash command fast-path: parse slash commands in the streaming
+		// path so /safe, /auto, /yolo, /plan, /build, /think, and /compact
+		// work from TUI and all 8 gateways (not just non-streaming RPC).
+		if sc := ParseSlashCommand(userInput); sc != nil {
+			msg, handled := a.handleSlashCommand(sc)
+			if handled && (sc.Command != "build" || !a.hasFreshLoadedPlan()) {
+				ch := make(chan StreamEvent, 1)
+				ch <- StreamEvent{
+					Type:   EventDone,
+					Result: &RunResult{Response: msg, Model: a.Model()},
+					Model:  a.Model(),
+				}
+				close(ch)
+				return ch, nil
+			}
+		}
+
+	}
+
+	goalCtx, goalTurn, goalErr := a.beginGoalTurn(ctx)
+	if goalErr != nil {
+		return nil, goalErr
+	}
+	ctx = goalCtx
+
+	if !continuing && !isSequentialItem(ctx) {
+		a.mu.RLock()
+		seq := a.seqEnabled
+		hasPlan := a.autoMode != nil && a.autoMode.Plan != nil && a.autoMode.CurrentPhase == -1
+		a.mu.RUnlock()
+		if seq && !hasPlan && len(sequentialItems(userInput)) >= 2 {
+			if len(attachments) > 0 {
+				if goalTurn != nil {
+					goalTurn.cancel(nil)
+				}
+				return nil, fmt.Errorf("sequential item attachments need explicit per-item routing")
+			}
+			launched = true
+			return a.streamSequential(ctx, userInput, nil, goalTurn)
 		}
 	}
 
-	// §7.5 Slash command fast-path: parse slash commands in the streaming
-	// path so /safe, /auto, /yolo, /plan, /build, /think, and /compact
-	// work from TUI and all 8 gateways (not just non-streaming RPC).
-	if sc := ParseSlashCommand(userInput); sc != nil {
-		msg, handled := a.handleSlashCommand(sc)
-		if handled {
-			ch := make(chan StreamEvent, 1)
-			ch <- StreamEvent{
-				Type:   EventDone,
-				Result: &RunResult{Response: msg, Model: a.Model()},
-				Model:  a.Model(),
-			}
-			close(ch)
-			return ch, nil
-		}
-	}
+	if !continuing {
 
-	// Resume context: if the prior run was interrupted (user cancel
-	// or estop), surface "here's what you were doing" as a system
-	// note PREPENDED to this turn's user message. The agent decides
-	// whether to continue the prior plan or pivot — we don't auto-
-	// resume because the user may have cancelled to redirect.
-	if note := a.consumeInterruptNote(); note != "" {
+		var planErr error
+		ctx, userInput, planErr = a.beginLoadedPlan(ctx, userInput)
+		if planErr != nil {
+			if goalTurn != nil {
+				goalTurn.cancel(nil)
+			}
+			return nil, planErr
+		}
+
+		// Resume context: if the prior run was interrupted (user cancel
+		// or estop), surface "here's what you were doing" as a system
+		// note PREPENDED to this turn's user message. The agent decides
+		// whether to continue the prior plan or pivot — we don't auto-
+		// resume because the user may have cancelled to redirect.
+		if note := a.consumeInterruptNote(); note != "" {
+			a.mu.Lock()
+			a.history = append(a.history, providers.Message{
+				Role:    "system",
+				Content: note,
+			})
+			a.mu.Unlock()
+		}
+
 		a.mu.Lock()
 		a.history = append(a.history, providers.Message{
-			Role:    "system",
-			Content: note,
+			Role:        "user",
+			Content:     userInput,
+			Attachments: attachments,
 		})
+		a.autoMemoryMessages++
 		a.mu.Unlock()
+
+		if attached := func() string {
+			if isSequentialItem(ctx) {
+				return sequentialSource(ctx)
+			}
+			return a.loadInputMentions(ctx, userInput)
+		}(); attached != "" {
+			a.appendMessage(providers.Message{Role: "system", Content: func() string {
+				if isSequentialItem(ctx) {
+					return attached
+				}
+				return "files referenced via @path:\n" + attached
+			}()})
+		}
+
 	}
 
-	a.mu.Lock()
-	a.history = append(a.history, providers.Message{
-		Role:        "user",
-		Content:     userInput,
-		Attachments: attachments,
-	})
-	a.mu.Unlock()
-
 	out := make(chan StreamEvent, 64)
+	launched = true
 
 	go func() {
 		defer close(out)
+		deadlineSaved := false
+		finished := false
+		checkpointContextExit := func(step int, reason string) {
+			a.checkpointContextExit(ctx, userInput, step, reason)
+			if ctx.Err() == context.DeadlineExceeded {
+				deadlineSaved = true
+			}
+		}
+		defer func() {
+			if !finished && !deadlineSaved && ctx.Err() == context.DeadlineExceeded {
+				a.checkpointContextExit(ctx, userInput, 0, "deadline_exceeded")
+			}
+		}()
+		if !isSequentialItem(ctx) {
+			defer a.running.Store(false)
+		}
+		defer a.finishLoadedPlan(ctx)
+		if goalTurn != nil {
+			defer goalTurn.cancel(nil)
+			defer func() {
+				if err := goalTurn.RecordTurnEnd(ctx, 0); err != nil {
+					sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: err})
+				}
+			}()
+		}
 
 		// Emit status: thinking phase
-		out <- StreamEvent{Type: EventStatus, Phase: "thinking"}
+		sendStreamEvent(ctx, out, StreamEvent{Type: EventStatus, Phase: "thinking"})
 
 		runResult := &RunResult{
 			Model: a.Model(),
@@ -165,8 +274,8 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 				// User cancelled mid-task. Save state so the NEXT
 				// turn surfaces "you were doing X" context — the
 				// agent doesn't forget the plan and panic-improvise.
-				a.checkpointInterrupt(userInput, step, "cancelled_by_user")
-				out <- StreamEvent{Type: EventError, Error: ctx.Err()}
+				checkpointContextExit(step, "cancelled_by_user")
+				sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: ctx.Err()})
 				return
 			case <-a.StopCh():
 				// Emergency stop — abort cleanly with a distinct error
@@ -174,22 +283,33 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 				// generic context-cancelled. Also checkpoint so the
 				// next run can see the halt rationale.
 				a.checkpointInterrupt(userInput, step, "halted_by_estop")
-				out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: halted by estop")}
+				sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: fmt.Errorf("agent: halted by estop")})
 				return
 			default:
 			}
 
-			a.checkBudget()
+			if err := a.checkBudget(ctx); err != nil {
+				sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: err})
+				return
+			}
 
 			prov := a.provider
 			if prov == nil {
-				out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: provider not configured (Config.Provider was nil)")}
+				sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: fmt.Errorf("agent: provider not configured (Config.Provider was nil)")})
 				return
 			}
-			req := a.buildRequest()
+			req := a.buildRequest(ctx)
 
+			if err := checkGoalBudget(ctx); err != nil {
+				sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: err})
+				return
+			}
 			ch, err := prov.Stream(ctx, req)
 			if err != nil {
+				if ctx.Err() != nil {
+					checkpointContextExit(step, "cancelled_by_user_mid_stream")
+				}
+				err = errors.Join(err, recordProviderUsage(ctx, req.Model, providers.Usage{}, false))
 				if a.hooks != nil {
 					a.hooks.Fire(ctx, hooks.OnError, hooks.Event{
 						Error:     err,
@@ -197,13 +317,26 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					})
 				}
 				a.emitRecovery(err)
-				out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: stream: %w", err)}
+				sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: fmt.Errorf("agent: stream: %w", err)})
 				return
 			}
 
 			var contentBuf string
 			var toolCalls []providers.ToolCall
 			var usage providers.Usage
+			var usageReported bool
+			var usageComplete bool
+			accounted := false
+			accountUsage := func() error {
+				if accounted {
+					return nil
+				}
+				accounted = true
+				return modelusage.RecordAccounting(modelusage.WithSample(ctx, req.Model, usageReported && usageComplete), usage)
+			}
+			// Also publish the last known cumulative usage on cancellation or
+			// emergency stop; a late cache snapshot may change its cost quote.
+			defer func() { _ = accountUsage() }()
 			var emittedResponding bool
 
 			var streamErr error
@@ -218,12 +351,12 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			for {
 				select {
 				case <-ctx.Done():
-					a.checkpointInterrupt(userInput, step, "cancelled_by_user_mid_stream")
-					out <- StreamEvent{Type: EventError, Error: ctx.Err()}
+					checkpointContextExit(step, "cancelled_by_user_mid_stream")
+					sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: ctx.Err()})
 					return
 				case <-a.StopCh():
 					a.checkpointInterrupt(userInput, step, "halted_by_estop")
-					out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: halted by estop")}
+					sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: fmt.Errorf("agent: halted by estop")})
 					return
 				case chunk, ok := <-ch:
 					if !ok {
@@ -232,11 +365,26 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 						// otherwise fall through to post-loop handling
 						// (tool calls, EventDone).
 						if ctx.Err() != nil {
-							a.checkpointInterrupt(userInput, step, "cancelled_by_user_mid_stream")
-							out <- StreamEvent{Type: EventError, Error: ctx.Err()}
+							checkpointContextExit(step, "cancelled_by_user_mid_stream")
+							sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: ctx.Err()})
 							return
 						}
 						break inner
+					}
+
+					if chunk.Done {
+						usageComplete = true
+					}
+
+					if chunk.Usage != nil {
+						usageReported = true
+						var delta providers.Usage
+						usage, delta = mergeGoalStreamUsage(usage, *chunk.Usage)
+						state, _ := ctx.Value(goalAccountingKey{}).(*GoalAccountingState)
+						if err := state.RecordUsage(ctx, delta); err != nil {
+							streamErr = err
+							break inner
+						}
 					}
 
 					// Mid-stream transport failure: producer signals via
@@ -244,6 +392,7 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					// content as an assistant message — that's the silent
 					// wrong-answer path. Surface the error and bail.
 					if chunk.Err != nil {
+						usageComplete = false
 						streamErr = chunk.Err
 						break inner
 					}
@@ -251,20 +400,21 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					if chunk.Content != "" {
 						if !emittedResponding {
 							emittedResponding = true
-							out <- StreamEvent{Type: EventStatus, Phase: "responding"}
+							sendStreamEvent(ctx, out, StreamEvent{Type: EventStatus, Phase: "responding"})
 						}
 						contentBuf += chunk.Content
-						out <- StreamEvent{Type: EventToken, Content: chunk.Content}
+						sendStreamEvent(ctx, out, StreamEvent{Type: EventToken, Content: chunk.Content})
 					}
 
 					if len(chunk.ToolCalls) > 0 {
 						toolCalls = append(toolCalls, chunk.ToolCalls...)
 					}
 
-					if chunk.Usage != nil {
-						usage = *chunk.Usage
-					}
 				}
+			}
+
+			if err := accountUsage(); err != nil {
+				streamErr = errors.Join(streamErr, err)
 			}
 
 			if streamErr != nil {
@@ -275,7 +425,7 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					})
 				}
 				a.emitRecovery(streamErr)
-				out <- StreamEvent{Type: EventError, Error: fmt.Errorf("agent: stream: %w", streamErr)}
+				sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: fmt.Errorf("agent: stream: %w", streamErr)})
 				return
 			}
 
@@ -296,6 +446,11 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 			}
 
 			if len(toolCalls) == 0 {
+				if note := a.verificationCompletion(ctx); note != "" {
+					filtered = "Post-write verification failed.\n\n" + note
+					runResult.Blocked = true
+					runResult.BlockReason = note
+				}
 				runResult.Response = filtered
 				runResult.ToolCalls += 0
 
@@ -317,16 +472,37 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					})
 				}
 
+				if err := a.evaluateCompletion(ctx, userInput, runResult, func(phase string) {
+					sendStreamEvent(ctx, out, StreamEvent{Type: EventStatus, Phase: phase})
+				}); err != nil {
+					sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: err})
+					return
+				}
 				runResult.Confidence = a.assessTurnConfidence(userInput)
-				out <- StreamEvent{Type: EventStatus, Phase: "done"}
-				// Fire after_turn hooks (§7.1) — best-effort, never blocks.
-				a.fireAfterTurn()
-				out <- StreamEvent{
+				phase := "done"
+				if runResult.Blocked {
+					phase = "blocked"
+				}
+				sendStreamEvent(ctx, out, StreamEvent{Type: EventStatus, Phase: phase})
+				if !runResult.Blocked {
+					a.extractAutoMemory(ctx)
+				}
+				if goalTurn != nil {
+					if err := goalTurn.RecordTurnEnd(ctx, 0); err != nil {
+						sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: err})
+						return
+					}
+				}
+				if !runResult.Blocked {
+					a.fireAfterTurn(ctx)
+				}
+				finished = true
+				sendStreamEvent(ctx, out, StreamEvent{
 					Type:   EventDone,
 					Result: runResult,
 					Model:  runResult.Model,
 					Tokens: runResult.TotalTokens,
-				}
+				})
 				return
 			}
 
@@ -390,19 +566,19 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 							Output:     json.RawMessage(`{}`),
 							Error:      bailErr,
 						}
-						out <- StreamEvent{
+						sendStreamEvent(ctx, out, StreamEvent{
 							Type:      EventToolOutput,
 							Content:   call.Name,
 							ToolCall:  &call,
 							ToolName:  call.Name,
 							ToolInput: parseToolInput(call.Arguments),
 							Metadata:  map[string]interface{}{"output": "", "error": bailErr},
-						}
+						})
 						return
 					default:
 					}
 
-					out <- StreamEvent{
+					sendStreamEvent(ctx, out, StreamEvent{
 						Type:     EventToolStart,
 						ToolCall: &call,
 						ToolName: call.Name,
@@ -413,7 +589,7 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 							}
 							return v
 						}(),
-					}
+					})
 
 					if a.hooks != nil {
 						a.hooks.Fire(ctx, hooks.BeforeToolCall, hooks.Event{
@@ -431,14 +607,14 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 							Output:     json.RawMessage(`{}`),
 							Error:      deniedErr,
 						}
-						out <- StreamEvent{
+						sendStreamEvent(ctx, out, StreamEvent{
 							Type:      EventToolOutput,
 							Content:   call.Name,
 							ToolCall:  &call,
 							ToolName:  call.Name,
 							ToolInput: parseToolInput(call.Arguments),
 							Metadata:  map[string]interface{}{"output": "", "error": deniedErr},
-						}
+						})
 						return
 					}
 
@@ -467,14 +643,14 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 							Output:     json.RawMessage(`{}`),
 							Error:      blockErr,
 						}
-						out <- StreamEvent{
+						sendStreamEvent(ctx, out, StreamEvent{
 							Type:      EventToolOutput,
 							Content:   call.Name,
 							ToolCall:  &call,
 							ToolName:  call.Name,
 							ToolInput: parseToolInput(call.Arguments),
 							Metadata:  map[string]interface{}{"output": "", "error": blockErr},
-						}
+						})
 						return
 					}
 
@@ -483,8 +659,12 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 					// path. Non-blocking.
 					a.preToolRedTeamCheck(call.Name, input)
 
-					// §4.8 auto-snapshot. Same best-effort policy as the
-					// react path; never blocks the tool call.
+					// Keep this agent's streamed snapshot/effect pairs ordered.
+					if security.IsWriteLikeTool(call.Name, input) {
+						a.toolMutationMu.Lock()
+						defer a.toolMutationMu.Unlock()
+					}
+					// Required capture fails closed before any protected effect.
 					if reason, ckErr := a.preToolCheckpoint(call.Name, string(input)); ckErr != nil {
 						a.emit("checkpoint_failed", map[string]any{
 							"tool":       call.Name,
@@ -492,12 +672,17 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 							"error":      ckErr.Error(),
 							"session_id": a.SessionID(),
 						})
+						checkpointErr := fmt.Errorf("tool %q not executed: required checkpoint failed: %w", call.Name, ckErr)
+						toolResults[idx] = ToolResult{ToolCallID: call.ID, ToolName: call.Name, Output: json.RawMessage(`{}`), Error: checkpointErr}
+						sendStreamEvent(ctx, out, StreamEvent{Type: EventToolOutput, Content: call.Name, ToolCall: &call, ToolName: call.Name, ToolInput: parseToolInput(call.Arguments), Metadata: map[string]interface{}{"output": "", "error": checkpointErr.Error()}})
+						return
 					} else if reason != "" {
 						a.emit("checkpoint_taken", map[string]any{
 							"tool":       call.Name,
 							"reason":     reason,
 							"session_id": a.SessionID(),
 						})
+						sendStreamEvent(ctx, out, StreamEvent{Type: EventStatus, Phase: "checkpoint", Content: reason})
 					}
 
 					// Preamble streaming: emit a short natural-language preamble
@@ -554,7 +739,7 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 						})
 					}
 
-					out <- StreamEvent{
+					sendStreamEvent(ctx, out, StreamEvent{
 						Type:       EventToolOutput,
 						Content:    call.Name,
 						ToolCall:   &call,
@@ -565,7 +750,7 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 							"output": string(output),
 							"error":  toolErr,
 						},
-					}
+					})
 					// §4.1 mid-loop steering drain (Phase 1.5 #1):
 					// inject queued user guidance into history so the
 					// next provider call sees it. Safe inside the
@@ -582,62 +767,7 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 				a.appendToolResultMessage(tr.ToolCallID, tr.ToolName, tr.Output, tr.Error)
 			}
 
-			// Post-write verification (Batch G2). For every tool
-			// result that succeeded AND is a write-class tool, run
-			// the verifier. Failures append as an extra tool message
-			// so the model sees "you wrote broken code" on its NEXT
-			// turn, inside the same step loop iteration.
-			//
-			// Also collects the per-turn write paths for the
-			// end-of-loop reward-hack audit (paper #48).
-			var turnWritePaths []string
-			if v := a.getPostWriteVerifier(); v != nil {
-				for i, tr := range toolResults {
-					if tr.Error != nil || !v.IsWriteTool(tr.ToolName) {
-						continue
-					}
-					call := toolCalls[i]
-					var input json.RawMessage
-					if call.Arguments != "" {
-						input = json.RawMessage(call.Arguments)
-					}
-					turnWritePaths = append(turnWritePaths, v.ExtractWritePaths(tr.ToolName, input)...)
-
-					note := v.VerifyToolCall(ctx, tr.ToolName, input)
-					if note == "" {
-						continue
-					}
-					// Surface the verifier note as a system message
-					// only. The previous design also appended a
-					// synthetic tool_result with a fabricated
-					// tool_use_id ("<id>:verify") to make the verify
-					// note look like a tool turn — Anthropic and
-					// OpenAI both 400 on tool_result blocks whose
-					// tool_use_id isn't in the prior assistant turn,
-					// so that path broke every write-class turn.
-					// System-message-only is enough: the model reads
-					// it on the next step, same as the reward-hack
-					// audit below.
-					a.appendMessage(providers.Message{
-						Role:    "system",
-						Content: note,
-					})
-				}
-				// Reward-hack audit (paper #48 design input). One
-				// pass per step-iteration over EVERY path the turn
-				// touched — sees the cross-file picture
-				// VerifyToolCall can't (each call only sees its own
-				// inputs). A note here lands BEFORE the next step
-				// runs, so the model self-corrects in the same turn.
-				if len(turnWritePaths) > 0 {
-					if note := v.AuditTurnPaths(dedupPaths(turnWritePaths)); note != "" {
-						a.appendMessage(providers.Message{
-							Role:    "system",
-							Content: note,
-						})
-					}
-				}
-			}
+			a.verifyToolResults(ctx, toolCalls, toolResults)
 
 			// Reflexion pass (paper #51 AlphaGRPO / Shinn 2023). For
 			// each failed tool in this batch, ask the reflector for a
@@ -690,6 +820,18 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 		// can schedule an alarm for resume. Otherwise we exit with the
 		// legacy EventError so existing tests + callers without flow
 		// support behave unchanged.
+		if ctx.Err() != nil {
+			checkpointContextExit(a.maxSteps, "cancelled_by_user")
+			sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: ctx.Err()})
+			return
+		}
+		select {
+		case <-a.StopCh():
+			a.checkpointInterrupt(userInput, a.maxSteps, "halted_by_estop")
+			sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: errAgentEmergencyStop})
+			return
+		default:
+		}
 		a.mu.RLock()
 		store := a.flowStore
 		sink := a.flowAlarmSink
@@ -699,9 +841,10 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 
 		reason := fmt.Sprintf("exceeded max steps (%d)", a.maxSteps)
 		if store != nil {
-			flowID := flowIDFor(a.SessionID(), userInput)
+			checkpointInput := a.sequentialCheckpointInput(userInput)
+			flowID := flowIDFor(a.SessionID(), checkpointInput)
 			state, ckErr := CheckpointFlow(
-				store, flowID, a.SessionID(), userInput, model, "", histCopy, a.maxSteps, reason,
+				store, flowID, a.SessionID(), checkpointInput, model, "", histCopy, a.maxSteps, reason, a.flowCheckpointMetadata,
 			)
 			if ckErr == nil && state != nil {
 				if sink != nil {
@@ -720,32 +863,34 @@ func (a *Agent) StreamWithAttachments(ctx context.Context, userInput string, att
 						sink(state)
 					}()
 				}
-				out <- StreamEvent{
+				sendStreamEvent(ctx, out, StreamEvent{
 					Type:  EventStatus,
 					Phase: "done",
-				}
-				out <- StreamEvent{
+				})
+				finished = true
+				sendStreamEvent(ctx, out, StreamEvent{
 					Type: EventDone,
 					Result: &RunResult{
 						Model:    model,
 						Steps:    a.maxSteps,
-						Response: fmt.Sprintf("Task hit max-steps budget. Checkpoint saved (flow %s) — will resume.", state.ID),
+						Response: flowCheckpointNotice(state),
 					},
 					Metadata: map[string]interface{}{
-						"flow_checkpoint": state.ID,
-						"resumes":         state.Resumes,
+						"flow_checkpoint":    state.ID,
+						"flow_resume_status": state.ResumeStatus,
+						"resumes":            state.Resumes,
 					},
-				}
+				})
 				return
 			}
 			// Checkpoint failed — fall through to EventError so the
 			// user sees the error rather than a silent stuck task.
 		}
 
-		out <- StreamEvent{
+		sendStreamEvent(ctx, out, StreamEvent{
 			Type:  EventError,
 			Error: fmt.Errorf("agent: %s", reason),
-		}
+		})
 	}()
 
 	return out, nil
@@ -854,6 +999,7 @@ func formatInterruptNote(state *FlowState) string {
 // timer; the user will (or won't) come back to the conversation when
 // they're ready, and the next manual turn picks up the context.
 func (a *Agent) checkpointInterrupt(userInput string, step int, reason string) {
+	userInput = a.sequentialCheckpointInput(userInput)
 	if a == nil {
 		return
 	}
@@ -877,7 +1023,7 @@ func (a *Agent) checkpointInterrupt(userInput string, step int, reason string) {
 			})
 		}
 	}()
-	_, _ = CheckpointFlow(store, flowID, a.SessionID(), userInput, model, "", histCopy, step, reason)
+	_, _ = CheckpointFlow(store, flowID, a.SessionID(), userInput, model, "", histCopy, step, reason, a.flowCheckpointMetadata)
 }
 
 // parseToolInput unmarshals tool call arguments JSON into an interface{}.
@@ -901,4 +1047,18 @@ func isBashTool(name string) bool {
 		return true
 	}
 	return false
+}
+
+// A cancelled client may stop draining a full event buffer. Never let that
+// prevent provider cancellation, final accounting, or goal admission release.
+func sendStreamEvent(ctx context.Context, out chan<- StreamEvent, event StreamEvent) {
+	select {
+	case out <- event:
+		return
+	default:
+	}
+	select {
+	case out <- event:
+	case <-ctx.Done():
+	}
 }

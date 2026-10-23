@@ -17,15 +17,19 @@ package modules
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -273,19 +277,22 @@ func (m *Manager) Update(name string) (*UpdateResult, error) {
 		return result, nil
 	}
 
-	// Attempt the update.
-	oldVersion := mod.Version
-	if err := m.applyUpdate(mod, latest); err != nil {
-		result.Error = err.Error()
-		mod.Version = oldVersion // rollback
-		return result, err
+	// Publish a complete archive and persist its version as one recoverable
+	// operation. A manifest failure restores both the old tree and metadata.
+	old := *mod
+	persist := func() error {
+		mod.Version = latest
+		mod.LastCheck = time.Now()
+		if err := m.save(); err != nil {
+			*mod = old
+			return fmt.Errorf("modules: persist updated manifest: %w", err)
+		}
+		return nil
 	}
-
-	mod.Version = latest
-	mod.LastCheck = time.Now()
-
-	if err := m.save(); err != nil {
-		result.Error = fmt.Sprintf("saved but failed to persist manifest: %v", err)
+	if err := m.applyUpdate(mod, latest, persist); err != nil {
+		*mod = old
+		result.Error = err.Error()
+		return result, err
 	}
 
 	result.Updated = true
@@ -346,14 +353,17 @@ func (m *Manager) CheckAll() (map[string]string, []string) {
 }
 
 // applyUpdate performs the actual update for a module.
-func (m *Manager) applyUpdate(mod *Module, version string) error {
+func (m *Manager) applyUpdate(mod *Module, version string, persist func() error) error {
 	switch mod.Source {
 	case SourceGitHub:
-		return m.fetchGitHubRelease(mod, version)
+		return m.fetchGitHubRelease(mod, version, persist)
 	case SourceGoModule:
-		return m.updateGoModule(mod, version)
+		if err := m.updateGoModule(mod, version); err != nil {
+			return err
+		}
+		return persist()
 	case SourceGit:
-		return nil // manual
+		return persist() // manual
 	default:
 		return fmt.Errorf("modules: unknown source %q", mod.Source)
 	}
@@ -362,7 +372,10 @@ func (m *Manager) applyUpdate(mod *Module, version string) error {
 // fetchGitHubRelease downloads and extracts a GitHub release tarball.
 // Does NOT update the manifest version or call save() — the caller (Update)
 // handles the version bump and persistence.
-func (m *Manager) fetchGitHubRelease(mod *Module, version string) error {
+func (m *Manager) fetchGitHubRelease(mod *Module, version string, persist func() error) error {
+	if !moduleNamePattern.MatchString(mod.Name) {
+		return fmt.Errorf("modules: invalid module name %q", mod.Name)
+	}
 	// Download the tarball for the tag.
 	tarballURL := fmt.Sprintf("https://api.github.com/repos/%s/tarball/%s", mod.Repo, version)
 
@@ -376,19 +389,72 @@ func (m *Manager) fetchGitHubRelease(mod *Module, version string) error {
 		return fmt.Errorf("modules: GitHub returned %d downloading %s@%s", resp.StatusCode, mod.Name, version)
 	}
 
-	// Extract to the module directory under ~/.overkill/modules/<name>/.
-	dest := filepath.Join(m.overkillHome, "modules", mod.Name)
-	if err := os.RemoveAll(dest); err != nil {
-		return fmt.Errorf("modules: clean destination %s: %w", dest, err)
+	dest, err := security.SafePath(m.overkillHome, filepath.Join("modules", mod.Name))
+	if err != nil {
+		return fmt.Errorf("modules: destination: %w", err)
 	}
-	if err := os.MkdirAll(dest, 0o750); err != nil {
-		return fmt.Errorf("modules: create destination %s: %w", dest, err)
-	}
+	return installArchive(resp.Body, dest, persist)
+}
 
-	if err := extractTarGz(resp.Body, dest); err != nil {
-		return fmt.Errorf("modules: extract %s@%s: %w", mod.Name, version, err)
-	}
+var moduleNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 
+func installArchive(r io.Reader, dest string, persist func() error) error {
+	parent := filepath.Dir(dest)
+	if err := os.MkdirAll(parent, 0o750); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(parent, ".module-stage-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	if err := extractTarGz(r, stage); err != nil {
+		return fmt.Errorf("modules: validate staged archive: %w", err)
+	}
+	// Reserve a same-filesystem backup name; retain it if recovery fails.
+	backup, err := os.MkdirTemp(parent, ".module-backup-")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(backup); err != nil {
+		return err
+	}
+	hadOld := false
+	if info, err := os.Lstat(dest); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("modules: destination must be an ordinary directory")
+		}
+		if err := os.Rename(dest, backup); err != nil {
+			return err
+		}
+		hadOld = true
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	restore := func(cause error) error {
+		if hadOld {
+			if err := os.Rename(backup, dest); err != nil {
+				return errors.Join(cause, fmt.Errorf("modules: old version retained at %s; restore failed: %w", backup, err))
+			}
+		}
+		return cause
+	}
+	if err := os.Rename(stage, dest); err != nil {
+		return restore(err)
+	}
+	if err := persist(); err != nil {
+		// Move the rejected new tree back to our staging location before
+		// restoring the original. Never recursively delete an unowned path.
+		if moveErr := os.Rename(dest, stage); moveErr != nil {
+			return errors.Join(err, fmt.Errorf("modules: old version retained at %s; new tree could not be withdrawn: %w", backup, moveErr))
+		}
+		return restore(err)
+	}
+	if hadOld {
+		if err := os.RemoveAll(backup); err != nil {
+			slog.Warn("module installed; old backup cleanup failed", "backup", backup, "error", err)
+		}
+	}
 	return nil
 }
 

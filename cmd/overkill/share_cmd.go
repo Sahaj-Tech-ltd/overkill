@@ -33,7 +33,10 @@ var shareCmd = &cobra.Command{
 			return fmt.Errorf("share: open postgres: %w", err)
 		}
 		defer db.Close()
-		store := session.NewPostgresStore(db)
+		store, err := session.NewPostgresStore(db)
+		if err != nil {
+			return fmt.Errorf("initialize session store: %w", err)
+		}
 		sess, err := store.Load(context.Background(), id)
 		if err != nil {
 			return fmt.Errorf("share: load session: %w", err)

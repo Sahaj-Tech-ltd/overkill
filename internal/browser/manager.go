@@ -21,8 +21,7 @@ type Manager struct {
 // NewManager constructs a Manager bound to the given options. The underlying
 // Browser is not spawned until Get is called.
 func NewManager(opts Options) *Manager {
-	// Default headless on. Callers explicitly opt out of headless via
-	// Options{Headless: false} only when they truly want a visible window.
+	opts.Headless = !opts.Visible
 	return &Manager{opts: opts}
 }
 
@@ -33,17 +32,7 @@ func (m *Manager) Get(ctx context.Context) (*Browser, error) {
 	if m.browser != nil && m.browser.IsOpen() {
 		return m.browser, nil
 	}
-	// Default to headless when zero-value.
-	opts := m.opts
-	// Options.Headless is bool; we treat zero as headless=true for safety —
-	// but also support the explicit "Headless=false" path. Callers that want
-	// non-headless must set Options.Headless = false explicitly AND set a
-	// special override; here, since bool default is false, we re-interpret
-	// the field as `Visible` semantics elsewhere. To keep the public API
-	// stable we always launch headless unless the caller already configured
-	// Headless = true on the manager. Internally Open() maps Headless==false
-	// to Flag("headless", false). So a zero-value Options gives us headless.
-	b := New(opts)
+	b := New(m.opts)
 	if err := b.Open(ctx); err != nil {
 		return nil, err
 	}
@@ -89,7 +78,7 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	st := Status{
-		Headless:  true, // we default headless; not exposing toggle yet
+		Headless:  m.opts.Headless,
 		UserAgent: m.opts.UserAgent,
 	}
 	if m.browser == nil || !m.browser.IsOpen() {

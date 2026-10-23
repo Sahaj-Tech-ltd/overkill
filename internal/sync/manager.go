@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,12 @@ type Manager struct {
 	hostname string
 	lastPush time.Time
 	lastPull time.Time
+	// Auto-push work is scoped to this store/backend owner and coalesced by ID.
+	autoMu      sync.Mutex
+	autoPending map[string]autoPush
+	autoDone    chan struct{}
+	autoCancel  context.CancelFunc
+	autoClosed  bool
 }
 
 func NewManager(store session.Store, backend Backend) *Manager {
@@ -142,8 +149,8 @@ func (m *Manager) PushAll(ctx context.Context) (int, error) {
 }
 
 // Resolve picks the winner between local and remote with last-write-wins on
-// UpdatedAt. The loser is preserved as a side copy with `_conflict-<unix>`
-// suffix in its ID and Title; both local and conflict copies are returned.
+// UpdatedAt. Identical content needs no conflict copy. Divergent revisions get
+// a content-addressed copy so pulling one revision repeatedly is idempotent.
 func (m *Manager) Resolve(local, remote *session.Session) (winner, loser *session.Session) {
 	if local == nil {
 		return remote, nil
@@ -151,14 +158,17 @@ func (m *Manager) Resolve(local, remote *session.Session) (winner, loser *sessio
 	if remote == nil {
 		return local, nil
 	}
+	if sameContent(local, remote) {
+		return local, nil
+	}
 	if remote.UpdatedAt.After(local.UpdatedAt) {
 		conflict := conflictCopy(local)
-		conflict.ID = local.ID + "_conflict-" + fmt.Sprintf("%d", time.Now().Unix())
+		conflict.ID = conflictID(local)
 		conflict.Title = "[conflict] " + local.Title
 		return remote, &conflict
 	}
 	conflict := conflictCopy(remote)
-	conflict.ID = remote.ID + "_conflict-" + fmt.Sprintf("%d", time.Now().Unix())
+	conflict.ID = conflictID(remote)
 	conflict.Title = "[conflict] " + remote.Title
 	return local, &conflict
 }
@@ -174,6 +184,9 @@ func (m *Manager) PullOne(ctx context.Context, id string) error {
 	remote, err := DecodeSession(data)
 	if err != nil {
 		return err
+	}
+	if remote.ID != id {
+		return fmt.Errorf("sync: remote session ID %q does not match requested %q", remote.ID, id)
 	}
 	local, err := m.store.Load(ctx, id)
 	if err != nil {
@@ -193,18 +206,43 @@ func (m *Manager) PullOne(ctx context.Context, id string) error {
 
 	winner, loser := m.Resolve(local, remote)
 	if loser != nil {
-		if cerr := m.store.Create(ctx, loser); cerr != nil {
+		if cerr := m.store.Create(ctx, loser); cerr != nil && !errors.Is(cerr, session.ErrExists) {
 			return fmt.Errorf("sync: saving conflict loser %s: %w", loser.ID, cerr)
 		}
 	}
-	// Preserve winner's own metadata — do NOT overwrite UpdatedAt with remote's.
-	if err := m.store.Save(ctx, winner); err != nil {
-		return fmt.Errorf("sync: save winner: %w", err)
+	// Save compares against the local version we resolved. A remote version
+	// belongs to another database and cannot serve as this store's write token.
+	// Copy before assigning it so resolution does not mutate the remote input.
+	if winner != local {
+		resolved := conflictCopy(winner)
+		resolved.UpdatedAt = local.UpdatedAt
+		if err := m.store.Save(ctx, &resolved); err != nil {
+			return fmt.Errorf("sync: save winner: %w", err)
+		}
 	}
 	m.mu.Lock()
 	m.lastPull = time.Now().UTC()
 	m.mu.Unlock()
 	return nil
+}
+
+func sameContent(a, b *session.Session) bool {
+	left, right := conflictCopy(a), conflictCopy(b)
+	// Database timestamps belong to their respective stores. Importing the same
+	// content creates fresh local timestamps without changing that content.
+	left.CreatedAt, left.UpdatedAt = time.Time{}, time.Time{}
+	right.CreatedAt, right.UpdatedAt = time.Time{}, time.Time{}
+	x, xerr := json.Marshal(&left)
+	y, yerr := json.Marshal(&right)
+	return xerr == nil && yerr == nil && bytes.Equal(x, y)
+}
+
+func conflictID(s *session.Session) string {
+	// Session fields are JSON-safe; include the source timestamp to identify the
+	// revision as well as its content. Map serialization has deterministic keys.
+	revision := conflictCopy(s)
+	data, _ := json.Marshal(&revision)
+	return fmt.Sprintf("%s_conflict-%x", s.ID, sha256.Sum256(data))
 }
 
 func (m *Manager) PullAll(ctx context.Context) (int, error) {
@@ -229,20 +267,21 @@ func (m *Manager) PullAll(ctx context.Context) (int, error) {
 // suitable for creating conflict variants that are independently usable.
 func conflictCopy(s *session.Session) session.Session {
 	return session.Session{
-		ID:         s.ID,
-		Title:      s.Title,
-		Folder:     s.Folder,
-		ParentID:   s.ParentID,
-		CreatedAt:  s.CreatedAt,
-		UpdatedAt:  s.UpdatedAt,
-		Model:      s.Model,
-		Provider:   s.Provider,
-		TokenCount: s.TokenCount,
-		CostUSD:    s.CostUSD,
-		TurnCount:  s.TurnCount,
-		Metadata:   s.Metadata,
-		Status:     s.Status,
-		Messages:   s.Messages,
-		Children:   s.Children,
+		ID:             s.ID,
+		Title:          s.Title,
+		Folder:         s.Folder,
+		ParentID:       s.ParentID,
+		CreatedAt:      s.CreatedAt,
+		UpdatedAt:      s.UpdatedAt,
+		Model:          s.Model,
+		Provider:       s.Provider,
+		TokenCount:     s.TokenCount,
+		CostUSD:        s.CostUSD,
+		TurnCount:      s.TurnCount,
+		Metadata:       s.Metadata,
+		Status:         s.Status,
+		Messages:       s.Messages,
+		Children:       s.Children,
+		BranchedAtTurn: s.BranchedAtTurn,
 	}
 }

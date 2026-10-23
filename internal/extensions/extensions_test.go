@@ -101,30 +101,6 @@ func TestSkillsBackend_EnableDisable(t *testing.T) {
 	}
 }
 
-func TestStubBackends_ReturnUnsupported(t *testing.T) {
-	m := NewManager()
-	m.AddBackend(PluginsStubBackend{})
-	m.AddBackend(HooksStubBackend{})
-	m.AddBackend(MCPStubBackend{})
-
-	for _, k := range []Kind{KindPlugin, KindHook, KindMCP} {
-		if err := m.Enable(k, "x"); !errors.Is(err, ErrUnsupported) {
-			t.Errorf("%s Enable should return ErrUnsupported, got %v", k, err)
-		}
-		if err := m.Disable(k, "x"); !errors.Is(err, ErrUnsupported) {
-			t.Errorf("%s Disable should return ErrUnsupported, got %v", k, err)
-		}
-	}
-	// List across stub backends is empty but does not error.
-	got, err := m.List()
-	if err != nil {
-		t.Errorf("stub backends list should not error, got %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("stub backends should list empty, got %v", got)
-	}
-}
-
 func TestManager_GetUnknownIDInBackend(t *testing.T) {
 	reg := skills.NewRegistry()
 	m := NewManager()

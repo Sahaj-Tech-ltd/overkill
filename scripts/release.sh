@@ -1,124 +1,52 @@
-#!/bin/bash
-# release.sh — cut an overkill release.
-#
-# Usage:
-#   ./scripts/release.sh v0.10.0-beta   # tag, build, sign — ready to upload
-#   ./scripts/release.sh v0.10.0-beta --dry-run
-#
-# What it does:
-#   1. Clean working tree check
-#   2. Cross-compile 5 targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64)
-#   3. Generate SHA256 checksums
-#   4. Print upload instructions for GitHub Releases
-
+#!/usr/bin/env bash
+# Prepare CLI release binaries. Native frontend bundles/DMGs are a separate gate.
 set -euo pipefail
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-say()    { printf "${GREEN}[release]${NC} %s\n" "$*"; }
-warn()   { printf "${YELLOW}[release]${NC} %s\n" "$*"; }
-die()    { printf "${RED}[release] error:${NC} %s\n" "$*" >&2; exit 1; }
-
-# ── Args ────────────────────────────────────────────────────────────────────
-
-VERSION="${1:-}"
-DRY_RUN=false
-[[ "${2:-}" == "--dry-run" ]] && DRY_RUN=true
-
-if [[ -z "$VERSION" ]]; then
-    echo "Usage: $0 <version> [--dry-run]"
-    echo "Example: $0 v0.10.0-beta"
+version="${1:-}"
+dry_run=false
+if [ "${2:-}" = --dry-run ]; then dry_run=true; fi
+if [ "$#" -gt 2 ] || { [ -n "${2:-}" ] && [ "${2:-}" != --dry-run ]; } || [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$ ]]; then
+    echo 'Usage: scripts/release.sh vMAJOR.MINOR.PATCH[-prerelease] [--dry-run]' >&2
     exit 1
 fi
-
-# ── Pre-flight ──────────────────────────────────────────────────────────────
-
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_ROOT"
-
-if ! git diff-index --quiet HEAD -- 2>/dev/null; then
-    die "working tree is dirty — commit or stash changes first"
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+targets=(linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64)
+# Return before git tagging, directory creation, checksum truncation, or builds.
+if "$dry_run"; then
+    printf 'Would require a clean working tree, build %s and generate checksums.txt:\n' "$version"
+    printf '  %s\n' "${targets[@]}"
+    printf 'Would stage assets in %s/dist/%s and create the local tag after successful builds.\n' "$repo_root" "$version"
+    exit 0
 fi
-
-# ── Tag ─────────────────────────────────────────────────────────────────────
-
-if git rev-parse "$VERSION" >/dev/null 2>&1; then
-    warn "tag $VERSION already exists — skipping tag creation"
-else
-    say "creating tag $VERSION"
-    if $DRY_RUN; then
-        say "[dry-run] would run: git tag -a $VERSION -m 'Release $VERSION'"
-    else
-        git tag -a "$VERSION" -m "Release $VERSION"
-        say "tag created"
-    fi
+cd "$repo_root"
+if [ -n "$(git status --porcelain)" ]; then
+    echo 'Working tree is dirty; commit or stash changes before release preparation.' >&2
+    exit 1
 fi
-
-# ── Build ───────────────────────────────────────────────────────────────────
-
-DIST_DIR="$REPO_ROOT/dist"
-rm -rf "$DIST_DIR"
-mkdir -p "$DIST_DIR"
-
-TARGETS=(
-    "linux/amd64"
-    "linux/arm64"
-    "darwin/amd64"
-    "darwin/arm64"
-    "windows/amd64"
+destination="$repo_root/dist/$version"
+if [ -e "$destination" ]; then echo "Release directory already exists: $destination" >&2; exit 1; fi
+stage=$(mktemp -d "${TMPDIR:-/tmp}/overkill-release.XXXXXXXX")
+trap 'rm -rf "$stage"' EXIT
+for target in "${targets[@]}"; do
+    IFS=/ read -r goos goarch <<< "$target"
+    asset="overkill-$goos-$goarch"
+    if [ "$goos" = windows ]; then asset="$asset.exe"; fi
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+        -ldflags="-s -w -X main.Version=$version" -o "$stage/$asset" ./cmd/overkill
+done
+(
+    cd "$stage"
+    for asset in overkill-*; do
+        if command -v sha256sum >/dev/null 2>&1; then sha256sum "$asset"
+        elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$asset"
+        else echo 'SHA256 generation requires sha256sum or shasum' >&2; exit 1
+        fi
+    done > checksums.txt
 )
-
-say "cross-compiling $VERSION for ${#TARGETS[@]} targets..."
-
-for target in "${TARGETS[@]}"; do
-    IFS='/' read -r goos goarch <<< "$target"
-    out="$DIST_DIR/overkill-${goos}-${goarch}"
-    [[ "$goos" == "windows" ]] && out="${out}.exe"
-
-    printf "  %-12s %-6s → %s\n" "$goos" "$goarch" "$(basename "$out")"
-
-    if $DRY_RUN; then
-        continue
-    fi
-
-    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-        go build -trimpath \
-        -ldflags="-s -w -X main.Version=$VERSION" \
-        -o "$out" \
-        ./cmd/overkill || die "build failed for $goos/$goarch"
-done
-
-# ── Checksums ───────────────────────────────────────────────────────────────
-
-CHECKSUMS="$DIST_DIR/checksums.txt"
-> "$CHECKSUMS"
-
-say "generating SHA256 checksums..."
-for f in "$DIST_DIR"/overkill-*; do
-    if $DRY_RUN; then
-        echo "  [dry-run] sha256sum $(basename "$f")"
-        continue
-    fi
-    sha256sum "$f" | tee -a "$CHECKSUMS"
-done
-
-# ── Summary ─────────────────────────────────────────────────────────────────
-
-say "done."
-echo ""
-echo "  version  : $VERSION"
-echo "  binaries : $(ls "$DIST_DIR"/overkill-* | wc -l) files"
-echo "  checksums: $CHECKSUMS"
-echo ""
-echo "Next steps:"
-echo "  1. Push the tag:   git push origin $VERSION"
-echo "  2. Create release:  gh release create $VERSION \\"
-echo "                        --title '$VERSION' \\"
-echo "                        --notes-file CHANGELOG.md \\"
-echo "                        dist/overkill-* dist/checksums.txt"
-echo "  3. Or upload manually at:"
-echo "     https://github.com/Sahaj-Tech-ltd/overkill/releases/new?tag=$VERSION"
-echo ""
+python3 "$repo_root/scripts/verify-release-assets.py" "$stage"
+mkdir -p "$repo_root/dist"
+mv "$stage" "$destination"
+if ! git rev-parse --verify "refs/tags/$version" >/dev/null 2>&1; then
+    git tag -a "$version" -m "Release $version"
+fi
+printf 'Prepared verified CLI release assets in %s. Nothing was pushed or published.\n' "$destination"
+printf 'Push the tag after required checks pass; release.yml generates publication notes.\n'

@@ -15,13 +15,14 @@ import (
 )
 
 type StepResult struct {
-	Thought     string
-	Action      string
-	Observation string
-	ToolCalls   []providers.ToolCall
-	ToolResults []ToolResult
-	Tokens      providers.Usage
-	Done        bool
+	Thought             string
+	Action              string
+	Observation         string
+	ToolCalls           []providers.ToolCall
+	ToolResults         []ToolResult
+	Tokens              providers.Usage
+	VerificationFailure string
+	Done                bool
 }
 
 type ToolResult struct {
@@ -36,10 +37,16 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 	if prov == nil {
 		return nil, fmt.Errorf("agent: provider not configured (Config.Provider was nil)")
 	}
-	req := a.buildRequest()
+	req := a.buildRequest(ctx)
 
 	resp, err := providers.WithRetryCtx(ctx, func() (*providers.Response, error) {
+		if err := checkGoalBudget(ctx); err != nil {
+			return nil, err
+		}
 		r, e := prov.Complete(ctx, req)
+		if err := recordProviderUsage(ctx, usageResponseModel(req.Model, r), r.Usage, r.UsageReported); err != nil {
+			return &r, err
+		}
 		return &r, e
 	}, func(err error) bool {
 		var httpErr *providers.HTTPError
@@ -70,6 +77,10 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 	filtered := a.applyResponseFilter(resp.Content)
 
 	if len(resp.ToolCalls) == 0 {
+		if note := a.verificationCompletion(ctx); note != "" {
+			filtered = "Post-write verification failed.\n\n" + note
+			result.VerificationFailure = note
+		}
 		a.appendMessage(providers.Message{
 			Role:    "assistant",
 			Content: filtered,
@@ -159,10 +170,8 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		// wall_ouroboros without paying the LLM cost on every call.
 		a.preToolRedTeamCheck(tc.Name, input)
 
-		// §4.8: auto-snapshot before destructive ops. Best-effort — a
-		// snapshot failure is logged via emit but does NOT block the
-		// tool. The user's intent is primary; the snapshot is a safety
-		// net, not a gate.
+		// A configured checkpoint is required before its protected mutation.
+		// Never acknowledge an uncaptured write as protected.
 		if reason, err := a.preToolCheckpoint(tc.Name, string(input)); err != nil {
 			a.emit("checkpoint_failed", map[string]any{
 				"tool":       tc.Name,
@@ -170,6 +179,10 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 				"error":      err.Error(),
 				"session_id": a.SessionID(),
 			})
+			checkpointErr := fmt.Errorf("tool %q not executed: required checkpoint failed: %w", tc.Name, err)
+			result.ToolResults = append(result.ToolResults, ToolResult{ToolCallID: tc.ID, ToolName: tc.Name, Error: checkpointErr})
+			a.appendToolResultMessage(tc.ID, tc.Name, json.RawMessage(`{}`), checkpointErr)
+			continue
 		} else if reason != "" {
 			a.emit("checkpoint_taken", map[string]any{
 				"tool":       tc.Name,
@@ -252,6 +265,8 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 		a.drainSteering()
 	}
 
+	a.verifyToolResults(ctx, result.ToolCalls, result.ToolResults)
+
 	// Reflexion pass (paper #51 AlphaGRPO / Shinn 2023). Same shape
 	// as the stream-path injection in stream.go — for each failed
 	// tool, produce a structured note and append as a system message
@@ -307,9 +322,20 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 // Tools are considered risky if their name or arguments match common destructive
 // patterns; everything else is auto-allowed.
 func (a *Agent) checkToolApproval(toolName, args string) bool {
+	// A read-only authority ceiling is enforced in executeTool. Do not ask
+	// approval for a forbidden mutation, or prevent the native observations
+	// explicitly admitted by planning mode when no approval UI is available.
+	if a.PrivilegeMode() == security.ModeReader {
+		return true
+	}
 	risk := classifyToolRisk(toolName, args)
 	if risk == "low" {
-		return true
+		a.mu.RLock()
+		requiresApproval := a.autoMode != nil && a.autoMode.IsSafe()
+		a.mu.RUnlock()
+		if !requiresApproval {
+			return true
+		}
 	}
 	return a.approvalCheck(toolName, args, risk)
 }
@@ -318,8 +344,13 @@ func (a *Agent) checkToolApproval(toolName, args string) bool {
 // touching the shell, filesystem writes, or network mutations is at least medium.
 func classifyToolRisk(toolName, args string) string {
 	switch toolName {
-	case "shell", "bash":
+	case "shell", "bash", "pty_shell":
 		return "high"
+	case "fs":
+		if security.IsWriteLikeTool("fs", json.RawMessage(args)) {
+			return "medium"
+		}
+		return "low"
 	case "fs_write", "write_file", "edit_file", "fs_delete", "patch":
 		return "medium"
 	case "git":
@@ -354,12 +385,26 @@ func classifyToolRisk(toolName, args string) string {
 			return "low"
 		}
 	}
+	if security.IsWriteLikeTool(toolName, json.RawMessage(args)) {
+		return "medium"
+	}
 	return "low"
 }
 
 func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage) (json.RawMessage, error) {
+	if err := checkGoalBudget(ctx); err != nil {
+		return nil, err
+	}
 	if a.toolRegistry == nil {
 		return nil, fmt.Errorf("no tool registry configured")
+	}
+	if security.IsWriteLikeTool(name, input) {
+		if a.configuredReadonly.Load() {
+			return nil, fmt.Errorf("%w: configured security.autonomy_level=readonly blocks tool %s", security.ErrWriteDenied, name)
+		}
+		if a.planReadonly.Load() {
+			return nil, fmt.Errorf("%w: plan read-only mode blocks tool %s", security.ErrWriteDenied, name)
+		}
 	}
 
 	// Privilege gate (master plan §4.3): in reader mode, write-like calls

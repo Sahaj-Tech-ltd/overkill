@@ -35,7 +35,7 @@ func TestVisionDescribe_FileMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := &fakeDescriber{desc: "a tiny png"}
-	tool := NewVisionDescribeTool(d, nil, BrowserHostPolicy{})
+	tool := NewVisionDescribeTool(d, nil, BrowserHostPolicy{}).WithRootDir(dir)
 
 	in, _ := json.Marshal(map[string]any{"file": path, "prompt": "what is this?"})
 	raw, err := tool.Execute(context.Background(), in)

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,11 +32,16 @@ type ServerStatus struct {
 
 // Manager owns a pool of MCP clients keyed by server name.
 type Manager struct {
-	mu      sync.RWMutex
-	cfg     config.MCPConfig
-	clients map[string]*Client
-	stop    chan struct{}
-	wg      sync.WaitGroup
+	mu          sync.RWMutex
+	cfg         config.MCPConfig
+	clients     map[string]*Client
+	stop        chan struct{}
+	lifecycleMu sync.Mutex
+	started     bool
+	stopped     bool
+	cancel      context.CancelFunc
+	initErr     error
+	wg          sync.WaitGroup
 	// policy is the mcpshield capability gate. When non-nil every Call
 	// is checked against the declared capability for the target server.
 	// nil → legacy behaviour (no shield), preserved for callers that
@@ -55,11 +62,67 @@ func (m *Manager) SetPolicy(p *mcpshield.Policy) {
 // NewManager builds a Manager from configuration. Servers aren't started
 // until Start is called.
 func NewManager(cfg config.MCPConfig) *Manager {
-	return &Manager{
-		cfg:     cfg,
-		clients: make(map[string]*Client),
-		stop:    make(chan struct{}),
+	var policy *mcpshield.Policy
+	if len(cfg.Servers) > 0 {
+		policy = mcpshield.NewPolicy()
 	}
+	var configErr error
+	seen := make(map[string]bool)
+	if len(cfg.Servers) > 64 {
+		configErr = fmt.Errorf("mcp: at most 64 servers are supported")
+	}
+	cfg.Servers = append([]config.MCPServer(nil), cfg.Servers...)
+	for index, server := range cfg.Servers {
+		server.Args = append([]string(nil), server.Args...)
+		server.AllowedTools = append([]string(nil), server.AllowedTools...)
+		server.AllowedPathPrefixes = append([]string(nil), server.AllowedPathPrefixes...)
+		environment := make(map[string]string, len(server.Env))
+		for key, value := range server.Env {
+			environment[key] = value
+		}
+		server.Env = environment
+		if server.Enabled != nil {
+			enabled := *server.Enabled
+			server.Enabled = &enabled
+		}
+		if server.Trusted != nil {
+			trusted := *server.Trusted
+			server.Trusted = &trusted
+		}
+		bindings := make(map[string][]string, len(server.PathArgumentBindings))
+		for tool, pointers := range server.PathArgumentBindings {
+			bindings[tool] = append([]string{}, pointers...)
+		}
+		server.PathArgumentBindings = bindings
+		cfg.Servers[index] = server
+		if server.Enabled != nil && !*server.Enabled {
+			continue
+		}
+
+		normalized, err := normalizePathPolicy(server)
+		if err != nil {
+			configErr = err
+		} else {
+			server = normalized
+			cfg.Servers[index] = normalized
+		}
+		if (server.Name == "" || server.Command == "") && len(server.AllowedTools) == 0 && len(server.AllowedPathPrefixes) == 0 && server.Trusted == nil && server.MaxBytesPerCall == 0 {
+			continue
+		}
+		if seen[server.Name] || server.Name == "" || server.Command == "" || len(server.Name) > 128 || strings.ContainsAny(server.Name, ":\r\n") {
+			configErr = fmt.Errorf("mcp: unique server names and commands are required")
+			continue
+		}
+		seen[server.Name] = true
+		trusted := true
+		if server.Trusted != nil {
+			trusted = *server.Trusted
+		}
+		if err := policy.Set(mcpshield.Capability{ServerName: server.Name, AllowedTools: server.AllowedTools, AllowedPathPrefixes: server.AllowedPathPrefixes, MaxBytesPerCall: server.MaxBytesPerCall, Trusted: trusted}); err != nil {
+			configErr = err
+		}
+	}
+	return &Manager{cfg: cfg, clients: make(map[string]*Client), stop: make(chan struct{}), policy: policy, initErr: configErr}
 }
 
 // Start spawns each configured server in its own goroutine with retry
@@ -68,8 +131,24 @@ func (m *Manager) Start(ctx context.Context) error {
 	if m == nil {
 		return nil
 	}
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	if m.stopped {
+		return fmt.Errorf("mcp: manager is stopped")
+	}
+	if m.started {
+		return nil
+	}
+	if m.initErr != nil {
+		return m.initErr
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	ctx, m.cancel = context.WithCancel(ctx)
+	m.started = true
 	for _, s := range m.cfg.Servers {
-		if s.Name == "" || s.Command == "" {
+		if (s.Enabled != nil && !*s.Enabled) || s.Name == "" || s.Command == "" {
 			continue
 		}
 		// Default-on: explicitly disabled servers are skipped.
@@ -100,7 +179,14 @@ func (m *Manager) supervise(ctx context.Context, s config.MCPServer) {
 		default:
 		}
 
-		client := NewClient(s.Name, s.Command, s.Args, s.Env)
+		command := s.Command
+		if s.PathWorkspace != "" && !filepath.IsAbs(command) && strings.ContainsAny(command, "/\\") {
+			command = filepath.Join(s.PathWorkspace, command)
+		}
+		client := NewClient(s.Name, command, s.Args, s.Env)
+		if client.cmd != nil && s.PathWorkspace != "" {
+			client.cmd.Dir = s.PathWorkspace
+		}
 		err := client.Start(ctx)
 		if err != nil {
 			client.setError(err)
@@ -120,20 +206,38 @@ func (m *Manager) supervise(ctx context.Context, s config.MCPServer) {
 		backoff = 2 * time.Second
 		m.installClient(s.Name, client)
 
-		// Wait for the underlying process to exit asynchronously so
-		// we remain responsive to ctx.Done() and m.stop signals.
-		done := make(chan struct{})
-		go func() {
-			_ = client.cmd.Wait()
-			close(done)
-		}()
-		select {
-		case <-ctx.Done():
-			return
-		case <-m.stop:
-			return
-		case <-done:
+		ticker := time.NewTicker(time.Second)
+		connected := true
+		for connected {
+			select {
+			case <-ctx.Done():
+				_ = client.Close()
+				ticker.Stop()
+				return
+			case <-m.stop:
+				_ = client.Close()
+				ticker.Stop()
+				return
+			case <-client.runDone:
+				connected = false
+			case <-client.readDone:
+				connected = false
+			case <-ticker.C:
+				refreshCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				tools, err := client.ListTools(refreshCtx)
+				cancel()
+				if err != nil {
+					client.setError(fmt.Errorf("tool discovery failed"))
+					connected = false
+				} else {
+					client.mu.Lock()
+					client.tools = tools
+					client.mu.Unlock()
+				}
+			}
 		}
+		ticker.Stop()
+		_ = client.Close()
 		client.setError(fmt.Errorf("server exited"))
 
 		select {
@@ -165,11 +269,15 @@ func (m *Manager) Stop() {
 	if m == nil {
 		return
 	}
-	select {
-	case <-m.stop:
-	default:
+	m.lifecycleMu.Lock()
+	if !m.stopped {
+		m.stopped = true
 		close(m.stop)
+		if m.cancel != nil {
+			m.cancel()
+		}
 	}
+	m.lifecycleMu.Unlock()
 	m.mu.Lock()
 	for _, c := range m.clients {
 		_ = c.Close()
@@ -191,6 +299,10 @@ func (m *Manager) Tools() []ToolWithServer {
 			continue
 		}
 		for _, t := range c.Tools() {
+			if !m.exposesToolLocked(name, t) {
+				continue
+			}
+
 			out = append(out, ToolWithServer{Server: name, Tool: t})
 		}
 	}
@@ -201,6 +313,54 @@ func (m *Manager) Tools() []ToolWithServer {
 		return out[i].Tool.Name < out[j].Tool.Name
 	})
 	return out
+}
+
+// exposesToolLocked applies the same catalog gate to bulk and direct lookup.
+// The manager read lock must be held by the caller.
+func (m *Manager) exposesToolLocked(server string, tool Tool) bool {
+	if m.policy == nil {
+		return true
+	}
+	cap, ok := m.policy.Get(server)
+	if !ok || !m.policy.CheckCall(server, tool.Name, nil, 0).Allow {
+		return false
+	}
+	if len(cap.AllowedPathPrefixes) > 0 {
+		for _, entry := range m.cfg.Servers {
+			if entry.Name == server {
+				_, bound := entry.PathArgumentBindings[tool.Name]
+				return bound
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// lookupTool avoids rebuilding/sorting every server's catalog for each adapter
+// metadata/availability read. Tool schemas returned to callers are owned copies.
+func (m *Manager) lookupTool(server, name string) (Tool, bool) {
+	if m == nil {
+		return Tool{}, false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	client := m.clients[server]
+	if client == nil {
+		return Tool{}, false
+	}
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	if !client.connected {
+		return Tool{}, false
+	}
+	for _, tool := range client.tools {
+		if tool.Name == name && m.exposesToolLocked(server, tool) {
+			tool.InputSchema = append(json.RawMessage(nil), tool.InputSchema...)
+			return tool, true
+		}
+	}
+	return Tool{}, false
 }
 
 // Status returns a snapshot of all clients (including failed ones).
@@ -219,6 +379,9 @@ func (m *Manager) Status() []ServerStatus {
 		}
 		if e := c.LastError(); e != nil {
 			s.LastError = e.Error()
+			if len(s.LastError) > 512 {
+				s.LastError = s.LastError[:512] + " [truncated]"
+			}
 		}
 		out = append(out, s)
 	}
@@ -282,16 +445,51 @@ func (m *Manager) Call(ctx context.Context, server, tool string, args json.RawMe
 	if !c.Connected() {
 		return Result{}, fmt.Errorf("mcp: server %q not connected", server)
 	}
-	// mcpshield gate: when a policy is attached, every call passes
-	// through capability + size checks before dispatch. The arg-size
-	// signal is computed from the encoded JSON; per-tool path extraction
-	// is left to a future revision (CheckCall accepts a nil paths slice
-	// and only checks server/tool/byte-cap until paths are wired).
+	found := false
+	var current Tool
+	for _, definition := range c.Tools() {
+		if definition.Name == tool {
+			found = true
+			current = definition
+			break
+		}
+	}
+
+	if len(args) > maxMCPArgumentBytes || (len(args) > 0 && !json.Valid(args)) {
+		return Result{}, fmt.Errorf("mcp: arguments must be valid JSON within the transport byte limit")
+	}
+	// No argument paths are guessed from arbitrary JSON. A configured path
+	// restriction requires explicit operator bindings and a compatible schema.
+	paths := []string(nil)
 	if policy != nil {
-		decision := policy.CheckCall(server, tool, nil, len(args))
+		cap, ok := policy.Get(server)
+		if ok && cap.MaxBytesPerCall > 0 && len(args) > cap.MaxBytesPerCall {
+			return Result{}, fmt.Errorf("mcp: arguments exceed declared byte cap")
+		}
+		if ok && len(cap.AllowedPathPrefixes) > 0 {
+			var declaration config.MCPServer
+			for _, entry := range m.cfg.Servers {
+				if entry.Name == server {
+					declaration = entry
+					break
+				}
+			}
+			declaration.MaxBytesPerCall = cap.MaxBytesPerCall
+			var err error
+			args, paths, err = bindCallPaths(declaration, current, args)
+			if err != nil {
+				return Result{}, err
+			}
+		}
+	}
+	if policy != nil {
+		decision := policy.CheckCall(server, tool, paths, len(args))
 		if !decision.Allow {
 			return Result{}, fmt.Errorf("mcp: %s", decision.Reason)
 		}
+	}
+	if !found {
+		return Result{}, fmt.Errorf("mcp: tool is not in the current server catalog")
 	}
 	return c.CallTool(ctx, tool, args)
 }

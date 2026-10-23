@@ -1,93 +1,47 @@
 # Releasing Overkill
 
-This runbook covers cutting and publishing a new Overkill release. The
-`release.yml` GitHub workflow does the heavy lifting — your job is to
-prepare the repo and push a tag.
+Latest local candidate — 2026-10-22: EptytH macOS arm64 development DMG. SHA-256 `db066b34fd9a23537142e83561bebd38e17c3d7944f38ebeec6fd854e37792cb`. Includes scoped ACP runtime provisioning/ancestry, coordination contract inspection, draft-safe chat admission, configured readonly, bounded image tools, workspace mentions and terminal committed-state input. Final gates:107 Go race packages, vet, Windows source compilation,87 desktop tests,47 terminal tests and actual Linux/arm64 Docker build/runtime. Installed fake-storage smoke passes file edit/cancel/peer exchange/same-version replacement/relaunch/database recovery. Root verifies all28 desktop sources, signed backend, image hash and byte-identical independent backend rebuild from current source (`.cache/transport-mentions-artifact-root-checks.json`). Receipt: `.cache/distribution/overkill-0.1.0-dev-arm64-EptytH/installed-mock-storage-smoke.json`. Real installed Keychain, minimum OS and cross-version release acceptance remain pending. Ad-hoc signing, no Developer ID/notarization, distributionReady=false. Provisional K3FCSM predates final bridge/mention/input repairs and is superseded; prior candidates retain historical scope.
 
-## Versioning
+Release preparation currently produces five CLI executable assets:
+`overkill-linux-amd64`, `overkill-linux-arm64`, `overkill-darwin-amd64`,
+`overkill-darwin-arm64`, and `overkill-windows-amd64.exe`. The manifest is
+`checksums.txt`, with one SHA256 hash and exact basename per asset. Both
+installers require successful verification before replacing an executable.
+Native terminal runtime bundles and the macOS DMG remain separate release
+gates; a CLI binary alone is not the complete desktop app.
 
-Overkill follows [Semantic Versioning](https://semver.org/):
+Before tagging, require successful Go tests and race detection with PostgreSQL,
+frontend build and authenticated integration, Python wheel/pgvector tests,
+platform tests, installer fixtures, and Docker startup verification. Update
+user-facing release documentation for the version's actual behavior.
 
-- `vMAJOR` — breaking changes
-- `vMINOR` — backward-compatible features
-- `vPATCH` — backward-compatible fixes
+Use semantic versions such as `v1.2.3` or `v1.2.3-beta.1`:
 
-Pre-releases use suffixes like `v0.10.0-beta.1`. The release workflow marks
-any tag containing a `-` as a pre-release on GitHub.
-
-## Pre-release checklist
-
-1. CI is green on `main`.
-2. `go test -race ./...` clean locally.
-3. `golangci-lint run` clean locally.
-4. `CHANGELOG.md` has an entry describing the release.
-5. The README reflects any user-visible behavior changes.
-
-## Cut the release
-
-The version string is injected at build time, so you do **not** need to
-edit `cmd/overkill/root.go` for each release. The `Version` `var` defaults
-to `0.1.0-dev` for local development; the release workflow links in the
-tag name via `-ldflags="-X main.Version=${TAG}"`.
-
-```bash
-# 1. Update CHANGELOG.md: rename [Unreleased] to [vX.Y.Z] - YYYY-MM-DD,
-#    create a fresh empty [Unreleased] section above it, commit.
-git add CHANGELOG.md
-git commit -m "chore(release): vX.Y.Z"
-
-# 2. Tag and push.
-git tag -a vX.Y.Z -m "overkill vX.Y.Z"
-git push origin main
-git push origin vX.Y.Z
+```sh
+scripts/release.sh v1.2.3 --dry-run
 ```
 
-The push of `vX.Y.Z` triggers `release.yml`, which:
+Dry-run prints the plan and performs no filesystem, Git, or build mutations,
+even when release artifacts already exist. After required gates pass and the
+working tree is clean:
 
-1. Cross-compiles `overkill` for `linux/amd64`, `linux/arm64`,
-   `darwin/amd64`, `darwin/arm64` with `-trimpath` + version ldflags.
-2. Builds the example plugins (`notes`, `git-stats`) for every target.
-3. Stages `install.sh` and a `examples/plugins/` source tarball.
-4. Generates a combined `SHA256SUMS` file.
-5. Generates a changelog from `git log <previous-tag>..<this-tag>`.
-6. Creates a GitHub Release with everything attached.
-
-## Smoke test the release
-
-After the workflow finishes:
-
-```bash
-# Fresh shell so PATH/env aren't polluted.
-curl -fsSL https://raw.githubusercontent.com/Sahaj-Tech-ltd/overkill/vX.Y.Z/install.sh | sh
-overkill --version    # → "overkill vX.Y.Z"
-overkill --help
+```sh
+scripts/release.sh v1.2.3
 ```
 
-Verify against `SHA256SUMS`:
+This builds all targets into a temporary directory, generates portable SHA256
+checksums, stages them under `dist/v1.2.3/`, and creates a local annotated tag
+only after builds succeed. It refuses to replace an existing version directory.
+Nothing is pushed or published by the script.
 
-```bash
-curl -fsSL -O https://github.com/Sahaj-Tech-ltd/overkill/releases/download/vX.Y.Z/SHA256SUMS
-curl -fsSL -O https://github.com/Sahaj-Tech-ltd/overkill/releases/download/vX.Y.Z/overkill-vX.Y.Z-linux-amd64
-sha256sum --check --ignore-missing SHA256SUMS
-```
+Push the reviewed tag explicitly when ready. The release workflow builds the
+five targets, combines their checksums, checks out the tagged repository for
+publication, verifies the staged manifest, and uses an explicit repository plus
+GitHub-generated release notes. Versions containing `-` are marked prerelease.
+No missing changelog file is required. Docker publication is a separate tagged
+workflow with multi-platform emulation enabled.
 
-## Hotfix flow
-
-For an urgent fix on a released line:
-
-```bash
-git checkout -b release/vX.Y vX.Y.0
-# cherry-pick or commit the fix
-git tag -a vX.Y.1 -m "overkill vX.Y.1"
-git push origin release/vX.Y vX.Y.1
-```
-
-## Rollback
-
-If a release is broken:
-
-1. Mark the GitHub release as a pre-release (or delete it) so the
-   "latest" pointer no longer resolves to it.
-2. The previous tag automatically becomes "latest" via
-   `releases/latest/download/...`.
-3. File a follow-up issue, fix, and cut the next patch version.
+Smoke-test the published installer from a fresh temporary home and validate
+`overkill --version`, `overkill --help`, and the generated configuration. Do not
+present a CLI release as a stable DMG until the complete native runtime,
+application lifecycle, signing/notarization policy, and installation tests pass.

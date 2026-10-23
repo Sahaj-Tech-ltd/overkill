@@ -4,9 +4,12 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 )
 
 // AskUserBridge is the function the tool calls into to actually surface the
@@ -40,16 +43,39 @@ func NewAskUserTool(bridge AskUserBridge) *AskUserTool {
 
 // Name returns the tool identifier exposed to the model.
 func (t *AskUserTool) Name() string { return "ask_user" }
+func (t *AskUserTool) Description() string {
+	return "Ask the user a question in this chat, optionally with choices. Waits for their answer or explicit cancellation; stopping the turn cancels the wait."
+}
+func (t *AskUserTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"question":{"type":"string","minLength":1,"maxLength":8192},"choices":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":1024}}},"required":["question"],"additionalProperties":false}`)
+}
 
 // Execute parses the input, calls the bridge, and serializes the answer.
 func (t *AskUserTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(input) > 64*1024 {
+		return nil, fmt.Errorf("ask_user: input exceeds bound")
+	}
 	var in AskUserInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		return nil, fmt.Errorf("ask_user: parse input: %w", err)
+	dec := json.NewDecoder(bytes.NewReader(input))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		return nil, fmt.Errorf("ask_user: invalid question input")
 	}
-	if in.Question == "" {
-		return nil, fmt.Errorf("ask_user: question is required")
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return nil, fmt.Errorf("ask_user: one question object required")
 	}
+	if strings.TrimSpace(in.Question) == "" || len(in.Question) > 8192 || len(in.Choices) > 32 {
+		return nil, fmt.Errorf("ask_user: question or choice count exceeds bound")
+	}
+	for _, choice := range in.Choices {
+		if len(choice) > 1024 {
+			return nil, fmt.Errorf("ask_user: choice exceeds bound")
+		}
+	}
+
 	if t.bridge == nil {
 		out := AskUserOutput{Cancelled: true}
 		return json.Marshal(out)

@@ -9,16 +9,12 @@ package imagegen
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,6 +33,14 @@ func New(cfg config.ImageGenConfig) *Tool {
 
 func (t *Tool) Name() string { return "image_gen" }
 
+func (t *Tool) Description() string {
+	return "Generate images with a configured OpenAI, Stability, or Replicate provider and return private temporary file paths. Requires that provider's credentials; remote image downloads allow only public HTTPS destinations."
+}
+
+func (t *Tool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":8192},"provider":{"type":"string","enum":["openai","stability","replicate"]},"size":{"type":"string","maxLength":32},"n":{"type":"integer","minimum":1,"maximum":4}},"required":["prompt"],"additionalProperties":false}`)
+}
+
 // ImageGenInput is the JSON input for image_gen.
 type ImageGenInput struct {
 	Prompt   string `json:"prompt"`
@@ -54,11 +58,25 @@ type ImageGenOutput struct {
 
 func (t *Tool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	var in ImageGenInput
-	if err := json.Unmarshal(input, &in); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(input) > 16384 {
+		return nil, fmt.Errorf("image_gen: input exceeds bound")
+	}
+	dec := json.NewDecoder(bytes.NewReader(input))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
 		return nil, fmt.Errorf("image_gen: %w", err)
 	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return nil, fmt.Errorf("image_gen: one input object required")
+	}
+	if len(in.Prompt) > 8192 || len(in.Size) > 32 || in.N > 4 || in.N < 0 {
+		return nil, fmt.Errorf("image_gen: input field exceeds bound")
+	}
 
-	if in.Prompt == "" {
+	if strings.TrimSpace(in.Prompt) == "" {
 		return nil, fmt.Errorf("image_gen: prompt is required")
 	}
 
@@ -239,9 +257,13 @@ func (t *Tool) generateStability(ctx context.Context, in ImageGenInput) (json.Ra
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadedImageBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("image_gen (stability): read: %w", err)
+	}
+
+	if len(body) > maxDownloadedImageBytes {
+		return nil, fmt.Errorf("image_gen (stability): image exceeds 50 MiB limit")
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -252,8 +274,8 @@ func (t *Tool) generateStability(ctx context.Context, in ImageGenInput) (json.Ra
 		return nil, fmt.Errorf("image_gen (stability): HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
-	outPath := tmpPath("overkill-img", ".png")
-	if err := os.WriteFile(outPath, body, 0o600); err != nil {
+	outPath, err := writeGeneratedImage(body)
+	if err != nil {
 		return nil, fmt.Errorf("image_gen (stability): write file: %w", err)
 	}
 
@@ -284,6 +306,8 @@ type replicateCreateResponse struct {
 }
 
 func (t *Tool) generateReplicate(ctx context.Context, in ImageGenInput) (json.RawMessage, error) {
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
 	apiToken := t.cfg.ReplicateToken
 	if apiToken == "" {
 		apiToken = os.Getenv("REPLICATE_API_TOKEN")
@@ -355,12 +379,13 @@ func (t *Tool) generateReplicate(ctx context.Context, in ImageGenInput) (json.Ra
 		req.Header.Set("Authorization", "Bearer "+apiToken)
 
 		resp, err := client.Do(req)
-		reqCancel() // explicit: inside a for-loop, defer would accumulate
 		if err != nil {
+			reqCancel()
 			return nil, fmt.Errorf("image_gen (replicate): poll request: %w", err)
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 		resp.Body.Close()
+		reqCancel() // release only after consuming the response body
 		if err != nil {
 			return nil, fmt.Errorf("image_gen (replicate): poll read: %w", err)
 		}
@@ -417,91 +442,27 @@ done:
 // helpers
 // ---------------------------------------------------------------------------
 
-// downloadImage fetches a URL and writes it to a temp file.
-func downloadImage(ctx context.Context, urlStr, prefix, ext string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+// writeGeneratedImage publishes only a complete private temporary file.
+func writeGeneratedImage(body []byte) (string, error) {
+	file, err := os.CreateTemp("", "overkill-img-*.png")
 	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+		return "", err
 	}
-
-	client := &http.Client{
-		Timeout: 60 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("imagegen: stopped after 10 redirects")
-			}
-			if hostIsPrivate(req.URL.Hostname()) {
-				return fmt.Errorf("imagegen: redirect to private address %q blocked", req.URL.Hostname())
-			}
-			return nil
-		},
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("fetch: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	outPath := tmpPath(prefix, ext)
-	f, err := os.Create(outPath)
-	if err != nil {
-		return "", fmt.Errorf("create file: %w", err)
-	}
-	defer f.Close()
-
-	if _, err := io.Copy(f, io.LimitReader(resp.Body, 50<<20)); err != nil {
-		return "", fmt.Errorf("write: %w", err)
-	}
-
-	return outPath, nil
-}
-
-// tmpPath generates a unique temp file path with the given extension.
-func tmpPath(prefix, ext string) string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	suffix := hex.EncodeToString(b)
-	// Strip file extension from prefix if present, to avoid doubled extensions
-	cleanPrefix := strings.TrimSuffix(prefix, ext)
-	return filepath.Join(os.TempDir(), cleanPrefix+"-"+suffix+ext)
-}
-
-// hostIsPrivate returns true when the host resolves to a private address.
-// Mirrors the implementation in internal/tools/web.go for SSRF protection.
-func hostIsPrivate(host string) bool {
-	if host == "" {
-		return true
-	}
-	host = strings.Trim(host, "[]")
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	check := func(ip net.IP) bool {
-		if ip == nil {
-			return false
+	success := false
+	defer func() {
+		_ = file.Close()
+		if !success {
+			_ = os.Remove(file.Name())
 		}
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsPrivate() || ip.IsUnspecified() {
-			return true
-		}
-		return false
+	}()
+	if _, err := file.Write(body); err != nil {
+		return "", err
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return check(ip)
+	if err := file.Close(); err != nil {
+		return "", err
 	}
-	addrs, err := net.LookupIP(host)
-	if err != nil || len(addrs) == 0 {
-		return true
-	}
-	for _, ip := range addrs {
-		if check(ip) {
-			return true
-		}
-	}
-	return false
+	success = true
+	return file.Name(), nil
 }
 
 // marshalOut serializes an ImageGenOutput, handling errors.

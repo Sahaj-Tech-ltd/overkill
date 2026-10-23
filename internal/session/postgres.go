@@ -12,13 +12,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	sharedDB "github.com/Sahaj-Tech-ltd/overkill/internal/db"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
 // PostgresStore is a PostgreSQL-backed session store that implements
 // Store, Brancher, and session-router operations on the shared *sql.DB.
 type PostgresStore struct {
-	db *sql.DB
+	db    *sql.DB
+	owned bool
 }
 
 // RouterRow is one row returned by the router's Recent() method.
@@ -30,18 +32,50 @@ type RouterRow struct {
 
 // NewPostgresStore creates a PostgresStore backed by the shared DB.
 // The caller owns the DB lifecycle; Close() is a no-op.
-func NewPostgresStore(db *sql.DB) *PostgresStore {
-	s := &PostgresStore{db: db}
-	if err := s.migrate(); err != nil {
-		// Migration errors mean the store is broken; log at ERROR and
-		// let the caller decide. Return the store so the caller can
-		// inspect it, but all operations will fail with a broken schema.
-		log.Error().Err(err).Msg("session: migration failed — store may be unusable")
-	}
-	return s
+func NewPostgresStore(db *sql.DB) (*PostgresStore, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return newPostgresStore(ctx, db)
 }
 
-func (s *PostgresStore) migrate() error {
+func newPostgresStore(ctx context.Context, db *sql.DB) (*PostgresStore, error) {
+	if db == nil {
+		return nil, fmt.Errorf("session: database is required")
+	}
+	s := &PostgresStore{db: db}
+	if err := s.migrate(ctx); err != nil {
+		return nil, fmt.Errorf("session: initialize: %w", err)
+	}
+	return s, nil
+}
+
+// OpenPostgresStore opens and owns its database pool. Close releases the pool.
+// NewPostgresStore instead borrows a pool whose lifecycle belongs to its caller.
+func OpenPostgresStore(ctx context.Context, connString string) (*PostgresStore, error) {
+	database, err := sharedDB.OpenContext(ctx, connString)
+	if err != nil {
+		return nil, err
+	}
+	s, err := newPostgresStore(ctx, database)
+	if err != nil {
+		database.Close()
+		return nil, err
+	}
+	s.owned = true
+	return s, nil
+}
+
+func (s *PostgresStore) migrate(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Serialize initialization for this schema, including concurrent processes.
+	// Transactional DDL prevents a failed migration leaving a partial schema.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':overkill:sessions', 0))`); err != nil {
+		return err
+	}
 	cmds := []string{
 		`CREATE TABLE IF NOT EXISTS sessions (
 			id          TEXT PRIMARY KEY,
@@ -60,6 +94,12 @@ func (s *PostgresStore) migrate() error {
 			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		`CREATE TABLE IF NOT EXISTS session_runtime_status (
+ session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+ payload JSONB NOT NULL,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ CHECK (octet_length(payload::text) <= 2097152)
+ )`,
 		`CREATE TABLE IF NOT EXISTS session_router (
 			channel    TEXT NOT NULL,
 			chat_key   TEXT NOT NULL,
@@ -76,7 +116,7 @@ func (s *PostgresStore) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at DESC)`,
 	}
 	for _, c := range cmds {
-		if _, err := s.db.Exec(c); err != nil {
+		if _, err := tx.ExecContext(ctx, c); err != nil {
 			preview := c
 			if len(preview) > 40 {
 				preview = preview[:40]
@@ -90,15 +130,21 @@ func (s *PostgresStore) migrate() error {
 		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS token_count BIGINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS children JSONB NOT NULL DEFAULT '[]'`,
 	} {
-		if _, err := s.db.Exec(col); err != nil {
+		if _, err := tx.ExecContext(ctx, col); err != nil {
 			return fmt.Errorf("session migrate: %s: %w", col[:40], err)
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
-// Close is a no-op — the DB lifecycle is owned by the caller.
-func (s *PostgresStore) Close() error { return nil }
+// Close releases only a pool created by OpenPostgresStore. Borrowed pools remain
+// usable by the other stores that share them.
+func (s *PostgresStore) Close() error {
+	if s.owned {
+		return s.db.Close()
+	}
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // Store interface
@@ -130,13 +176,14 @@ func (s *PostgresStore) Create(ctx context.Context, session *Session) error {
 		return fmt.Errorf("session: marshaling children: %w", err)
 	}
 
-	result, err := s.db.ExecContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO sessions
 			(id, title, folder, parent_id, status, messages, model, provider,
 			 total_cost, metadata, token_count, children, branched_at_turn,
 			 created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		ON CONFLICT (id) DO NOTHING`,
+		ON CONFLICT (id) DO NOTHING
+		RETURNING created_at, updated_at`,
 		session.ID,
 		session.Title,
 		session.Folder,
@@ -152,13 +199,12 @@ func (s *PostgresStore) Create(ctx context.Context, session *Session) error {
 		session.BranchedAtTurn,
 		session.CreatedAt,
 		session.UpdatedAt,
-	)
+	).Scan(&session.CreatedAt, &session.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrExists
+	}
 	if err != nil {
 		return fmt.Errorf("session: create %s: %w", session.ID, err)
-	}
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
-		return ErrExists
 	}
 
 	log.Debug().Str("id", session.ID).Str("folder", session.Folder).Msg("session created (pg)")
@@ -182,12 +228,15 @@ func (s *PostgresStore) loadTx(ctx context.Context, querier interface {
 		childrenJSON       []byte
 		parentID           sql.NullString
 	)
-	err := querier.QueryRowContext(ctx, `
+	query := `
 		SELECT id, title, folder, parent_id, status, messages, model, provider,
 		       total_cost, metadata, token_count, children, branched_at_turn,
 		       created_at, updated_at
-		FROM sessions WHERE id = $1`, id,
-	).Scan(
+		FROM sessions WHERE id = $1`
+	if _, transactional := querier.(*sql.Tx); transactional {
+		query += " FOR UPDATE"
+	}
+	err := querier.QueryRowContext(ctx, query, id).Scan(
 		&sess.ID,
 		&sess.Title,
 		&sess.Folder,
@@ -262,13 +311,15 @@ func (s *PostgresStore) Save(ctx context.Context, session *Session) error {
 		return fmt.Errorf("session: marshaling children: %w", err)
 	}
 
-	result, err := s.db.ExecContext(ctx, `
+	var updatedAt time.Time
+	err = s.db.QueryRowContext(ctx, `
 		UPDATE sessions
 		SET title = $1, folder = $2, parent_id = $3, status = $4,
 		    messages = $5, model = $6, provider = $7, total_cost = $8,
 		    metadata = $9, token_count = $10, children = $11,
 		    branched_at_turn = $12, updated_at = NOW()
-		WHERE id = $13 AND updated_at = $14`,
+		WHERE id = $13 AND updated_at = $14
+		RETURNING updated_at`,
 		session.Title,
 		session.Folder,
 		session.ParentID,
@@ -283,22 +334,23 @@ func (s *PostgresStore) Save(ctx context.Context, session *Session) error {
 		session.BranchedAtTurn,
 		session.ID,
 		session.UpdatedAt,
-	)
+	).Scan(&updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Distinguish between "session deleted" and "concurrent write".
+		var exists bool
+		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE id=$1)`, session.ID).Scan(&exists); err != nil {
+			return fmt.Errorf("session: check version %s: %w", session.ID, err)
+		} else if !exists {
+			return fmt.Errorf("session: save %s: %w", session.ID, ErrNotFound)
+		}
+		return fmt.Errorf("session: save %s: %w", session.ID, ErrConflict)
+	}
 	if err != nil {
 		return fmt.Errorf("session: save %s: %w", session.ID, err)
 	}
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
-		// Distinguish between "session deleted" and "concurrent write".
-		var exists bool
-		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE id=$1)`, session.ID).Scan(&exists); err == nil && !exists {
-			return fmt.Errorf("session: save %s: %w", session.ID, ErrNotFound)
-		}
-		return fmt.Errorf("session: save %s: concurrent write conflict — retry", session.ID)
-	}
 
 	log.Debug().Str("id", session.ID).Msg("session saved (pg)")
-	session.UpdatedAt = time.Now().UTC()
+	session.UpdatedAt = updatedAt
 	return nil
 }
 
@@ -314,9 +366,24 @@ func (s *PostgresStore) Delete(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback()
 
+	if err := deleteSessionTx(ctx, tx, id); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("session: delete: commit: %w", err)
+	}
+
+	log.Debug().Str("id", id).Msg("session deleted (pg)")
+	return nil
+}
+
+// deleteSessionTx retains the ordinary deletion policy for callers which own
+// a broader atomic transaction, including bounded retention batches.
+func deleteSessionTx(ctx context.Context, tx *sql.Tx, id string) error {
 	// Load the session to find its parent (for child reassignment).
 	var parentID sql.NullString
-	err = tx.QueryRowContext(ctx, `SELECT parent_id FROM sessions WHERE id = $1`, id).Scan(&parentID)
+	err := tx.QueryRowContext(ctx, `SELECT parent_id FROM sessions WHERE id = $1`, id).Scan(&parentID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("session: delete %s: %w", id, ErrNotFound)
 	}
@@ -349,11 +416,6 @@ func (s *PostgresStore) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("session: delete %s: %w", id, ErrNotFound)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("session: delete: commit: %w", err)
-	}
-
-	log.Debug().Str("id", id).Msg("session deleted (pg)")
 	return nil
 }
 
@@ -397,7 +459,7 @@ func (s *PostgresStore) List(ctx context.Context, opts ListOptions) ([]*Session,
 	if opts.OldestFirst {
 		order = "ASC"
 	}
-	query += " ORDER BY updated_at " + order
+	query += " ORDER BY updated_at " + order + ", id " + order
 
 	if opts.Limit > 0 {
 		query += fmt.Sprintf(" LIMIT $%d", argIdx)
@@ -541,17 +603,18 @@ func (s *PostgresStore) Branch(ctx context.Context, parentID string, atTurn int)
 	if err != nil {
 		return nil, fmt.Errorf("session: branch: marshal child children: %w", err)
 	}
-	_, err = tx.ExecContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO sessions
 			(id, title, folder, parent_id, status, messages, model, provider,
 			 total_cost, metadata, token_count, children, branched_at_turn,
 			 created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		RETURNING created_at, updated_at`,
 		child.ID, child.Title, child.Folder, child.ParentID,
 		child.Status, msgsJSON, child.Model, child.Provider,
 		child.CostUSD, metaJSON, child.TokenCount, childrenJSON,
 		child.BranchedAtTurn, child.CreatedAt, child.UpdatedAt,
-	)
+	).Scan(&child.CreatedAt, &child.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("session: branch: create child: %w", err)
 	}
@@ -648,17 +711,18 @@ func (s *PostgresStore) Clone(ctx context.Context, parentID string) (*Session, e
 	if err != nil {
 		return nil, fmt.Errorf("session: clone: marshal child children: %w", err)
 	}
-	_, err = tx.ExecContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO sessions
 			(id, title, folder, parent_id, status, messages, model, provider,
 			 total_cost, metadata, token_count, children, branched_at_turn,
 			 created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		RETURNING created_at, updated_at`,
 		child.ID, child.Title, child.Folder, child.ParentID,
 		child.Status, msgsJSON, child.Model, child.Provider,
 		child.CostUSD, metaJSON, child.TokenCount, childrenJSON,
 		child.BranchedAtTurn, child.CreatedAt, child.UpdatedAt,
-	)
+	).Scan(&child.CreatedAt, &child.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("session: clone: create child: %w", err)
 	}
@@ -755,18 +819,14 @@ func (s *PostgresStore) Merge(ctx context.Context, childID string) (*Session, er
 	if err != nil {
 		return nil, fmt.Errorf("session: merge: marshal parent: %w", err)
 	}
-	result, err := tx.ExecContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		UPDATE sessions
 		SET messages = $1, token_count = $2, updated_at = $3
-		WHERE id = $4`,
-		msgsJSON, parent.TurnCount, parent.UpdatedAt, parent.ID,
-	)
+		WHERE id = $4 RETURNING updated_at`,
+		msgsJSON, parent.TokenCount, parent.UpdatedAt, parent.ID,
+	).Scan(&parent.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("session: merge: save parent: %w", err)
-	}
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
-		return nil, fmt.Errorf("session: merge: parent %q not found", parent.ID)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -904,4 +964,25 @@ func (s *PostgresStore) Unbind(ctx context.Context, channel, chatKey, thread str
 		return fmt.Errorf("session router: unbind: %w", err)
 	}
 	return nil
+}
+
+// LoadMessages uses one ordinary MVCC read. It neither waits on a turn's row
+// update lock nor observes that turn before commit. JSON decoding owns the
+// returned memory independently of the agent and all other readers.
+func (s *PostgresStore) LoadMessages(ctx context.Context, id string) ([]providers.Message, error) {
+	var data []byte
+	if err := s.db.QueryRowContext(ctx, `SELECT messages FROM sessions WHERE id=$1`, id).Scan(&data); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("session: history %s: %w", id, ErrNotFound)
+		}
+		return nil, fmt.Errorf("session: history %s: %w", id, err)
+	}
+	var messages []providers.Message
+	if err := json.Unmarshal(data, &messages); err != nil {
+		return nil, fmt.Errorf("session: decode history %s: %w", id, err)
+	}
+	if messages == nil {
+		messages = []providers.Message{}
+	}
+	return messages, nil
 }

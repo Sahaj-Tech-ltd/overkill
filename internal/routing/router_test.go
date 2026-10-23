@@ -265,9 +265,8 @@ func TestSmartRouter_DefaultModel(t *testing.T) {
 	r := NewSmartRouter(classifier, []ProviderModels{}, "gpt-4o")
 
 	result, err := r.Route(context.Background(), RouteRequest{UserInput: "hello"})
-	assert.NoError(t, err)
-	assert.Equal(t, "gpt-4o", result.ModelID)
-	assert.Contains(t, result.Reason, "fallback")
+	assert.ErrorContains(t, err, "no configured models")
+	assert.Nil(t, result)
 }
 
 func TestSmartRouter_Capabilities(t *testing.T) {
@@ -280,9 +279,8 @@ func TestSmartRouter_Capabilities(t *testing.T) {
 			HasAttachments:       true,
 			RequiredCapabilities: []string{"vision"},
 		})
-		assert.NoError(t, err)
-		assert.Equal(t, "deepseek-chat", result.ModelID)
-		assert.Contains(t, result.Reason, "fallback")
+		assert.ErrorContains(t, err, "required capabilities")
+		assert.Nil(t, result)
 	})
 
 	t.Run("tools required keeps tool models", func(t *testing.T) {

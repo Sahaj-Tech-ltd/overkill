@@ -3,12 +3,12 @@ package journal
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,7 +27,7 @@ func NewFlightRecorder(dir string, sessionID string) *FlightRecorder {
 	}
 }
 
-func (r *FlightRecorder) Record(entryType EntryType, content string, metadata json.RawMessage) error {
+func (r *FlightRecorder) Record(entryType EntryType, content string, metadata json.RawMessage) (recordErr error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -53,7 +53,7 @@ func (r *FlightRecorder) Record(entryType EntryType, content string, metadata js
 		return fmt.Errorf("journal: marshaling entry: %w", err)
 	}
 
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := openJournalFile(path)
 	if err != nil {
 		return fmt.Errorf("journal: opening jsonl file: %w", err)
 	}
@@ -61,10 +61,14 @@ func (r *FlightRecorder) Record(entryType EntryType, content string, metadata js
 
 	// Cross-process file lock to prevent interleaved JSONL lines
 	// when multiple processes write to the same date file.
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockJournalFile(f); err != nil {
 		return fmt.Errorf("journal: locking jsonl file: %w", err)
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	defer func() {
+		if err := unlockJournalFile(f); err != nil {
+			recordErr = errors.Join(recordErr, fmt.Errorf("journal: unlocking jsonl file: %w", err))
+		}
+	}()
 
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("journal: writing entry: %w", err)
@@ -116,7 +120,7 @@ func (r *FlightRecorder) ReadSession(sessionID string) ([]Entry, error) {
 func (r *FlightRecorder) ReadDay(date time.Time) ([]Entry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	targetFile := date.Format("2006-01-02") + ".jsonl"
+	targetFile := date.UTC().Format("2006-01-02") + ".jsonl"
 	path := filepath.Join(r.dir, "raw", targetFile)
 	return readFile(path)
 }
@@ -156,7 +160,7 @@ func (r *FlightRecorder) readFilteredLocked(filter func(Entry) bool) ([]Entry, e
 	return result, nil
 }
 
-func readFile(path string) ([]Entry, error) {
+func readFile(path string) (entries []Entry, readErr error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -165,8 +169,14 @@ func readFile(path string) ([]Entry, error) {
 		return nil, fmt.Errorf("journal: opening file: %w", err)
 	}
 	defer f.Close()
-
-	var entries []Entry
+	if err := lockJournalFile(f); err != nil {
+		return nil, fmt.Errorf("journal: locking read file: %w", err)
+	}
+	defer func() {
+		if err := unlockJournalFile(f); err != nil {
+			readErr = errors.Join(readErr, fmt.Errorf("journal: unlocking read file: %w", err))
+		}
+	}()
 	var skipped int
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)

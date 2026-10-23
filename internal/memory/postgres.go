@@ -87,7 +87,20 @@ func (s *PostgresStore) backgroundPrune(ctx context.Context) {
 }
 
 func (s *PostgresStore) migrate() error {
-	_, err := s.db.Exec(`
+	if s.db == nil {
+		return fmt.Errorf("database is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':overkill:memory', 0))`); err != nil {
+		return fmt.Errorf("lock migration: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS memory_items (
 			id          TEXT PRIMARY KEY,
 			type        TEXT NOT NULL DEFAULT '',
@@ -100,24 +113,27 @@ func (s *PostgresStore) migrate() error {
 		)
 	`)
 	if err != nil {
-		return err
+		return fmt.Errorf("create memory table: %w", err)
 	}
 	// Ensure content_hash exists for existing tables (migration from pre-dedup).
-	if _, err := s.db.Exec(`ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS content_hash TEXT`); err != nil {
-		return err
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS content_hash TEXT`); err != nil {
+		return fmt.Errorf("add content hash column: %w", err)
 	}
 	// Unique constraint on content hash to prevent duplicate entries.
-	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_content_hash ON memory_items (content_hash)`); err != nil {
-		return err
+	if _, err := tx.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_content_hash ON memory_items (content_hash)`); err != nil {
+		return fmt.Errorf("create content hash index: %w", err)
 	}
-	for _, idx := range []string{
+	for i, idx := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_memory_items_type ON memory_items (type)`,
 		`CREATE INDEX IF NOT EXISTS idx_memory_items_session ON memory_items (session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_memory_items_timestamp ON memory_items (timestamp DESC)`,
 	} {
-		if _, err := s.db.Exec(idx); err != nil {
-			return err
+		if _, err := tx.ExecContext(ctx, idx); err != nil {
+			return fmt.Errorf("create lookup index %d: %w", i+1, err)
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration: %w", err)
 	}
 	return nil
 }

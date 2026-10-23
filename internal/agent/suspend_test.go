@@ -2,30 +2,19 @@ package agent
 
 import (
 	"database/sql"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"sync"
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	connStr := os.Getenv("PG_TEST_URL")
-	if connStr == "" {
-		connStr = os.Getenv("DATABASE_URL")
-	}
-	if connStr == "" {
-		t.Skip("skipping: set PG_TEST_URL or DATABASE_URL for postgres tests")
-	}
-	db, err := sql.Open("postgres", connStr)
-	require.NoError(t, err)
-	require.NoError(t, db.Ping())
-	t.Cleanup(func() { db.Close() })
-	return db
+	database, _ := testpg.Open(t)
+	return database
 }
 
 func newTestApprover(t *testing.T, sessionID string) *SuspendedApprover {
@@ -184,6 +173,9 @@ func TestSuspendedApprover_ConcurrentCalls(t *testing.T) {
 
 func TestListPendingSuspensions_Empty(t *testing.T) {
 	db := openTestDB(t)
+	approver, err := NewSuspendedApprover(db, nil, "no-such-session", nil)
+	require.NoError(t, err)
+	defer approver.Close()
 	calls, err := ListPendingSuspensions(db, "no-such-session")
 	require.NoError(t, err)
 	assert.Empty(t, calls)

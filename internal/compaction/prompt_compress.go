@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/modelusage"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 )
 
@@ -62,6 +63,9 @@ func (pc *PromptCompressor) Compress(ctx context.Context, prompt string) (string
 		return prompt, result, nil
 	}
 
+	if err := modelusage.Before(ctx); err != nil {
+		return prompt, result, err
+	}
 	resp, err := pc.provider.Complete(ctx, providers.Request{
 		Model: pc.model,
 		Messages: []providers.Message{
@@ -70,6 +74,9 @@ func (pc *PromptCompressor) Compress(ctx context.Context, prompt string) (string
 		},
 		MaxTokens: 4096,
 	})
+	if usageErr := modelusage.RecordSample(ctx, pc.model, resp.Usage, resp.UsageReported); usageErr != nil {
+		return prompt, result, usageErr
+	}
 	if err != nil {
 		result.Skipped = true
 		result.SkippedReason = "provider error"

@@ -86,7 +86,7 @@ func TestExtract_WritesFacts(t *testing.T) {
 		t.Fatal("no memory files written")
 	}
 
-	data, err := os.ReadFile(filepath.Join(memDir, entries[0].Name()))
+	data, err := os.ReadFile(filepath.Join(memDir, "facts.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

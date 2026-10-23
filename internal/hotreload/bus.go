@@ -27,6 +27,8 @@ package hotreload
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -80,6 +82,8 @@ type Bus struct {
 	paths    Paths
 	mu       sync.RWMutex
 	running  bool
+	started  bool
+	startErr error
 	handlers map[Subject][]chan Event
 	debounce time.Duration
 
@@ -87,9 +91,13 @@ type Bus struct {
 	// non-listening consumer doesn't stall the watcher.
 	errors chan error
 
-	watcher *fsnotify.Watcher
-	stopCh  chan struct{}
-	stopped chan struct{}
+	watcher    *fsnotify.Watcher
+	stopCh     chan struct{}
+	stopped    chan struct{}
+	ready      chan struct{}
+	readyOnce  sync.Once
+	stopOnce   sync.Once
+	finishOnce sync.Once
 }
 
 // New constructs a Bus with sensible defaults. Debounce is 200ms — a
@@ -103,6 +111,7 @@ func New(paths Paths) *Bus {
 		errors:   make(chan error, 16),
 		stopCh:   make(chan struct{}),
 		stopped:  make(chan struct{}),
+		ready:    make(chan struct{}),
 	}
 }
 
@@ -141,68 +150,123 @@ func (b *Bus) Subscribe(s Subject) (<-chan Event, func()) {
 // channel is buffered.
 func (b *Bus) Errors() <-chan error { return b.errors }
 
-// Run starts the watcher. Blocks until ctx is cancelled or Stop is
-// called. Idempotent: a second Run returns immediately.
-func (b *Bus) Run(ctx context.Context) error {
-	b.mu.Lock()
-	if b.running {
-		b.mu.Unlock()
-		return nil
-	}
-	b.running = true
-	b.mu.Unlock()
-	defer func() {
-		b.mu.Lock()
-		b.running = false
-		b.mu.Unlock()
-	}()
-
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
+// Start waits until filesystem watches have been registered. The owner must
+// cancel ctx or call Stop; an agent's short request context is not its owner.
+func (b *Bus) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	b.watcher = w
-	defer w.Close()
-	defer close(b.stopped)
-
-	// Add each configured path. fsnotify accepts files and dirs; we
-	// don't recurse — caller-supplied dirs are expected to be flat
-	// (skills, subagents, plugins each have a known shallow layout).
-	for _, p := range b.watchablePaths() {
-		if p == "" {
-			continue
-		}
-		if err := w.Add(p); err != nil {
-			// Non-fatal: a missing skills dir is fine, the user just
-			// hasn't created any skills yet. We surface the error
-			// for observability but keep going.
+	go func() {
+		if err := b.Run(ctx); err != nil && ctx.Err() == nil && !errors.Is(err, ErrStopped) {
 			select {
 			case b.errors <- err:
 			default:
 			}
 		}
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-b.ready:
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		b.mu.RLock()
+		defer b.mu.RUnlock()
+		return b.startErr
 	}
+}
 
-	// Debounce table: per-(subject, path) pending event with timer.
+var ErrStopped = errors.New("hotreload: bus stopped")
+
+// Run owns a single watcher lifetime. Repeated calls never create a second
+// watcher or reopen a stopped bus.
+func (b *Bus) Run(ctx context.Context) error {
+	b.mu.Lock()
+	if b.started {
+		err := b.startErr
+		b.mu.Unlock()
+		return err
+	}
+	b.started, b.running = true, true
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		b.running = false
+		if b.startErr == nil {
+			b.startErr = ErrStopped
+		}
+		b.mu.Unlock()
+		b.readyOnce.Do(func() { close(b.ready) })
+		b.finishOnce.Do(func() { close(b.stopped) })
+	}()
+	failStart := func(err error) error {
+		b.mu.Lock()
+		b.startErr = err
+		b.mu.Unlock()
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return failStart(err)
+	}
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return failStart(err)
+	}
+	defer w.Close()
+	b.mu.Lock()
+	b.watcher = w
+	b.mu.Unlock()
+	register := func() error {
+		for _, target := range b.watchablePaths() {
+			if err := w.Add(target); err != nil {
+				return fmt.Errorf("hotreload: register watch: %w", err)
+			}
+		}
+		return nil
+	}
+	if err := register(); err != nil {
+		return failStart(err)
+	}
+	b.readyOnce.Do(func() { close(b.ready) })
+
 	type pending struct {
 		ev    Event
 		timer *time.Timer
 	}
-	debounceMu := sync.Mutex{}
+	var debounceMu sync.Mutex
+	var callbacks sync.WaitGroup
+	closing := false
 	pendingMap := map[string]*pending{}
-
-	flush := func(key string) {
+	defer func() {
 		debounceMu.Lock()
-		p, ok := pendingMap[key]
-		if !ok {
+		closing = true
+		for key, item := range pendingMap {
+			if item.timer.Stop() {
+				callbacks.Done()
+			}
+			delete(pendingMap, key)
+		}
+		debounceMu.Unlock()
+		callbacks.Wait()
+	}()
+	flush := func(key string, item *pending) {
+		defer callbacks.Done()
+		debounceMu.Lock()
+		if closing || pendingMap[key] != item {
 			debounceMu.Unlock()
 			return
 		}
 		delete(pendingMap, key)
 		debounceMu.Unlock()
-		b.deliver(p.ev)
+		// Atomic rename/save may emit Remove before replacement Create.
+		if item.ev.Kind == EventRemoved {
+			if _, err := os.Stat(item.ev.Path); err == nil {
+				item.ev.Kind = EventModified
+			}
+		}
+		b.deliver(item.ev)
 	}
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -213,54 +277,81 @@ func (b *Bus) Run(ctx context.Context) error {
 			if !ok {
 				return errors.New("hotreload: watcher closed")
 			}
-			subj, ok := b.classify(fe.Name)
+			// Register new ancestor and nested directories before classification:
+			// an intermediate path may not itself belong to any subject.
+			if fe.Op&fsnotify.Create != 0 {
+				if info, err := os.Lstat(fe.Name); err == nil && info.IsDir() {
+					if err := register(); err != nil {
+						select {
+						case b.errors <- err:
+						default:
+						}
+					}
+					// A whole tree can be moved into place in one event.
+					for _, file := range []string{b.paths.UserConfigFile, b.paths.PermissionsFile} {
+						if file != "" && withinDirectory(filepath.Clean(file), filepath.Clean(fe.Name)) {
+							if _, err := os.Stat(file); err == nil {
+								if subject, ok := b.classify(file); ok {
+									b.deliver(Event{Subject: subject, Path: file})
+								}
+							}
+						}
+					}
+				}
+			}
+			subject, ok := b.classify(fe.Name)
 			if !ok {
 				continue
 			}
-			ev := Event{
-				Subject: subj,
-				Path:    fe.Name,
+			event := Event{Subject: subject, Path: fe.Name}
+			if fe.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+				event.Kind = EventRemoved
 			}
-			if fe.Op&fsnotify.Remove != 0 || fe.Op&fsnotify.Rename != 0 {
-				ev.Kind = EventRemoved
-			} else {
-				ev.Kind = EventModified
-			}
-			key := string(subj) + "::" + fe.Name
+			key := string(subject) + "::" + fe.Name
 			debounceMu.Lock()
-			if existing, ok := pendingMap[key]; ok && existing.timer != nil {
-				existing.timer.Stop()
+			if old := pendingMap[key]; old != nil && old.timer.Stop() {
+				callbacks.Done()
 			}
-			t := time.AfterFunc(b.debounce, func() { flush(key) })
-			pendingMap[key] = &pending{ev: ev, timer: t}
+			item := &pending{ev: event}
+			callbacks.Add(1)
+			item.timer = time.AfterFunc(b.debounce, func() { flush(key, item) })
+			pendingMap[key] = item
 			debounceMu.Unlock()
-		case fserr, ok := <-w.Errors:
+		case err, ok := <-w.Errors:
 			if !ok {
-				return errors.New("hotreload: watcher error chan closed")
+				return errors.New("hotreload: watcher error channel closed")
 			}
 			select {
-			case b.errors <- fserr:
+			case b.errors <- err:
 			default:
 			}
 		}
 	}
 }
 
-// Stop signals Run to exit. Idempotent; safe to call from any
-// goroutine. Blocks until Run has actually exited.
+// Stop is terminal, idempotent and joins watcher/timer callbacks. It also works
+// before Run, and concurrent callers cannot close a channel twice.
 func (b *Bus) Stop() {
-	select {
-	case <-b.stopCh:
-		// already closed
-	default:
-		close(b.stopCh)
+	b.mu.Lock()
+	b.stopOnce.Do(func() { close(b.stopCh) })
+	if b.startErr == nil {
+		b.startErr = ErrStopped
 	}
-	// Wait for Run to release the watcher; bound the wait so a
-	// pathological case doesn't hang shutdown.
-	select {
-	case <-b.stopped:
-	case <-time.After(2 * time.Second):
+	if !b.started {
+		b.started = true
+		b.startErr = ErrStopped
+		b.readyOnce.Do(func() { close(b.ready) })
+		b.finishOnce.Do(func() { close(b.stopped) })
 	}
+	b.mu.Unlock()
+	<-b.stopped
+}
+
+// SubscriberCount reports live subscriptions for lifecycle diagnostics.
+func (b *Bus) SubscriberCount(subject Subject) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.handlers[subject])
 }
 
 // deliver fans an Event out to every subscriber for its Subject.
@@ -283,13 +374,13 @@ func (b *Bus) deliver(ev Event) {
 // matches (event ignored).
 func (b *Bus) classify(path string) (Subject, bool) {
 	clean := filepath.Clean(path)
-	if b.paths.SkillsDir != "" && strings.HasPrefix(clean, filepath.Clean(b.paths.SkillsDir)) {
+	if b.paths.SkillsDir != "" && withinDirectory(clean, b.paths.SkillsDir) {
 		return SubjectSkill, true
 	}
-	if b.paths.AgentsDir != "" && strings.HasPrefix(clean, filepath.Clean(b.paths.AgentsDir)) {
+	if b.paths.AgentsDir != "" && withinDirectory(clean, b.paths.AgentsDir) {
 		return SubjectSubagent, true
 	}
-	if b.paths.PluginsDir != "" && strings.HasPrefix(clean, filepath.Clean(b.paths.PluginsDir)) {
+	if b.paths.PluginsDir != "" && withinDirectory(clean, b.paths.PluginsDir) {
 		return SubjectTool, true
 	}
 	if b.paths.PermissionsFile != "" && clean == filepath.Clean(b.paths.PermissionsFile) {
@@ -302,27 +393,52 @@ func (b *Bus) classify(path string) (Subject, bool) {
 }
 
 // watchablePaths returns the deduped, non-empty list of fs targets
-// the bus should add to fsnotify. Files are watched at file
-// granularity; dirs at dir granularity.
+// the bus should add to fsnotify. File parents and nested directories are
+// watched so atomic saves and directory replacement remain observable.
 func (b *Bus) watchablePaths() []string {
-	candidates := []string{
-		b.paths.SkillsDir,
-		b.paths.AgentsDir,
-		b.paths.PluginsDir,
-		b.paths.PermissionsFile,
-		b.paths.UserConfigFile,
+	candidates := []string{}
+	// Watch parents so a missing file and atomic editor replacements remain
+	// observable; classify filters unrelated sibling events.
+	for _, file := range []string{b.paths.PermissionsFile, b.paths.UserConfigFile} {
+		if file != "" {
+			candidates = append(candidates, filepath.Dir(file))
+		}
 	}
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(candidates))
-	for _, p := range candidates {
-		if p == "" {
-			continue
+	for _, directory := range []string{b.paths.SkillsDir, b.paths.AgentsDir, b.paths.PluginsDir} {
+		if directory != "" {
+			candidates = append(candidates, filepath.Dir(directory), directory)
+			// WalkDir does not follow symlinks outside the configured tree.
+			_ = filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
+				if err == nil && entry.IsDir() {
+					candidates = append(candidates, path)
+				}
+				return nil
+			})
 		}
-		if _, dup := seen[p]; dup {
-			continue
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(candidate)
+		for {
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				break
+			}
+			parent := filepath.Dir(candidate)
+			if parent == candidate {
+				break
+			}
+			candidate = parent
 		}
-		seen[p] = struct{}{}
-		out = append(out, p)
+		if !seen[candidate] {
+			seen[candidate] = true
+			out = append(out, candidate)
+		}
 	}
 	return out
+}
+
+func withinDirectory(file, directory string) bool {
+	root := filepath.Clean(directory)
+	return file == root || strings.HasPrefix(file, root+string(filepath.Separator))
 }

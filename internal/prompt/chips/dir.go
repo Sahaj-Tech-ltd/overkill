@@ -12,12 +12,17 @@ import (
 
 // DirectoryChip reports the current working directory.
 type DirectoryChip struct {
-	enabled bool
+	enabled    bool
+	workingDir string
 }
 
 // NewDirectoryChip returns a DirectoryChip that starts enabled.
-func NewDirectoryChip() *DirectoryChip {
-	return &DirectoryChip{enabled: true}
+func NewDirectoryChip(workingDir ...string) *DirectoryChip {
+	directory := ""
+	if len(workingDir) > 0 {
+		directory = workingDir[0]
+	}
+	return &DirectoryChip{enabled: true, workingDir: directory}
 }
 
 // Kind implements prompt.Chip.
@@ -29,6 +34,9 @@ func (c *DirectoryChip) Title() string { return "Directory" }
 // Value implements prompt.Chip. Returns os.Getwd(). Errors are returned
 // as empty string — the chip manager omits them.
 func (c *DirectoryChip) Value(_ context.Context) (string, error) {
+	if c.workingDir != "" {
+		return c.workingDir, nil
+	}
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", err

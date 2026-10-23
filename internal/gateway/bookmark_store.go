@@ -2,10 +2,12 @@
 package gateway
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/dbschema"
 	_ "github.com/lib/pq"
 )
 
@@ -32,26 +34,9 @@ func NewBookmarkStore(db *sql.DB) (*BookmarkStore, error) {
 }
 
 func (s *BookmarkStore) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS bookmarks (
-			id          SERIAL PRIMARY KEY,
-			session_id  TEXT NOT NULL,
-			label       TEXT NOT NULL,
-			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	for _, idx := range []string{
-		`CREATE INDEX IF NOT EXISTS idx_bookmarks_session ON bookmarks (session_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_bookmarks_label ON bookmarks (label)`,
-	} {
-		if _, err := s.db.Exec(idx); err != nil {
-			return err
-		}
-	}
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return dbschema.GatewayBookmarks(ctx, s.db)
 }
 
 // Save creates a new bookmark entry.

@@ -6,8 +6,10 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/coordination"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/daemon"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
@@ -57,6 +60,10 @@ type Server struct {
 	token          string
 	allowedOrigins []string
 	agent          Sender
+	resolveSender  func(context.Context, string) (Sender, error)
+	activeSessions map[string]bool
+	closing        bool
+	workers        sync.WaitGroup
 	store          session.Store
 	streams        map[string]*messageStream
 	inbound        []InboundLog // ring buffer of recent inbound messages for /acp dialog
@@ -71,8 +78,15 @@ type Server struct {
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 	// jobStore and jobWorker are optional; nil disables /v1/jobs endpoints.
-	jobStore  *daemon.JobStore
-	jobWorker *daemon.Worker
+	coordination     *coordination.Store
+	tasks            *TaskStore
+	tasksFailure     string
+	tasksShutdownErr error
+	tasksStarted     bool
+	tasksStopped     bool
+	tasksCancel      context.CancelFunc
+	jobStore         *daemon.JobStore
+	jobWorker        *daemon.Worker
 	// routes records every registered route pattern. Populated by Handler()
 	// and exposed via Routes() so the auth guard test can auto-discover all
 	// routes without a human-maintained list. §8.7.5 machine-checked auth guard.
@@ -95,22 +109,29 @@ type InboundLog struct {
 }
 
 type messageStream struct {
-	id     string
-	events chan Event
-	cancel context.CancelFunc
-	closed bool
-	mu     sync.Mutex
+	id      string
+	events  chan Event
+	cancel  context.CancelFunc
+	closed  bool
+	mu      sync.Mutex
+	ctx     context.Context
+	cleanup *time.Timer
 }
 
 // Config is the constructor input.
 type Config struct {
+	Coordination   *coordination.Store
+	Tasks          *TaskStore
 	Addr           string
 	Token          string
 	AllowedOrigins []string
 	Agent          Sender
-	Store          session.Store
-	Name           string
-	Version        string
+	// ResolveSender selects the actual executing session. It may create a new
+	// persisted session when the ID is empty; its returned identity is checked.
+	ResolveSender func(context.Context, string) (Sender, error)
+	Store         session.Store
+	Name          string
+	Version       string
 	// JobStore and JobWorker are optional. When both are non-nil the server
 	// registers the /v1/jobs endpoints and wires job submission through the worker.
 	JobStore  *daemon.JobStore
@@ -141,16 +162,23 @@ func NewServer(cfg Config) *Server {
 	if version == "" {
 		version = "dev"
 	}
+	lifetime, cancel := context.WithCancel(context.Background())
 	return &Server{
 		addr:           addr,
 		token:          cfg.Token,
 		allowedOrigins: allowed,
 		agent:          cfg.Agent,
+		resolveSender:  cfg.ResolveSender,
+		activeSessions: make(map[string]bool),
+		ctx:            lifetime,
+		ctxCancel:      cancel,
 		store:          cfg.Store,
 		streams:        make(map[string]*messageStream),
 		inboundMax:     32,
 		name:           name,
 		version:        version,
+		coordination:   cfg.Coordination,
+		tasks:          cfg.Tasks,
 		jobStore:       cfg.JobStore,
 		jobWorker:      cfg.JobWorker,
 	}
@@ -161,7 +189,7 @@ func NewServer(cfg Config) *Server {
 func (s *Server) Token() string { return s.token }
 
 // Addr returns the server's listen address.
-func (s *Server) Addr() string { return s.addr }
+func (s *Server) Addr() string { s.mu.Lock(); defer s.mu.Unlock(); return s.addr }
 
 // RecentInbound is a snapshot of the inbound ring buffer.
 func (s *Server) RecentInbound() []InboundLog {
@@ -188,7 +216,14 @@ func (s *Server) Handler() http.Handler {
 		s.routes = append(s.routes, RoutePattern{Path: pattern, Methods: methods})
 	}
 
+	if s.coordination != nil {
+		register("/v1/coordination/", s.handleCoordination, http.MethodPost)
+	}
 	register("/v1/info", s.withAuth(s.handleInfo), http.MethodGet)
+	if s.tasks != nil {
+		register("/v1/tasks", s.withAuth(s.handleTasks), http.MethodPost)
+		register("/v1/tasks/", s.withAuth(s.handleTaskSub), http.MethodGet, http.MethodPost)
+	}
 	register("/v1/messages", s.withAuth(s.handleMessages), http.MethodPost)
 	register("/v1/messages/", s.withAuth(s.handleMessageSub), http.MethodGet, http.MethodPost)
 	register("/v1/sessions", s.withAuth(s.handleSessions), http.MethodGet, http.MethodPost)
@@ -212,32 +247,72 @@ func (s *Server) Routes() []RoutePattern {
 // Start binds the server and runs http.Serve in a goroutine. Use Shutdown to
 // stop it.
 func (s *Server) Start() error {
-	srv := &http.Server{
-		Addr:              s.addr,
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
+	handler := s.Handler()
+	s.mu.Lock()
+	if s.closing || s.httpSrv != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("acp: server already started or closed")
 	}
+	listener, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("acp: listen: %w", err)
+	}
+	srv := &http.Server{Addr: listener.Addr().String(), Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	s.httpSrv = srv
-	s.ctx, s.ctxCancel = context.WithCancel(context.Background())
+	s.addr = listener.Addr().String()
+	s.mu.Unlock()
+	if err = s.StartTasks(s.ctx); err != nil {
+		listener.Close()
+		s.mu.Lock()
+		s.httpSrv = nil
+		s.mu.Unlock()
+		return err
+	}
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("acp: ListenAndServe error: %v", err)
+		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Printf("acp: serve error: %v", err)
 		}
 	}()
 	return nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
-	if s.httpSrv == nil {
-		return nil
+	s.mu.Lock()
+	s.closing = true
+	server := s.httpSrv
+	streams := make([]*messageStream, 0, len(s.streams))
+	for _, stream := range s.streams {
+		streams = append(streams, stream)
 	}
+	s.mu.Unlock()
 	// Cancel in-flight agent runs first so the HTTP shutdown doesn't
 	// have to wait on background streams. Each stream's send loop
 	// observes the parent ctx cancel and drains.
 	if s.ctxCancel != nil {
 		s.ctxCancel()
 	}
-	return s.httpSrv.Shutdown(ctx)
+	for _, stream := range streams {
+		stream.close()
+		if stream.cleanup != nil {
+			stream.cleanup.Stop()
+		}
+	}
+	var shutdownErr error
+	if server != nil {
+		shutdownErr = server.Shutdown(ctx)
+	}
+	done := make(chan struct{})
+	go func() { s.workers.Wait(); close(done) }()
+	select {
+	case <-done:
+		s.mu.Lock()
+		taskErr := s.tasksShutdownErr
+		s.mu.Unlock()
+		return errors.Join(shutdownErr, taskErr)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // ----- middleware --------------------------------------------------------
@@ -312,14 +387,15 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	if s.agent != nil {
 		model = s.agent.Model()
 	}
+	capabilities := []string{"messages.send", "messages.stream", "messages.cancel", "sessions.list", "sessions.read"}
+	if s.tasks != nil {
+		capabilities = append(capabilities, "tasks.submit", "tasks.status", "tasks.await", "tasks.cancel")
+	}
 	writeJSON(w, http.StatusOK, Info{
-		Name:    s.name,
-		Version: s.version,
-		Model:   model,
-		Capabilities: []string{
-			"messages.send", "messages.stream", "messages.cancel",
-			"sessions.list", "sessions.read",
-		},
+		Name:         s.name,
+		Version:      s.version,
+		Model:        model,
+		Capabilities: capabilities,
 	})
 }
 
@@ -343,10 +419,65 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeErrorJSON(w, http.StatusBadRequest, "content required")
 		return
 	}
-	if s.agent == nil {
+	sender := s.agent
+	if s.resolveSender != nil {
+		var err error
+		sender, err = s.resolveSender(r.Context(), req.SessionID)
+		if err != nil {
+			writeErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if sender == nil {
 		writeErrorJSON(w, http.StatusServiceUnavailable, "no agent attached")
 		return
 	}
+	sid := sender.SessionID()
+	if (req.SessionID != "" && req.SessionID != sid) || (s.resolveSender != nil && sid == "") {
+		writeErrorJSON(w, http.StatusBadRequest, "resolved agent does not match requested session")
+		return
+	}
+	var durableLease *taskLease
+	if s.tasks != nil {
+		if sid == "" {
+			writeErrorJSON(w, http.StatusBadRequest, "durable admission requires executing session identity")
+			return
+		}
+		var leaseErr error
+		durableLease, leaseErr = s.tasks.sessionLease(r.Context(), sid)
+		if leaseErr != nil {
+			if errors.Is(leaseErr, ErrTaskConflict) {
+				writeErrorJSON(w, http.StatusConflict, "session is already running")
+			} else {
+				taskHTTPError(w, leaseErr)
+			}
+			return
+		}
+	}
+	admitted := false
+	defer func() {
+		if !admitted && durableLease != nil {
+			durableLease.close()
+		}
+	}()
+	admission := sid
+	if admission == "" {
+		admission = "legacy-default"
+	}
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		writeErrorJSON(w, http.StatusServiceUnavailable, "server is closing")
+		return
+	}
+	if s.activeSessions[admission] {
+		s.mu.Unlock()
+		writeErrorJSON(w, http.StatusConflict, "session is already running")
+		return
+	}
+	s.activeSessions[admission] = true
+	s.workers.Add(1)
+	s.mu.Unlock()
 
 	msgID := uuid.New().String()
 	// Use the server's lifetime context so a server Shutdown cancels
@@ -356,16 +487,20 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// HTTP client cancellation flows through the explicit
 	// /v1/messages/{id}/cancel endpoint instead, which calls
 	// stream.cancel().
-	parentCtx := s.ctx
-	if parentCtx == nil {
-		parentCtx = context.Background()
+	baseCtx, timeoutCancel := context.WithTimeout(s.ctx, sseTimeout)
+	ctx, causeCancel := context.WithCancelCause(baseCtx)
+	cancel := func() { causeCancel(nil); timeoutCancel() }
+	stopOwnership := func() {}
+	if durableLease != nil {
+		stopOwnership = durableLease.heartbeat(ctx, causeCancel, "")
 	}
-	ctx, cancel := context.WithCancel(parentCtx)
+	admitted = true
 
 	stream := &messageStream{
 		id:     msgID,
 		events: make(chan Event, 64),
 		cancel: cancel,
+		ctx:    ctx,
 	}
 	s.mu.Lock()
 	s.streams[msgID] = stream
@@ -383,6 +518,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	// Run the agent in a goroutine; pump AgentEvent into our channel.
 	go func() {
+		defer s.workers.Done()
+		defer func() {
+			stopOwnership()
+			if durableLease != nil {
+				durableLease.close()
+			}
+		}()
 		defer func() {
 			stream.close()
 			// Drop the streams-map entry so the buffered channel +
@@ -392,19 +534,33 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			// grace window so an SSE subscriber that opened the
 			// /events endpoint after send completes still has a
 			// chance to drain the buffer.
-			go func() {
-				time.Sleep(60 * time.Second)
-				s.mu.Lock()
-				delete(s.streams, msgID)
-				s.mu.Unlock()
-			}()
+			s.mu.Lock()
+			delete(s.activeSessions, admission)
+			if !s.closing {
+				stream.cleanup = time.AfterFunc(60*time.Second, func() {
+					s.mu.Lock()
+					delete(s.streams, msgID)
+					s.mu.Unlock()
+				})
+			}
+			s.mu.Unlock()
 		}()
-		ch, err := s.agent.StreamACP(ctx, req.Content)
+		ch, err := sender.StreamACP(ctx, req.Content)
 		if err != nil {
 			stream.send(Event{Type: "error", Error: err.Error(), Timestamp: time.Now().UTC()})
 			return
 		}
-		for ev := range ch {
+		for {
+			var ev AgentEvent
+			select {
+			case <-ctx.Done():
+				return
+			case next, ok := <-ch:
+				if !ok {
+					return
+				}
+				ev = next
+			}
 			out := Event{Timestamp: time.Now().UTC()}
 			switch ev.Type {
 			case AgentEventToken:
@@ -426,13 +582,12 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			stream.send(out)
+			if out.Type == "done" || out.Type == "error" {
+				return
+			}
 		}
 	}()
 
-	sid := req.SessionID
-	if sid == "" && s.agent != nil {
-		sid = s.agent.SessionID()
-	}
 	writeJSON(w, http.StatusAccepted, SendResponse{MessageID: msgID, SessionID: sid})
 }
 
@@ -441,7 +596,7 @@ func (s *Server) handleMessageSub(w http.ResponseWriter, r *http.Request) {
 	// /v1/messages/{id}/events  or  /v1/messages/{id}/cancel
 	rest := strings.TrimPrefix(r.URL.Path, "/v1/messages/")
 	parts := strings.Split(rest, "/")
-	if len(parts) < 2 {
+	if len(parts) != 2 {
 		writeErrorJSON(w, http.StatusNotFound, "not found")
 		return
 	}
@@ -455,8 +610,16 @@ func (s *Server) handleMessageSub(w http.ResponseWriter, r *http.Request) {
 	}
 	switch sub {
 	case "events":
+		if r.Method != http.MethodGet {
+			writeErrorJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
 		s.serveSSE(w, r, stream)
 	case "cancel":
+		if r.Method != http.MethodPost {
+			writeErrorJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
 		stream.cancel()
 		stream.close()
 		writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
@@ -667,11 +830,12 @@ func (m *messageStream) send(ev Event) {
 	}
 	select {
 	case m.events <- ev:
-	default:
+	case <-m.ctx.Done():
 	}
 }
 
 func (m *messageStream) close() {
+	m.cancel()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {

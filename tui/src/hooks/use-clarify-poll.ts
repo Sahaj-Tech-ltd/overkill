@@ -5,6 +5,7 @@ import { log } from "../logger.ts";
 
 interface ClarifyPollResult {
   session_id: string;
+  question_id: string;
   question: string;
   choices: string[];
 }
@@ -13,12 +14,12 @@ export function useClarifyPoll(
   backend: BackendClient,
   showClarify: (
     req: ClarifyRequest,
-    cb: (answer: string, index: number) => void,
+    cb: (answer: string, index: number, cancel?: boolean) => void,
   ) => void,
   clarifyOpen: boolean,
 ) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const sessionRef = useRef<string | null>(null);
+
 
   useEffect(() => {
     // Don't poll while a dialog is already open.
@@ -30,45 +31,39 @@ export function useClarifyPoll(
       return;
     }
 
+    let active = true, inFlight = false;
     const poll = () => {
+      if (inFlight) return;
+      inFlight = true;
       backend
         .call<ClarifyPollResult | null>("clarify.poll")
         .then((result) => {
-          if (!result || !result.question) return;
-
-          sessionRef.current = result.session_id;
+          if (!active || !result || !result.question || !result.question_id) return;
 
           showClarify(
             {
               question: result.question,
               choices: result.choices ?? [],
             },
-            (answer: string, index: number) => {
-              // Send the answer back to the agent.
-              const sid = sessionRef.current;
-              if (sid) {
-                backend
-                  .call("agent.answer", {
-                    session_id: sid,
-                    text: answer,
-                    index,
-                  })
-                  .catch((err: unknown) => {
-                    log.error("agent.answer (clarify) failed:", err);
-                  });
-              }
-              sessionRef.current = null;
+            (answer: string, index: number, cancel = false) => {
+              backend.call("agent.answer", {
+                session_id: result.session_id,
+                question_id: result.question_id,
+                text: answer, index, cancel,
+              }).catch((err: unknown) => log.error("agent.answer (clarify) failed:", err));
+
             },
           );
         })
         .catch((err: unknown) => {
           log.error("clarify poll failed:", err);
-        });
+        }).finally(() => { inFlight = false; });
     };
 
     intervalRef.current = setInterval(poll, 500);
 
     return () => {
+      active = false;
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }

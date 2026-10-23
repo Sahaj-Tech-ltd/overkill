@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -10,7 +13,9 @@ import (
 func main() {
 	setupLogging()
 
-	if err := rootCmd.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := executeRootCommand(ctx); err != nil {
 		os.Exit(1)
 	}
 }

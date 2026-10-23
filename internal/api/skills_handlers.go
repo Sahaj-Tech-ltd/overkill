@@ -2,7 +2,8 @@ package api
 
 import (
 	"context"
-	"sync"
+	"sort"
+	"strings"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
 )
@@ -17,43 +18,20 @@ type SkillInfoDTO struct {
 	Bundled     bool     `json:"bundled"`
 }
 
-// skillsStore holds the loaded registry and disabled-skill tracking.
-type skillsStore struct {
-	mu       sync.RWMutex
-	registry *skills.Registry
-	disabled map[string]bool
-}
+// skillsStore exposes the same registry used by executing agents.
+type skillsStore struct{ registry *skills.Registry }
 
-func newSkillsStore(reg *skills.Registry) *skillsStore {
-	return &skillsStore{registry: reg, disabled: make(map[string]bool)}
-}
-
+func newSkillsStore(reg *skills.Registry) *skillsStore { return &skillsStore{registry: reg} }
 func (s *skillsStore) list() []SkillInfoDTO {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	out := []SkillInfoDTO{}
 	if s.registry == nil {
-		return nil
+		return out
 	}
-	all := s.registry.List()
-	out := make([]SkillInfoDTO, 0, len(all))
-	for _, sk := range all {
-		out = append(out, SkillInfoDTO{
-			Name:        sk.Name,
-			Description: sk.Description,
-			Category:    sk.Category,
-			Tags:        sk.Tags,
-			Enabled:     !s.disabled[sk.Name],
-			Bundled:     sk.Bundled,
-		})
+	for _, sk := range s.registry.List() {
+		out = append(out, SkillInfoDTO{Name: sk.Name, Description: sk.Description, Category: sk.Category, Tags: sk.Tags, Enabled: sk.Enabled, Bundled: sk.Bundled})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
-}
-
-func (s *skillsStore) toggle(name string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.disabled[name] = !s.disabled[name]
-	return !s.disabled[name]
 }
 
 // handleSkillsList returns all loaded skills with their enabled state.
@@ -78,6 +56,18 @@ func (s *Server) handleSkillsToggle(_ context.Context, params []byte) (interface
 	if s.skillsStore == nil {
 		return nil, &RPCError{Code: InternalError, Message: "skills store not configured"}
 	}
-	enabled := s.skillsStore.toggle(p.Name)
+	if s.skillsStore.registry == nil {
+		return nil, &RPCError{Code: InternalError, Message: "skills registry not configured"}
+	}
+	if strings.TrimSpace(p.Name) == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "skill name is required"}
+	}
+	if _, ok := s.skillsStore.registry.Get(p.Name); !ok {
+		return nil, &RPCError{Code: InvalidParams, Message: "skill not found"}
+	}
+	enabled, err := s.skillsStore.registry.UpdateEnabled(p.Name, p.Enabled)
+	if err != nil {
+		return nil, &RPCError{Code: InternalError, Message: err.Error()}
+	}
 	return map[string]interface{}{"name": p.Name, "enabled": enabled}, nil
 }

@@ -8,6 +8,7 @@ export interface UseChatResult {
   sendMessage: (text: string) => Promise<void>;
   cancelMessage: () => void;
   clearChat: () => void;
+  switchSession: (id: string) => void;
   undoLastExchange: () => void;
   retryLastMessage: () => void;
   isLoading: boolean;
@@ -430,6 +431,10 @@ export function useChat(backend: BackendClient): UseChatResult {
               break;
 
             case "done": {
+              // Evaluation and output filters can replace the streamed draft.
+              if (typeof event.response === "string") {
+                accumulatedText = event.response;
+              }
               // Compute final reasoning duration
               if (reasoningStartRef.current > 0) {
                 reasoningDurationRef.current =
@@ -526,6 +531,12 @@ export function useChat(backend: BackendClient): UseChatResult {
     sessionIdRef.current = `tui-${Date.now()}-${++_nextSessionId}`;
   }, []);
 
+  const switchSession = useCallback((id: string) => {
+    if (isLoadingRef.current) throw new Error("Wait for the current turn before switching sessions.");
+    clearChat();
+    sessionIdRef.current = id;
+  }, [clearChat]);
+
   const undoLastExchange = useCallback(() => {
     // Remove the last user→assistant exchange from local messages.
     setMessages((prev) => {
@@ -613,6 +624,7 @@ export function useChat(backend: BackendClient): UseChatResult {
     reasoning,
     queuedMessages,
     statusPhase,
+    switchSession,
     sessionId: sessionIdRef.current,
     lastUserMessage,
     thinkingElapsed,

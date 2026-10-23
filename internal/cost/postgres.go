@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,46 +36,38 @@ func NewPostgresTracker(db *sql.DB, cfg config.CostConfig) (*PostgresTracker, er
 }
 
 func (t *PostgresTracker) migrate() error {
-	_, err := t.db.Exec(`
-		CREATE TABLE IF NOT EXISTS cost_records (
-			id              TEXT PRIMARY KEY,
-			session_id      TEXT NOT NULL DEFAULT '',
-			model           TEXT NOT NULL DEFAULT '',
-			provider        TEXT NOT NULL DEFAULT '',
-			input_tokens    BIGINT NOT NULL DEFAULT 0,
-			output_tokens   BIGINT NOT NULL DEFAULT 0,
-			cached_tokens   BIGINT NOT NULL DEFAULT 0,
-			cost_usd        DOUBLE PRECISION NOT NULL DEFAULT 0,
-			task_id         TEXT NOT NULL DEFAULT '',
-			timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)
-	`)
+	if t.db == nil {
+		return fmt.Errorf("database is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tx, err := t.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	// Migrate existing INTEGER columns to BIGINT to avoid 32-bit truncation.
-	for _, alter := range []string{
-		`ALTER TABLE cost_records ALTER COLUMN input_tokens  TYPE BIGINT`,
-		`ALTER TABLE cost_records ALTER COLUMN output_tokens TYPE BIGINT`,
-		`ALTER TABLE cost_records ALTER COLUMN cached_tokens TYPE BIGINT`,
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':overkill:cost', 0))`); err != nil {
+		return err
+	}
+	for _, statement := range []struct{ name, sql string }{
+		{"cost_records table", `CREATE TABLE IF NOT EXISTS cost_records (
+   id TEXT PRIMARY KEY, session_id TEXT NOT NULL DEFAULT '',
+   model TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL DEFAULT '',
+   input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0,
+   cached_tokens BIGINT NOT NULL DEFAULT 0, cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+   task_id TEXT NOT NULL DEFAULT '', timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`},
+		{"input token width", `ALTER TABLE cost_records ALTER COLUMN input_tokens TYPE BIGINT`},
+		{"output token width", `ALTER TABLE cost_records ALTER COLUMN output_tokens TYPE BIGINT`},
+		{"cached token width", `ALTER TABLE cost_records ALTER COLUMN cached_tokens TYPE BIGINT`},
+		{"session index", `CREATE INDEX IF NOT EXISTS idx_cost_records_session ON cost_records (session_id)`},
+		{"timestamp index", `CREATE INDEX IF NOT EXISTS idx_cost_records_timestamp ON cost_records (timestamp)`},
 	} {
-		if _, err := t.db.Exec(alter); err != nil {
-			// Column might already be BIGINT or table may not exist yet;
-			// log and continue — the CREATE above ensures new tables are correct.
-			log.Warn().Err(err).Str("sql", alter).Msg("cost: migration (non-fatal)")
+		if _, err := tx.ExecContext(ctx, statement.sql); err != nil {
+			return fmt.Errorf("%s: %w", statement.name, err)
 		}
 	}
-	for _, idx := range []string{
-		`CREATE INDEX IF NOT EXISTS idx_cost_records_session ON cost_records (session_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_cost_records_timestamp ON cost_records (timestamp)`,
-		`CREATE INDEX IF NOT EXISTS idx_cost_records_date ON cost_records ((timestamp::date))`,
-	} {
-		if _, err := t.db.Exec(idx); err != nil {
-			return err
-		}
-	}
-	return nil
+	return tx.Commit()
 }
 
 func (t *PostgresTracker) RegisterModel(m providers.Model) {
@@ -163,10 +156,14 @@ func (t *PostgresTracker) DailyCost(ctx context.Context) (CostSummary, error) {
 }
 
 func (t *PostgresTracker) costForDate(ctx context.Context, date string) (CostSummary, error) {
+	start, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return CostSummary{}, fmt.Errorf("cost: invalid UTC date: %w", err)
+	}
 	rows, err := t.db.QueryContext(ctx, `
 		SELECT input_tokens, output_tokens, cached_tokens, cost_usd
-		FROM cost_records WHERE timestamp::date = $1::date
-	`, date)
+		FROM cost_records WHERE timestamp >= $1 AND timestamp < $2
+	`, start, start.AddDate(0, 0, 1))
 	if err != nil {
 		return CostSummary{}, fmt.Errorf("cost: date cost: %w", err)
 	}
@@ -319,46 +316,80 @@ func (t *PostgresTracker) Usage(ctx context.Context, opts UsageOptions) (*UsageR
 		argIdx++
 	}
 
-	query += " ORDER BY timestamp DESC"
-
+	// Keep totals independent from the detail limit, using one snapshot so a
+	// concurrent Record cannot make the totals disagree with the detail rows.
+	tx, err := t.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return nil, fmt.Errorf("cost: usage transaction: %w", err)
+	}
+	defer tx.Rollback()
+	report := &UsageReport{
+		Entries:    make([]Entry, 0),
+		ByModel:    make(map[string]CostSummary),
+		ByProvider: make(map[string]CostSummary),
+	}
+	where := query[strings.Index(query, " WHERE "):]
+	groups, err := tx.QueryContext(ctx, `SELECT model, provider, SUM(input_tokens), SUM(output_tokens),
+		SUM(cached_tokens), SUM(cost_usd), COUNT(*) FROM cost_records`+where+` GROUP BY model, provider`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("cost: usage totals: %w", err)
+	}
+	for groups.Next() {
+		var model, provider string
+		var total CostSummary
+		if err := groups.Scan(&model, &provider, &total.InputTokens, &total.OutputTokens,
+			&total.CachedTokens, &total.TotalUSD, &total.RequestCount); err != nil {
+			groups.Close()
+			return nil, fmt.Errorf("cost: usage totals scan: %w", err)
+		}
+		mergeCostSummary := func(dst CostSummary) CostSummary {
+			dst.InputTokens += total.InputTokens
+			dst.OutputTokens += total.OutputTokens
+			dst.CachedTokens += total.CachedTokens
+			dst.TotalUSD += total.TotalUSD
+			dst.RequestCount += total.RequestCount
+			return dst
+		}
+		report.Summary = mergeCostSummary(report.Summary)
+		report.ByModel[model] = mergeCostSummary(report.ByModel[model])
+		report.ByProvider[provider] = mergeCostSummary(report.ByProvider[provider])
+	}
+	if err := groups.Err(); err != nil {
+		groups.Close()
+		return nil, err
+	}
+	if err := groups.Close(); err != nil {
+		return nil, err
+	}
+	query += " ORDER BY timestamp DESC, id"
 	if opts.Limit > 0 {
 		query += fmt.Sprintf(" LIMIT $%d", argIdx)
 		args = append(args, opts.Limit)
-		argIdx++
 	}
-
-	rows, err := t.db.QueryContext(ctx, query, args...)
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("cost: usage: %w", err)
 	}
 	defer rows.Close()
-
-	report := &UsageReport{
-		ByModel:    make(map[string]CostSummary),
-		ByProvider: make(map[string]CostSummary),
-	}
-
 	for rows.Next() {
 		var e Entry
 		if err := rows.Scan(&e.ID, &e.SessionID, &e.Model, &e.Provider,
 			&e.InputTokens, &e.OutputTokens, &e.CachedTokens, &e.CostUSD,
 			&e.TaskID, &e.Timestamp); err != nil {
-			log.Warn().Err(err).Msg("cost: usage scan error")
-			continue
+			return nil, fmt.Errorf("cost: usage scan: %w", err)
 		}
 		report.Entries = append(report.Entries, e)
-		addEntry(&report.Summary, &e)
-
-		ms := report.ByModel[e.Model]
-		addEntry(&ms, &e)
-		report.ByModel[e.Model] = ms
-
-		ps := report.ByProvider[e.Provider]
-		addEntry(&ps, &e)
-		report.ByProvider[e.Provider] = ps
 	}
-
-	return report, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return report, nil
 }
 
 func addEntry(s *CostSummary, e *Entry) {

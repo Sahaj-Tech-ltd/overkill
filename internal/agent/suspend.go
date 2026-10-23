@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sync"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/dbschema"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 
 	_ "github.com/lib/pq"
@@ -62,22 +64,9 @@ func NewSuspendedApprover(
 }
 
 func (s *SuspendedApprover) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS suspensions (
-			id           TEXT PRIMARY KEY,
-			session_id   TEXT NOT NULL,
-			tool_name    TEXT NOT NULL DEFAULT '',
-			args         TEXT NOT NULL DEFAULT '',
-			risk         TEXT NOT NULL DEFAULT '',
-			call_data    JSONB NOT NULL DEFAULT '{}',
-			suspended_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_suspensions_session ON suspensions (session_id)`)
-	return err
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return dbschema.Suspensions(ctx, s.db)
 }
 
 // Approve is the ApprovalFunc — it persists the request and parks until resolved or timed out.

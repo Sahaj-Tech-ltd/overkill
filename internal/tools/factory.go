@@ -32,8 +32,12 @@ import (
 // tools. Fields are nil/zero when the corresponding subsystem is not
 // available; NewDefaultRegistry skips tools whose dependencies are missing.
 type FactoryDeps struct {
+	Canvas     CanvasHandler        // application-bound persisted session canvas
+	ACPRemotes map[string]ACPRemote // trusted named destinations/credentials
+
 	// CWD is the working directory for file-system-scoped tools.
-	CWD string
+	CWD            string
+	ExecutionGuard ExecutionGuard
 
 	// ── Browser ──────────────────────────────────────────────────────
 	BrowserManager *browser.Manager
@@ -141,6 +145,7 @@ type FactoryDeps struct {
 // appended — callers are responsible for nil-checking before appending.
 func NewDefaultRegistry(deps FactoryDeps) *Registry {
 	reg := NewRegistry()
+	reg.SetExecutionGuard(deps.ExecutionGuard)
 	var regErrs []error
 
 	register := func(tool Tool) {
@@ -158,7 +163,13 @@ func NewDefaultRegistry(deps FactoryDeps) *Registry {
 	register(NewPatchTool(deps.CWD))
 	register(NewPTYShellTool(deps.CWD))
 	register(NewSliceDecomposeTool())
-	register(NewACPSendTool())
+	if deps.Canvas != nil {
+		register(NewCanvasTool(deps.Canvas))
+	}
+	register(NewACPSendTool(deps.ACPRemotes))
+	for _, tool := range NewACPTaskTools(deps.ACPRemotes) {
+		register(tool)
+	}
 	register(NewDiagnoseNextTierTool())
 
 	// ── Introspect / Skill Extract ───────────────────────────────────
@@ -194,7 +205,7 @@ func NewDefaultRegistry(deps FactoryDeps) *Registry {
 
 	// ── Vision ───────────────────────────────────────────────────────
 	if deps.VisionDescriber != nil {
-		register(NewVisionDescribeTool(deps.VisionDescriber, deps.BrowserManager, deps.BrowserPolicy))
+		register(NewVisionDescribeTool(deps.VisionDescriber, deps.BrowserManager, deps.BrowserPolicy).WithRootDir(deps.CWD))
 	}
 
 	// ── LSP tools ────────────────────────────────────────────────────

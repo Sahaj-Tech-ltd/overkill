@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -11,6 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/processrunner"
 )
 
 // Position is an LSP zero-based line/character position.
@@ -61,13 +65,23 @@ type Client struct {
 	lastErr   error
 
 	maxMessageBytes int
+	command         string
+	args            []string
+	started         bool
+	closing         bool
+	startDone       chan struct{}
+	startErr        error
+	runCancel       context.CancelFunc
+	runDone         chan struct{}
+	readers         sync.WaitGroup
+	closeOnce       sync.Once
 }
 
 // NewClient constructs (but does not start) a client.
 func NewClient(language, command string, args []string, maxMessageBytes int) *Client {
 	cmd := exec.Command(command, args...)
 	cmd.Env = os.Environ()
-	return &Client{language: language, cmd: cmd, maxMessageBytes: maxMessageBytes}
+	return &Client{language: language, cmd: cmd, command: command, args: append([]string(nil), args...), maxMessageBytes: maxMessageBytes}
 }
 
 // Language returns the language name this client serves.
@@ -87,77 +101,201 @@ func (c *Client) LastError() error {
 	return c.lastErr
 }
 
-// validatePath checks that file is within the workspace root. Returns an
-// error if the path escapes containment — prevents querying LSP for files
-// like /etc/shadow from outside the workspace.
+// validatePath checks canonical workspace containment, including symlinked
+// ancestors of files that do not exist yet. This constrains queries; it does
+// not sandbox the configured language-server executable or prevent concurrent
+// filesystem mutations by other processes.
 func (c *Client) validatePath(file string) error {
+	_, err := c.workspacePath(file)
+	return err
+}
+
+func (c *Client) workspacePath(file string) (string, error) {
 	c.mu.RLock()
 	root := c.rootURI
 	c.mu.RUnlock()
 	if root == "" {
-		return nil // no workspace root set yet (pre-Start); let caller decide
+		return "", fmt.Errorf("lsp: workspace root unavailable")
 	}
-	rootPath := strings.TrimPrefix(root, "file://")
-	// Resolve file relative to workspace root — LSP callers often pass
-	// paths relative to the workspace.
-	absFile := file
-	if !filepath.IsAbs(absFile) {
-		absFile = filepath.Join(rootPath, file)
+	if file == "" || strings.ContainsRune(file, 0) {
+		return "", fmt.Errorf("lsp: invalid file path")
 	}
-	var err error
-	absFile, err = filepath.Abs(absFile)
+	rootPath, err := filepath.Abs(URIToPath(root))
 	if err != nil {
-		return fmt.Errorf("lsp: cannot resolve path: %w", err)
+		return "", fmt.Errorf("lsp: cannot resolve workspace")
 	}
-	rel, err := filepath.Rel(rootPath, absFile)
+	realRoot, err := filepath.EvalSymlinks(rootPath)
 	if err != nil {
-		return fmt.Errorf("lsp: path outside workspace: %s", file)
+		return "", fmt.Errorf("lsp: cannot resolve workspace: %w", err)
 	}
-	if strings.HasPrefix(rel, "..") {
-		return fmt.Errorf("lsp: path outside workspace: %s", file)
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(rootPath, file)
+	}
+	file, err = filepath.Abs(file)
+	if err != nil {
+		return "", fmt.Errorf("lsp: cannot resolve path")
+	}
+	// Canonicalization accepts a configured root's spelling as well as its
+	// canonical spelling (e.g. /tmp and /private/tmp on macOS).
+	realFile, err := resolveExistingAncestor(file)
+	if err != nil {
+		return "", fmt.Errorf("lsp: cannot resolve file: %w", err)
+	}
+	rel, err := filepath.Rel(realRoot, realFile)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("lsp: path outside workspace: %s", file)
+	}
+	return realFile, nil
+}
+
+func resolveExistingAncestor(path string) (string, error) {
+	var tail []string
+	for {
+		_, err := os.Lstat(path)
+		if err == nil {
+			resolved, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return "", err
+			} // dangling links fail closed
+			for i := len(tail) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, tail[i])
+			}
+			return resolved, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", err
+		}
+		tail = append(tail, filepath.Base(path))
+		path = parent
+	}
+}
+
+func (c *Client) validateLocations(locations []Location) error {
+	for _, location := range locations {
+		u, err := url.Parse(location.URI)
+		if err != nil || u.Scheme != "file" || (u.Host != "" && u.Host != "localhost") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !filepath.IsAbs(u.Path) {
+			return fmt.Errorf("lsp: invalid local result URI")
+		}
+		if err := c.validatePath(u.Path); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// Start spawns the server and runs the LSP `initialize` handshake. rootDir
-// is sent as the workspace root.
+func (c *Client) validateSymbols(symbols []SymbolInformation) error {
+	for _, symbol := range symbols {
+		if err := c.validateLocations([]Location{symbol.Location}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// InitializeTimeout bounds readiness independently of the session lifetime.
+const InitializeTimeout = 5 * time.Second
+const shutdownTimeout = 250 * time.Millisecond
+
+// Start owns the server until ctx is canceled or Close is called. Concurrent
+// starts share one initialize attempt; Close is terminal and waits for reaping.
 func (c *Client) Start(ctx context.Context, rootDir string) error {
-	stdin, err := c.cmd.StdinPipe()
-	if err != nil {
+	c.mu.Lock()
+	if c.closing {
+		c.mu.Unlock()
+		return fmt.Errorf("lsp: client closed")
+	}
+	if c.started {
+		done := c.startDone
+		c.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
+		}
+		c.mu.RLock()
+		err := c.startErr
+		c.mu.RUnlock()
 		return err
 	}
-	stdout, err := c.cmd.StdoutPipe()
-	if err != nil {
+	if err := ctx.Err(); err != nil {
+		c.mu.Unlock()
 		return err
 	}
-	stderr, err := c.cmd.StderrPipe()
+	c.started = true
+	c.startDone = make(chan struct{})
+	rootDir, err := filepath.Abs(rootDir)
+	if err == nil {
+		rootDir, err = filepath.EvalSymlinks(rootDir)
+	}
+	if err == nil {
+		command := c.command
+		if command != "" {
+			if !filepath.IsAbs(command) && strings.ContainsAny(command, "/\\") {
+				command = filepath.Join(rootDir, command)
+			}
+			c.cmd = exec.Command(command, c.args...)
+			c.cmd.Env = os.Environ()
+		}
+		if c.cmd == nil {
+			err = fmt.Errorf("no server command")
+		}
+	}
+	if err == nil {
+		c.cmd.Dir = rootDir
+		c.stdin, err = c.cmd.StdinPipe()
+	}
+	if err == nil {
+		c.stdout, err = c.cmd.StdoutPipe()
+	}
+	if err == nil {
+		c.stderr, err = c.cmd.StderrPipe()
+	}
 	if err != nil {
-		return err
+		for _, pipe := range []io.Closer{c.stdin, c.stdout, c.stderr} {
+			if pipe != nil {
+				_ = pipe.Close()
+			}
+		}
+		c.startErr = fmt.Errorf("lsp: setup %s: %.512s", c.language, err.Error())
+		c.lastErr = c.startErr
+		close(c.startDone)
+		c.mu.Unlock()
+		return c.startErr
 	}
-	c.stdin, c.stdout, c.stderr = stdin, stdout, stderr
-
-	if err := c.cmd.Start(); err != nil {
-		c.setError(err)
-		return fmt.Errorf("lsp: start %s: %w", c.language, err)
-	}
-
-	c.conn = newJSONRPCConn(stdin, stdout, c.maxMessageBytes)
+	c.rootURI = pathToURI(rootDir)
+	rootURI := c.rootURI
+	conn := newJSONRPCConn(c.stdin, c.stdout, c.maxMessageBytes)
+	c.conn = conn
+	lifeCtx, cancel := context.WithCancel(ctx)
+	c.runCancel = cancel
+	c.runDone = make(chan struct{})
+	c.readers.Add(2)
 	go func() {
-		if err := c.conn.readLoop(); err != nil {
+		defer c.readers.Done()
+		if err := conn.readLoop(); err != nil {
 			c.setError(err)
 		}
 	}()
+	go func() { defer c.readers.Done(); _, _ = io.Copy(io.Discard, c.stderr) }()
 	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := stderr.Read(buf); err != nil {
-				return
-			}
+		defer close(c.runDone)
+		err := processrunner.Run(lifeCtx, c.cmd)
+		if err == nil {
+			err = io.EOF
 		}
+		c.setError(err)
+		conn.close()
+		_ = c.stdout.Close()
+		_ = c.stderr.Close()
+		_ = c.stdin.Close()
 	}()
-
-	rootURI := pathToURI(rootDir)
-	c.rootURI = rootURI
+	c.mu.Unlock()
+	handshakeCtx, handshakeCancel := context.WithTimeout(lifeCtx, InitializeTimeout)
+	defer handshakeCancel()
 	initParams := map[string]any{
 		"processId": os.Getpid(),
 		"rootUri":   rootURI,
@@ -174,19 +312,55 @@ func (c *Client) Start(ctx context.Context, rootDir string) error {
 		},
 		"clientInfo": map[string]any{"name": "overkill", "version": "0.1"},
 	}
-	if _, err := c.conn.Call(ctx, "initialize", initParams); err != nil {
-		c.setError(err)
-		return fmt.Errorf("lsp: initialize %s: %w", c.language, err)
-	}
-	if err := c.conn.Notify("initialized", map[string]any{}); err != nil {
-		c.setError(err)
-		return err
+
+	_, err = conn.Call(handshakeCtx, "initialize", initParams)
+	if err == nil {
+		err = conn.NotifyContext(handshakeCtx, "initialized", map[string]any{})
 	}
 	c.mu.Lock()
-	c.connected = true
-	c.lastErr = nil
+	if err == nil && (c.closing || lifeCtx.Err() != nil || conn.closed.Load()) {
+		err = fmt.Errorf("connection closed during initialize")
+	}
+	if err == nil {
+		c.connected = true
+		c.lastErr = nil
+	}
 	c.mu.Unlock()
-	return nil
+	if err != nil {
+		// Do not retain an unbounded server error payload in readiness results.
+		err = errors.Join(fmt.Errorf("lsp: initialize %s: %.512s", c.language, err.Error()), handshakeCtx.Err())
+		c.setError(err)
+		c.stopOwned()
+	}
+	c.mu.Lock()
+	c.startErr = err
+	close(c.startDone)
+	c.mu.Unlock()
+	return err
+}
+
+// stopOwned can run concurrently with Close/startup failure. Pipe closure and
+// process cancellation unblock both reads and writes; only processrunner waits.
+func (c *Client) stopOwned() {
+	c.mu.RLock()
+	cancel, conn, done := c.runCancel, c.conn, c.runDone
+	stdin, stdout, stderr := c.stdin, c.stdout, c.stderr
+	c.mu.RUnlock()
+	if cancel != nil {
+		cancel()
+	}
+	if conn != nil {
+		conn.close()
+	}
+	for _, pipe := range []io.Closer{stdin, stdout, stderr} {
+		if pipe != nil {
+			_ = pipe.Close()
+		}
+	}
+	if done != nil {
+		<-done
+	}
+	c.readers.Wait()
 }
 
 func (c *Client) setError(err error) {
@@ -196,44 +370,72 @@ func (c *Client) setError(err error) {
 	c.mu.Unlock()
 }
 
+func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	c.mu.RLock()
+	conn := c.conn
+	closing := c.closing
+	c.mu.RUnlock()
+	if conn == nil || closing {
+		return nil, fmt.Errorf("lsp: connection unavailable")
+	}
+	return conn.Call(ctx, method, params)
+}
+
 // Definition returns the definition site(s) for the symbol at file:line:col.
 func (c *Client) Definition(ctx context.Context, file string, line, col int) ([]Location, error) {
-	if err := c.validatePath(file); err != nil {
+	canonicalFile, err := c.workspacePath(file)
+	if err != nil {
 		return nil, err
 	}
-	raw, err := c.conn.Call(ctx, "textDocument/definition", map[string]any{
-		"textDocument": map[string]any{"uri": pathToURI(file)},
+	raw, err := c.call(ctx, "textDocument/definition", map[string]any{
+		"textDocument": map[string]any{"uri": pathToURI(canonicalFile)},
 		"position":     Position{Line: line, Character: col},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return decodeLocations(raw)
+	locations, err := decodeLocations(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.validateLocations(locations); err != nil {
+		return nil, err
+	}
+	return locations, nil
 }
 
 // References returns usage sites of the symbol at file:line:col.
 func (c *Client) References(ctx context.Context, file string, line, col int) ([]Location, error) {
-	if err := c.validatePath(file); err != nil {
+	canonicalFile, err := c.workspacePath(file)
+	if err != nil {
 		return nil, err
 	}
-	raw, err := c.conn.Call(ctx, "textDocument/references", map[string]any{
-		"textDocument": map[string]any{"uri": pathToURI(file)},
+	raw, err := c.call(ctx, "textDocument/references", map[string]any{
+		"textDocument": map[string]any{"uri": pathToURI(canonicalFile)},
 		"position":     Position{Line: line, Character: col},
 		"context":      map[string]any{"includeDeclaration": true},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return decodeLocations(raw)
+	locations, err := decodeLocations(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.validateLocations(locations); err != nil {
+		return nil, err
+	}
+	return locations, nil
 }
 
 // Hover returns the hover doc for the symbol at file:line:col as plain text.
 func (c *Client) Hover(ctx context.Context, file string, line, col int) (Hover, error) {
-	if err := c.validatePath(file); err != nil {
+	canonicalFile, err := c.workspacePath(file)
+	if err != nil {
 		return Hover{}, err
 	}
-	raw, err := c.conn.Call(ctx, "textDocument/hover", map[string]any{
-		"textDocument": map[string]any{"uri": pathToURI(file)},
+	raw, err := c.call(ctx, "textDocument/hover", map[string]any{
+		"textDocument": map[string]any{"uri": pathToURI(canonicalFile)},
 		"position":     Position{Line: line, Character: col},
 	})
 	if err != nil {
@@ -254,11 +456,12 @@ func (c *Client) Hover(ctx context.Context, file string, line, col int) (Hover, 
 
 // DocumentSymbols returns the outline for a single file.
 func (c *Client) DocumentSymbols(ctx context.Context, file string) ([]SymbolInformation, error) {
-	if err := c.validatePath(file); err != nil {
+	canonicalFile, err := c.workspacePath(file)
+	if err != nil {
 		return nil, err
 	}
-	raw, err := c.conn.Call(ctx, "textDocument/documentSymbol", map[string]any{
-		"textDocument": map[string]any{"uri": pathToURI(file)},
+	raw, err := c.call(ctx, "textDocument/documentSymbol", map[string]any{
+		"textDocument": map[string]any{"uri": pathToURI(canonicalFile)},
 	})
 	if err != nil {
 		return nil, err
@@ -270,6 +473,9 @@ func (c *Client) DocumentSymbols(ctx context.Context, file string) ([]SymbolInfo
 	// flat shape first since that's what we consume.
 	var flat []SymbolInformation
 	if err := json.Unmarshal(raw, &flat); err == nil && len(flat) > 0 {
+		if err := c.validateSymbols(flat); err != nil {
+			return nil, err
+		}
 		return flat, nil
 	}
 	// Fallback: ignore the hierarchical DocumentSymbol shape — we just
@@ -279,7 +485,7 @@ func (c *Client) DocumentSymbols(ctx context.Context, file string) ([]SymbolInfo
 
 // WorkspaceSymbols searches across the workspace for matching symbols.
 func (c *Client) WorkspaceSymbols(ctx context.Context, query string) ([]SymbolInformation, error) {
-	raw, err := c.conn.Call(ctx, "workspace/symbol", map[string]any{"query": query})
+	raw, err := c.call(ctx, "workspace/symbol", map[string]any{"query": query})
 	if err != nil {
 		return nil, err
 	}
@@ -290,30 +496,40 @@ func (c *Client) WorkspaceSymbols(ctx context.Context, query string) ([]SymbolIn
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
+	if err := c.validateSymbols(out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
-// Close terminates the server subprocess.
+// Close attempts the LSP shutdown/exit protocol within a fixed grace period,
+// then cancels the owned process group and waits for process/reader reaping.
 func (c *Client) Close() error {
-	if c.conn != nil {
-		c.conn.close()
-	}
-	if c.stdin != nil {
-		_ = c.stdin.Close()
-	}
-	if c.stdout != nil {
-		_ = c.stdout.Close()
-	}
-	if c.stderr != nil {
-		_ = c.stderr.Close()
-	}
-	if c.cmd != nil && c.cmd.Process != nil {
-		_ = c.cmd.Process.Kill()
-		_, _ = c.cmd.Process.Wait()
-	}
-	c.mu.Lock()
-	c.connected = false
-	c.mu.Unlock()
+	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		c.closing = true
+		connected, conn, started := c.connected, c.conn, c.started
+		runDone := c.runDone
+		done := c.startDone
+		c.connected = false
+		c.mu.Unlock()
+		if connected && conn != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			if _, err := conn.Call(ctx, "shutdown", nil); err == nil {
+				if err := conn.NotifyContext(ctx, "exit", nil); err == nil && runDone != nil {
+					select {
+					case <-runDone:
+					case <-ctx.Done():
+					}
+				}
+			}
+			cancel()
+		}
+		c.stopOwned()
+		if started && done != nil {
+			<-done
+		}
+	})
 	return nil
 }
 

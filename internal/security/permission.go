@@ -145,3 +145,21 @@ func (pm *PermissionManager) ClearSession() {
 	defer pm.mu.Unlock()
 	pm.onceAllowed = make(map[string]bool)
 }
+
+// consumeAll authorizes one complete scanner decision atomically. Failed
+// aggregate checks leave one-shot grants available for their intended command.
+// Global grants retain the scanner's existing behavior (project/once only).
+func (pm *PermissionManager) consumeAll(patterns []string, command, projectPath string) bool {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	for _, pattern := range patterns {
+		projects := pm.projectAllowed[projectPath]
+		if !pm.onceAllowed[pattern] && !projects[pattern] {
+			return false
+		}
+	}
+	for _, pattern := range patterns {
+		delete(pm.onceAllowed, pattern)
+	}
+	return true
+}

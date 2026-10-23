@@ -1,16 +1,22 @@
 Metadata-Version: 2.4
 Name: bridge
-Version: 0.1.0
+Version: 0.2.0
 Summary: Python bridge for Overkill AI coding agent
 Requires-Python: >=3.11
-Requires-Dist: grpcio>=1.62.0
-Requires-Dist: grpcio-tools>=1.62.0
-Requires-Dist: protobuf>=4.25.0
+Requires-Dist: grpcio>=1.80.0
+Requires-Dist: protobuf>=6.31.1
 Requires-Dist: numpy>=1.26.0
-Requires-Dist: sentence-transformers>=2.6.0
+Requires-Dist: grpcio-health-checking>=1.80.0
+Requires-Dist: psycopg2-binary>=2.9.9
+Requires-Dist: pgvector>=0.3.0
+Provides-Extra: ml
+Requires-Dist: sentence-transformers>=5.5.1; extra == "ml"
 Provides-Extra: dev
+Requires-Dist: grpcio-tools>=1.80.0; extra == "dev"
+Requires-Dist: build>=1.2.0; extra == "dev"
 Requires-Dist: pytest>=8.0; extra == "dev"
-Requires-Dist: pytest-cov>=4.1; extra == "dev"
+Requires-Dist: pytest-timeout>=2.3.1; extra == "dev"
+Requires-Dist: pytest-cov>=7.1.0; extra == "dev"
 Requires-Dist: ruff>=0.3.0; extra == "dev"
 Requires-Dist: mypy>=1.8; extra == "dev"
 Provides-Extra: qdrant

@@ -1,17 +1,9 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useSyncExternalStore } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "../../hooks/use-theme.ts";
 import type { BackendClient } from "../../backend/client.ts";
 
-// ─── Types ─────────────────────────────────────────────────────────────────
-
-type TodoStatus = "open" | "in_progress" | "shipped" | "abandoned";
-
-interface Todo {
-  id: string;
-  intent: string;
-  status: TodoStatus;
-}
+import { TodoPanelModel, type TodoStatus } from "./panel-models.ts";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -26,83 +18,28 @@ const MAX_DISPLAY = 15;
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-// TODO(backend): wire to RPC once todo.* methods are added to server.go
-// Planned calls:
-//   mount:  backend.call<Todo[]>("todo.list")
-//   add:    backend.call("todo.add", { description })
-//   toggle: backend.call("todo.toggle", { id })
-//   delete: backend.call("todo.delete", { id })
-
 export function TodoPanel({
   active,
   backend,
+  sessionId,
 }: {
   active: boolean;
   backend: BackendClient;
+  sessionId: string;
 }): React.JSX.Element {
   const { theme } = useTheme();
 
-  const [todos, setTodos] = useState<Todo[]>([]);
+  const model = useMemo(() => new TodoPanelModel(backend), [backend]);
+  const state = useSyncExternalStore(model.subscribe, model.getSnapshot);
+  const todos = state.sessionId === sessionId ? state.todos : [];
   const [focusedIdx, setFocusedIdx] = useState(-1);
   const [filter, setFilter] = useState<TodoStatus | "all">("all");
-
-  // Mount: load todos from backend.
-  const [mounted, setMounted] = useState(false);
+  const [editor, setEditor] = useState<{ id?: string; text: string } | null>(null);
   useEffect(() => {
-    if (!mounted) {
-      setMounted(true);
-      backend
-        .call<Todo[]>("todo.list", { session_id: "" })
-        .then((list) => {
-          if (list?.length) setTodos(list);
-        })
-        .catch(() => {});
-    }
-  }, [backend, mounted]);
-
-  const addTodo = useCallback(
-    (desc: string) => {
-      backend
-        .call<Todo>("todo.add", { description: desc, session_id: "" })
-        .then((t) => {
-          if (t) setTodos((prev) => [...prev, t]);
-        })
-        .catch(() => {});
-    },
-    [backend],
-  );
-
-  const toggleTodo = useCallback(
-    (id: string) => {
-      backend
-        .call<Todo>("todo.toggle", { id })
-        .then((t) => {
-          if (t)
-            setTodos((prev) => prev.map((item) => (item.id === id ? t : item)));
-        })
-        .catch(() => {});
-    },
-    [backend],
-  );
-
-  const removeTodo = useCallback(
-    (id: string) => {
-      backend
-        .call("todo.delete", { id })
-        .then(() => {
-          setTodos((prev) => prev.filter((t) => t.id !== id));
-        })
-        .catch(() => {});
-    },
-    [backend],
-  );
-
-  const clearAll = useCallback(() => {
-    todos.forEach((t) =>
-      backend.call("todo.delete", { id: t.id }).catch(() => {}),
-    );
-    setTodos([]);
-  }, [todos, backend]);
+    setEditor(null); setFocusedIdx(-1);
+    void model.setSession(sessionId);
+    return () => model.dispose();
+  }, [model, sessionId]);
 
   const filtered =
     filter === "all" ? todos : todos.filter((t) => t.status === filter);
@@ -116,16 +53,32 @@ export function TodoPanel({
 
   // Keyboard handling when active
   useInput((input, key) => {
-    if (!active) return;
+    if (!active || state.busy) return;
+    if (key.tab) return;
+    if (editor) {
+      if (key.escape) { setEditor(null); return; }
+      if (key.return) {
+        void model.save(editor.text, editor.id).then((saved) => { if (saved) setEditor(null); });
+        return;
+      }
+      if (key.ctrl && input === "u") { setEditor({ ...editor, text: "" }); return; }
+      if (key.backspace || key.delete) { setEditor({ ...editor, text: editor.text.slice(0, -1) }); return; }
+      if (!key.ctrl && !key.meta && input) setEditor({ ...editor, text: editor.text + input.replace(/[\r\n]/g, " ") });
+      return;
+    }
+    if (input === "r") { void model.reload(); return; }
 
     if (key.escape) {
       setFocusedIdx(-1);
       return;
     }
     if (input === "a") {
-      // Simple: just add a placeholder todo for now
-      // The user types in the main chat to describe it
-      addTodo("New task (edit me)");
+      if (sessionId) setEditor({ text: "" });
+      return;
+    }
+    if (input === "e") {
+      const task = filtered[focusedIdx];
+      if (task) setEditor({ id: task.id, text: task.intent });
       return;
     }
     if (input === "j" || key.downArrow) {
@@ -141,13 +94,13 @@ export function TodoPanel({
     }
     if (input === " ") {
       if (focusedIdx >= 0 && focusedIdx < filtered.length) {
-        toggleTodo(filtered[focusedIdx]!.id);
+        void model.toggle(filtered[focusedIdx]!.id);
       }
       return;
     }
     if (input === "d") {
       if (focusedIdx >= 0 && focusedIdx < filtered.length) {
-        removeTodo(filtered[focusedIdx]!.id);
+        void model.remove(filtered[focusedIdx]!.id);
         setFocusedIdx(-1);
       }
       return;
@@ -165,7 +118,7 @@ export function TodoPanel({
       return;
     }
     if (input === "c") {
-      clearAll();
+      void model.clear();
       setFocusedIdx(-1);
       return;
     }
@@ -188,6 +141,13 @@ export function TodoPanel({
         <Text dimColor> ({counts.all})</Text>
       </Box>
 
+      {!sessionId && <Text dimColor>Start or select a session to add tasks.</Text>}
+      {state.error && <Text color={theme.error}>{state.error} · {editor ? "Enter:retry save" : "r:reload"}</Text>}
+      {state.busy && <Text dimColor>Saving/loading tasks…</Text>}
+      {editor && <Box flexDirection="column" paddingX={1}>
+        <Text>{editor.id ? "Edit task" : "New task"}: {editor.text}<Text inverse> </Text></Text>
+        <Text dimColor>Enter:save · Esc:cancel · Ctrl+U:clear</Text>
+      </Box>}
       {/* Filter pills */}
       <Box paddingX={1} marginTop={1}>
         {FILTERS.map((f, i) => (
@@ -251,7 +211,7 @@ export function TodoPanel({
       {/* Help */}
       {active && (
         <Box paddingX={1} marginTop={1} flexDirection="column">
-          <Text dimColor>a:add · j/k:nav · space:toggle</Text>
+          <Text dimColor>a:add · e:edit · j/k:nav · space:toggle</Text>
           <Text dimColor>d:delete · f:filter · c:clear</Text>
         </Box>
       )}

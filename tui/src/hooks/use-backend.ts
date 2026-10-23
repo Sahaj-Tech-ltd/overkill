@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import { BackendClient, createClient } from "../backend/client.ts";
 import { setMemoClient } from "../components/memo-phrases.ts";
 import type { ConnectionState } from "../backend/types.ts";
@@ -9,83 +9,35 @@ export interface UseBackendResult {
   error: string | null;
 }
 
-export function useBackend(): UseBackendResult {
-  const backendRef = useRef(createClient());
+export function useBackend(options?: {
+  client?: BackendClient; healthyIntervalMs?: number; retryInitialMs?: number; maxRetryMs?: number;
+}): UseBackendResult {
+  const [backend] = useState(() => options?.client ?? createClient());
   const [connected, setConnected] = useState<ConnectionState>("connecting");
   const [error, setError] = useState<string | null>(null);
-  // B018: Use ref for connected state so the interval doesn't recreate
-  // on every state change — the interval closure reads the ref, not the
-  // reactive state binding.
-  const connectedRef = useRef(connected);
-  const setConnectedSync = (v: ConnectionState) => {
-    connectedRef.current = v;
-    setConnected(v);
-  };
-
-  // B146: Exponential backoff for reconnection to prevent storms when
-  // health checks hang or timeout. Starts at 3s, doubles each failure,
-  // capped at 60s. Resets on successful connection.
-  const backoffRef = useRef(3000);
-  const backoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const tryConnect = useCallback(async () => {
-    const client = backendRef.current;
-    setConnectedSync("connecting");
-    setError(null);
-    try {
-      const ok = await client.health();
-      setConnectedSync(ok ? "connected" : "disconnected");
-      if (!ok) {
-        setError("Health check failed");
-      } else {
-        // Reset backoff on successful connection
-        backoffRef.current = 3000;
-      }
-    } catch (err) {
-      setConnectedSync("disconnected");
-      setError((err as Error).message);
-    }
-  }, []);
-
-  // Wire memo phrases to the backend client so memo.phrase/memo.learn RPCs
-  // reach the server instead of using only hardcoded local phrases (M15).
+  const healthyInterval = options?.healthyIntervalMs ?? 5000;
+  const retryInitial = options?.retryInitialMs ?? 3000;
+  const retryMax = options?.maxRetryMs ?? 60_000;
   useEffect(() => {
-    setMemoClient(backendRef.current);
+    setMemoClient(backend);
     return () => setMemoClient(null);
-  }, []);
-
+  }, [backend]);
   useEffect(() => {
-    void tryConnect();
-
-    // B146: Use exponential backoff scheduling instead of a fixed-interval
-    // setInterval. Each attempt schedules the next with increasing delay
-    // until connected, preventing reconnection storms.
-    const scheduleNext = () => {
-      backoffTimerRef.current = setTimeout(() => {
-        if (connectedRef.current !== "connected") {
-          void tryConnect().finally(() => {
-            // After the attempt (pass or fail), schedule next with backoff
-            if (connectedRef.current !== "connected") {
-              backoffRef.current = Math.min(backoffRef.current * 2, 60_000);
-            }
-            scheduleNext();
-          });
-        }
-      }, backoffRef.current);
+    let disposed = false;
+    let delay = retryInitial;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    const probe = async () => {
+      const ok = await backend.health(controller.signal);
+      if (disposed) return;
+      setConnected(ok ? "connected" : "disconnected");
+      setError(ok ? null : "Health check failed");
+      // Schedule after completion: at most one bounded probe can be in flight.
+      timer = setTimeout(() => { void probe(); }, ok ? healthyInterval : delay);
+      delay = ok ? retryInitial : Math.min(delay * 2, retryMax);
     };
-    scheduleNext();
-
-    return () => {
-      if (backoffTimerRef.current) {
-        clearTimeout(backoffTimerRef.current);
-        backoffTimerRef.current = null;
-      }
-    };
-  }, [tryConnect]); // B018: connected removed — interval reads connectedRef instead.
-
-  return {
-    backend: backendRef.current,
-    connected,
-    error,
-  };
+    void probe();
+    return () => { disposed = true; controller.abort(); if (timer) clearTimeout(timer); };
+  }, [backend, healthyInterval, retryInitial, retryMax]);
+  return { backend, connected, error };
 }

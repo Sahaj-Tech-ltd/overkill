@@ -4,29 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"sync"
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func openTestPG(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
-	connStr := os.Getenv("PG_TEST_URL")
-	if connStr == "" {
-		connStr = os.Getenv("DATABASE_URL")
-	}
-	if connStr == "" {
-		t.Skip("skipping: set PG_TEST_URL or DATABASE_URL for postgres tests")
-	}
-	db, err := sql.Open("postgres", connStr)
-	require.NoError(t, err)
-	require.NoError(t, db.Ping())
-	return db, func() { db.Close() }
+	return testpg.Open(t)
 }
 
 func TestParseCron_EveryMinute(t *testing.T) {

@@ -3,6 +3,7 @@ package gateway
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSessionRouter_BindResolve(t *testing.T) {
@@ -54,6 +55,13 @@ func TestSessionRouter_RecentSorted(t *testing.T) {
 	_ = r.Bind("telegram", "a", "", "s1")
 	_ = r.Bind("telegram", "b", "", "s2")
 	_ = r.Bind("telegram", "c", "", "s3")
+	// Sorting must not depend on clock resolution between instantaneous binds.
+	for index, key := range []string{"a", "b", "c"} {
+		bindingKey := bindKey("telegram", key, "")
+		entry := r.data.Bindings[bindingKey]
+		entry.Updated = time.Unix(int64(index), 0)
+		r.data.Bindings[bindingKey] = entry
+	}
 	rows := r.Recent(2)
 	if len(rows) != 2 {
 		t.Fatalf("limit: got %d want 2", len(rows))

@@ -100,8 +100,8 @@ func TestDangerousPatterns(t *testing.T) {
 
 func TestNewlines(t *testing.T) {
 	r := Validate("echo hello\nrm -rf /")
-	if r.Behavior != Ask {
-		t.Errorf("multi-line injection: got %s, want ask", r.Behavior)
+	if r.Behavior != Deny {
+		t.Errorf("multi-line destructive command: got %s, want deny", r.Behavior)
 	}
 	r = Validate("echo hello")
 	if r.Behavior != Allow {

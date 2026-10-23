@@ -525,16 +525,13 @@ func TestToolAdapterExecuteError(t *testing.T) {
 	a := NewToolAdapter(m, "nonexistent", "tool")
 
 	result, err := a.Execute(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("Execute should marshal error, not return Go error: %v", err)
+	if err == nil {
+		t.Fatal("manager failure must return a Go error")
 	}
-	var parsed map[string]any
-	if err := json.Unmarshal(result, &parsed); err != nil {
-		t.Fatalf("unmarshal result: %v", err)
+	if result != nil {
+		t.Fatalf("failure must not return a success-shaped result: %s", result)
 	}
-	if errStr, ok := parsed["error"].(string); !ok || errStr == "" {
-		t.Errorf("expected error in result, got %+v", parsed)
-	}
+
 }
 
 // ---------------------------------------------------------------------------

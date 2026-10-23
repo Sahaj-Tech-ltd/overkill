@@ -72,29 +72,19 @@ func TestSnapshot_NonExistentFileRollbackRemovesPostCreation(t *testing.T) {
 	}
 }
 
-func TestSnapshot_LargeFileSkipped(t *testing.T) {
-	dir := t.TempDir()
-	work := t.TempDir()
+func TestSnapshot_LargeFileFailsWithoutPublishing(t *testing.T) {
+	dir, work := t.TempDir(), t.TempDir()
 	big := filepath.Join(work, "big.bin")
 	if err := os.WriteFile(big, make([]byte, 2*1024*1024), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	m, _ := NewManager(dir, 5)
-	man, err := m.Snapshot("s1", "big", []string{big})
-	if err != nil {
-		t.Fatalf("snapshot: %v", err)
+	if _, err := m.Snapshot("s1", "big", []string{big}); err == nil {
+		t.Fatal("oversized recovery must fail")
 	}
-	if man.Entries[0].Sha256 != "" {
-		t.Fatalf("large file should be skipped (empty sha)")
-	}
-
-	skipped, err := m.Restore(man.ID)
-	if err != nil {
-		t.Fatalf("restore: %v", err)
-	}
-	if len(skipped) != 1 {
-		t.Fatalf("expected 1 skipped, got %v", skipped)
+	list, err := m.List("s1")
+	if err != nil || len(list) != 0 {
+		t.Fatalf("partial snapshot published: %v %v", list, err)
 	}
 }
 

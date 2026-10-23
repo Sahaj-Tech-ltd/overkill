@@ -17,6 +17,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/events"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/features"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/instructions"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
@@ -70,10 +71,13 @@ type SubagentChild struct {
 
 type Agent struct {
 	mu                    sync.RWMutex
+	evolutionEngine       *learning.Engine
 	provider              providers.Provider
 	toolRegistry          *tools.Registry
 	compressors           *tools.CompressorRegistry
 	hooks                 *hooks.Registry
+	hookStartOnce         sync.Once
+	hookEndOnce           sync.Once
 	scanners              []security.Scanner
 	tokenizer             *tokenizer.Estimator
 	budgetEstimator       *BudgetEstimator
@@ -83,11 +87,15 @@ type Agent struct {
 	recovery              *ErrorRecovery
 	bus                   *EventBus
 	model                 string
+	tokenLimits           providers.TokenLimitResolver
 	maxTokens             int
 	systemPrompt          string
+	instructionSource     *instructions.Source
 	systemPromptOverrides map[string]string // model ID → custom override
 	history               []providers.Message
 	maxSteps              int
+	disableAtMentions     bool
+	mentionWorkspace      string
 	_sessionID            string
 	_sidMu                sync.RWMutex
 	approvalFn            ApprovalFunc
@@ -102,6 +110,15 @@ type Agent struct {
 	// the hot read in react.go's tool dispatch path doesn't need a.mu
 	// (SetPrivilegeGate writes via Store).
 	privilege atomic.Pointer[security.PrivilegeGate]
+	// configuredReadonly is the configuration ceiling, independent of an
+	// optional runtime gate. Installing a writer gate cannot bypass it.
+	configuredReadonly atomic.Bool
+	// planReadonly is an interactive planning restriction, independent of the
+	// configured ceiling and optional writer gate.
+	planReadonly atomic.Bool
+	// Serialize snapshot+effect pairs for mutation-like calls in a streamed
+	// batch. A snapshot must not race another mutation from this agent.
+	toolMutationMu sync.Mutex
 	// contextProviderFn, if set, is invoked once per turn before the model
 	// call. The returned snippet is appended to the system prompt. Used by
 	// plugins (and anything else) to inject per-turn context like git status,
@@ -170,7 +187,8 @@ type Agent struct {
 	// When true, the agent decomposes user input into discrete work
 	// items and processes them one at a time via the sequential
 	// processor. Toggled by /think slash command.
-	seqEnabled bool
+	sequentialExecution *sequentialExecution
+	seqEnabled          bool
 	// thinkingLevel controls the model's extended thinking budget.
 	// Valid values: off, minimal, low, medium, high, x-high.
 	thinkingLevel string
@@ -194,7 +212,8 @@ type Agent struct {
 	// queueState holds the current sequential processing queue state
 	// for the TUI Queue pane to display. Written by runSequential,
 	// read by the API handler. Protected by mu.
-	queueState *QueueState
+	queueState               *QueueState
+	verificationObservations verificationObservations
 
 	// postWriteVerifier checks files written by tool calls for
 	// well-formedness (Batch G2). Optional; nil disables. Separate
@@ -283,6 +302,8 @@ type Agent struct {
 	// in New(); never replaced.
 	sessionCtx    context.Context
 	sessionCancel context.CancelFunc
+	afterTurnMu   sync.Mutex
+	afterTurnDone chan struct{}
 
 	// forkFn, if set, is called by Fork() to create a session branch.
 	// Wired by the cmd layer to session.PostgresStore.Clone. Nil means
@@ -381,7 +402,9 @@ type Agent struct {
 	speculation *speculation.Engine
 	// autoMemory, if set, extracts durable facts from the transcript
 	// on AfterTurn (port from Claude Code's extractMemories).
-	autoMemory *automemory.Extractor
+	autoMemory          *automemory.Extractor
+	autoMemoryMessages  int
+	autoMemoryProcessed int
 
 	// completionAuditor, if set, verifies agent output against claims
 	// after task completion (anti-lazy-LLM). Runs build, tests, git diff,
@@ -476,6 +499,15 @@ func (a *Agent) AuditAndRetry(ctx context.Context, pre *audit.Snapshot, claims [
 func (a *Agent) SetAutoMemory(e *automemory.Extractor) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if e != nil {
+		e.SetUsageObserver(func(ctx context.Context, model string, usage providers.Usage) error {
+			err := recordGoalUsage(ctx, usage)
+			if obs := a.usageObserver.Load(); obs != nil && (usage.InputTokens > 0 || usage.OutputTokens > 0) {
+				func() { defer func() { _ = recover() }(); obs.fn(model, usage) }()
+			}
+			return err
+		})
+	}
 	a.autoMemory = e
 }
 
@@ -530,13 +562,31 @@ func (a *Agent) SetUsageObserver(fn func(modelID string, usage providers.Usage))
 // SetAutoMode configures autonomous execution behavior. Pass a level string
 // ("safe", "yolo", "auto") to enable; pass "" or "supervised" for legacy
 // behavior. Auto mode loads plan files, batches upfront questions, and
-// chains phases without human input.
+// chains phases without human input. "readonly" independently denies mutating
+// tool calls; other levels do not install an approval policy or OS sandbox.
 func (a *Agent) SetAutoMode(level string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.configuredReadonly.Store(level == "readonly")
+	a.planReadonly.Store(false)
+	a.setAutoModeLocked(level)
+}
+
+// Interactive mode changes cannot clear the trusted configuration ceiling.
+func (a *Agent) setInteractiveAutoMode(level string, planning bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.planReadonly.Store(planning)
+	a.setAutoModeLocked(level)
+}
+
+func (a *Agent) setAutoModeLocked(level string) {
 	switch level {
 	case "safe", "yolo", "auto":
 		a.autoMode = NewAutoMode(level)
+		if level == "auto" {
+			a.autoMode.SetSelfEval(NewSelfEvaluateLoop(nil, a.recovery, nil))
+		}
 	default:
 		a.autoMode = nil
 	}
@@ -783,26 +833,28 @@ func (a *Agent) RestoreHistory(history []providers.Message) {
 }
 
 // FireSessionStart fires the on_session_start hook (master plan §6.3). Safe
-// to call repeatedly; callers (cmd/overkill) typically fire once on agent boot.
+// to call repeatedly; Run and Stream fire it on the first admitted turn.
 func (a *Agent) FireSessionStart(ctx context.Context) {
 	if a == nil || a.hooks == nil {
 		return
 	}
-	_, _ = a.hooks.Fire(ctx, hooks.OnSessionStart, hooks.Event{
-		Point:     hooks.OnSessionStart,
-		SessionID: a.SessionID(),
+	a.hookStartOnce.Do(func() {
+		_, _ = a.hooks.Fire(ctx, hooks.OnSessionStart, hooks.Event{
+			SessionID: a.SessionID(),
+		})
 	})
 }
 
-// FireSessionEnd fires the on_session_end hook. Wired into the TUI's quit
-// path so user-defined cleanup scripts get a chance to run.
+// FireSessionEnd fires on_session_end once per agent lifetime. Shutdown gives
+// user-defined cleanup scripts a bounded context independent of a cancelled turn.
 func (a *Agent) FireSessionEnd(ctx context.Context) {
 	if a == nil || a.hooks == nil {
 		return
 	}
-	_, _ = a.hooks.Fire(ctx, hooks.OnSessionEnd, hooks.Event{
-		Point:     hooks.OnSessionEnd,
-		SessionID: a.SessionID(),
+	a.hookEndOnce.Do(func() {
+		_, _ = a.hooks.Fire(ctx, hooks.OnSessionEnd, hooks.Event{
+			SessionID: a.SessionID(),
+		})
 	})
 }
 
@@ -850,21 +902,30 @@ func (a *Agent) SetRewriter(r PromptRewriter) {
 }
 
 type Config struct {
-	Provider              providers.Provider
-	Tools                 *tools.Registry
-	Compressors           *tools.CompressorRegistry
-	Hooks                 *hooks.Registry
-	Scanners              []security.Scanner
-	Tokenizer             *tokenizer.Estimator
-	Forethinker           *Forethinker
-	Steering              *SteeringQueue
-	SpecDriver            *SpecDriver
-	Model                 string
-	MaxTokens             int
+	Provider    providers.Provider
+	Tools       *tools.Registry
+	Compressors *tools.CompressorRegistry
+	Hooks       *hooks.Registry
+	Scanners    []security.Scanner
+	Tokenizer   *tokenizer.Estimator
+	Forethinker *Forethinker
+	Steering    *SteeringQueue
+	SpecDriver  *SpecDriver
+	Model       string
+	MaxTokens   int
+	// ContextWindow is the total model context capacity; MaxTokens caps output.
+	// Zero keeps the legacy MaxTokens-based budget estimator behavior.
+	TokenLimits           providers.TokenLimitResolver
+	ContextWindow         int
 	SystemPrompt          string
+	InstructionSource     *instructions.Source
 	SystemPromptOverrides map[string]string // model ID → custom system prompt
 	MaxSteps              int
-	SessionID             string
+	// DisableAtMentions requires all file reads to go through contained tools.
+	DisableAtMentions bool
+	// Workspace anchors @path reads; empty disables automatic file preload.
+	Workspace string
+	SessionID string
 	// MaxToolOutputChars is the safety-net truncation limit applied to
 	// every tool output before it enters history. Compressors run first;
 	// if output still exceeds this limit, it is truncated with a
@@ -881,7 +942,11 @@ func New(cfg Config) *Agent {
 
 	var budgetEst *BudgetEstimator
 	if cfg.Tokenizer != nil {
-		budgetEst = NewBudgetEstimator(cfg.Tokenizer, cfg.MaxTokens)
+		capacity := cfg.ContextWindow
+		if capacity <= 0 {
+			capacity = cfg.MaxTokens
+		}
+		budgetEst = NewBudgetEstimator(cfg.Tokenizer, capacity)
 	}
 
 	forethinker := cfg.Forethinker
@@ -915,9 +980,13 @@ func New(cfg Config) *Agent {
 		bus:                   NewEventBus(),
 		model:                 cfg.Model,
 		maxTokens:             cfg.MaxTokens,
+		tokenLimits:           cfg.TokenLimits,
 		systemPrompt:          cfg.SystemPrompt,
+		instructionSource:     cfg.InstructionSource,
 		systemPromptOverrides: cfg.SystemPromptOverrides,
 		maxSteps:              maxSteps,
+		disableAtMentions:     cfg.DisableAtMentions,
+		mentionWorkspace:      cfg.Workspace,
 		_sessionID:            cfg.SessionID,
 		maxToolOutputChars:    defaultMaxToolOutput(cfg.MaxToolOutputChars),
 		history:               make([]providers.Message, 0),
@@ -947,13 +1016,21 @@ func defaultMaxToolOutput(n int) int {
 
 // Shutdown cancels the agent's session-scoped context so background
 // goroutines (auto-compaction etc.) wind down. Safe to call multiple
-// times. The TUI's quit defer should call this before FireSessionEnd to
-// stop in-flight work cleanly.
+// times. Session-end hooks receive at most five seconds in total.
 func (a *Agent) Shutdown() {
 	if a == nil || a.sessionCancel == nil {
 		return
 	}
 	a.sessionCancel()
+	a.afterTurnMu.Lock()
+	afterTurnDone := a.afterTurnDone
+	a.afterTurnMu.Unlock()
+	if afterTurnDone != nil {
+		<-afterTurnDone
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	a.FireSessionEnd(ctx)
 }
 
 // Bus returns the agent's internal event bus. Subscribers receive structured
@@ -1115,24 +1192,48 @@ func (a *Agent) SetCompletionEmitter(e *events.Emitter, tracker cost.Tracker) {
 }
 
 type RunResult struct {
-	Response    string                `json:"response"`
-	ToolCalls   int                   `json:"tool_calls"`
-	TotalTokens int                   `json:"total_tokens"`
-	Steps       int                   `json:"steps"`
-	Model       string                `json:"model"`
-	Blocked     bool                  `json:"blocked"`
-	BlockReason string                `json:"block_reason,omitempty"`
-	Confidence  *ConfidenceAssessment `json:"confidence,omitempty"`
+	sequential  bool
+	Plan        *PlanExecutionObservation `json:"plan,omitempty"`
+	Response    string                    `json:"response"`
+	ToolCalls   int                       `json:"tool_calls"`
+	TotalTokens int                       `json:"total_tokens"`
+	Steps       int                       `json:"steps"`
+	Model       string                    `json:"model"`
+	Blocked     bool                      `json:"blocked"`
+	BlockReason string                    `json:"block_reason,omitempty"`
+	Confidence  *ConfidenceAssessment     `json:"confidence,omitempty"`
 }
 
-func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
-	runStart := time.Now()
-
+func (a *Agent) Run(ctx context.Context, userInput string) (runResult *RunResult, runErr error) {
 	// Gate: if already running, reject the call (harness should have checked).
 	if a.running.Swap(true) {
 		return nil, fmt.Errorf("agent: already running — wait for current turn to finish or use /stop")
 	}
 	defer a.running.Store(false)
+	ctx, stopRun := a.stopAwareRunContext(ctx)
+	defer stopRun()
+	a.FireSessionStart(ctx)
+	result, err := a.runAdmitted(ctx, userInput)
+	if err == nil && result != nil && !result.Blocked && !result.sequential {
+		a.fireAfterTurn(ctx)
+	}
+	return result, err
+}
+
+// runAdmitted executes under Run's admission. Sequential items reuse the
+// outer admission and goal context; external callers must always use Run.
+func (a *Agent) runAdmitted(ctx context.Context, userInput string) (runResult *RunResult, runErr error) {
+	runStart := time.Now()
+	if err := func() error {
+		if isSequentialItem(ctx) {
+			return nil
+		}
+		return a.beginFlowTurn(ctx)
+	}(); err != nil {
+		return nil, err
+	}
+	a.archivePlanObservation()
+	ctx = a.observedVerificationContext(ctx)
 
 	if obs := a.userInputObserver.Load(); obs != nil {
 		func() {
@@ -1146,8 +1247,28 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 	// and short-circuit normal processing.
 	if cmd := ParseSlashCommand(userInput); cmd != nil {
 		if msg, handled := a.handleSlashCommand(cmd); handled {
-			return &RunResult{Response: msg, Model: a.Model()}, nil
+			if cmd.Command != "build" || !a.hasFreshLoadedPlan() {
+				return &RunResult{Response: msg, Model: a.Model()}, nil
+			}
 		}
+	}
+
+	goalCtx, goalTurn, goalErr := a.beginGoalTurn(ctx)
+	if goalErr != nil {
+		return nil, goalErr
+	}
+	ctx = goalCtx
+	if goalTurn != nil {
+		defer goalTurn.cancel(nil)
+		defer func() {
+			if err := goalTurn.RecordTurnEnd(ctx, 0); err != nil {
+				if runErr == nil {
+					runErr = err
+				} else {
+					runErr = fmt.Errorf("%w; goal accounting: %v", runErr, err)
+				}
+			}
+		}()
 	}
 
 	// §7.1 per-task complexity-based timeout: bound the rest of Run()
@@ -1213,6 +1334,13 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		}
 	}
 
+	var planErr error
+	ctx, userInput, planErr = a.beginLoadedPlan(ctx, userInput)
+	if planErr != nil {
+		return nil, planErr
+	}
+	defer a.finishLoadedPlan(ctx)
+
 	// §8.6.2 Pre-action reflection: classify content, check user model,
 	// inventory tools, decide modality. Injects a modality hint into the
 	// system prompt when relevant (e.g. "offer audio for this research").
@@ -1225,28 +1353,19 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 	a.mu.RLock()
 	seq := a.seqEnabled
 	a.mu.RUnlock()
-	if seq && reflection.ShouldDecompose {
+	if seq && len(sequentialItems(userInput)) >= 2 && ctx.Value(loadedPlanKey{}) == nil {
 		return a.runSequential(ctx, userInput, reflection)
 	}
 
-	// Inject modality hint into system prompt if reflection produced one.
-	if hint := reflection.ModalitySystemHint(); hint != "" {
-		a.mu.Lock()
-		prevPrompt := a.systemPrompt
-		a.systemPrompt = prevPrompt + "\n\n" + hint
-		a.mu.Unlock()
-		defer func() {
-			a.mu.Lock()
-			a.systemPrompt = prevPrompt
-			a.mu.Unlock()
-		}()
-	}
+	// The shared request builder adds a current capability-aware modality hint
+	// for Run and Stream, without mutating the session's system prompt.
 
 	a.mu.Lock()
 	a.history = append(a.history, providers.Message{
 		Role:    "user",
 		Content: userInput,
 	})
+	a.autoMemoryMessages++
 	a.mu.Unlock()
 
 	// §4.19 journal: record user input to flight recorder. Best-effort —
@@ -1255,10 +1374,20 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 
 	// Pre-load any files the user referenced with @path so the model has
 	// their contents in-context without needing to call a tool.
-	if attached := loadAtMentions(userInput); attached != "" {
+	if attached := func() string {
+		if isSequentialItem(ctx) {
+			return sequentialSource(ctx)
+		}
+		return a.loadInputMentions(ctx, userInput)
+	}(); attached != "" {
 		a.appendMessage(providers.Message{
-			Role:    "system",
-			Content: "files referenced via @path:\n" + attached,
+			Role: "system",
+			Content: func() string {
+				if isSequentialItem(ctx) {
+					return attached
+				}
+				return "files referenced via @path:\n" + attached
+			}(),
 		})
 	}
 
@@ -1280,15 +1409,24 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 	for step := 0; step < a.maxSteps; step++ {
 		select {
 		case <-ctx.Done():
+			a.checkpointContextExit(ctx, userInput, step, "cancelled_by_user")
 			return nil, fmt.Errorf("agent: context cancelled: %w", ctx.Err())
 		default:
 		}
 
-		// Pre-flight budget check. Best-effort; failure here never blocks.
-		a.checkBudget()
+		// Compact before constructing a provider request, then enforce capacity.
+		if err := a.checkBudget(ctx); err != nil {
+			if ctx.Err() != nil {
+				a.checkpointContextExit(ctx, userInput, step, "cancelled_by_user")
+			}
+			return nil, err
+		}
 
 		stepResult, err := a.step(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				a.checkpointContextExit(ctx, userInput, step, "cancelled_by_user")
+			}
 			if a.hooks != nil {
 				a.hooks.Fire(ctx, hooks.OnError, hooks.Event{
 					Error:     err,
@@ -1319,8 +1457,23 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 		}
 
 		if stepResult.Done {
+			if stepResult.VerificationFailure != "" {
+				result.Blocked = true
+				result.BlockReason = stepResult.VerificationFailure
+				result.Response = stepResult.Thought
+				a.emitCompletion(ctx, userInput, "failure", runStart, []string{stepResult.VerificationFailure})
+				return result, nil
+			}
 			result.Response = stepResult.Thought
+			if err := a.evaluateCompletion(ctx, userInput, result, nil); err != nil {
+				a.emitCompletion(ctx, userInput, "failure", runStart, []string{err.Error()})
+				return result, err
+			}
 			result.Confidence = a.assessTurnConfidence(userInput)
+			if result.Blocked {
+				a.emitCompletion(ctx, userInput, "failure", runStart, []string{result.BlockReason})
+				return result, nil
+			}
 			// §6.2: if a prior Run failed with a known class and this one
 			// completed cleanly, count it as a recovery. Self-learning's
 			// "you've solved this 3 times" trigger fires from these.
@@ -1333,11 +1486,25 @@ func (a *Agent) Run(ctx context.Context, userInput string) (*RunResult, error) {
 			// looks like one, so future turns benefit from the feedback.
 			a.recordCorrectionIfNeeded(userInput, result.Response)
 			a.emitCompletion(ctx, userInput, "success", runStart, nil)
+			a.extractAutoMemory(ctx)
 			return result, nil
 		}
 	}
 
+	if ctx.Err() != nil {
+		a.checkpointContextExit(ctx, userInput, a.maxSteps, "cancelled_by_user")
+		return nil, ctx.Err()
+	}
+	select {
+	case <-a.StopCh():
+		a.checkpointInterrupt(userInput, a.maxSteps, "halted_by_estop")
+		return nil, errAgentEmergencyStop
+	default:
+	}
 	maxStepsErr := fmt.Errorf("agent: exceeded max steps (%d)", a.maxSteps)
+	if err := a.checkpointRunExit(userInput, a.maxSteps, fmt.Sprintf("exceeded max steps (%d)", a.maxSteps)); err != nil {
+		return nil, fmt.Errorf("flow checkpoint failed: %w", err)
+	}
 	a.emitCompletion(ctx, userInput, "failure", runStart, []string{maxStepsErr.Error()})
 	return nil, maxStepsErr
 }
@@ -1373,58 +1540,69 @@ func (a *Agent) emitImpact(toolName string, input json.RawMessage) {
 	})
 }
 
-// checkBudget runs the budget estimator against current state and emits a
-// budget_warning event when the warn threshold is crossed. No-op when the
-// estimator isn't wired (e.g., in unit tests with a nil tokenizer).
-func (a *Agent) checkBudget() {
+// checkBudget compacts synchronously at a turn boundary. The provider must not
+// receive an oversized request while a background summary races its history.
+func (a *Agent) checkBudget(ctx context.Context) error {
+	if err := checkGoalBudget(ctx); err != nil {
+		return err
+	}
+	if a.tokenLimits != nil {
+		capacity, output, err := a.tokenLimits(a.Model())
+		if err != nil {
+			return fmt.Errorf("agent: token limits: %w", err)
+		}
+		a.mu.Lock()
+		a.maxTokens = output
+		if a.budgetEstimator != nil {
+			a.budgetEstimator.maxTokens = capacity
+		}
+		a.mu.Unlock()
+	}
 	if a.budgetEstimator == nil {
-		return
+		return nil
 	}
 	report := a.BudgetReport()
 	if report == nil || !report.ShouldWarn {
-		return
+		return nil
 	}
 	a.emit("budget_warning", map[string]any{
-		"utilization":    report.Utilization,
-		"total_estimate": report.TotalEstimate,
-		"max_tokens":     report.MaxTokens,
-		"should_compact": report.ShouldCompact,
-		"session_id":     a.SessionID(),
+		"utilization": report.Utilization, "total_estimate": report.TotalEstimate,
+		"max_tokens": report.MaxTokens, "should_compact": report.ShouldCompact,
+		"session_id": a.SessionID(),
 	})
-
-	// Master plan §4.4 50% trigger: when ShouldCompact crosses (default 0.5),
-	// trigger compaction proactively rather than waiting for the user to type
-	// /compact. Best-effort — failure is logged via emit, never fatal.
-	if report.ShouldCompact && a.useCompactor.Load() && a.compactor.Load() != nil && !a.compactionInFlight.Load() {
-		a.compactionInFlight.Store(true)
-		// Derive from sessionCtx (not Background()) so Shutdown cancels
-		// in-flight auto-compaction instead of leaking the goroutine
-		// past TUI exit. Fall back to Background only when sessionCtx
-		// is nil (defensive — shouldn't happen with New()).
-		parent := a.sessionCtx
-		if parent == nil {
-			parent = context.Background()
-		}
-		go func() {
+	var compactErr error
+	if report.ShouldCompact && a.useCompactor.Load() && a.compactor.Load() != nil && a.compactionInFlight.CompareAndSwap(false, true) {
+		func() {
 			defer a.compactionInFlight.Store(false)
-			defer func() { _ = recover() }()
-			ctx, cancel := context.WithTimeout(parent, 60*time.Second)
+			compactCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 			defer cancel()
-			if res, err := a.Compact(ctx); err != nil {
+			res, err := a.Compact(compactCtx)
+			compactErr = err
+			if err != nil {
 				a.emit("auto_compact_failed", map[string]any{"error": err.Error()})
 			} else if res != nil {
-				a.emit("auto_compacted", map[string]any{
-					"tokens_before": res.TokensBefore,
-					"tokens_after":  res.TokensAfter,
-				})
+				a.emit("auto_compacted", map[string]any{"tokens_before": res.TokensBefore, "tokens_after": res.TokensAfter})
 			}
 		}()
+		report = a.BudgetReport()
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if report != nil && report.HardExceeded {
+		if compactErr != nil {
+			return fmt.Errorf("agent: context budget exceeded (%d/%d estimated tokens); compaction failed: %w", report.TotalEstimate, report.MaxTokens, compactErr)
+		}
+		return fmt.Errorf("agent: context budget exceeded (%d/%d estimated tokens); compact the conversation or choose a larger context model", report.TotalEstimate, report.MaxTokens)
+	}
+	return nil
 }
 
 // assessTurnConfidence scores how confident the agent should be in its own
 // answer using AssessConfidence. Defensive: any panic returns nil.
 func (a *Agent) assessTurnConfidence(userInput string) (out *ConfidenceAssessment) {
+	a.startConfidenceObservation()
+	defer func() { a.finishConfidenceObservation(out) }()
 	defer func() {
 		if r := recover(); r != nil {
 			out = nil
@@ -1518,9 +1696,7 @@ func (a *Agent) History() []providers.Message {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	cp := make([]providers.Message, len(a.history))
-	copy(cp, a.history)
-	return cp
+	return a.durableHistoryLocked()
 }
 
 func (a *Agent) SetHistory(messages []providers.Message) {
@@ -1609,7 +1785,11 @@ func truncateForStatus(s string) string {
 	return flat[:max] + "…"
 }
 
-func (a *Agent) buildRequest() providers.Request {
+func (a *Agent) buildRequest(contexts ...context.Context) providers.Request {
+	requestCtx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		requestCtx = contexts[0]
+	}
 	a.mu.RLock()
 	msgs := make([]providers.Message, len(a.history))
 	copy(msgs, a.history)
@@ -1628,7 +1808,7 @@ func (a *Agent) buildRequest() providers.Request {
 			}
 			func() {
 				defer func() { _ = recover() }()
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(requestCtx, 5*time.Second)
 				defer cancel()
 				rewritten, err := rw.RewritePrompt(ctx, msgs[i].Content)
 				if err == nil && rewritten != "" && rewritten != msgs[i].Content {
@@ -1653,15 +1833,31 @@ func (a *Agent) buildRequest() providers.Request {
 	if skillBlock := a.renderSkillSection(latestUser); skillBlock != "" {
 		prompt = prompt + "\n\n" + skillBlock
 	}
+	if hint := a.reflectBeforeAction(latestUser).ModalitySystemHint(); hint != "" {
+		prompt += "\n\n" + hint
+	}
 	// Extensions (P2): render enabled extensions into the system prompt
 	// so the model knows what plugins/skills/hooks are active.
 	if extBlock := a.renderExtensionsSection(); extBlock != "" {
 		prompt = prompt + "\n\n" + extBlock
 	}
+	if memories := func() string {
+		if isSequentialItem(requestCtx) {
+			return ""
+		}
+		return a.autoMemoryPrompt()
+	}(); memories != "" {
+		prompt += "\n\n" + memories
+	}
 	// Memory recall (master plan §6.1): top-K retrieval against latest user
 	// input. Slots between skills and personality so memory is framed as
 	// reference data while identity directives keep the last word.
-	if memBlock := a.renderMemorySection(context.Background(), latestUser); memBlock != "" {
+	if memBlock := func() string {
+		if isSequentialItem(requestCtx) {
+			return ""
+		}
+		return a.renderMemorySection(requestCtx, latestUser)
+	}(); memBlock != "" {
 		prompt = prompt + "\n\n" + memBlock
 	}
 	// Personality directive (§4.16): long-lived character/tone block. Comes
@@ -1676,7 +1872,7 @@ func (a *Agent) buildRequest() providers.Request {
 	// that, and a blocking plugin would stall every Run. Wrap in a 5s
 	// budget so a misbehaving callback degrades to "no extra context" for
 	// this turn instead of hanging the loop.
-	pctx, pcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pctx, pcancel := context.WithTimeout(requestCtx, 5*time.Second)
 	if extra := a.providedContext(pctx); extra != "" {
 		// B051: enforce a per-turn character budget on plugin context.
 		// Without this, the combined output of skills + memory +
@@ -1694,7 +1890,7 @@ func (a *Agent) buildRequest() providers.Request {
 	// for the current session, append it to the system prompt so the model
 	// keeps the standing objective in mind every turn.
 	if a.goalStore != nil {
-		gctx, gcancel := context.WithTimeout(context.Background(), 3*time.Second)
+		gctx, gcancel := context.WithTimeout(requestCtx, 3*time.Second)
 		if g, err := a.goalStore.Get(gctx, a.SessionID()); err == nil && g != nil && g.Active {
 			prompt = prompt + "\n\n[GOAL] " + g.Text
 		}
@@ -1707,6 +1903,9 @@ func (a *Agent) buildRequest() providers.Request {
 	// utilization is high, run the assembled prompt through a compressor
 	// LLM call. Failures fall back to the original prompt silently.
 	prompt = a.applyPromptCompression(prompt)
+	// Reload scoped instructions after compression so current guidance is retained verbatim.
+	prompt = a.withInstructions(prompt)
+	prompt = a.withEvolutionGuidance(requestCtx, prompt)
 
 	thinkingLevel := a.ThinkingLevel()
 
@@ -1737,10 +1936,14 @@ func (a *Agent) buildToolDefs() []providers.Tool {
 				})
 				continue
 			}
-			toolDefs = append(toolDefs, providers.Tool{
-				Name:        t.Name(),
-				Description: "Execute tool: " + t.Name(),
-			})
+			definition := providers.Tool{Name: t.Name(), Description: "Execute tool: " + t.Name()}
+			if described, ok := t.(interface{ Description() string }); ok {
+				definition.Description = described.Description()
+			}
+			if described, ok := t.(interface{ Schema() json.RawMessage }); ok {
+				definition.Parameters = described.Schema()
+			}
+			toolDefs = append(toolDefs, definition)
 		}
 	}
 	return toolDefs
@@ -1878,10 +2081,12 @@ func (a *Agent) BudgetReport() *BudgetReport {
 	a.mu.RLock()
 	msgs := make([]providers.Message, len(a.history))
 	copy(msgs, a.history)
+	isolated := a.sequentialExecution != nil && a.sequentialExecution.frame != nil
 	a.mu.RUnlock()
 
 	toolDefs := a.buildToolDefs()
-	systemPrompt := BuildSystemPrompt(a.systemPrompt, a.toolRegistry)
+	systemPrompt := a.withInstructions(BuildSystemPrompt(a.systemPrompt, a.toolRegistry))
+	systemPrompt = a.withEvolutionGuidance(context.Background(), systemPrompt)
 	// Include skill section in token estimates so budget reports reflect the
 	// actual prompt size the model will see.
 	var latestUser string
@@ -1894,7 +2099,20 @@ func (a *Agent) BudgetReport() *BudgetReport {
 	if skillBlock := a.renderSkillSection(latestUser); skillBlock != "" {
 		systemPrompt = systemPrompt + "\n\n" + skillBlock
 	}
-	if memBlock := a.renderMemorySection(context.Background(), latestUser); memBlock != "" {
+	if memories := func() string {
+		if isolated {
+			return ""
+		}
+		return a.autoMemoryPrompt()
+	}(); memories != "" {
+		systemPrompt += "\n\n" + memories
+	}
+	if memBlock := func() string {
+		if isolated {
+			return ""
+		}
+		return a.renderMemorySection(context.Background(), latestUser)
+	}(); memBlock != "" {
 		systemPrompt = systemPrompt + "\n\n" + memBlock
 	}
 	if persona := a.personalitySection(); persona != "" {
@@ -1987,14 +2205,29 @@ type CompactResult struct {
 
 // Compact summarizes the current conversation history into a single message,
 // drastically reducing token usage while preserving key decisions and state.
-func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
-	a.mu.RLock()
+func (a *Agent) Compact(ctx context.Context) (compactResult *CompactResult, compactErr error) {
+	a.mu.Lock()
+	a.captureSequentialLocked()
 	history := make([]providers.Message, len(a.history))
 	copy(history, a.history)
-	a.mu.RUnlock()
+	a.mu.Unlock()
 
 	if len(history) == 0 {
 		return &CompactResult{}, nil
+	}
+
+	goalCtx, goalTurn, err := a.beginGoalTurn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ctx = goalCtx
+	if goalTurn != nil {
+		defer goalTurn.cancel(nil)
+		defer func() {
+			if err := goalTurn.RecordTurnEnd(ctx, 0); err != nil {
+				compactErr = err
+			}
+		}()
 	}
 
 	// Master plan §6.3: before/after compaction hooks.
@@ -2028,9 +2261,14 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 
 	model := a.Model()
 	var summary string
+	var compacted []providers.Message
 	if useC && c != nil {
 		// Delegate to the LCM 3-level escalation compactor.
-		_, s, err := c.Compact(ctx, history, model, a.maxTokens)
+		capacity := a.maxTokens
+		if a.budgetEstimator != nil && a.budgetEstimator.maxTokens > 0 {
+			capacity = a.budgetEstimator.maxTokens
+		}
+		messages, s, err := c.Compact(ctx, history, model, capacity)
 		if err != nil {
 			return nil, fmt.Errorf("agent: compact (lcm): %w", err)
 		}
@@ -2038,6 +2276,7 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 			return nil, fmt.Errorf("agent: compact: lcm returned empty summary")
 		}
 		summary = s
+		compacted = messages
 	} else {
 		// Legacy ad-hoc compact path (kept as a kill switch).
 		compactPrompt := "Summarize the conversation above into a single concise paragraph. " +
@@ -2055,7 +2294,13 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 			SystemPrompt: "You produce dense factual summaries of prior conversation.",
 		}
 
+		if err := checkGoalBudget(ctx); err != nil {
+			return nil, err
+		}
 		resp, err := a.provider.Complete(ctx, req)
+		if usageErr := recordProviderUsage(ctx, usageResponseModel(req.Model, resp), resp.Usage, resp.UsageReported); usageErr != nil {
+			return nil, usageErr
+		}
 		if err != nil {
 			return nil, fmt.Errorf("agent: compact: %w", err)
 		}
@@ -2072,18 +2317,30 @@ func (a *Agent) Compact(ctx context.Context) (*CompactResult, error) {
 	// Best-effort — failures are emitted, never abort compaction.
 	a.archiveCompactedMessages(history)
 
-	newHistory := []providers.Message{
-		{Role: "assistant", Content: "[compacted history] " + summary},
+	newHistory := compacted
+	if len(newHistory) == 0 {
+		newHistory = []providers.Message{{Role: "assistant", Content: "[compacted history] " + summary}}
+		// The current user request remains actionable even for compactors that
+		// implement only the summary return value.
+		if last := history[len(history)-1]; last.Role == "user" {
+			newHistory = append(newHistory, last)
+		}
 	}
 
 	a.mu.Lock()
 	msgsBefore := len(a.history)
+	a.captureSequentialLocked()
 	a.history = newHistory
+	if a.sequentialExecution != nil && a.sequentialExecution.frame != nil {
+		a.sequentialExecution.frame.cursor = len(newHistory)
+	}
 	a.mu.Unlock()
 
 	tokensAfter := 0
 	if a.tokenizer != nil {
-		tokensAfter = a.tokenizer.Estimate(summary) + 4
+		for _, message := range newHistory {
+			tokensAfter += a.tokenizer.Estimate(message.Content) + 4
+		}
 	}
 
 	a.emit("compact", map[string]any{
@@ -2214,6 +2471,9 @@ func scanInjection(scanners []security.Scanner, text string) string {
 // provider callback, or empty string if none. Wrapped in recover so a
 // misbehaving plugin can't take down the agent.
 func (a *Agent) providedContext(ctx context.Context) (out string) {
+	if isSequentialItem(ctx) {
+		return ""
+	}
 	a.mu.RLock()
 	fn := a.contextProviderFn
 	a.mu.RUnlock()
@@ -2254,8 +2514,11 @@ func (a *Agent) SetPrivilegeGate(g *security.PrivilegeGate) {
 	a.privilege.Store(g)
 }
 
-// PrivilegeMode returns the gate's current mode, or empty when no gate is wired.
+// PrivilegeMode returns the effective mode, or empty when no gate is wired.
 func (a *Agent) PrivilegeMode() security.PrivilegeMode {
+	if a.configuredReadonly.Load() || a.planReadonly.Load() {
+		return security.ModeReader
+	}
 	g := a.privilege.Load()
 	if g == nil {
 		return ""
@@ -2263,7 +2526,8 @@ func (a *Agent) PrivilegeMode() security.PrivilegeMode {
 	return g.Mode()
 }
 
-// SetPrivilegeMode flips the gate's mode if a gate is wired. No-op otherwise.
+// SetPrivilegeMode flips the optional gate's mode. Configured readonly still
+// takes precedence; only a trusted SetAutoMode configuration change clears it.
 func (a *Agent) SetPrivilegeMode(m security.PrivilegeMode) {
 	if g := a.privilege.Load(); g != nil {
 		g.SetMode(m)
@@ -2287,6 +2551,7 @@ func (a *Agent) PermissionLog() []security.LedgerEntry {
 func (a *Agent) approvalCheck(toolName, args, risk string) bool {
 	a.mu.RLock()
 	fn := a.approvalFn
+	requiresApproval := a.autoMode != nil && a.autoMode.Level.NeedsApproval(risk == "high")
 	if a.allowedTools[toolName] {
 		a.mu.RUnlock()
 		return true
@@ -2294,7 +2559,7 @@ func (a *Agent) approvalCheck(toolName, args, risk string) bool {
 	a.mu.RUnlock()
 
 	if fn == nil {
-		return true
+		return !requiresApproval
 	}
 
 	dec := fn(toolName, args, risk)
@@ -2329,6 +2594,9 @@ func (a *Agent) appendMessage(msg providers.Message) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.history = append(a.history, msg)
+	if msg.Role == "user" {
+		a.autoMemoryMessages++
+	}
 }
 
 func (a *Agent) appendToolResultMessage(toolCallID, toolName string, output json.RawMessage, toolErr error) {
@@ -2367,6 +2635,7 @@ func (a *Agent) appendToolResultMessage(toolCallID, toolName string, output json
 		})
 	}
 
+	content = secureToolOutputContext(toolName, content)
 	a.appendMessage(providers.Message{
 		Role:       "tool",
 		Content:    content,
@@ -2563,10 +2832,13 @@ func (a *Agent) recordCorrectionIfNeeded(userInput, assistantResponse string) {
 // QueueSnapshot returns the current sequential processing queue state
 // for the TUI Queue pane. Thread-safe.
 func (a *Agent) QueueSnapshot() QueueState {
-	if a.queueState == nil {
+	a.mu.RLock()
+	queue := a.queueState
+	a.mu.RUnlock()
+	if queue == nil {
 		return QueueState{}
 	}
-	return a.queueState.Snapshot()
+	return queue.Snapshot()
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2579,90 +2851,100 @@ func (a *Agent) QueueSnapshot() QueueState {
 func (a *Agent) reflectBeforeAction(input string) SituationalReflection {
 
 	user := UserModel{
-		HasADHD:     false, // TODO: derive from personality engine when ADHD flag is available
-		IsOnMobile:  false, // TODO: derive from gateway context (Telegram/WhatsApp/Signal/SMS)
 		IsLateNight: isLateNight(),
 	}
-
-	return ReflectBeforeAction(input, user, a.toolInventory)
+	var names []string
+	if a.toolRegistry != nil {
+		names = a.toolRegistry.List()
+	}
+	return ReflectBeforeAction(input, user, NewEnabledToolInventory(names))
 }
 
 // runSequential decomposes a multi-item input and processes each item
 // through the full agent loop independently (§8.6.1).
 func (a *Agent) runSequential(ctx context.Context, input string, reflection SituationalReflection) (*RunResult, error) {
-	if a.seqProcessor == nil {
-		a.seqProcessor = NewSequentialProcessor()
-	}
-
-	items := a.seqProcessor.Decomposer.Decompose(input)
-	if len(items) < 2 {
-		// Not actually multi-item — disable seq mode for this turn
-		// and fall through to normal processing.
+	if len(sequentialItems(input)) < 2 {
 		a.mu.Lock()
+		previous := a.seqEnabled
 		a.seqEnabled = false
 		a.mu.Unlock()
-		return a.Run(ctx, input)
+		defer func() { a.mu.Lock(); a.seqEnabled = previous; a.mu.Unlock() }()
+		return a.runAdmitted(ctx, input)
 	}
-
-	// Initialize queue state for TUI display.
-	if a.queueState == nil {
-		a.queueState = &QueueState{}
+	queue, err := a.beginSequential(input, nil)
+	if err != nil {
+		return nil, err
 	}
-	a.queueState.SetItems(items)
-	defer a.queueState.Finish()
-
-	var results []string
-	successes := 0
-	failures := 0
-
-	// Temporarily disable seq mode to prevent recursive decomposition.
-	a.mu.Lock()
-	a.seqEnabled = false
-	a.mu.Unlock()
-	defer func() {
-		a.mu.Lock()
-		a.seqEnabled = true
-		a.mu.Unlock()
-	}()
-
-	for i := range items {
-		item := &items[i]
-		item.Status = WorkItemActive
-		item.StartedAt = time.Now()
-
-		a.queueState.UpdateItem(item.Index, "active", "", 0)
-
-		itemPrompt := fmt.Sprintf("[Item %d of %d] %s", item.Index, len(items), item.Description)
-
-		result, err := a.Run(ctx, itemPrompt)
-		item.CompletedAt = time.Now()
-		elapsed := item.CompletedAt.Sub(item.StartedAt)
-
+	defer a.finishSequential()
+	workspace, err := openSequentialWorkspace(ctx, a.mentionWorkspace)
+	if err != nil {
+		return nil, err
+	}
+	defer workspace.Close()
+	a.mu.RLock()
+	total := len(a.sequentialExecution.items)
+	a.mu.RUnlock()
+	for i := 0; i < total; i++ {
+		if ctx.Err() != nil {
+			if _, beginErr := a.beginSequentialItem(i); beginErr == nil {
+				a.checkpointContextExit(ctx, input, 0, "cancelled_by_user")
+				a.finishSequentialItem(nil, context.Cause(ctx))
+			}
+			for j := i; j < total; j++ {
+				queue.UpdateItem(j+1, "skipped", "", 0)
+			}
+			return nil, context.Cause(ctx)
+		}
+		scope, err := a.beginSequentialItem(i)
 		if err != nil {
-			item.Status = WorkItemFailed
-			item.Error = err.Error()
-			failures++
-			a.queueState.UpdateItem(item.Index, "failed", err.Error(), elapsed)
-			results = append(results, fmt.Sprintf("❌ Item %d: %s", item.Index, err.Error()))
-		} else {
-			item.Status = WorkItemDone
-			item.Result = result.Response
-			successes++
-			a.queueState.UpdateItem(item.Index, "done", "", elapsed)
-			results = append(results, fmt.Sprintf("✅ Item %d (%s): done", item.Index, truncate(item.Description, 60)))
+			return nil, err
+		}
+		a.mu.RLock()
+		item := a.sequentialExecution.items[i]
+		a.mu.RUnlock()
+		queue.UpdateItem(item.Index, "active", "", 0)
+		itemCtx, cancel, err := a.sequentialItemContext(ctx, scope)
+		if err != nil {
+			return nil, err
+		}
+		prompt, err := workspace.ItemPrompt(itemCtx, item, total, a.sequentialFileBudget())
+		var result *RunResult
+		if err == nil {
+			itemCtx, userPrompt := withSequentialPrompt(itemCtx, prompt)
+			result, err = a.runAdmitted(itemCtx, userPrompt)
+		}
+		if result != nil && result.Blocked {
+			err = fmt.Errorf("sequential item blocked: %s", result.BlockReason)
+		}
+		if err == nil && result != nil && !result.Blocked {
+			a.fireAfterTurn(itemCtx)
+		}
+		if itemCtx.Err() != nil && !a.sequentialCheckpointed() {
+			a.checkpointContextExit(itemCtx, input, 0, "cancelled_by_user")
+		}
+		checkpointed := a.finishSequentialItem(result, err)
+		cancel()
+		status := "done"
+		message := ""
+		if err != nil {
+			status = "failed"
+			message = err.Error()
+		}
+		queue.UpdateItem(item.Index, status, message, time.Since(item.StartedAt))
+		if ctx.Err() != nil || checkpointed {
+			for j := i + 1; j < total; j++ {
+				queue.UpdateItem(j+1, "skipped", "", 0)
+			}
+			if err != nil {
+				return nil, err
+			}
+			if cause := context.Cause(ctx); cause != nil {
+				return nil, cause
+			}
+			return nil, fmt.Errorf("sequential queue checkpoint saved")
 		}
 	}
-
-	summary := fmt.Sprintf(
-		"🧠 **Think mode** — processed %d items: %d done, %d failed\n\n%s",
-		len(items), successes, failures,
-		joinStrings(results, "\n"),
-	)
-
-	return &RunResult{
-		Response: summary,
-		Model:    a.Model(),
-	}, nil
+	return a.sequentialSummary(), nil
 }
 
 // isLateNight checks if the current local time is between 10 PM and 6 AM.
@@ -2683,47 +2965,44 @@ func joinStrings(parts []string, sep string) string {
 	return result
 }
 
-// fireAfterTurn fires registered after_turn hooks asynchronously.
-// Best-effort — panics are recovered, never blocks the agent loop.
-func (a *Agent) fireAfterTurn() {
+// fireAfterTurn runs best-effort completion hooks within the admitted turn.
+// File hooks share one bounded deadline; turn/session cancellation terminates
+// them before admission is released, rather than orphaning background scripts.
+func (a *Agent) fireAfterTurn(parent context.Context) {
+	a.afterTurnMu.Lock()
+	if parent.Err() != nil || a.sessionCtx.Err() != nil {
+		a.afterTurnMu.Unlock()
+		return
+	}
+	done := make(chan struct{})
+	a.afterTurnDone = done
+	a.afterTurnMu.Unlock()
+	defer func() {
+		a.afterTurnMu.Lock()
+		a.afterTurnDone = nil
+		close(done)
+		a.afterTurnMu.Unlock()
+	}()
+	a.recordEvolutionTurn(parent)
 	// Speculation: start predicting the next action while the user
 	// hasn't typed yet. Cancelled when user sends a new message.
 	if a.speculation != nil {
 		a.speculation.Start()
 	}
 
-	// Auto-memory: extract durable facts from the conversation.
-	if a.autoMemory != nil {
-		go func() {
-			defer func() { recover() }()
-			// Build a transcript from recent history.
-			var sb strings.Builder
-			a.mu.RLock()
-			start := 0
-			if len(a.history) > 20 {
-				start = len(a.history) - 20
-			}
-			for _, msg := range a.history[start:] {
-				sb.WriteString(fmt.Sprintf("[%s] %s\n", msg.Role, msg.Content))
-			}
-			a.mu.RUnlock()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			_ = a.autoMemory.Extract(ctx, sb.String())
-		}()
-	}
-
 	if a.hooks == nil {
 		return
 	}
-	go func() {
-		defer func() { recover() }()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_, _ = a.hooks.Fire(ctx, hooks.AfterTurn, hooks.Event{
-			Point:     hooks.AfterTurn,
-			SessionID: a.SessionID(),
-		})
-	}()
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	stop := context.AfterFunc(a.sessionCtx, cancel)
+	defer stop()
+	_, _ = a.hooks.Fire(ctx, hooks.AfterTurn, hooks.Event{Point: hooks.AfterTurn, SessionID: a.SessionID()})
+}
+
+func (a *Agent) loadInputMentions(ctx context.Context, input string) string {
+	if a.disableAtMentions {
+		return ""
+	}
+	return loadWorkspaceMentions(ctx, a.mentionWorkspace, input)
 }

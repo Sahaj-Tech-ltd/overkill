@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/dbschema"
 	_ "github.com/lib/pq"
 )
 
@@ -33,70 +35,54 @@ func NewInputHistory(db *sql.DB) (*InputHistory, error) {
 }
 
 func (ih *InputHistory) migrate() error {
-	_, err := ih.db.Exec(`
-		CREATE TABLE IF NOT EXISTS input_history (
-			chat_key    TEXT PRIMARY KEY,
-			messages    JSONB NOT NULL DEFAULT '[]',
-			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)
-	`)
-	return err
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return dbschema.GatewayInputHistory(ctx, ih.db)
 }
 
-// Append prepends text to the chat's history ring buffer.
-// Uses a DB transaction with SELECT … FOR UPDATE to guard against
-// multi-process races — the in-process mutex alone is insufficient.
+// Append prepends text to the bounded history. Insert the row before locking
+// it so simultaneous first appends serialize just like existing-chat updates.
+// The transaction preserves existing data if reading or decoding fails.
 func (ih *InputHistory) Append(ctx context.Context, chatKey, text string) error {
 	tx, err := ih.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("input_history: begin tx: %w", err)
 	}
 	defer tx.Rollback()
-
-	// Read current entries with row-level lock.
-	var entries []string
-	err = tx.QueryRow(`SELECT messages FROM input_history WHERE chat_key = $1 FOR UPDATE`, chatKey).Scan(&entries)
-	if err == sql.ErrNoRows {
-		entries = []string{}
-	} else if err != nil {
-		var raw []byte
-		err2 := tx.QueryRow(`SELECT messages FROM input_history WHERE chat_key = $1 FOR UPDATE`, chatKey).Scan(&raw)
-		if err2 != nil {
-			entries = []string{}
-		} else {
-			_ = json.Unmarshal(raw, &entries)
-		}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO input_history (chat_key) VALUES ($1)
+		ON CONFLICT (chat_key) DO NOTHING
+	`, chatKey); err != nil {
+		return fmt.Errorf("input_history: ensure chat %s: %w", chatKey, err)
 	}
-
-	// Prepend — index 0 is always the latest message
+	var raw []byte
+	if err := tx.QueryRowContext(ctx, `SELECT messages FROM input_history WHERE chat_key = $1 FOR UPDATE`, chatKey).Scan(&raw); err != nil {
+		return fmt.Errorf("input_history: read %s: %w", chatKey, err)
+	}
+	entries, err := decodeHistory(raw)
+	if err != nil {
+		return fmt.Errorf("input_history: decode %s: %w", chatKey, err)
+	}
 	entries = append([]string{text}, entries...)
-
-	// Ring-buffer trim
 	if len(entries) > ih.maxEntries {
 		entries = entries[:ih.maxEntries]
 	}
-
 	data, err := json.Marshal(entries)
 	if err != nil {
 		return fmt.Errorf("input_history: marshal %s: %w", chatKey, err)
 	}
-
-	_, err = tx.Exec(`
-		INSERT INTO input_history (chat_key, messages, updated_at)
-		VALUES ($1, $2, NOW())
-		ON CONFLICT (chat_key) DO UPDATE SET
-			messages = EXCLUDED.messages,
-			updated_at = EXCLUDED.updated_at
-	`, chatKey, data)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE input_history SET messages = $2, updated_at = NOW() WHERE chat_key = $1`, chatKey, data); err != nil {
 		return fmt.Errorf("input_history: append %s: %w", chatKey, err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("input_history: commit %s: %w", chatKey, err)
+	}
+	return nil
 }
 
 // Get returns the entry at the given offset. Offset 0 = latest.
-func (ih *InputHistory) Get(_ context.Context, chatKey string, offset int) (string, error) {
-	entries, err := ih.getEntries(chatKey)
+func (ih *InputHistory) Get(ctx context.Context, chatKey string, offset int) (string, error) {
+	entries, err := ih.getEntries(ctx, chatKey)
 	if err != nil {
 		return "", err
 	}
@@ -107,8 +93,8 @@ func (ih *InputHistory) Get(_ context.Context, chatKey string, offset int) (stri
 }
 
 // Len returns the number of stored entries for the given chat.
-func (ih *InputHistory) Len(_ context.Context, chatKey string) (int, error) {
-	entries, err := ih.getEntries(chatKey)
+func (ih *InputHistory) Len(ctx context.Context, chatKey string) (int, error) {
+	entries, err := ih.getEntries(ctx, chatKey)
 	if err != nil {
 		return 0, err
 	}
@@ -116,13 +102,16 @@ func (ih *InputHistory) Len(_ context.Context, chatKey string) (int, error) {
 }
 
 // GetHistory returns up to limit most-recent messages.
-func (ih *InputHistory) GetHistory(_ context.Context, chatKey string, limit int) ([]string, error) {
+func (ih *InputHistory) GetHistory(ctx context.Context, chatKey string, limit int) ([]string, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	entries, err := ih.getEntries(chatKey)
+	entries, err := ih.getEntries(ctx, chatKey)
 	if err != nil {
 		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, nil
 	}
 	n := limit
 	if n > len(entries) {
@@ -133,18 +122,29 @@ func (ih *InputHistory) GetHistory(_ context.Context, chatKey string, limit int)
 	return result, nil
 }
 
-func (ih *InputHistory) getEntries(chatKey string) ([]string, error) {
+func (ih *InputHistory) getEntries(ctx context.Context, chatKey string) ([]string, error) {
 	var raw []byte
-	err := ih.db.QueryRow(`SELECT messages FROM input_history WHERE chat_key = $1`, chatKey).Scan(&raw)
+	err := ih.db.QueryRowContext(ctx, `SELECT messages FROM input_history WHERE chat_key = $1`, chatKey).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("input_history: get %s: %w", chatKey, err)
 	}
+	entries, err := decodeHistory(raw)
+	if err != nil {
+		return nil, fmt.Errorf("input_history: unmarshal %s: %w", chatKey, err)
+	}
+	return entries, nil
+}
+
+func decodeHistory(raw []byte) ([]string, error) {
 	var entries []string
 	if err := json.Unmarshal(raw, &entries); err != nil {
-		return nil, fmt.Errorf("input_history: unmarshal %s: %w", chatKey, err)
+		return nil, err
+	}
+	if entries == nil {
+		return nil, fmt.Errorf("expected a JSON array of messages, got null")
 	}
 	return entries, nil
 }

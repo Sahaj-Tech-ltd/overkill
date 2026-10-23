@@ -17,7 +17,7 @@ export interface CommandContext {
   sessionId: string;
   /** Theme control for /theme command. */
   themeName?: string;
-  setTheme?: (name: string) => void;
+  setTheme?: (name: string) => void | Promise<void>;
 }
 
 type CommandFactory = (ctx: CommandContext) => Command;

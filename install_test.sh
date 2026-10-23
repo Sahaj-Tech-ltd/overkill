@@ -56,4 +56,8 @@ else
     fi
 fi
 
-echo "[test] all checks passed"
+"$bin" --version >/dev/null
+"$bin" --help >/dev/null
+"$bin" --config "${tmphome}/.overkill/config.toml" config validate
+ echo "[test] PASS: installed source binary loads its generated configuration"
+ echo "[test] all checks passed"

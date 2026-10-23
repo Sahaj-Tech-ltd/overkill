@@ -2,20 +2,17 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
 
-// CanvasEvent is an A2UI JSONL event pushed from the agent to the browser
-// via the existing SSE event bus. Each event carries one JSONL line with
-// exactly one of the five valid A2UI top-level keys: surfaceUpdate,
-// dataModelUpdate, beginRendering, createSurface, deleteSurface.
-//
-// Stolen from OpenClaw's extensions/canvas/ — the agent never touches
-// HTML/CSS. It emits A2UI JSONL and the browser renders it via @a2ui/lit
-// web components.
+// CanvasEvent transports a committed custom-catalog update over the event bus.
+// The action names are transport conventions, not full upstream A2UI support.
 type CanvasEvent struct {
 	Type      string    `json:"type"` // always "a2ui"
 	SessionID string    `json:"sessionId"`
@@ -23,18 +20,18 @@ type CanvasEvent struct {
 	Action    string    `json:"action"` // "surfaceUpdate", "beginRendering", etc.
 	JSONL     string    `json:"jsonl"`  // One line of A2UI JSON
 	Timestamp time.Time `json:"timestamp"`
+	Revision  int64     `json:"revision"`
 }
 
 // canvasRoutes wires the canvas endpoints into the server.
 func (s *Server) canvasRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/canvas/state", s.auth(s.handleCanvasState))
 	mux.HandleFunc("/api/canvas/push", s.auth(limitBody(s.handleCanvasPush)))
 	mux.HandleFunc("/api/canvas/snapshot", s.auth(s.handleCanvasSnapshot))
 	mux.HandleFunc("/api/canvas/reset", s.auth(limitBody(s.handleCanvasReset)))
 }
 
-// handleCanvasPush accepts A2UI JSONL from the agent and broadcasts it
-// to all connected WebSocket subscribers as a canvas event. The SPA
-// renders it via <a2ui-host> web component.
+// handleCanvasPush validates and commits custom canvas JSONL before publishing.
 func (s *Server) handleCanvasPush(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -45,55 +42,48 @@ func (s *Server) handleCanvasPush(w http.ResponseWriter, r *http.Request) {
 		SurfaceID string `json:"surfaceId"`
 		JSONL     string `json:"jsonl"` // One line of A2UI JSON
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if body.JSONL == "" {
-		http.Error(w, "jsonl required", http.StatusBadRequest)
+	if err := decodeCanvasRequest(data, &body, "sessionId", "surfaceId", "jsonl"); err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// Validate it's valid JSON and has exactly one A2UI key.
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body.JSONL), &raw); err != nil {
-		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	validKeys := map[string]bool{
-		"surfaceUpdate":   true,
-		"dataModelUpdate": true,
-		"beginRendering":  true,
-		"createSurface":   true,
-		"deleteSurface":   true,
-	}
-	var action string
-	for k := range raw {
-		if validKeys[k] {
-			action = k
-			break
-		}
-	}
-	if action == "" {
-		http.Error(w, "jsonl must contain one of: surfaceUpdate, dataModelUpdate, beginRendering, createSurface, deleteSurface", http.StatusBadRequest)
-		return
-	}
-
-	// Broadcast via existing SSE event bus — the SPA already listens.
 	sid := body.SessionID
 	if sid == "" && s.cfg.Agent != nil {
 		sid = s.cfg.Agent.SessionID()
 	}
+	if !canvasIdentifier(sid) {
+		http.Error(w, "valid sessionId required", http.StatusBadRequest)
+		return
+	}
+	if body.SurfaceID != "" && !canvasIdentifier(body.SurfaceID) {
+		http.Error(w, "invalid surfaceId", http.StatusBadRequest)
+		return
+	}
+	action, surfaceID, err := validateCanvasEvent(body.JSONL, sid, body.SurfaceID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	state, err := s.cfg.Canvas.Apply(r.Context(), sid, body.JSONL)
+	if err != nil {
+		canvasHTTPError(w, err)
+		return
+	}
 	ev := CanvasEvent{
 		Type:      "a2ui",
 		SessionID: sid,
-		SurfaceID: body.SurfaceID,
+		SurfaceID: surfaceID,
 		Action:    action,
 		JSONL:     strings.TrimSpace(body.JSONL),
 		Timestamp: time.Now().UTC(),
+		Revision:  state.Revision,
 	}
 	// Marshal to wsEvent so it flows through the existing bus.
-	data, err := json.Marshal(ev)
+	data, err = json.Marshal(ev)
 	if err != nil {
 		log.Printf("web: canvas marshal: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -106,27 +96,10 @@ func (s *Server) handleCanvasPush(w http.ResponseWriter, r *http.Request) {
 		Timestamp: ev.Timestamp,
 	})
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "pushed", "action": action})
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "pushed", "action": action, "revision": state.Revision})
 }
 
-// handleCanvasSnapshot captures the current canvas as a base64 PNG.
-// For now, returns a placeholder — full snapshot requires the agent to
-// use the vision model or a headless browser render.
-func (s *Server) handleCanvasSnapshot(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
-	// Canvas snapshot rendering requires headless browser integration
-	// or server-side Lit SSR (Phase 5). Returns 200 with status:not_implemented
-	// so callers can degrade gracefully.
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status":  "not_implemented",
-		"message": "canvas snapshot requires headless browser integration (Phase 5)",
-	})
-}
-
-// handleCanvasReset clears all A2UI surfaces for a session.
+// handleCanvasReset commits an empty state and then broadcasts its revision.
 func (s *Server) handleCanvasReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -135,7 +108,12 @@ func (s *Server) handleCanvasReset(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SessionID string `json:"sessionId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := decodeCanvasRequest(data, &body, "sessionId"); err != nil {
 		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -143,14 +121,58 @@ func (s *Server) handleCanvasReset(w http.ResponseWriter, r *http.Request) {
 	if sid == "" && s.cfg.Agent != nil {
 		sid = s.cfg.Agent.SessionID()
 	}
+	if !canvasIdentifier(sid) {
+		http.Error(w, "valid sessionId required", http.StatusBadRequest)
+		return
+	}
 
-	// Broadcast reset event.
+	state, err := s.cfg.Canvas.Reset(r.Context(), sid)
+	if err != nil {
+		canvasHTTPError(w, err)
+		return
+	}
+	content, _ := json.Marshal(map[string]any{"action": "reset", "sessionId": sid, "revision": state.Revision})
+	// Broadcast only after commit.
 	s.bus.publish(sid, wsEvent{
 		Type:      "a2ui",
 		SessionID: sid,
-		Content:   `{"action":"reset"}`,
+		Content:   string(content),
 		Timestamp: time.Now().UTC(),
 	})
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "reset", "revision": state.Revision})
 }
+
+// handleCanvasState reads only an existing session's committed document.
+func (s *Server) handleCanvasState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	query, queryErr := url.ParseQuery(r.URL.RawQuery)
+	if queryErr != nil || len(query) != 1 || len(query["sessionId"]) != 1 || !canvasIdentifier(query.Get("sessionId")) {
+		http.Error(w, "valid sessionId query required", http.StatusBadRequest)
+		return
+	}
+	state, err := s.cfg.Canvas.Get(r.Context(), query.Get("sessionId"))
+	if err != nil {
+		canvasHTTPError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+func canvasHTTPError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrCanvasUnavailable):
+		http.Error(w, "canvas store unavailable", http.StatusServiceUnavailable)
+	case errors.Is(err, ErrCanvasSessionNotFound):
+		http.Error(w, "canvas session not found", http.StatusNotFound)
+	case errors.Is(err, ErrCanvasInvalid):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	default:
+		log.Printf("web: canvas: %v", err)
+		http.Error(w, "canvas operation failed", http.StatusInternalServerError)
+	}
+}
+
+func canvasStoreError(w http.ResponseWriter, err error) { canvasHTTPError(w, err) }

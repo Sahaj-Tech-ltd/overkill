@@ -42,11 +42,11 @@ func GoalSteeringProvider(store *GoalStore, sessionID string) func(ctx context.C
 
 func budgetLimitedSteering(g *Goal) string {
 	return fmt.Sprintf(
-		"[GOAL BUDGET EXCEEDED] Token budget of %d has been reached (%d used). "+
+		"[GOAL BUDGET EXCEEDED] Goal usage is %d/%d tokens and %d/%d seconds (zero budget means unlimited). "+
 			"Stop what you're doing, provide a concise summary of what was accomplished, "+
 			"and mark the goal as complete via update_goal if appropriate. "+
 			"Goal: %s",
-		g.TokenBudget, g.TokensUsed, g.Text,
+		g.TokensUsed, g.TokenBudget, g.TimeUsedSeconds, g.TimeBudgetSeconds, g.Text,
 	)
 }
 

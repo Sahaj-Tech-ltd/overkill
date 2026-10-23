@@ -1,3 +1,5 @@
+//go:build unix
+
 package hooks
 
 import (
@@ -111,6 +113,80 @@ func TestIsExecutable(t *testing.T) {
 	}
 	if isExecutable(filepath.Join(dir, "missing")) {
 		t.Error("missing file should not be executable")
+	}
+}
+
+func TestUserHookTrustRejectsWritableAndLinkedScripts(t *testing.T) {
+	root := t.TempDir()
+	point := filepath.Join(root, string(BeforeToolCall))
+	if err := os.Mkdir(point, 0700); err != nil {
+		t.Fatal(err)
+	}
+	script := writeScript(t, point, "#!/bin/sh\nexit 0\n", true)
+	if err := os.Chmod(script, 0770); err != nil {
+		t.Fatal(err)
+	}
+	if isExecutable(script) {
+		t.Fatal("group-writable hook must not execute")
+	}
+	if err := os.Chmod(script, 0700); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(point, "linked.sh")
+	if err := os.Symlink(script, linked); err != nil {
+		t.Fatal(err)
+	}
+	if isExecutable(linked) {
+		t.Fatal("linked hook must not execute")
+	}
+	if err := os.Chmod(point, 0770); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRegistryFromDir(root); err == nil {
+		t.Fatal("group-writable hook directory must reject runtime assembly")
+	}
+	if err := os.Chmod(point, 0700); err != nil {
+		t.Fatal(err)
+	}
+	rootLink := filepath.Join(t.TempDir(), "hooks")
+	if err := os.Symlink(root, rootLink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRegistryFromDir(rootLink); err == nil {
+		t.Fatal("linked hooks root must not be trusted")
+	}
+}
+
+func TestLoadedHookRechecksTrustAndReceivesDispatchPoint(t *testing.T) {
+	root := t.TempDir()
+	point := filepath.Join(root, string(AfterTurn))
+	if err := os.Mkdir(point, 0700); err != nil {
+		t.Fatal(err)
+	}
+	captured := filepath.Join(point, "captured.json")
+	script := writeScript(t, point, "#!/bin/sh\ncat > \"$(dirname \"$0\")/captured.json\"\n", true)
+	reg, err := NewRegistryFromDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Fire(context.Background(), AfterTurn, Event{SessionID: "owned-session"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(captured)
+	if err != nil || !contains(string(data), `"point":"after_turn"`) {
+		t.Fatalf("dispatch point missing: %s, %v", data, err)
+	}
+	if err := os.Remove(captured); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(script, 0770); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Fire(context.Background(), AfterTurn, Event{}); err == nil {
+		t.Fatal("changed script trust must be checked again at execution")
+	}
+	if _, err := os.Stat(captured); !os.IsNotExist(err) {
+		t.Fatalf("unsafe script executed: %v", err)
 	}
 }
 

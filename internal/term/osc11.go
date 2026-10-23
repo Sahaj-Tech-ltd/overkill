@@ -10,7 +10,6 @@
 package term
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -31,7 +30,11 @@ import (
 // terminal setup causes garbled input and hangs over SSH. The caller in
 // cmd/overkill/tui.go guards this by only probing on local ttys.
 func QueryBackground(timeout time.Duration) (dark bool, err error) {
-	fd := int(os.Stdin.Fd())
+	return queryBackground(os.Stdin, os.Stdout, timeout)
+}
+
+func queryBackground(input *os.File, output io.Writer, timeout time.Duration) (dark bool, err error) {
+	fd := int(input.Fd())
 	if !term.IsTerminal(fd) {
 		return false, errors.New("term: stdin not a tty")
 	}
@@ -48,46 +51,22 @@ func QueryBackground(timeout time.Duration) (dark bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("term: makeraw: %w", err)
 	}
-	defer term.Restore(fd, old)
+	defer func() { err = errors.Join(err, term.Restore(fd, old)) }()
 
-	if _, err := io.WriteString(os.Stdout, "\x1b]11;?\x07"); err != nil {
+	if _, err := io.WriteString(output, "\x1b]11;?\x07"); err != nil {
 		return false, fmt.Errorf("term: write probe: %w", err)
 	}
 
 	if timeout <= 0 {
 		timeout = 200 * time.Millisecond
 	}
-	type result struct {
-		raw []byte
-		err error
+	// Read directly with a bounded native wait. A buffered/background reader
+	// could outlive this function and steal keystrokes from the frontend.
+	reply, err := readProbeReply(input, time.Now().Add(timeout))
+	if err != nil {
+		return false, err
 	}
-	ch := make(chan result, 1)
-	go func() {
-		r := bufio.NewReader(os.Stdin)
-		buf := make([]byte, 0, 64)
-		for i := 0; i < 64; i++ {
-			b, err := r.ReadByte()
-			if err != nil {
-				ch <- result{buf, err}
-				return
-			}
-			buf = append(buf, b)
-			if b == '\x07' || b == '\\' {
-				ch <- result{buf, nil}
-				return
-			}
-		}
-		ch <- result{buf, errors.New("term: probe response too long")}
-	}()
-	select {
-	case r := <-ch:
-		if r.err != nil {
-			return false, r.err
-		}
-		return parseBackgroundReply(r.raw)
-	case <-time.After(timeout):
-		return false, errors.New("term: probe timeout")
-	}
+	return parseBackgroundReply(reply)
 }
 
 // rgb captures the per-channel hex from `\x1b]11;rgb:RRRR/GGGG/BBBB`.

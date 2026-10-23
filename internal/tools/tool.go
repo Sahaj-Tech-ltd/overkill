@@ -14,6 +14,17 @@ type Tool interface {
 	Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error)
 }
 
+// AvailableTool is an optional dynamic catalog gate. Native tools without it
+// retain their existing behavior; unavailable adapters never resolve or advertise.
+type AvailableTool interface{ Available() bool }
+
+func toolAvailable(tool Tool) bool {
+	if dynamic, ok := tool.(AvailableTool); ok {
+		return dynamic.Available()
+	}
+	return tool != nil
+}
+
 // ConcurrencySafeTool is an optional interface. Tools that implement it
 // can execute in parallel with other concurrency-safe tools. Tools that
 // don't implement it default to exclusive execution (one at a time).
@@ -62,6 +73,17 @@ type ExecutionOptions struct {
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]Tool
+	guard ExecutionGuard
+}
+
+// ExecutionGuard is installed by the application when constructing a session.
+// The supplied tool is the original adapter; invoke it only after admission.
+type ExecutionGuard func(context.Context, Tool, json.RawMessage) (json.RawMessage, error)
+
+func (r *Registry) SetExecutionGuard(guard ExecutionGuard) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.guard = guard
 }
 
 func NewRegistry() *Registry {
@@ -99,15 +121,15 @@ func (r *Registry) GetConcurrency(name string, input json.RawMessage) (Tool, boo
 	if !ok {
 		return nil, false
 	}
-	if t == nil {
+	if !toolAvailable(t) {
 		return nil, false
 	}
 	// Backward compat: tools without the interface are never concurrent-safe.
 	cst, ok := t.(ConcurrencySafeTool)
 	if !ok {
-		return t, false
+		return guardedInvocation(t, r.guard), false
 	}
-	return t, cst.IsConcurrencySafe(input)
+	return guardedInvocation(t, r.guard), cst.IsConcurrencySafe(input)
 }
 
 // Has reports whether a tool with the given name is already registered.
@@ -126,17 +148,20 @@ func (r *Registry) Get(name string) (Tool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	t, ok := r.tools[name]
-	if !ok {
-		return nil, fmt.Errorf("tool: %s not found", name)
+	if !ok || !toolAvailable(t) {
+		return nil, fmt.Errorf("tool: %s not found or unavailable", name)
 	}
-	return t, nil
+	return guardedInvocation(t, r.guard), nil
 }
 
 func (r *Registry) List() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	names := make([]string, 0, len(r.tools))
-	for name := range r.tools {
+	for name, tool := range r.tools {
+		if !toolAvailable(tool) {
+			continue
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)

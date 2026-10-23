@@ -3,9 +3,19 @@ package api
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tasks"
 )
+
+// TaskStore is the complete task-panel contract shared by installed runtimes.
+type TaskStore interface {
+	Add(sessionID, intent string) (*TaskDTO, error)
+	Update(id, sessionID, description string) (*TaskDTO, error)
+	Toggle(id string) (*TaskDTO, error)
+	Remove(id string) error
+	List(sessionID string) ([]TaskDTO, error)
+}
 
 // TaskDTO is the wire format the todo panel expects.
 type TaskDTO struct {
@@ -95,6 +105,9 @@ func (s *Server) handleTodoAdd(_ context.Context, params []byte) (interface{}, *
 	if s.tasksStore == nil {
 		return nil, &RPCError{Code: InternalError, Message: "tasks store not configured"}
 	}
+	if strings.TrimSpace(p.SessionID) == "" || strings.TrimSpace(p.Description) == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "session_id and description are required"}
+	}
 	task, err := s.tasksStore.Add(p.SessionID, p.Description)
 	if err != nil {
 		return nil, &RPCError{Code: InternalError, Message: err.Error()}
@@ -162,4 +175,34 @@ func (s *Server) handleTodoList(_ context.Context, params []byte) (interface{}, 
 		tasks = []TaskDTO{}
 	}
 	return tasks, nil
+}
+
+func (a *TasksStoreAdapter) Update(id, sessionID, description string) (*TaskDTO, error) {
+	task, err := a.S.UpdateIntent(id, sessionID, description)
+	if err != nil {
+		return nil, err
+	}
+	return taskFromCore(task), nil
+}
+
+func (s *Server) handleTodoUpdate(_ context.Context, params []byte) (interface{}, *RPCError) {
+	var p struct {
+		ID          string `json:"id"`
+		SessionID   string `json:"session_id"`
+		Description string `json:"description"`
+	}
+	if err := unmarshalParams(params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ID) == "" || strings.TrimSpace(p.SessionID) == "" || strings.TrimSpace(p.Description) == "" {
+		return nil, &RPCError{Code: InvalidParams, Message: "id, session_id and description are required"}
+	}
+	if s.tasksStore == nil {
+		return nil, &RPCError{Code: InternalError, Message: "tasks store not configured"}
+	}
+	task, err := s.tasksStore.Update(p.ID, p.SessionID, p.Description)
+	if err != nil {
+		return nil, &RPCError{Code: InternalError, Message: err.Error()}
+	}
+	return task, nil
 }

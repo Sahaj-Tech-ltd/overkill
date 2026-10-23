@@ -76,6 +76,10 @@ type Response struct {
 	Content   string
 	ToolCalls []ToolCall
 	Usage     Usage
+	// UsageReported distinguishes a reported all-zero usage object from
+	// omitted/null usage. OpenAI Chat Completions populates this explicitly;
+	// older adapters may leave it false even when numeric usage is present.
+	UsageReported bool
 }
 
 type Usage struct {
@@ -88,7 +92,9 @@ type Chunk struct {
 	Content   string
 	ToolCalls []ToolCall
 	Done      bool
-	Usage     *Usage
+	// Usage is a provider-reported cumulative snapshot for this request, not
+	// a delta. Nil means omitted/unknown, including interrupted streams.
+	Usage *Usage
 	// Err carries a fatal streaming error (transport drop, scanner failure,
 	// parse error on the upstream protocol). Consumers MUST treat a non-nil
 	// Err as "this stream did not complete cleanly" — committing the
@@ -103,6 +109,7 @@ type Model struct {
 	Family            string
 	MaxTokens         int
 	ContextWindow     int
+	MaxOutputTokens   int // explicit completion ceiling, independent of context capacity
 	DefaultMaxTokens  int
 	CostIn            float64
 	CostOut           float64

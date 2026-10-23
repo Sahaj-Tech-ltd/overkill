@@ -362,6 +362,10 @@ func (s *SelfEvaluateLoop) RunPhase(
 	model string,
 	runner func(ctx context.Context, prompt string, revisionContext string) ([]providers.Message, error),
 ) (*SelfEvalResult, []providers.Message, error) {
+	return s.runPhase(ctx, phase, model, runner, nil, false)
+}
+
+func (s *SelfEvaluateLoop) runPhase(ctx context.Context, phase *PlanPhase, model string, runner func(context.Context, string, string) ([]providers.Message, error), observe func(string, int, int), cumulativeHistory bool) (*SelfEvalResult, []providers.Message, error) {
 	s.mu.RLock()
 	maxIter := s.MaxIterations
 	s.mu.RUnlock()
@@ -396,6 +400,9 @@ func (s *SelfEvaluateLoop) RunPhase(
 		}
 
 		// Execute the phase.
+		if observe != nil {
+			observe("executing", iter, maxIter)
+		}
 		history, err := runner(ctx, desc, revCtx)
 		if err != nil {
 			return &SelfEvalResult{
@@ -405,9 +412,16 @@ func (s *SelfEvaluateLoop) RunPhase(
 			}, allHistory, fmt.Errorf("self-evaluate: run phase: %w", err)
 		}
 
-		allHistory = append(allHistory, history...)
+		if cumulativeHistory {
+			allHistory = history
+		} else {
+			allHistory = append(allHistory, history...)
+		}
 
 		// Evaluate the output.
+		if observe != nil {
+			observe("assessing", iter, maxIter)
+		}
 		outcome, reflection, faultChain := s.Evaluate(taskType, allHistory, model, iter)
 
 		switch outcome {
@@ -423,6 +437,9 @@ func (s *SelfEvaluateLoop) RunPhase(
 			redTeam := s.redTeam
 			s.mu.RUnlock()
 			if redTeam != nil && redTeam.cfg.Enabled {
+				if observe != nil {
+					observe("red_team", iter, maxIter)
+				}
 				workdir, _ := os.Getwd()
 				rtResult, rtErr := redTeam.GenerateAndRun(ctx, allHistory, workdir, desc)
 				if rtErr != nil {
@@ -571,7 +588,7 @@ func extractTaskType(phase *PlanPhase) string {
 
 	// Map phase titles to known confidence task types.
 	taskTypeIndicators := []string{
-		"test", "fix", "refactor", "rewrite", "migrate",
+		"test", "fix", "debug", "explain", "describe", "what", "refactor", "rewrite", "migrate",
 		"build", "deploy", "implement", "add", "remove",
 		"update", "upgrade", "configure", "setup", "audit",
 	}

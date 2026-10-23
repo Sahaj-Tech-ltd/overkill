@@ -1,0 +1,21 @@
+# Terminal theme selection and persistence
+
+The reproduced defect in `.cache/frontend-theme-before.log` showed the Light command sending `light` to configuration while its rendered hook stayed `catppuccin`. Command names did not exist in the active generated dictionary, each hook instance owned independent state, and design-system consumers used a separate unprovided context.
+
+The terminal now has one shared reactive `ThemeStore`. App binds its authenticated backend lifecycle; existing hook users and design-system context fallbacks subscribe to the same snapshot. Explicit design-system provider overrides remain supported. Commands delegate one selection to the shared store instead of independently changing local state and issuing a second configuration write. App displays load/save/unknown-theme errors.
+
+## Names and startup
+
+All 37 generated palettes remain selectable alongside Dark, a real Light palette, Cyberpunk and Ocean: 41 canonical names. Legacy aliases are `catppuccin-mocha`→`catppuccin`, `tokyo-night`→`tokyonight` and `rose-pine`→`rosepine`. Available names come from the canonical catalogue. Unknown names error explicitly; a custom backend theme without a supported terminal palette is not represented as successfully rendered.
+
+Without `OVERKILL_THEME`, startup renders Dark until `config.theme` GET loads the saved name. A legacy/fresh backend value of the empty string means unset and keeps Dark without auto-saving; unknown nonempty names still fail explicitly. A valid environment name or alias is an initial process override: GET still checks the backend, but does not overwrite that override or auto-save it. An explicit selection persists normally and supersedes the initial override. An invalid environment value renders the safe default with an explicit error. Setting the environment again for a restarted process intentionally overrides its saved initial display.
+
+Selection waits for confirmed backend persistence before changing every subscriber. Writes serialize so rapid choices cannot finish in reverse order on disk. An operation generation and selection revision fence late initial reads, superseded choices, disconnect/reconnect and detached responses. Newer validation errors survive older saves completing. Failed saves retain the last confirmed palette and expose the error; there is no automatic retry or invented persisted success.
+
+## Receipts
+
+- `.cache/tui-theme-focused.log`: three compiled tests pass. They cover 41 canonical names/aliases, stale reads, ordered writes, unknown names, save failure, environment precedence without writes, old-backend late save/read fencing, actual React/Ink App+child+design-system propagation, commands and authenticated configuration HTTP transport with a disposable saved file. The HTTP test writes all 41 selectable names, reads a fresh store from the saved fixture and distinguishes that fixture from the actual Go configuration gate.
+- `.cache/tui-theme-all.log`: full compiled host suite, 50/50 pass with zero skips (47 existing tests plus the three theme cases). Typecheck and build pass.
+- `scripts/test-tui-theme-runtime.mjs --backend <actual executable> --postgres <bundled postgres/bin>` is the explicit actual-runtime gate. It starts a disposable real authenticated Go backend and managed PostgreSQL, sets every available canonical palette, verifies GET and the saved TOML after each write, then stops/restarts the backend without rewriting its configuration and verifies the saved selection. It emits `.cache/tui-theme-runtime-receipt.json`. No provider generation, Keychain or installed app is used. Executed against `.cache/theme-runtime-backend`: `.cache/tui-theme-runtime.log` and `.cache/tui-theme-runtime-receipt.json` pass all 41 names with actual TOML persistence, then confirm Ocean after a real backend-process/managed-PostgreSQL restart.
+
+The backend validation and atomic persistence repair is a separate parent-owned Go change, exercised by this actual-runtime receipt. This source slice does not modify Go, desktop, the top-level audit/plans or a DMG. A failed attempt to run the Linux fixture after the project Lima VM was stopped is not a Linux acceptance claim; the final Docker gate remains separate.

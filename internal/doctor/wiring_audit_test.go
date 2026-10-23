@@ -42,7 +42,7 @@ var wiringExemptPackages = map[string]bool{
 	"internal/plan":            true, // on-demand
 	"internal/tags":            true, // utility
 	"internal/tasks":           true, // utility
-	"internal/verify":          true, // on-demand
+	"internal/verify":          true, // DefaultRegistry is attached by shared cmd runtime assembly
 	"internal/prompt":          true, // utility
 	"internal/checkpoint":      true, // wired via agent.Config
 	"internal/extensions":      true, // manager-driven
@@ -91,6 +91,12 @@ var wiringExemptPackages = map[string]bool{
 // wired=true  → confirmed called from production code
 // wired=false → intentionally not wired (must include reason as comment)
 var knownWiredConstructors = map[string]bool{
+	"hotreload.NewLogReporter":              true, // CLI/API WireAgent report applied/restart-required fields without values.
+	"tools.NewBoundRemoteCoordinationTools": true, // runtimeServices.sessionCoordinationTools explicitly binds six ACP tools per persisted session.
+	"coordination.NewPeerHTTPClient":        true, // acp.Client.Coordination uses the protected transport for scoped peer operations.
+	"coordination.NewStore":                 true, // cmd/runtime_setup owns the durable store; bound peers receive agent tools.
+	"localdb.NewManager":                    true, // cmd/desktop_cmd owns the private bundled PostgreSQL lifetime.
+	"processrunner.NewOutputCapture":        true, // ShellTool and CombinedOutput retain bounded prefix/suffix diagnostics.
 	// ── agent/ ──────────────────────────────────────────
 	"agent.New":                              true,
 	"agent.NewRedTeamTestGen":                true,
@@ -105,10 +111,12 @@ var knownWiredConstructors = map[string]bool{
 	"agent.NewContractDriver":                false, // DEAD: subagent contract enforcement, no callers outside tests
 	"agent.NewEventBus":                      true,  // WIRED: created in agent.New(), used by agent.emit() for event fanout
 	"agent.NewMemoryFlowStore":               true,  // WIRED: flow checkpointing, SetFlowStore called at boot
-	"agent.NewPostgresFlowStore":             false, // DEAD: NewMemoryFlowStore is used instead
+	"agent.NewPostgresFlowStore":             true,  // shared durable FlowQueue and daemon flow RPCs
+	"agent.NewFlowQueue":                     true,  // runtime_setup.go; restart/lease acceptance exercises production bindings
+	"agent.NewEnabledToolInventory":          true,  // reflectBeforeAction reads the enabled tool registry for each request
 	"agent.NewForethinker":                   true,  // WIRED: auto-created in agent.New() with fallback
 	"agent.NewGoalStore":                     true,  // WIRED: Postgres-backed, conditional on DATABASE_URL
-	"agent.NewGoalAccountingState":           false, // DEAD: depends on goal store, no production caller
+	"agent.NewGoalAccountingState":           true,  // beginGoalTurn admits/account actual Run, Stream and auxiliary work.
 	"agent.NewReceiptChain":                  true,  // WIRED: created in agent.New(), used by tool dispatch for crypto audit chain
 	"agent.NewErrorRecovery":                 true,  // WIRED: auto-created in agent.New()
 	"agent.NewToolInventory":                 true,  // WIRED: situational awareness, SetToolInventory called at boot

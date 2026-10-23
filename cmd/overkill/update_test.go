@@ -58,6 +58,8 @@ func TestIsNewer(t *testing.T) {
 func TestPickAsset_ExactGOOSGOARCH(t *testing.T) {
 	assets := []releaseAsset{
 		{Name: "overkill-linux-amd64"},
+		{Name: "overkill-linux-arm64"},
+		{Name: "overkill-darwin-amd64"},
 		{Name: "overkill-darwin-arm64"},
 		{Name: "overkill-windows-amd64.exe"},
 	}
@@ -72,11 +74,9 @@ func TestPickAsset_ExactGOOSGOARCH(t *testing.T) {
 	}
 }
 
-func TestPickAsset_FallbackSingleAsset(t *testing.T) {
-	assets := []releaseAsset{{Name: "overkill.tar.gz"}}
-	a, err := pickAsset(assets)
-	if err != nil || a == nil {
-		t.Fatalf("expected single-asset fallback, got %v err=%v", a, err)
+func TestPickAsset_RejectsSingleWrongAsset(t *testing.T) {
+	if _, err := pickAsset([]releaseAsset{{Name: "overkill.tar.gz"}}); err == nil {
+		t.Fatal("wrong sole asset must not be installed")
 	}
 }
 

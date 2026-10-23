@@ -1,28 +1,23 @@
-// Package hotreload — agent wiring for live config reloads.
+// Package hotreload wires live config notifications to an agent.
 //
-// WireAgent subscribes the agent to user.yaml changes and reapplies
-// the subset of fields that can flip safely at runtime:
+// WireAgent currently applies only basic.model. SetModel changes the model
+// used when a subsequent provider request is constructed, including another
+// step in an existing Run; it does not rewrite an already submitted request.
+// Clearing the override restores the model observed when wiring was attached.
 //
-//   - basic.model              → agent.SetModel after the current Run
-//     completes (mid-stream swaps are
-//     undefined; queue on a turn boundary)
-//   - advanced.scanners.*      → agent's scanner slice is rebuilt to
-//     match the toggle state
-//   - advanced.persona.*       → no action; persona is read per-turn
-//     (already hot)
-//   - advanced.system_prompt.* → no action; system prompt is rebuilt
-//     per turn (already hot)
-//
-// Anything else surfaces as a "settings_reloaded_partial" event with
-// the field list so the user knows their edit DID load but didn't
-// apply to a running session yet (e.g. MCP server changes that
-// require reconcile).
+// All other user.yaml settings are reported as requiring restart when they
+// differ from the initial snapshot. In particular, scanners are NOT rebuilt,
+// and persona/system-prompt overrides are NOT installed by this adapter.
+// A future live scanner adapter must atomically replace the actual consumers
+// before those settings can be classified as applied here.
 package hotreload
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,8 +31,8 @@ type Agent interface {
 	Model() string
 }
 
-// Reporter is how WireAgent surfaces reload outcomes. The TUI passes
-// a func that posts a toast; a daemon can pass io.Discard.
+// Reporter receives observed changes and any read/parse or restart-required
+// outcome. Callbacks must return promptly; DiscardReporter suppresses them.
 type Reporter interface {
 	OnReload(changed []string, err error)
 }
@@ -61,13 +56,16 @@ func WireAgent(ctx context.Context, bus *Bus, agent Agent, userYAMLPath string, 
 	}
 
 	w := &agentWiring{
-		agent:    agent,
-		path:     userYAMLPath,
-		prev:     prev,
-		reporter: reporter,
+		agent:        agent,
+		path:         userYAMLPath,
+		prev:         prev,
+		baseline:     prev,
+		initialModel: agent.Model(),
+		reporter:     reporter,
 	}
 
 	ch, unsubscribe := bus.Subscribe(SubjectConfig)
+	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 
 	go func() {
@@ -82,7 +80,7 @@ func WireAgent(ctx context.Context, bus *Bus, agent Agent, userYAMLPath string, 
 				}
 				// B124: after the 200ms debounce fires, some editors
 				// (especially those that write to a temp file then
-				// rename) may still be flushing. A 1s grace period
+				// rename) may still be flushing. A 200ms grace period
 				// avoids partial reads.
 				select {
 				case <-time.After(200 * time.Millisecond):
@@ -90,16 +88,14 @@ func WireAgent(ctx context.Context, bus *Bus, agent Agent, userYAMLPath string, 
 					return
 				}
 				if ev.Kind == EventRemoved {
-					// File deleted — fall back to defaults. Useful
-					// for "reset to defaults" via `rm user.yaml`.
+					// A removed file is a new default snapshot; only the model
+					// is applied here, with other differences reported.
 					w.apply(config.DefaultUserOverrides())
 					continue
 				}
 				newCfg, loadErr := config.LoadUserOverrides(w.path)
 				if loadErr != nil {
-					if reporter != nil {
-						reporter.OnReload(nil, loadErr)
-					}
+					w.report(ReloadResult{Err: loadErr})
 					continue
 				}
 				w.apply(newCfg)
@@ -107,8 +103,12 @@ func WireAgent(ctx context.Context, bus *Bus, agent Agent, userYAMLPath string, 
 		}
 	}()
 
+	var stopOnce sync.Once
 	stop := func() {
-		unsubscribe()
+		stopOnce.Do(func() {
+			cancel()
+			unsubscribe()
+		})
 		<-done
 	}
 	return stop, nil
@@ -119,11 +119,79 @@ func WireAgent(ctx context.Context, bus *Bus, agent Agent, userYAMLPath string, 
 // changed fields. Concurrent applies are serialised so two near-
 // simultaneous saves don't interleave.
 type agentWiring struct {
-	mu       sync.Mutex
-	agent    Agent
-	path     string
-	prev     *config.UserOverrides
-	reporter Reporter
+	mu                sync.Mutex
+	agent             Agent
+	path              string
+	prev              *config.UserOverrides
+	baseline          *config.UserOverrides
+	initialModel      string
+	modelResetPending bool
+	reporter          Reporter
+}
+
+// ReloadResult separates observed file edits from effects on this live agent.
+// RestartRequired is the outstanding difference from wiring-time settings,
+// not just this edit. Reverting an unapplied edit clears its restart warning.
+// Field names contain no configuration values or credentials. RestartRequired
+// does not promise that an arbitrary setting has a startup consumer: callers
+// must reassemble with supported settings; this adapter never installs them.
+type ReloadResult struct {
+	Changed         []string
+	Applied         []string
+	RestartRequired []string
+	Err             error
+}
+
+// ResultReporter optionally receives the full outcome instead of OnReload.
+// Implementations must still satisfy Reporter for WireAgent compatibility.
+type ResultReporter interface{ OnReloadResult(ReloadResult) }
+
+// RestartRequiredError lets legacy reporters distinguish a successfully read
+// file with unapplied settings from a parse/read failure using errors.As.
+// Applied contains only settings that this adapter actually changed.
+type RestartRequiredError struct {
+	Fields  []string
+	Applied []string
+}
+
+func (e *RestartRequiredError) Error() string {
+	return "hotreload: restart required for " + strings.Join(e.Fields, ", ")
+}
+
+func (w *agentWiring) report(result ReloadResult) {
+	if w.reporter == nil {
+		return
+	}
+	if detailed, ok := w.reporter.(ResultReporter); ok {
+		detailed.OnReloadResult(result)
+		return
+	}
+	w.reporter.OnReload(result.Changed, result.Err)
+}
+
+// settingsDiff reports every top-level YAML setting, retaining each basic or
+// advanced child as one unit. DeepEqual compares pointed-to bool values and
+// maps/slices rather than pointer identity (a fresh decode allocates pointers).
+func settingsDiff(before, after *config.UserOverrides) []string {
+	var fields []string
+	var walk func(reflect.Value, reflect.Value, string)
+	walk = func(a, b reflect.Value, prefix string) {
+		typ := a.Type()
+		for i := 0; i < a.NumField(); i++ {
+			name := strings.Split(typ.Field(i).Tag.Get("yaml"), ",")[0]
+			if name == "" || name == "-" {
+				continue
+			}
+			field := prefix + name
+			if field == "basic" || field == "advanced" {
+				walk(a.Field(i), b.Field(i), field+".")
+			} else if !reflect.DeepEqual(a.Field(i).Interface(), b.Field(i).Interface()) {
+				fields = append(fields, field)
+			}
+		}
+	}
+	walk(reflect.ValueOf(before).Elem(), reflect.ValueOf(after).Elem(), "")
+	return fields
 }
 
 func (w *agentWiring) apply(next *config.UserOverrides) {
@@ -132,41 +200,43 @@ func (w *agentWiring) apply(next *config.UserOverrides) {
 	if next == nil {
 		return
 	}
-	var changed []string
-
-	// basic.model — safe-on-turn-boundary. We can't peek "between
-	// turns" from here, so we set immediately; the agent's request
-	// builder reads Model() per turn, so an in-flight Stream() keeps
-	// its existing model and the next turn picks up the new value.
-	if next.Basic.Model != "" && next.Basic.Model != w.prev.Basic.Model {
-		w.agent.SetModel(next.Basic.Model)
-		changed = append(changed, "basic.model")
+	changed := settingsDiff(w.prev, next)
+	if len(changed) == 0 {
+		return
 	}
-
-	// Scanner toggles → no direct agent setter for the slice yet;
-	// we surface the change so the TUI can show the user that the
-	// edit landed but a restart picks it up. (Live scanner-slice
-	// swap is wired by a follow-up PR; see v2.0-6 Configurable.)
-	if next.Advanced.Scanners != w.prev.Advanced.Scanners {
-		changed = append(changed, "advanced.scanners")
+	result := ReloadResult{Changed: changed}
+	for _, field := range changed {
+		if field != "basic.model" {
+			continue
+		}
+		model := next.Basic.Model
+		if model == "" {
+			model = w.initialModel
+		}
+		w.modelResetPending = model == ""
+		if model != "" {
+			w.agent.SetModel(model)
+			result.Applied = append(result.Applied, field)
+		}
 	}
-
-	// Persona / system prompt — already read per-turn, so the file
-	// change is "live" without any action here. Still report so the
-	// user sees confirmation.
-	if next.Advanced.Persona != w.prev.Advanced.Persona {
-		changed = append(changed, "advanced.persona")
+	for _, field := range settingsDiff(w.baseline, next) {
+		if field != "basic.model" {
+			result.RestartRequired = append(result.RestartRequired, field)
+		}
 	}
-	if next.Advanced.SystemPrompt.Mode != w.prev.Advanced.SystemPrompt.Mode ||
-		next.Advanced.SystemPrompt.Patch != w.prev.Advanced.SystemPrompt.Patch ||
-		next.Advanced.SystemPrompt.Replace != w.prev.Advanced.SystemPrompt.Replace {
-		changed = append(changed, "advanced.system_prompt")
+	// An empty wiring-time model supplies no known fallback; never call
+	// SetModel("") or label clearing a model as applied in that case.
+	if w.modelResetPending {
+		result.RestartRequired = append(result.RestartRequired, "basic.model")
 	}
-
 	w.prev = next
-	if w.reporter != nil && len(changed) > 0 {
-		w.reporter.OnReload(changed, nil)
+	if len(result.RestartRequired) > 0 {
+		result.Err = &RestartRequiredError{
+			Fields:  append([]string(nil), result.RestartRequired...),
+			Applied: append([]string(nil), result.Applied...),
+		}
 	}
+	w.report(result)
 }
 
 // noopReporter ignores reload outcomes. Returned by DiscardReporter.

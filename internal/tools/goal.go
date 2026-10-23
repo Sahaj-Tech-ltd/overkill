@@ -38,20 +38,46 @@ func NewSessionGoalQuerier(store GoalStoreBackend, sessionIDFn func() string) *S
 	return &SessionGoalQuerier{store: store, sessionID: sessionIDFn}
 }
 
+func (q *SessionGoalQuerier) boundSession(requested string) (string, error) {
+	if q.sessionID == nil {
+		return "", fmt.Errorf("goal: session binding required")
+	}
+	bound := q.sessionID()
+	if bound == "" {
+		return "", fmt.Errorf("goal: session ID required")
+	}
+	if requested != "" && requested != bound {
+		return "", fmt.Errorf("goal: session mismatch")
+	}
+	return bound, nil
+}
+
 func (q *SessionGoalQuerier) SetWithBudgets(ctx context.Context, sessionID, text string, tokenBudget, timeBudget int) error {
-	return q.store.SetWithBudgets(ctx, sessionID, text, tokenBudget, timeBudget)
+	id, err := q.boundSession(sessionID)
+	if err != nil {
+		return err
+	}
+	return q.store.SetWithBudgets(ctx, id, text, tokenBudget, timeBudget)
 }
 
 func (q *SessionGoalQuerier) Get(ctx context.Context, sessionID string) (json.RawMessage, error) {
-	return q.store.Get(ctx, sessionID)
+	id, err := q.boundSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return q.store.Get(ctx, id)
 }
 
 func (q *SessionGoalQuerier) SetStatus(ctx context.Context, sessionID string, status string) error {
-	return q.store.SetStatus(ctx, sessionID, status)
+	id, err := q.boundSession(sessionID)
+	if err != nil {
+		return err
+	}
+	return q.store.SetStatus(ctx, id, status)
 }
 
 func (q *SessionGoalQuerier) GetStatus(ctx context.Context, sessionID string) (string, error) {
-	g, err := q.store.Get(ctx, sessionID)
+	g, err := q.Get(ctx, sessionID)
 	if err != nil {
 		return "", err
 	}

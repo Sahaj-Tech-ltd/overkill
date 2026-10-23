@@ -396,7 +396,14 @@ func TestExecutor_Run_StageDuration(t *testing.T) {
 		{Content: "c"},
 		{Content: "d"},
 	}
-	p := newMockProvider(responses, nil)
+	p := providers.NewMockProvider("mock", nil, func(req providers.Request) (providers.Response, error) {
+		// Measure explicit elapsed work rather than assuming an instantaneous
+		// mock advances the host clock.
+		time.Sleep(time.Millisecond)
+		response := responses[0]
+		responses = responses[1:]
+		return response, nil
+	})
 	exec := NewExecutor(Config{Provider: p, Model: "test-model"})
 
 	result, err := exec.Run(context.Background(), "build")
@@ -405,8 +412,8 @@ func TestExecutor_Run_StageDuration(t *testing.T) {
 	}
 
 	for i, sr := range result.Stages {
-		if sr.Duration == 0 {
-			t.Errorf("stage %d: expected non-zero duration", i)
+		if sr.Duration < time.Millisecond {
+			t.Errorf("stage %d: expected at least 1ms duration", i)
 		}
 	}
 }

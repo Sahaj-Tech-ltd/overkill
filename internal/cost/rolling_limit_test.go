@@ -3,42 +3,17 @@ package cost
 import (
 	"context"
 	"database/sql"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"testing"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
-
-	_ "github.com/lib/pq"
 )
 
 func openCostDB(t *testing.T) *sql.DB {
 	t.Helper()
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		connStr = os.Getenv("PG_TEST_URL")
-	}
-	if connStr == "" {
-		connStr = "postgres://postgres:***@localhost:5432/overkill_test?sslmode=disable"
-	}
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		t.Skipf("skipping: cannot open postgres: %v", err)
-	}
-	if err := db.Ping(); err != nil {
-		db.Close()
-		t.Skipf("skipping: cannot ping postgres: %v (set PG_TEST_URL or DATABASE_URL)", err)
-	}
-	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS cost_entries (
-		id SERIAL PRIMARY KEY, session_id TEXT, model TEXT, provider TEXT,
-		tokens_in INTEGER, tokens_out INTEGER, cost_usd REAL,
-		created_at TIMESTAMPTZ DEFAULT NOW()
-	)`)
-	t.Cleanup(func() {
-		db.Exec("DELETE FROM cost_entries WHERE session_id LIKE 'test-%'")
-		db.Close()
-	})
-	return db
+	database, _ := testpg.Open(t)
+	return database
 }
 
 func newTrackerWithRollingLimit(t *testing.T, limit float64) *PostgresTracker {

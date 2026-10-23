@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"github.com/Sahaj-Tech-ltd/overkill/internal/instructions"
+	"time"
+)
 
 // ThinkingLevel controls how much internal reasoning/thinking the model
 // exposes. Not all providers support all levels — unsupported levels
@@ -65,39 +68,59 @@ func (t ThinkingLevel) Next() ThinkingLevel {
 	}
 }
 
+// AutoMemoryConfig enables provider-backed extraction only by explicit opt-in.
+type AutoMemoryConfig struct {
+	Enabled        bool `toml:"enabled"`
+	MinNewMessages int  `toml:"min_new_messages"`
+}
+
 type Config struct {
-	Version     int               `toml:"version"`
-	Agent       AgentConfig       `toml:"agent"`
-	Thinking    ThinkingConfig    `toml:"thinking"`
-	Providers   []ProviderConfig  `toml:"providers"`
-	TTS         TTSConfig         `toml:"tts"`
-	Personality PersonalityConfig `toml:"personality"`
-	Security    SecurityConfig    `toml:"security"`
-	Session     SessionConfig     `toml:"session"`
-	Cost        CostConfig        `toml:"cost"`
-	Compaction  CompactionConfig  `toml:"compaction"`
-	MCP         MCPConfig         `toml:"mcp"`
-	LSP         LSPConfig         `toml:"lsp"`
-	Skills      SkillsConfig      `toml:"skills"`
-	UI          UIConfig          `toml:"ui"`
-	Sync        SyncConfig        `toml:"sync"`
-	Share       ShareConfig       `toml:"share"`
-	ACP         ACPConfig         `toml:"acp"`
-	Plugins     PluginsConfig     `toml:"plugins"`
-	Slack       SlackConfig       `toml:"slack"`
-	Gateways    GatewayConfig     `toml:"gateways"`
-	Cron        CronConfig        `toml:"cron"`
-	Vision      VisionConfig      `toml:"vision"`
-	Browser     BrowserConfig     `toml:"browser"`
-	Rewriter    RewriterConfig    `toml:"rewriter"`
-	Ouroboros   OuroborosConfig   `toml:"ouroboros"`
-	RedTeam     RedTeamConfig     `toml:"red_team"`
-	ImageGen    ImageGenConfig    `toml:"image_gen"`
+	// sourcePath is immutable loaded-profile identity, never serialized.
+	sourcePath     string
+	secretBindings map[string]secretBinding
+	AutoMemory     AutoMemoryConfig  `toml:"auto_memory"`
+	Version        int               `toml:"version"`
+	Agent          AgentConfig       `toml:"agent"`
+	Thinking       ThinkingConfig    `toml:"thinking"`
+	Providers      []ProviderConfig  `toml:"providers"`
+	TTS            TTSConfig         `toml:"tts"`
+	Personality    PersonalityConfig `toml:"personality"`
+	Security       SecurityConfig    `toml:"security"`
+	Session        SessionConfig     `toml:"session"`
+	Cost           CostConfig        `toml:"cost"`
+	Compaction     CompactionConfig  `toml:"compaction"`
+	MCP            MCPConfig         `toml:"mcp"`
+	LSP            LSPConfig         `toml:"lsp"`
+	Skills         SkillsConfig      `toml:"skills"`
+	UI             UIConfig          `toml:"ui"`
+	Sync           SyncConfig        `toml:"sync"`
+	Share          ShareConfig       `toml:"share"`
+	ACP            ACPConfig         `toml:"acp"`
+	Plugins        PluginsConfig     `toml:"plugins"`
+	Slack          SlackConfig       `toml:"slack"`
+	Gateways       GatewayConfig     `toml:"gateways"`
+	Cron           CronConfig        `toml:"cron"`
+	Vision         VisionConfig      `toml:"vision"`
+	Browser        BrowserConfig     `toml:"browser"`
+	Rewriter       RewriterConfig    `toml:"rewriter"`
+	Ouroboros      OuroborosConfig   `toml:"ouroboros"`
+	RedTeam        RedTeamConfig     `toml:"red_team"`
+	ImageGen       ImageGenConfig    `toml:"image_gen"`
 
 	// DatabaseURL is the PostgreSQL connection string for persistent stores
 	// (learning corrections, etc.). Falls back to DATABASE_URL env var.
 	// Example: "postgres://user:***@localhost:5432/overkill?sslmode=disable"
-	DatabaseURL string `toml:"database_url"`
+	DatabaseURL   string              `toml:"database_url"`
+	LocalDatabase LocalDatabaseConfig `toml:"local_database"`
+}
+
+// LocalDatabaseConfig explicitly opts ordinary commands into a private, persistent
+// PostgreSQL cluster. An external DATABASE_URL/database_url always takes priority.
+// BinDir must point to already-installed postgres, initdb, and pg_ctl binaries.
+type LocalDatabaseConfig struct {
+	Enabled bool   `toml:"enabled"`
+	BinDir  string `toml:"bin_dir"`
+	DataDir string `toml:"data_dir"`
 }
 
 // ThinkingConfig governs extended thinking / chain-of-thought visibility.
@@ -220,9 +243,10 @@ type TelegramConfig struct {
 // Listens on loopback by default; expose only behind a reverse proxy
 // if you need remote access.
 type BridgeConfig struct {
-	Enabled bool   `toml:"enabled"`
-	Listen  string `toml:"listen"` // default 127.0.0.1:7799
-	Token   string `toml:"token"`  // shared secret; empty disables auth
+	Workspace string `toml:"workspace"` // canonical server-side workspace; defaults to startup cwd
+	Enabled   bool   `toml:"enabled"`
+	Listen    string `toml:"listen"` // default 127.0.0.1:7799
+	Token     string `toml:"token"`  // shared secret; empty disables auth
 }
 
 // DiscordConfig governs the optional Discord bot gateway.
@@ -454,11 +478,18 @@ type ShareConfig struct {
 }
 
 // ACPConfig governs the Agent Communication Protocol server.
+type ACPPeerConfig struct {
+	Name      string `toml:"name"`
+	URL       string `toml:"url"`
+	TokenFile string `toml:"token_file"`
+}
+
 type ACPConfig struct {
-	Listen         string   `toml:"listen"`
-	Token          string   `toml:"token"`
-	AllowedOrigins []string `toml:"allowed_origins"`
-	Enabled        bool     `toml:"enabled"`
+	Peers          []ACPPeerConfig `toml:"peers"`
+	Listen         string          `toml:"listen"`
+	Token          string          `toml:"token"`
+	AllowedOrigins []string        `toml:"allowed_origins"`
+	Enabled        bool            `toml:"enabled"`
 }
 
 // UIConfig controls TUI-level cosmetics. Animations is a soft kill-switch for
@@ -481,14 +512,18 @@ type MCPServer struct {
 	Command string            `toml:"command"`
 	Args    []string          `toml:"args"`
 	Env     map[string]string `toml:"env"`
-	Enabled bool              `toml:"enabled"`
+	Enabled *bool             `toml:"enabled,omitempty"` // nil preserves legacy default-on; explicit false disables launch.
 	// mcpshield capability — empty/zero means "trusted, no caps"
-	// (YOLO default). Users locking down a server set one or more
+	// (legacy default). Explicit tool lists apply even with trusted=true.
+	// Paths require an explicit local workspace and per-tool argument bindings.
+	// Users locking down a server set one or more
 	// of these to opt into the policy gate.
-	AllowedTools        []string `toml:"allowed_tools,omitempty"`
-	AllowedPathPrefixes []string `toml:"allowed_path_prefixes,omitempty"`
-	MaxBytesPerCall     int      `toml:"max_bytes_per_call,omitempty"`
-	Trusted             *bool    `toml:"trusted,omitempty"` // nil = default trusted
+	PathWorkspace        string              `toml:"path_workspace,omitempty"`         // Local child cwd/base for declared path arguments.
+	PathArgumentBindings map[string][]string `toml:"path_argument_bindings,omitempty"` // Tool -> RFC6901 pointers; empty list explicitly means no path inputs.
+	AllowedTools         []string            `toml:"allowed_tools,omitempty"`
+	AllowedPathPrefixes  []string            `toml:"allowed_path_prefixes,omitempty"`
+	MaxBytesPerCall      int                 `toml:"max_bytes_per_call,omitempty"`
+	Trusted              *bool               `toml:"trusted,omitempty"` // nil = default trusted
 }
 
 type LSPConfig struct {
@@ -508,13 +543,14 @@ type LSPServer struct {
 }
 
 type AgentConfig struct {
-	Name                  string            `toml:"name"`
-	DefaultProvider       string            `toml:"default_provider"`
-	DefaultModel          string            `toml:"default_model"`
-	MaxTurns              int               `toml:"max_turns"`
-	MaxOutputTokens       int               `toml:"max_output_tokens"`
-	SpecDriven            bool              `toml:"spec_driven"`
-	SystemPromptOverrides map[string]string `toml:"system_prompt_overrides"`
+	Instructions          instructions.Config `toml:"instructions"`
+	Name                  string              `toml:"name"`
+	DefaultProvider       string              `toml:"default_provider"`
+	DefaultModel          string              `toml:"default_model"`
+	MaxTurns              int                 `toml:"max_turns"`
+	MaxOutputTokens       int                 `toml:"max_output_tokens"`
+	SpecDriven            bool                `toml:"spec_driven"`
+	SystemPromptOverrides map[string]string   `toml:"system_prompt_overrides"`
 	// SystemPrompt is a user-editable base system prompt. When non-empty,
 	// it's prepended to the personality-generated prompt. Changing it
 	// mid-session triggers context compaction + a fresh conversation.
@@ -532,13 +568,15 @@ type ProviderConfig struct {
 }
 
 type ModelConfig struct {
-	ID           string  `toml:"id"`
-	Name         string  `toml:"name"`
-	MaxTokens    int     `toml:"max_tokens"`
-	CostIn       float64 `toml:"cost_in"`
-	CostOut      float64 `toml:"cost_out"`
-	CostCacheIn  float64 `toml:"cost_cache_in"`
-	CostCacheOut float64 `toml:"cost_cache_out"`
+	ID              string  `toml:"id"`
+	Name            string  `toml:"name"`
+	MaxTokens       int     `toml:"max_tokens"`        // Legacy context capacity; never an output limit.
+	ContextWindow   int     `toml:"context_window"`    // Takes precedence over max_tokens.
+	MaxOutputTokens int     `toml:"max_output_tokens"` // Independent completion ceiling; zero uses provider defaults.
+	CostIn          float64 `toml:"cost_in"`
+	CostOut         float64 `toml:"cost_out"`
+	CostCacheIn     float64 `toml:"cost_cache_in"`
+	CostCacheOut    float64 `toml:"cost_cache_out"`
 }
 
 type PersonalityConfig struct {
@@ -551,7 +589,8 @@ type SecurityConfig struct {
 	DenyPatterns   []string `toml:"deny_patterns"`
 	ForbiddenPaths []string `toml:"forbidden_paths"`
 	MaxCommandLen  int      `toml:"max_command_len"`
-	SandboxEnabled bool     `toml:"sandbox_enabled"`
+	// SandboxEnabled is retained for config compatibility; true is unsupported.
+	SandboxEnabled bool `toml:"sandbox_enabled"`
 }
 
 type SessionConfig struct {
@@ -577,17 +616,20 @@ type CostConfig struct {
 }
 
 type CompactionConfig struct {
+	// Strategy is auto (durable Seahorse with PostgreSQL, otherwise LCM),
+	// seahorse, lcm or legacy. UseLCM=false retains the legacy kill switch.
+	Strategy string `toml:"strategy,omitempty"`
+
 	SoftTriggerPercent int `toml:"soft_trigger_percent"`
 	HardTriggerPercent int `toml:"hard_trigger_percent"`
 	PreserveMessages   int `toml:"preserve_messages"`
 	MaxSummaryTokens   int `toml:"max_summary_tokens"`
 	// Model overrides the model used for the summarisation LLM call.
-	// Empty falls back to the provider's cheapest model at runtime
-	// (via LCM compactor's pickCheapestModel).
+	// Empty falls back to the same provider's cheapest listed model at runtime.
 	Model string `toml:"model,omitempty"`
-	// UseLCM routes Agent.Compact through the LCM 3-level escalation
-	// compactor (internal/compaction). When false, falls back to the legacy
-	// ad-hoc single-LLM-call compact path. Defaults to true.
+	// UseLCM enables the selected compactor strategy. When false, manual
+	// compaction retains the legacy single-call path and automatic strategy
+	// compaction is disabled. Defaults to true for compatibility.
 	UseLCM bool `toml:"use_lcm"`
 	// PromptCompress, when true, runs the assembled system prompt through
 	// the LLMLingua-style compressor on high-utilization turns (≥0.7).

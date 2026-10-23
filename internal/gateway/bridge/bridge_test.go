@@ -55,13 +55,17 @@ func TestBridge_InboundFansOutToSSE(t *testing.T) {
 	d.UpdateEvery = 5 * time.Millisecond
 	b := New(d, "", "")
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/in", b.handleIn)
-	mux.HandleFunc("/v1/out", b.handleOut)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
+	b.Listen = "127.0.0.1:0"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done, err := b.Start(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cancel(); <-done }()
+	srvURL := b.Addr()
 
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/out?channel=whatsapp", nil)
+	req, _ := http.NewRequest(http.MethodGet, srvURL+"/v1/out?channel=whatsapp", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +75,7 @@ func TestBridge_InboundFansOutToSSE(t *testing.T) {
 	body, _ := json.Marshal(InboundPayload{
 		Channel: "whatsapp", ChatKey: "+155****1234", Text: "ping",
 	})
-	postResp, err := http.Post(srv.URL+"/v1/in", "application/json", bytes.NewReader(body))
+	postResp, err := http.Post(srvURL+"/v1/in", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}

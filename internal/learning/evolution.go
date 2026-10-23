@@ -7,13 +7,8 @@
 package learning
 
 import (
-	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -25,6 +20,7 @@ import (
 // LearningRecord captures one agent turn for later pattern clustering.
 // Written synchronously after every turn into JSONL.
 type LearningRecord struct {
+	WorkspaceHash   string            `json:"workspaceHash"`
 	TaskHash        string            `json:"taskHash"` // SHA256 of user input
 	ToolExecutions  []ToolExecution   `json:"toolExecutions"`
 	AttemptTrail    []AttemptSnapshot `json:"attemptTrail"` // what was tried
@@ -61,6 +57,14 @@ type AttemptSnapshot struct {
 
 // SkillDraft is an AI-proposed skill change.
 type SkillDraft struct {
+	BaseHash        string      `json:"baseHash,omitempty"`
+	OriginalExists  bool        `json:"originalExists"`
+	ID              string      `json:"id"`
+	WorkspaceHash   string      `json:"workspaceHash"`
+	ReviewedAt      time.Time   `json:"reviewedAt,omitempty"`
+	AppliedAt       time.Time   `json:"appliedAt,omitempty"`
+	BackupID        string      `json:"backupId,omitempty"`
+	AppliedHash     string      `json:"appliedHash,omitempty"`
 	TargetSkillName string      `json:"targetSkillName"`
 	DraftType       DraftType   `json:"draftType"`
 	ChangeKind      ChangeKind  `json:"changeKind"`
@@ -94,6 +98,10 @@ const (
 	DraftQuarantined DraftStatus = "quarantined"
 	DraftAccepted    DraftStatus = "accepted"
 	DraftRejected    DraftStatus = "rejected"
+	DraftApplying    DraftStatus = "applying"
+	DraftRollingBack DraftStatus = "rolling_back"
+	DraftApplied     DraftStatus = "applied"
+	DraftRolledBack  DraftStatus = "rolled_back"
 )
 
 // ── Skill Lifecycle ──────────────────────────────────────────────────
@@ -180,10 +188,15 @@ type Engine struct {
 	clusterer PatternClusterer
 	generator DraftGenerator
 	judge     SuccessJudge
+	options   EngineOptions
 }
 
 // NewEngine creates an evolution engine.
 func NewEngine(recordDir, skillDir string, clusterer PatternClusterer, generator DraftGenerator, judge SuccessJudge) *Engine {
+	return NewEngineWithOptions(recordDir, skillDir, clusterer, generator, judge, EngineOptions{})
+}
+
+func NewEngineWithOptions(recordDir, skillDir string, clusterer PatternClusterer, generator DraftGenerator, judge SuccessJudge, options EngineOptions) *Engine {
 	if clusterer == nil {
 		clusterer = &HeuristicClusterer{}
 	}
@@ -197,40 +210,14 @@ func NewEngine(recordDir, skillDir string, clusterer PatternClusterer, generator
 		clusterer: clusterer,
 		generator: generator,
 		judge:     judge,
+		options:   normalizedEngineOptions(options),
 	}
 }
 
 // RecordTurn is called synchronously at the end of every agent turn
 // (hot path). Appends a LearningRecord to JSONL.
 func (e *Engine) RecordTurn(ctx context.Context, record LearningRecord) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	record.RecordedAt = time.Now().UTC()
-	if record.TaskHash == "" {
-		record.TaskHash = fmt.Sprintf("%x", sha256.Sum256([]byte(record.FinalOutput)))[:16]
-	}
-
-	data, err := json.Marshal(record)
-	if err != nil {
-		return fmt.Errorf("evolution: marshal record: %w", err)
-	}
-
-	path := filepath.Join(e.recordDir, "turns.jsonl")
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("evolution: mkdir: %w", err)
-	}
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("evolution: open turns: %w", err)
-	}
-	defer f.Close()
-
-	if _, err := f.Write(append(data, '\n')); err != nil {
-		return fmt.Errorf("evolution: write turn: %w", err)
-	}
-	return nil
+	return e.recordBounded(ctx, record)
 }
 
 // RunColdPath is the batch job. It:
@@ -240,6 +227,21 @@ func (e *Engine) RecordTurn(ctx context.Context, record LearningRecord) error {
 //  4. Reviews drafts (secret scanning)
 //  5. Applies accepted drafts (with rollback capability)
 func (e *Engine) RunColdPath(ctx context.Context, workspace string, applyMode bool) (*ColdPathResult, error) {
+	if applyMode {
+		return nil, fmt.Errorf("evolution: automatic application is disabled; review persisted drafts explicitly")
+	}
+	scope := WorkspaceScope(e.options.Workspace)
+	if workspace != "" {
+		requested := WorkspaceScope(workspace)
+		if scope != "" && scope != requested {
+			return nil, fmt.Errorf("evolution: workspace scope mismatch")
+		}
+		scope = requested
+	}
+	if scope == "" {
+		return nil, fmt.Errorf("evolution: explicit workspace scope required")
+	}
+
 	// Load records. Release the mutex before I/O so concurrent RecordTurn
 	// calls (which need the lock to append) are not blocked for the entire
 	// duration of reading a potentially large JSONL file.
@@ -251,6 +253,13 @@ func (e *Engine) RunColdPath(ctx context.Context, workspace string, applyMode bo
 	if err != nil {
 		return nil, fmt.Errorf("evolution: load records: %w", err)
 	}
+	scoped := records[:0]
+	for _, record := range records {
+		if record.WorkspaceHash == scope {
+			scoped = append(scoped, record)
+		}
+	}
+	records = scoped
 	result.RecordsLoaded = len(records)
 
 	// Judge each record.
@@ -282,7 +291,13 @@ func (e *Engine) RunColdPath(ctx context.Context, workspace string, applyMode bo
 	if e.generator == nil {
 		return result, nil
 	}
-	for _, cluster := range clusters {
+	for index, cluster := range clusters {
+		if index >= 8 {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		// Gather evidence for evidence-aware draft generators.
 		var evidence *DraftEvidence
 		if eag, ok := e.generator.(EvidenceAwareDraftGenerator); ok {
@@ -297,11 +312,33 @@ func (e *Engine) RunColdPath(ctx context.Context, workspace string, applyMode bo
 			continue
 		}
 
+		// Only content proposals cross the generator boundary; ignore any
+		// supplied approval, transaction state, or operator notes.
+		draft = SkillDraft{TargetSkillName: draft.TargetSkillName, DraftType: draft.DraftType, ChangeKind: draft.ChangeKind, BodyOrPatch: draft.BodyOrPatch}
 		// Review: scan for secrets.
-		findings := scanDraftContent(draft.BodyOrPatch)
+		draft.ID = newEvolutionID()
+		draft.WorkspaceHash = scope
+		draft.GeneratedAt = time.Now().UTC()
+		findings := reviewDraftContent(draft.BodyOrPatch+"\n"+draft.TargetSkillName, e.options.KnownSecrets)
+		if !safeSkillName.MatchString(draft.TargetSkillName) {
+			findings = append(findings, "invalid skill name")
+		}
+		if draft.DraftType != DraftWorkflow && draft.DraftType != DraftShortcut {
+			findings = append(findings, "invalid draft type")
+		}
+		if draft.ChangeKind != ChangeCreate && draft.ChangeKind != ChangeReplace && draft.ChangeKind != ChangeAppend {
+			findings = append(findings, "unsupported change kind")
+		}
 		if len(findings) > 0 {
 			draft.Status = DraftQuarantined
 			draft.ScanFindings = findings
+			draft.BodyOrPatch = "[quarantined content removed]"
+			draft.TargetSkillName = "quarantined"
+			draft.DraftType = DraftWorkflow
+			draft.ChangeKind = ChangeCreate
+			if err := e.persistDraft(ctx, draft); err != nil {
+				return result, err
+			}
 			result.QuarantinedDrafts++
 			result.Drafts = append(result.Drafts, draft)
 			continue
@@ -309,16 +346,10 @@ func (e *Engine) RunColdPath(ctx context.Context, workspace string, applyMode bo
 
 		draft.Status = DraftCandidate
 		result.CandidateDrafts++
-
-		// Apply if in apply mode.
-		if applyMode {
-			if err := e.applyDraft(draft); err != nil {
-				result.ApplyErrors++
-				continue
-			}
-			draft.Status = DraftAccepted
-			result.AppliedDrafts++
+		if err := e.persistDraft(ctx, draft); err != nil {
+			return result, err
 		}
+
 		result.Drafts = append(result.Drafts, draft)
 	}
 
@@ -328,28 +359,7 @@ func (e *Engine) RunColdPath(ctx context.Context, workspace string, applyMode bo
 // applyDraft writes the draft to the skills directory with atomic
 // temp+rename. Backs up the existing skill if present.
 func (e *Engine) applyDraft(draft SkillDraft) error {
-	skillPath := filepath.Join(e.skillDir, draft.TargetSkillName, "SKILL.md")
-
-	// Backup existing.
-	if _, err := os.Stat(skillPath); err == nil {
-		backupPath := filepath.Join(e.backupDir, draft.TargetSkillName,
-			fmt.Sprintf("%d", time.Now().UnixNano()), "SKILL.md")
-		if err := os.MkdirAll(filepath.Dir(backupPath), 0o750); err != nil {
-			return err
-		}
-		data, _ := os.ReadFile(skillPath)
-		_ = os.WriteFile(backupPath, data, 0o600)
-	}
-
-	// Write new skill atomically.
-	if err := os.MkdirAll(filepath.Dir(skillPath), 0o750); err != nil {
-		return err
-	}
-	tmp := skillPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(draft.BodyOrPatch), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, skillPath)
+	return e.applyContainedDraft(draft)
 }
 
 // ── ColdPathResult ───────────────────────────────────────────────────
@@ -374,55 +384,19 @@ type ColdPathResult struct {
 // ── Internal helpers ─────────────────────────────────────────────────
 
 func (e *Engine) loadRecordsFrom(recordDir string) ([]LearningRecord, error) {
-	path := filepath.Join(recordDir, "turns.jsonl")
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer f.Close()
-
-	var records []LearningRecord
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-		var r LearningRecord
-		if err := json.Unmarshal([]byte(line), &r); err != nil {
-			log.Printf("learning: corrupt line in %s: %v", path, err)
-			continue
-		}
-		records = append(records, r)
-	}
-	if err := scanner.Err(); err != nil {
-		return records, err
-	}
-	return records, nil
+	return e.readBoundedRecords(recordDir)
 }
 
 // scanDraftContent checks for secrets in draft content.
 func scanDraftContent(content string) []string {
-	var findings []string
-	patterns := []string{
-		"sk-live-", "sk_test_", "-----BEGIN PRIVATE KEY-----",
-		"-----BEGIN RSA PRIVATE KEY-----", "api_key", "password",
-	}
-	for _, pat := range patterns {
-		if strings.Contains(strings.ToLower(content), strings.ToLower(pat)) {
-			findings = append(findings, fmt.Sprintf("potential secret pattern: %q", pat))
-		}
-	}
-	return findings
+	return reviewDraftContent(content, nil)
 }
 
-func safeJudge(ctx context.Context, judge SuccessJudge, record LearningRecord) (TaskSuccessDecision, error) {
+func safeJudge(ctx context.Context, judge SuccessJudge, record LearningRecord) (decision TaskSuccessDecision, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			// Don't crash the cold path for one bad judge.
+			decision = TaskSuccessDecision{}
+			err = fmt.Errorf("judge panic")
 		}
 	}()
 	if judge == nil {

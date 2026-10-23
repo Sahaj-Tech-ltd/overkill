@@ -1,16 +1,20 @@
 package tools
 
 import (
-	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/processrunner"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
@@ -38,6 +42,14 @@ var dangerousEnv = map[string]bool{
 	"PYTHONPATH":            true,
 	"BASH_ENV":              true,
 	"PROMPT_COMMAND":        true,
+	"ENV":                   true,
+	"SHELLOPTS":             true,
+	"BASHOPTS":              true,
+	"IFS":                   true,
+	"CDPATH":                true,
+	"GLOBIGNORE":            true,
+	"PS4":                   true,
+	"ZDOTDIR":               true,
 }
 
 type ShellTool struct {
@@ -65,11 +77,15 @@ type ShellInput struct {
 }
 
 type ShellOutput struct {
-	ExitCode  int    `json:"exit_code"`
-	Stdout    string `json:"stdout"`
-	Stderr    string `json:"stderr"`
-	TimedOut  bool   `json:"timed_out"`
-	Completed bool   `json:"completed"`
+	// Raw combined bytes include ANSI escapes and the completion marker;
+	// visible output retains at most 1 MiB plus a truncation notice.
+	OutputTruncated bool   `json:"output_truncated,omitempty"`
+	OutputBytes     int64  `json:"output_bytes,omitempty"`
+	ExitCode        int    `json:"exit_code"`
+	Stdout          string `json:"stdout"`
+	Stderr          string `json:"stderr"`
+	TimedOut        bool   `json:"timed_out"`
+	Completed       bool   `json:"completed"`
 	// Cwd is $PWD at the moment the marker fired — i.e. the working
 	// directory the shell ended in (after any `cd` in the command).
 	// Empty when the marker didn't carry a cwd (legacy / parse failure).
@@ -96,6 +112,10 @@ func (s *ShellTool) Name() string {
 }
 
 func appendMarker(cmd string) string {
+	return appendMarkerWithID(cmd, overkillDoneMarker)
+}
+
+func appendMarkerWithID(cmd, marker string) string {
 	trimmed := strings.TrimSpace(cmd)
 	// ALWAYS append. The previous "skip if marker already present"
 	// branch let an LLM `echo '__OVERKILL_DONE__:exit=0:cwd=/' && rm -rf /`
@@ -107,7 +127,7 @@ func appendMarker(cmd string) string {
 	// fails. The shell captures $? before we evaluate $PWD so a failing
 	// cd doesn't poison the cwd report. printf is used instead of echo
 	// because echo's newline behaviour varies across shells.
-	return trimmed + `; { __ovrk_e=$?; printf '` + overkillDoneMarker +
+	return trimmed + `; { __ovrk_e=$?; printf '` + marker +
 		`:exit=%d:cwd=%s\n' "$__ovrk_e" "$PWD"; }`
 }
 
@@ -124,11 +144,15 @@ type markerInfo struct {
 // absent the cleaned output is the original input verbatim and Found is
 // false — callers must NOT trust Exit/Cwd in that case.
 func stripMarker(output string) (string, markerInfo) {
+	return stripMarkerWithPattern(output, markerFullRe)
+}
+
+func stripMarkerWithPattern(output string, pattern *regexp.Regexp) (string, markerInfo) {
 	// Take the LAST marker occurrence: appendMarker pins one to the end
 	// of the command, so any earlier marker in the output is by
 	// definition fake (an LLM-printed string that happens to match the
 	// pattern). Using the last match closes the spoofing window.
-	all := markerFullRe.FindAllStringSubmatch(output, -1)
+	all := pattern.FindAllStringSubmatch(output, -1)
 	if len(all) == 0 {
 		return output, markerInfo{}
 	}
@@ -163,7 +187,7 @@ func stripMarker(output string) (string, markerInfo) {
 	// trailing printf, so they're part of what the command actually
 	// printed (or what an LLM tried to spoof) and the user/agent
 	// should see them rather than have them silently elided.
-	lastIdx := markerFullRe.FindAllStringIndex(output, -1)
+	lastIdx := pattern.FindAllStringIndex(output, -1)
 	var cleaned string
 	if len(lastIdx) > 0 {
 		last := lastIdx[len(lastIdx)-1]
@@ -191,6 +215,9 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	// §4.3 defense-in-depth. The agent loop also scans before dispatch,
 	// but a scan here catches non-agent callers (direct invocation,
 	// plugins). Scan the raw user command, not the marker-appended form.
+	if _, err := security.ShellSyntaxFindings(in.Command); err != nil {
+		return nil, fmt.Errorf("shell: %w", err)
+	}
 	if s.scanner != nil {
 		res, err := s.scanner.Scan(in.Command)
 		if err != nil {
@@ -218,61 +245,61 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	command := appendMarker(in.Command)
-
-	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
-
-	if in.WorkingDir != "" {
-		// Constrain WorkingDir to a child of the default workspace
-		// when one is configured. Without this guard an LLM could
-		// `WorkingDir: "/etc"` and run commands outside the project
-		// root. When no defaultWorkingDir is configured we trust the
-		// caller's cwd (matches legacy permissive behaviour for the
-		// no-workspace agent).
-		if s.defaultWorkingDir != "" {
-			base, baseErr := filepath.Abs(s.defaultWorkingDir)
-			dir, dirErr := filepath.Abs(in.WorkingDir)
-			if baseErr != nil || dirErr != nil {
-				return nil, fmt.Errorf("shell: resolve working_dir: base=%v dir=%v", baseErr, dirErr)
-			}
-			rel, rerr := filepath.Rel(filepath.Clean(base), filepath.Clean(dir))
-			if rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return nil, fmt.Errorf("shell: working_dir %q is outside workspace %q", in.WorkingDir, s.defaultWorkingDir)
-			}
-		}
-		cmd.Dir = in.WorkingDir
-	} else if s.defaultWorkingDir != "" {
-		cmd.Dir = s.defaultWorkingDir
+	// A fresh receipt prevents preprinted static markers from claiming completion
+	// when exit/exec stops the shell before the trailing printf runs.
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, fmt.Errorf("shell: completion receipt: %w", err)
 	}
+	marker := overkillDoneMarker + "_" + hex.EncodeToString(nonce[:])
+	command := appendMarkerWithID(in.Command, marker)
 
-	if len(in.Env) > 0 {
-		cmd.Env = cmd.Environ()
-		for k, v := range in.Env {
-			if !dangerousEnv[strings.ToUpper(k)] {
-				cmd.Env = append(cmd.Env, k+"="+v)
-			}
+	cmd := exec.Command("sh", "-c", command)
+
+	workingDir, err := resolveShellWorkingDir(s.defaultWorkingDir, in.WorkingDir)
+	if err != nil {
+		return nil, err
+	}
+	cmd.Dir = workingDir
+	// Inherited shell startup hooks are just as executable as supplied hooks.
+	// Preserve the application's search path, while rejecting caller overrides.
+	for _, entry := range cmd.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if !shellStartupEnv(key) {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	for k, v := range in.Env {
+		if strings.ContainsAny(k, "=\x00") || k == "" || strings.ContainsRune(v, 0) {
+			return nil, fmt.Errorf("shell: invalid environment entry")
+		}
+		if !dangerousEnv[strings.ToUpper(k)] && !shellStartupEnv(k) && !strings.HasPrefix(strings.ToUpper(k), "LD_") && !strings.HasPrefix(strings.ToUpper(k), "DYLD_") {
+			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}
 
-	var combined bytes.Buffer
-	cmd.Stdout = &combined
-	cmd.Stderr = &combined
+	combined := processrunner.NewOutputCapture(1024 * 1024)
+	cmd.Stdout = combined
+	cmd.Stderr = combined
 
 	startedAt := time.Now()
-	err := cmd.Run()
+	err = processrunner.Run(cmdCtx, cmd)
 	elapsed := time.Since(startedAt)
 
-	raw := ansiRe.ReplaceAllString(combined.String(), "")
-	stdout, info := stripMarker(raw)
+	text, total, truncated := combined.Snapshot()
+	raw := ansiRe.ReplaceAllString(text, "")
+	stdout, info := stripMarkerWithPattern(raw, regexp.MustCompile(regexp.QuoteMeta(marker)+`(?::exit=(-?\d+))?(?::cwd=([^\n\r]*))?\s*`))
 
 	output := ShellOutput{
-		ExitCode:  0,
-		Stdout:    stdout,
-		Stderr:    "",
-		TimedOut:  false,
-		Completed: info.Found,
-		Cwd:       info.Cwd,
-		ElapsedMs: elapsed.Milliseconds(),
+		OutputTruncated: truncated,
+		OutputBytes:     total,
+		ExitCode:        0,
+		Stdout:          stdout,
+		Stderr:          "",
+		TimedOut:        false,
+		Completed:       info.Found,
+		Cwd:             info.Cwd,
+		ElapsedMs:       elapsed.Milliseconds(),
 	}
 	// When the marker carries an exit code, trust it — it captures the
 	// final shell exit even when the wrapper script itself succeeded.
@@ -283,19 +310,25 @@ func (s *ShellTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	}
 
 	if err != nil {
+		output.Cwd = ""
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			output.TimedOut = true
 			output.ExitCode = -1
 			output.Stderr = fmt.Sprintf("command timed out after %s", timeout)
 			output.Completed = false
-		} else if !info.Found {
-			// No marker: fall back to Go's view of the exit code.
-			if exitErr, ok := err.(*exec.ExitError); ok {
+		} else {
+			// A failed/terminated shell overrides any printed marker. A
+			// command can exit before our appended marker is reached.
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
 				output.ExitCode = exitErr.ExitCode()
 			} else {
 				output.ExitCode = -1
 			}
 			output.Completed = false
+			if cmdCtx.Err() != nil {
+				output.Stderr = "command cancelled"
+			}
 		}
 	}
 
@@ -362,4 +395,60 @@ func estimateTimeout(cmd string) time.Duration {
 
 	// Default: simple command (ls, cat, echo, grep, etc.) — 2 min.
 	return 2 * time.Minute
+}
+
+// resolveShellWorkingDir checks the actual existing directory, including symlink
+// ancestors. It is containment of the initial cwd, not a filesystem sandbox; a
+// command can still cd elsewhere. Concurrent hostile directory replacement needs
+// OS sandboxing to provide a stronger boundary.
+func resolveShellWorkingDir(base, requested string) (string, error) {
+	if base == "" {
+		return requested, nil
+	}
+	root, err := filepath.Abs(base)
+	if err != nil {
+		return "", fmt.Errorf("shell: resolve workspace: %w", err)
+	}
+	// Reject lexical escapes even when the workspace is unavailable.
+	if requested != "" {
+		candidate := requested
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(root, candidate)
+		}
+		rel, e := filepath.Rel(root, candidate)
+		if e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("shell: working_dir is outside workspace")
+		}
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("shell: resolve workspace symlinks: %w", err)
+	}
+	dir := requested
+	if dir == "" {
+		dir = root
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(root, dir)
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("shell: resolve working_dir: %w", err)
+	}
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("shell: working_dir is outside workspace")
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("shell: working_dir must be an existing directory")
+	}
+	return dir, nil
+}
+func shellStartupEnv(key string) bool {
+	key = strings.ToUpper(key)
+	switch key {
+	case "ENV", "BASH_ENV", "PROMPT_COMMAND", "SHELLOPTS", "BASHOPTS", "IFS", "CDPATH", "GLOBIGNORE", "PS4", "ZDOTDIR":
+		return true
+	}
+	return strings.HasPrefix(key, "BASH_FUNC_")
 }

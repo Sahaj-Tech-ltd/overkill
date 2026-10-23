@@ -1,23 +1,9 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useSyncExternalStore } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "../../hooks/use-theme.ts";
 import type { BackendClient } from "../../backend/client.ts";
 
-// ─── Types ─────────────────────────────────────────────────────────────────
-
-interface SkillInfo {
-  name: string;
-  description: string;
-  category: string;
-  tags: string[];
-  enabled: boolean;
-  bundled: boolean;
-}
-
-// TODO(backend): wire to RPC once skills.* methods are added to server.go
-// Planned calls:
-//   mount:  backend.call<SkillInfo[]>("skills.list")
-//   toggle: backend.call("skills.toggle", { name, enabled })
+import { SkillsPanelModel } from "./panel-models.ts";
 
 const MAX_DISPLAY = 12;
 
@@ -32,44 +18,13 @@ export function SkillsPanel({
 }): React.JSX.Element {
   const { theme } = useTheme();
 
-  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const model = useMemo(() => new SkillsPanelModel(backend), [backend]);
+  const { skills, busy, error } = useSyncExternalStore(model.subscribe, model.getSnapshot);
   const [search, setSearch] = useState("");
   const [focusedIdx, setFocusedIdx] = useState(-1);
   const [isSearching, setIsSearching] = useState(false);
 
-  // Mount: load skills from backend.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    if (!mounted) {
-      setMounted(true);
-      backend
-        .call<SkillInfo[]>("skills.list")
-        .then((list) => {
-          if (list?.length) setSkills(list);
-        })
-        .catch(() => {});
-    }
-  }, [backend, mounted]);
-
-  const toggleSkill = (name: string) => {
-    backend
-      .call<{ name: string; enabled: boolean }>("skills.toggle", { name })
-      .then((result) => {
-        setSkills((prev) =>
-          prev.map((s) =>
-            s.name === name ? { ...s, enabled: result.enabled } : s,
-          ),
-        );
-      })
-      .catch(() => {
-        // Fallback: optimistic toggle
-        setSkills((prev) =>
-          prev.map((s) =>
-            s.name === name ? { ...s, enabled: !s.enabled } : s,
-          ),
-        );
-      });
-  };
+  useEffect(() => { void model.reload(); return () => model.dispose(); }, [model]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return skills;
@@ -78,7 +33,7 @@ export function SkillsPanel({
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.description.toLowerCase().includes(q) ||
-        s.tags.some((t) => t.toLowerCase().includes(q)) ||
+        (s.tags ?? []).some((t) => t.toLowerCase().includes(q)) ||
         s.category.toLowerCase().includes(q),
     );
   }, [skills, search]);
@@ -87,7 +42,7 @@ export function SkillsPanel({
 
   // Keyboard handling
   useInput((input, key) => {
-    if (!active) return;
+    if (!active || busy) return;
 
     if (isSearching) {
       if (key.escape) {
@@ -114,6 +69,7 @@ export function SkillsPanel({
       setFocusedIdx(-1);
       return;
     }
+    if (input === "r") { void model.reload(); return; }
     if (input === "/") {
       setIsSearching(true);
       return;
@@ -131,7 +87,8 @@ export function SkillsPanel({
     }
     if (input === " " || key.return) {
       if (focusedIdx >= 0 && focusedIdx < filtered.length) {
-        toggleSkill(filtered[focusedIdx]!.name);
+        const skill = filtered[focusedIdx]!;
+        void model.setEnabled(skill.name, !skill.enabled);
       }
       return;
     }
@@ -150,6 +107,8 @@ export function SkillsPanel({
         </Text>
       </Box>
 
+      {error && <Text color={theme.error}>{error} · r:retry</Text>}
+      {busy && <Text dimColor>Updating skills…</Text>}
       {/* Search bar */}
       <Box paddingX={1} marginTop={1}>
         {isSearching ? (

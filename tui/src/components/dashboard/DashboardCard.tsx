@@ -14,6 +14,7 @@ export interface DashboardCardProps {
   readonly open: boolean;
   readonly onClose: () => void;
   readonly backend: BackendClient;
+  readonly sessionId: string | null;
 }
 
 // ─── Refresh interval ──────────────────────────────────────────────────────
@@ -28,6 +29,7 @@ function goalBadgeVariant(
   switch (status) {
     case "active":
       return "success";
+    case "paused":
     case "blocked":
       return "warning";
     case "complete":
@@ -41,6 +43,7 @@ function goalBadgeLabel(status: GoalData["status"]): string {
   switch (status) {
     case "active":
       return "ACTIVE";
+    case "paused": return "PAUSED";
     case "blocked":
       return "BLOCKED";
     case "complete":
@@ -121,44 +124,35 @@ export function DashboardCard({
   open,
   onClose,
   backend,
+  sessionId,
 }: DashboardCardProps): React.JSX.Element | null {
   const theme = useTheme();
 
-  const [goal, setGoal] = useState<GoalData | null>(null);
-  const [plan, setPlan] = useState<PlanData | null>(null);
-  const [goalError, setGoalError] = useState<string | null>(null);
-  const [planError, setPlanError] = useState<string | null>(null);
-
-  // ── Fetch helpers ─────────────────────────────────────────────────────
-
-  const load = () => {
-    fetchGoal(backend)
-      .then((g) => {
-        setGoal(g);
-        setGoalError(null);
-      })
-      .catch((e: unknown) => {
-        setGoalError((e as Error).message);
-      });
-
-    fetchPlan(backend)
-      .then((p) => {
-        setPlan(p);
-        setPlanError(null);
-      })
-      .catch((e: unknown) => {
-        setPlanError((e as Error).message);
-      });
-  };
-
-  // ── Auto-refresh (only when open) ──────────────────────────────────────
-
+  const [loadedGoal, setGoal] = useState<GoalData | null>(null);
+  const [loadedPlan, setPlan] = useState<PlanData | null>(null);
+  const [loadedGoalError, setGoalError] = useState<string | null>(null);
+  const [loadedPlanError, setPlanError] = useState<string | null>(null);
+  const [owner, setOwner] = useState<string | null>(null);
+  const goal = owner === sessionId ? loadedGoal : null;
+  const plan = owner === sessionId ? loadedPlan : null;
+  const goalError = owner === sessionId ? loadedGoalError : null;
+  const planError = owner === sessionId ? loadedPlanError : null;
   useEffect(() => {
-    if (!open) return;
-    load();
-    const iv = setInterval(load, REFRESH_MS);
-    return () => clearInterval(iv);
-  }, [open]);
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    setOwner(sessionId); setGoal(null); setPlan(null); setGoalError(null); setPlanError(null);
+    if (!open || !sessionId) return;
+    const load = async () => {
+      await Promise.all([
+        fetchGoal(backend, sessionId, controller.signal).then((value) => {if (!disposed) {setGoal(value); setGoalError(null);}}).catch((error: unknown) => {if (!disposed) setGoalError((error as Error).message);}),
+        fetchPlan(backend, sessionId, controller.signal).then((value) => {if (!disposed) {setPlan(value); setPlanError(null);}}).catch((error: unknown) => {if (!disposed) setPlanError((error as Error).message);}),
+      ]);
+      if (!disposed) timer = setTimeout(() => {void load();}, REFRESH_MS);
+    };
+    void load();
+    return () => {disposed = true; controller.abort(); if (timer) clearTimeout(timer);};
+  }, [open, backend, sessionId]);
 
   // ── Plan counters ─────────────────────────────────────────────────────
 

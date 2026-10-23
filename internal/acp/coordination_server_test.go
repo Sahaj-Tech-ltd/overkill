@@ -1,0 +1,182 @@
+package acp
+
+import (
+	"context"
+	"encoding/json"
+	"github.com/google/uuid"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/coordination"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
+	"github.com/stretchr/testify/require"
+)
+
+func TestCoordinationScopedACPClientCorrelationsRetryReconnectAndKinds(t *testing.T) {
+	db, _ := testpg.Open(t)
+	store, err := coordination.NewStore(t.Context(), db)
+	require.NoError(t, err)
+	front, ft, err := store.RegisterPeer(t.Context(), coordination.Peer{ProjectID: "p", Name: "frontend", Role: "UI", Workspace: t.TempDir()})
+	require.NoError(t, err)
+	back, bt, err := store.RegisterPeer(t.Context(), coordination.Peer{ProjectID: "p", Name: "backend", Role: "API", Workspace: t.TempDir(), Endpoint: "http://127.0.0.1:8421", Capabilities: []string{"users-schema"}})
+	require.NoError(t, err)
+	_, ot, err := store.RegisterPeer(t.Context(), coordination.Peer{ProjectID: "other", Name: "outsider", Role: "isolated", Workspace: t.TempDir()})
+	require.NoError(t, err)
+	server := NewServer(Config{Token: "global-is-not-peer", Coordination: store})
+	defer server.Shutdown(context.Background())
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	f := NewClient(httpServer.URL, ft)
+	b := NewClient(httpServer.URL, bt)
+	discovery, err := f.Coordination(t.Context(), "peers", CoordinationRequest{})
+	require.NoError(t, err)
+	require.Len(t, discovery.Peers, 2)
+	require.Equal(t, "backend", discovery.Peers[0].Name)
+	require.Equal(t, back.Endpoint, discovery.Peers[0].Endpoint)
+	require.Equal(t, []string{"users-schema"}, discovery.Peers[0].Capabilities)
+	input := CoordinationRequest{Send: &coordination.SendInput{To: "backend", Kind: "request", TaskID: "users-task", Payload: json.RawMessage(`{"question":"GET /users schema?"}`), IdempotencyKey: "request"}}
+	receipt, err := f.Coordination(t.Context(), "send", input)
+	require.NoError(t, err)
+	m := *receipt.Message
+	require.Equal(t, front.ID, m.From)
+	require.Equal(t, back.ID, m.To)
+	require.NotEmpty(t, m.ConversationID)
+	require.Equal(t, "users-task", m.TaskID)
+	require.False(t, m.Deadline.IsZero())
+	retry, err := f.Coordination(t.Context(), "send", input)
+	require.NoError(t, err)
+	require.Equal(t, m.ID, retry.Message.ID)
+	_, err = NewClient(httpServer.URL, "global-is-not-peer").Coordination(t.Context(), "send", input)
+	require.ErrorContains(t, err, "401")
+	_, err = NewClient(httpServer.URL, ot).Coordination(t.Context(), "send", input)
+	require.Error(t, err)
+	inbox, err := b.Coordination(t.Context(), "inbox", CoordinationRequest{})
+	require.NoError(t, err)
+	require.Len(t, inbox.Messages, 1)
+	claimed, err := b.Coordination(t.Context(), "claim", CoordinationRequest{})
+	require.NoError(t, err)
+	require.Equal(t, m.ID, claimed.Message.ID)
+	progress, err := b.Coordination(t.Context(), "transition", CoordinationRequest{MessageID: m.ID, ExpectedRevision: claimed.Message.Revision, Event: "progress", Payload: json.RawMessage(`{"percent":50}`)})
+	require.NoError(t, err)
+	status, err := NewClient(httpServer.URL, ft).Coordination(t.Context(), "status", CoordinationRequest{MessageID: m.ID})
+	require.NoError(t, err)
+	require.Equal(t, progress.Message.Revision, status.Message.Revision)
+	require.Len(t, status.Events, 3)
+	// Every required message type traverses the actual scoped transport and remains
+	// correlated after a fresh Store/server/client is constructed.
+	httpServer.Close()
+	require.NoError(t, server.Shutdown(context.Background()))
+	fresh, err := coordination.NewStore(t.Context(), db)
+	require.NoError(t, err)
+	next := NewServer(Config{Token: "global", Coordination: fresh})
+	defer next.Shutdown(context.Background())
+	httpServer = httptest.NewServer(next.Handler())
+	defer httpServer.Close()
+	f = NewClient(httpServer.URL, ft)
+	b = NewClient(httpServer.URL, bt)
+	retry, err = f.Coordination(t.Context(), "send", input)
+	require.NoError(t, err)
+	require.Equal(t, m.ID, retry.Message.ID)
+	for _, kind := range []string{"progress", "blocker", "contract_changed"} {
+		update, err := b.Coordination(t.Context(), "send", CoordinationRequest{Send: &coordination.SendInput{To: "frontend", Kind: kind, ConversationID: m.ConversationID, TaskID: m.TaskID, InReplyTo: m.ID, Payload: json.RawMessage(`{"schema":"users[]"}`), IdempotencyKey: kind}})
+		require.NoError(t, err)
+		require.Equal(t, m.ConversationID, update.Message.ConversationID)
+	}
+	answer, err := b.Coordination(t.Context(), "reply", CoordinationRequest{MessageID: m.ID, Payload: json.RawMessage(`{"ready":true}`), IdempotencyKey: "answer"})
+	require.NoError(t, err)
+	require.Equal(t, m.ID, answer.Message.InReplyTo)
+	require.Equal(t, m.ConversationID, answer.Message.ConversationID)
+	// Completion as a separate kind is supported on its own request, not a second
+	// answer attempting to finish an already answered request.
+	input.Send.IdempotencyKey = "second"
+	second, err := f.Coordination(t.Context(), "send", input)
+	require.NoError(t, err)
+	done, err := b.Coordination(t.Context(), "send", CoordinationRequest{Send: &coordination.SendInput{To: "frontend", Kind: "completion", InReplyTo: second.Message.ID, Payload: json.RawMessage(`{"done":true}`), IdempotencyKey: "completion"}})
+	require.NoError(t, err)
+	require.Equal(t, "completion", done.Message.Kind)
+	_, err = NewClient(httpServer.URL, ot).Coordination(t.Context(), "status", CoordinationRequest{MessageID: m.ID})
+	require.ErrorContains(t, err, "404")
+	require.NoError(t, fresh.DisablePeer(t.Context(), front.ID))
+	_, err = f.Coordination(t.Context(), "peers", CoordinationRequest{})
+	require.ErrorContains(t, err, "401")
+}
+func TestCoordinationClientNeverForwardsScopedCredentialRedirect(t *testing.T) {
+	var hits int
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		t.Errorf("credential reached redirect destination")
+	}))
+	defer destination.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	_, err := NewClient(redirect.URL, "private-test-secret").Coordination(t.Context(), "peers", CoordinationRequest{})
+	require.ErrorContains(t, err, "307")
+	require.Zero(t, hits)
+	require.NotContains(t, err.Error(), "private-test-secret")
+}
+
+func TestCoordinationIngressFencesManualOwnershipAllowsLiveCancellationAndRecovery(t *testing.T) {
+	db, _ := testpg.Open(t)
+	store, err := coordination.NewStore(t.Context(), db)
+	require.NoError(t, err)
+	front, ft, err := store.RegisterPeer(t.Context(), coordination.Peer{ProjectID: "p", Name: "frontend", Role: "UI", Workspace: t.TempDir()})
+	require.NoError(t, err)
+	back, bt, err := store.RegisterPeer(t.Context(), coordination.Peer{ProjectID: "p", Name: "backend", Role: "API", Workspace: t.TempDir()})
+	require.NoError(t, err)
+	server := NewServer(Config{Token: "global", Coordination: store})
+	defer server.Shutdown(context.Background())
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	f, b := NewClient(httpServer.URL, ft), NewClient(httpServer.URL, bt)
+	receipt, err := f.Coordination(t.Context(), "send", CoordinationRequest{Send: &coordination.SendInput{To: "backend", Kind: "request", Payload: json.RawMessage(`{}`), IdempotencyKey: "leased"}})
+	require.NoError(t, err)
+	lease, err := store.AcquireLease(t.Context(), back.ID, uuid.NewString(), time.Minute)
+	require.NoError(t, err)
+	_, err = b.Coordination(t.Context(), "claim", CoordinationRequest{})
+	require.ErrorContains(t, err, "409")
+	claimed, err := store.ClaimLease(t.Context(), lease)
+	require.NoError(t, err)
+	_, err = b.Coordination(t.Context(), "transition", CoordinationRequest{MessageID: claimed.ID, ExpectedRevision: claimed.Revision, Event: "progress", Payload: json.RawMessage(`{}`)})
+	require.ErrorContains(t, err, "409")
+	_, err = b.Coordination(t.Context(), "reply", CoordinationRequest{MessageID: claimed.ID, Payload: json.RawMessage(`{}`), IdempotencyKey: "forbidden-owned-answer"})
+	require.ErrorContains(t, err, "409")
+	_, err = b.Coordination(t.Context(), "send", CoordinationRequest{Send: &coordination.SendInput{To: "frontend", Kind: "completion", InReplyTo: claimed.ID, Payload: json.RawMessage(`{}`), IdempotencyKey: "forbidden-owned-completion"}})
+	require.ErrorContains(t, err, "409")
+	cancelled, err := f.Coordination(t.Context(), "cancel", CoordinationRequest{MessageID: receipt.Message.ID, ExpectedRevision: claimed.Revision, Payload: json.RawMessage(`{"reason":"no longer needed"}`)})
+	require.NoError(t, err)
+	require.Equal(t, coordination.Cancelled, cancelled.Message.State)
+	_, err = store.WorkerTransition(t.Context(), lease, claimed.ID, cancelled.Message.Revision, "completed", json.RawMessage(`{}`))
+	require.Error(t, err)
+	require.NoError(t, store.ReleaseLease(t.Context(), lease))
+	next, err := f.Coordination(t.Context(), "send", CoordinationRequest{Send: &coordination.SendInput{To: "backend", Kind: "request", Payload: json.RawMessage(`{}`), IdempotencyKey: "interrupted"}})
+	require.NoError(t, err)
+	lease, err = store.AcquireLease(t.Context(), back.ID, uuid.NewString(), time.Minute)
+	require.NoError(t, err)
+	running, err := store.ClaimLease(t.Context(), lease)
+	require.NoError(t, err)
+	require.Equal(t, next.Message.ID, running.ID)
+	_, err = b.Coordination(t.Context(), "recover", CoordinationRequest{})
+	require.ErrorContains(t, err, "409")
+	_, err = db.ExecContext(t.Context(), `UPDATE coordination_leases SET expires_at=clock_timestamp()-interval '1 second' WHERE peer_id=$1`, back.ID)
+	require.NoError(t, err)
+	_, err = b.Coordination(t.Context(), "claim", CoordinationRequest{})
+	require.ErrorContains(t, err, "409")
+	_, err = b.Coordination(t.Context(), "recover", CoordinationRequest{})
+	require.NoError(t, err)
+	blocked, err := store.Read(t.Context(), front.ID, running.ID)
+	require.NoError(t, err)
+	require.Equal(t, coordination.Blocked, blocked.State)
+	_, err = b.Coordination(t.Context(), "recover", CoordinationRequest{})
+	require.NoError(t, err)
+	unchanged, err := store.Read(t.Context(), front.ID, running.ID)
+	require.NoError(t, err)
+	require.Equal(t, blocked.Revision, unchanged.Revision)
+	_, err = b.Coordination(t.Context(), "claim", CoordinationRequest{})
+	require.ErrorContains(t, err, "409")
+	_, err = f.Coordination(t.Context(), "cancel", CoordinationRequest{MessageID: running.ID, ExpectedRevision: blocked.Revision, Payload: json.RawMessage(`{}`)})
+	require.NoError(t, err)
+}

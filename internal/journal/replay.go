@@ -64,6 +64,7 @@ func (r *FlightRecorder) Replay(ctx context.Context, sessionID string, opts Repl
 	errCh := make(chan error, 1)
 	go func() {
 		defer close(out)
+		defer close(errCh)
 		entries, err := r.ReadSession(sessionID)
 		if err != nil {
 			errCh <- fmt.Errorf("replay: read session %s: %w", sessionID, err)

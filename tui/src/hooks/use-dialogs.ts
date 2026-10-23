@@ -5,7 +5,7 @@ export interface ClarifyRequest {
   choices: string[];
 }
 
-export type ClarifyCallback = ((answer: string, index: number) => void) | null;
+export type ClarifyCallback = ((answer: string, index: number, cancel?: boolean) => void) | null;
 
 export interface UseDialogsResult {
   openDialog: string | null;
@@ -18,7 +18,7 @@ export interface UseDialogsResult {
   clarifyCallback: ClarifyCallback;
   showClarify: (
     req: ClarifyRequest,
-    cb: (answer: string, index: number) => void,
+    cb: (answer: string, index: number, cancel?: boolean) => void,
   ) => void;
   dismissClarify: () => void;
 }
@@ -44,7 +44,7 @@ export function useDialogs(): UseDialogsResult {
   }, []);
 
   const showClarify = useCallback(
-    (req: ClarifyRequest, cb: (answer: string, index: number) => void) => {
+    (req: ClarifyRequest, cb: (answer: string, index: number, cancel?: boolean) => void) => {
       setClarifyRequest(req);
       setClarifyCallback(() => cb);
       setClarifyOpen(true);

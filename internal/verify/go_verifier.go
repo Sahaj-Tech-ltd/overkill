@@ -1,6 +1,6 @@
 // Package verify — Go build verifier.
 //
-// Runs `go build ./...` rooted at the modified file's package. Catches
+// Runs `go build .` rooted at the modified file's package. Catches
 // the failure modes that matter:
 //   - hallucinated function names ("undefined: foo")
 //   - hallucinated method signatures ("too many arguments")
@@ -15,10 +15,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/processrunner"
 )
 
 // GoVerifier runs `go build` on the package containing the modified
@@ -48,16 +53,25 @@ func (g *GoVerifier) Timeout() time.Duration {
 // Verify runs `go build .` in the file's directory. ok=true when the
 // build succeeds; detail captures stderr on failure.
 //
-// content is ignored — `go build` works against the on-disk file,
-// not in-memory bytes. The agent's Edit/Write tool must have flushed
-// before calling us.
+// Syntax checks use the supplied bytes; the build checks the on-disk package.
+// The writing tool must flush before verification.
 func (g *GoVerifier) Verify(ctx context.Context, absPath string, content []byte) (bool, string, bool) {
+	data, readErr := readVerifyFile(absPath, content)
+	if readErr != nil {
+		return false, readErr.Error(), false
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), absPath, data, parser.AllErrors); err != nil {
+		return false, err.Error(), false
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err.Error(), true
+	}
 	dir := filepath.Dir(absPath)
-	cmd := exec.CommandContext(ctx, "go", "build", ".")
+	cmd := exec.Command("go", "build", "-o", os.DevNull, ".")
 	cmd.Dir = dir
 	// Capture stderr+stdout combined — `go build` errors land on
 	// stderr but some go versions split warnings to stdout.
-	out, err := cmd.CombinedOutput()
+	out, err := processrunner.CombinedOutput(ctx, cmd)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return false, fmt.Sprintf("go build timed out after %s", g.Timeout()), true
 	}

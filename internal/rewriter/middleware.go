@@ -2,6 +2,7 @@ package rewriter
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -167,7 +168,13 @@ func (m *Middleware) InjectSpecificity(input string) (string, []string) {
 
 	hasPath := m.pathPattern.MatchString(input)
 
-	for trigger, prompt := range m.specificityTriggers {
+	keys := make([]string, 0, len(m.specificityTriggers))
+	for key := range m.specificityTriggers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, trigger := range keys {
+		prompt := m.specificityTriggers[trigger]
 		if strings.Contains(lower, trigger) && !hasPath {
 			input = input + prompt
 			injections = append(injections, trigger)

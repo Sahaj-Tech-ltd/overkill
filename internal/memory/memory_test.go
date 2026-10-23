@@ -5,12 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"testing"
 	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -18,16 +17,8 @@ import (
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatalf("postgres: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	database, _ := testpg.Open(t)
+	return database
 }
 
 type PostgresStoreTestSuite struct {

@@ -91,18 +91,21 @@ func (a *Agent) handleSlashCommand(cmd *SlashCommand) (string, bool) {
 	if cmd == nil {
 		return "", false
 	}
+	if a.configuredReadonly.Load() && (cmd.Command == "build" || cmd.Command == "auto" || cmd.Command == "yolo") {
+		return "🔒 Configured read-only mode prevents switching to a build or automatic execution mode. Change the trusted configuration to enable writes.", true
+	}
 
 	switch cmd.Command {
 	case "safe":
-		a.SetAutoMode("safe")
+		a.setInteractiveAutoMode("safe", false)
 		// Disable self-eval in safe mode — human is in control.
 		if am := a.AutoMode(); am != nil {
 			am.SetSelfEval(nil)
 		}
-		return "🔒 **Safe mode** — I'll ask before every tool call.", true
+		return "🔒 **Safe mode** — approval is required before every tool call. Tools stay blocked if this client cannot request approval.", true
 
 	case "yolo":
-		a.SetAutoMode("yolo")
+		a.setInteractiveAutoMode("yolo", false)
 		// Disable self-eval in yolo mode — approval still gates dangerous ops.
 		if am := a.AutoMode(); am != nil {
 			am.SetSelfEval(nil)
@@ -110,7 +113,7 @@ func (a *Agent) handleSlashCommand(cmd *SlashCommand) (string, bool) {
 		return "⚡ **YOLO mode** — only dangerous operations need approval.", true
 
 	case "auto":
-		a.SetAutoMode("auto")
+		a.setInteractiveAutoMode("auto", false)
 		// Enable self-eval loop for full autonomy.
 		if am := a.AutoMode(); am != nil {
 			sel := NewSelfEvaluateLoop(nil, nil, nil)
@@ -127,8 +130,8 @@ func (a *Agent) handleSlashCommand(cmd *SlashCommand) (string, bool) {
 			return handlePlanView(), true
 		}
 
-		// Plan mode: safe autonomy + spec driver enabled.
-		a.SetAutoMode("safe")
+		// Planning denies mutations even if a writer gate or prior approval exists.
+		a.setInteractiveAutoMode("safe", true)
 		if am := a.AutoMode(); am != nil {
 			am.SetSelfEval(nil)
 		}
@@ -136,13 +139,17 @@ func (a *Agent) handleSlashCommand(cmd *SlashCommand) (string, bool) {
 		if a.specDriver != nil {
 			a.specDriver.SetEnabled(true)
 		}
-		return "📋 **Plan mode** — I'll write a structured plan before any code. Describe what you want to build.", true
+		return "📋 **Plan mode** — read-only tools only. I'll write a structured plan before any code. Use /build to enable implementation.", true
 
 	case "build":
 		// Build mode: auto mode + load current plan + start executing.
-		a.SetAutoMode("auto")
+		a.setInteractiveAutoMode("auto", false)
 		// Try to find and load a plan.
 		planFiles := FindPlanFiles()
+		// An explicit path is preferred over discovery and preserves case/spaces.
+		if path := strings.TrimSpace(strings.TrimPrefix(cmd.Raw, strings.Fields(cmd.Raw)[0])); path != "" {
+			planFiles = []string{path}
+		}
 		msg := "🔨 **Build mode** — full autonomy with self-evaluation."
 
 		if len(planFiles) > 0 {

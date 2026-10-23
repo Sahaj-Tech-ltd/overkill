@@ -120,3 +120,28 @@ func TestPolicy_PathPrefixDoesNotMatchSubstring(t *testing.T) {
 		t.Errorf("substring match should NOT pass: %+v", d)
 	}
 }
+
+func TestPolicySnapshotsInputsAndReturnedCollections(t *testing.T) {
+	policy := NewPolicy()
+	input := Capability{ServerName: "fixture", AllowedTools: []string{"read"}, AllowedPathPrefixes: []string{"/allowed"}}
+	if err := policy.Set(input); err != nil {
+		t.Fatal(err)
+	}
+	input.AllowedTools[0] = "forbidden"
+	input.AllowedPathPrefixes[0] = "/outside"
+	one, _ := policy.Get("fixture")
+	one.AllowedTools[0] = "forbidden"
+	one.AllowedPathPrefixes[0] = "/outside"
+	all := policy.All()
+	all[0].AllowedTools[0] = "forbidden"
+	all[0].AllowedPathPrefixes[0] = "/outside"
+	if decision := policy.CheckCall("fixture", "read", []string{"/allowed/file"}, 0); !decision.Allow {
+		t.Fatal(decision.Reason)
+	}
+	if decision := policy.CheckCall("fixture", "forbidden", []string{"/outside/file"}, 0); decision.Allow {
+		t.Fatal("mutable snapshot relaxed policy")
+	}
+	if err := policy.Set(Capability{ServerName: "negative", MaxBytesPerCall: -1}); err == nil {
+		t.Fatal("negative byte cap accepted")
+	}
+}

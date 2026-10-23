@@ -7,10 +7,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/verify"
 )
 
@@ -19,25 +21,35 @@ import (
 // (DefaultRegistry) and shared across all tool calls.
 type verifierAdapter struct {
 	registry *verify.Registry
-	cwd      string // for resolving relative paths
+	cwd      string // immutable canonical session workspace
+	lifetime context.Context
 }
 
 // newVerifierAdapter returns nil when verification is disabled via
-// env (OVERKILL_NO_VERIFY=1 — useful for scripted CI where the
-// agent shouldn't gate on build output) or when cwd can't be
-// resolved. Otherwise returns a ready-to-wire adapter.
-func newVerifierAdapter() *verifierAdapter {
-	if os.Getenv("OVERKILL_NO_VERIFY") != "" {
-		return nil
+// env (OVERKILL_NO_VERIFY=1). Invalid workspaces fail assembly instead of
+// silently disabling checks. Each session supplies its own lifecycle context.
+func newVerifierAdapter(lifetime context.Context, workspace string) (agent.PostWriteVerifier, error) {
+	if os.Getenv("OVERKILL_NO_VERIFY") == "1" {
+		return nil, nil
 	}
-	cwd, err := os.Getwd()
+	if lifetime == nil {
+		return nil, fmt.Errorf("verifier: lifecycle context required")
+	}
+	if !filepath.IsAbs(workspace) {
+		return nil, fmt.Errorf("verifier: absolute workspace required")
+	}
+	cwd, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("verifier: workspace: %w", err)
 	}
-	return &verifierAdapter{
-		registry: verify.DefaultRegistry(),
-		cwd:      cwd,
+	info, err := os.Stat(cwd)
+	if err != nil {
+		return nil, err
 	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("verifier: workspace is not a directory")
+	}
+	return &verifierAdapter{registry: verify.DefaultRegistry(), cwd: cwd, lifetime: lifetime}, nil
 }
 
 func (a *verifierAdapter) IsWriteTool(toolName string) bool {
@@ -93,26 +105,97 @@ func (a *verifierAdapter) AuditTurnPaths(paths []string) string {
 // link path, not the real file, which keeps verifier output
 // matching the path the agent originally referenced.
 func (a *verifierAdapter) VerifyToolCall(ctx context.Context, toolName string, input json.RawMessage) string {
-	paths := verify.ExtractWritePaths(toolName, input)
+	paths := a.ExtractWritePaths(toolName, input)
 	if len(paths) == 0 {
 		return ""
 	}
-	abs := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if filepath.IsAbs(p) {
-			abs = append(abs, filepath.Clean(p))
+	checkCtx, cancel := context.WithCancel(ctx)
+	if a.lifetime.Err() != nil {
+		cancel()
+	}
+	defer cancel()
+	stop := context.AfterFunc(a.lifetime, cancel)
+	defer stop()
+	results := []verify.VerifyResult{}
+	root, err := os.OpenRoot(a.cwd)
+	if err != nil {
+		return "[verify] could not open workspace: " + err.Error()
+	}
+	defer root.Close()
+	for _, path := range paths {
+		verifier := a.registry.Lookup(path)
+		if verifier == nil {
 			continue
 		}
-		abs = append(abs, filepath.Join(a.cwd, p))
-	}
-	results := verify.VerifyPaths(ctx, a.registry, abs)
-	// Trim the absolute path back to the cwd-relative form for the
-	// note — easier for the model to reference and matches what
-	// the user sees in their terminal.
-	for i := range results {
-		if rel, err := filepath.Rel(a.cwd, results[i].Path); err == nil && !strings.HasPrefix(rel, "..") {
-			results[i].Path = rel
+		result := verify.VerifyResult{Path: path, Verifier: verifier.Name()}
+		if err := checkCtx.Err(); err != nil {
+			result.Detail = "verification canceled: " + err.Error()
+			results = append(results, result)
+			continue
 		}
+		name, err := filepath.Rel(a.cwd, path)
+		if err != nil || name == ".." || strings.HasPrefix(name, ".."+string(os.PathSeparator)) {
+			result.Detail = "verification target is outside the session workspace"
+			results = append(results, result)
+			continue
+		}
+		content, err := root.ReadFile(name)
+		if err != nil {
+			result.Detail = "could not verify file: " + err.Error()
+			results = append(results, result)
+			continue
+		}
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			result.Detail = err.Error()
+			results = append(results, result)
+			continue
+		}
+		relative, err := filepath.Rel(a.cwd, real)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+			result.Detail = "verification target resolves outside the session workspace"
+			results = append(results, result)
+			continue
+		}
+		bounded, finish := context.WithTimeout(checkCtx, verifier.Timeout())
+		ok, detail, skipped := invokeObservedVerifier(bounded, verifier, real, name, content)
+		if err := bounded.Err(); err != nil {
+			ok = false
+			skipped = true
+			detail = err.Error()
+		}
+		finish()
+		if skipped {
+			ok = false
+			detail = "verification could not complete: " + detail
+		}
+		result.Ok = ok
+		result.Detail = detail
+		result.Path = name
+		results = append(results, result)
 	}
 	return verify.FormatToolMessage(results)
+}
+
+// Always close the observation on return or panic; checker failures must not
+// leave a permanently running display. Existing panic propagation is preserved.
+func invokeObservedVerifier(ctx context.Context, checker verify.Verifier, path, displayPath string, content []byte) (ok bool, detail string, skipped bool) {
+	observed := agent.StartVerification(ctx, checker.Name(), displayPath)
+	status := "failed"
+	detail = "verifier interrupted"
+	defer func() {
+		if ctx.Err() != nil {
+			status = "canceled"
+			detail = ctx.Err().Error()
+		}
+		observed(status, detail)
+	}()
+	ok, detail, skipped = checker.Verify(ctx, path, content)
+	if ok {
+		status = "passed"
+	}
+	if skipped {
+		status = "skipped"
+	}
+	return
 }

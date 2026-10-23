@@ -1,25 +1,15 @@
 package learning
 
 import (
-	"database/sql"
-	"os"
 	"testing"
 
-	_ "github.com/lib/pq"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 )
 
-// postgresStore creates a store if DATABASE_URL is set, otherwise skips.
+// postgresStore opens an isolated schema; testpg enforces required integration mode.
 func postgresStore(t *testing.T, maxItems int) *Store {
 	t.Helper()
-	connString := os.Getenv("DATABASE_URL")
-	if connString == "" {
-		t.Skip("DATABASE_URL not set; skipping PostgreSQL test")
-	}
-	db, err := sql.Open("postgres", connString)
-	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db, _ := testpg.Open(t)
 	store, err := NewStore(db, maxItems)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
@@ -229,5 +219,35 @@ func TestStoreCount(t *testing.T) {
 	}
 	if count != 3 {
 		t.Errorf("expected count 3, got %d", count)
+	}
+}
+
+func TestStoreFindCaseInsensitiveAcrossContextAndWrong(t *testing.T) {
+	store := postgresStore(t, 100)
+	correction := NewCorrection("Install On Linux", "Use APT-GET For BADGER", "use go get")
+	if err := store.Save(correction); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"install linux badger", "INSTALL LINUX BADGER", "Linux Apt-Get"} {
+		results, err := store.FindCorrections(query, 3)
+		if err != nil {
+			t.Fatalf("query %q: %v", query, err)
+		}
+		if len(results) != 1 || results[0].Correct != correction.Correct {
+			t.Errorf("query %q: got %#v, want saved correction", query, results)
+		}
+	}
+	results, err := store.FindCorrections("linux pizza", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("all query tokens must match: %#v", results)
+	}
+}
+
+func TestEscapeLike(t *testing.T) {
+	if got := escapeLike(`a\b%c_d`); got != `a\\b\%c\_d` {
+		t.Fatalf("wildcard escape: %q", got)
 	}
 }

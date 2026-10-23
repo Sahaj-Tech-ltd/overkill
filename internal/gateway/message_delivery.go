@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/dbschema"
 	_ "github.com/lib/pq"
 )
 
@@ -26,21 +27,9 @@ func NewMessageDelivery(db *sql.DB) (*MessageDelivery, error) {
 }
 
 func (md *MessageDelivery) migrate() error {
-	_, err := md.db.Exec(`
-		CREATE TABLE IF NOT EXISTS message_delivery (
-			id           SERIAL PRIMARY KEY,
-			session_id   TEXT NOT NULL,
-			chat_key     TEXT NOT NULL DEFAULT '',
-			message      TEXT NOT NULL,
-			status       TEXT NOT NULL DEFAULT 'pending',
-			error_msg    TEXT,
-			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			delivered_at TIMESTAMPTZ
-		);
-		CREATE INDEX IF NOT EXISTS idx_md_session_status
-			ON message_delivery (session_id, status);
-	`)
-	return err
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return dbschema.GatewayDelivery(ctx, md.db)
 }
 
 // RecordPending stores a message before the provider call. Returns the row ID.

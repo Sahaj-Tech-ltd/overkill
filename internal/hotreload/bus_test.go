@@ -16,9 +16,9 @@ func runBus(t *testing.T, paths Paths) *Bus {
 	// Faster debounce in tests so we don't pay 200ms per event.
 	b.debounce = 30 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { _ = b.Run(ctx) }()
-	// Give the watcher a moment to register paths.
-	time.Sleep(50 * time.Millisecond)
+	if err := b.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		cancel()
 		b.Stop()

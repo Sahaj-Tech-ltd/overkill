@@ -121,8 +121,14 @@ func runWhatsappPair(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Resolve store path the same way registerWhatsApp does.
-	configPath, _ := config.ConfigPath()
-	cfg, _ := config.Load(configPath)
+	configPath, err := config.ConfigPath()
+	if err != nil {
+		return fmt.Errorf("whatsapp pair: config path: %w", err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("whatsapp pair: config: %w", err)
+	}
 	storePath := ""
 	if cfg != nil {
 		storePath = cfg.Gateways.WhatsApp.Whatsmeow.StorePath

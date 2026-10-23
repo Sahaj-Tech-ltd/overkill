@@ -191,6 +191,9 @@ func (c *jsonrpcConn) writeMessage(msg *jsonrpcMessage) error {
 	if err != nil {
 		return fmt.Errorf("jsonrpc: marshal: %w", err)
 	}
+	if len(b) > maxMCPLineBytes {
+		return fmt.Errorf("jsonrpc: outbound message exceeds transport byte limit")
+	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	if _, err := c.w.Write(append(b, '\n')); err != nil {

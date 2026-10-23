@@ -1,8 +1,8 @@
 package gateway
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/processrunner"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 )
 
@@ -35,9 +36,11 @@ var reShellShortcut = regexp.MustCompile(`^\$(\s|shell\s)`)
 // The Channel keeps owning its Reply transport; Dispatcher just calls
 // PostInitial / Update / Final / Error against it.
 type Dispatcher struct {
-	Agent  AgentSender
-	Router *SessionRouter
-	Vision vision.Describer // optional; when set, attached images are
+	// RejectBusy disables detached per-session queues for server-owned bridges.
+	RejectBusy bool
+	Agent      AgentSender
+	Router     *SessionRouter
+	Vision     vision.Describer // optional; when set, attached images are
 	// captioned and inlined into the agent prompt
 	Logger      *log.Logger
 	UpdateEvery time.Duration // batch reply edits; default 750ms
@@ -291,13 +294,22 @@ func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 	if prompt == "" {
 		return
 	}
-	sid := d.resolveSession(in)
+	sid, routeErr := d.resolveSession(in)
+	if routeErr != nil {
+		d.respond(ctx, in, reply, "session routing failed: "+routeErr.Error())
+		return
+	}
 
 	// If the session is busy (agent mid-turn), queue the message
 	// and acknowledge. Do NOT interrupt — the running turn finishes
 	// naturally, then the queue auto-fires FIFO.
 	d.activeMu.Lock()
 	if d.active[sid] {
+		if d.RejectBusy {
+			d.activeMu.Unlock()
+			d.respond(ctx, in, reply, "session is busy; retry after the current turn")
+			return
+		}
 		d.pendingMu.Lock()
 		d.pending[sid] = append(d.pending[sid], prompt)
 		queueLen := len(d.pending[sid])
@@ -329,7 +341,7 @@ func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 		if err != nil {
 			d.Logger.Printf("dispatch: get undelivered: %v", err)
 		}
-		if len(undelivered) > 0 {
+		if len(undelivered) > 0 && !d.RejectBusy {
 			// Mark them as pending for retry.
 			d.MsgDelivery.RetryUndelivered(ctx, sid)
 			for _, um := range undelivered {
@@ -391,6 +403,9 @@ func (d *Dispatcher) Handle(ctx context.Context, in Inbound, reply Reply) {
 	}
 
 	d.runTurn(ctx, in, reply, sid, prompt, deliveryID)
+	if d.RejectBusy {
+		return
+	}
 
 	// If more messages are queued, auto-fire the next turn.
 	d.pendingMu.Lock()
@@ -539,13 +554,30 @@ func (d *Dispatcher) buildPrompt(ctx context.Context, in Inbound, text string) s
 	return strings.TrimSpace(b.String())
 }
 
+// SessionActive checks only an existing binding; admission never creates state.
+func (d *Dispatcher) SessionActive(in Inbound) bool {
+	if d.Router == nil {
+		return false
+	}
+	d.agentMu.Lock()
+	live := ""
+	if d.Agent != nil {
+		live = d.Agent.SessionID()
+	}
+	sid, _ := d.Router.Resolve(in.Channel, in.ChatKey, in.Thread, live)
+	d.agentMu.Unlock()
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+	return sid != "" && d.active[sid]
+}
+
 // resolveSession picks the session id this turn writes into. If the
 // chat has no binding yet we mint one and persist it so future turns
 // land in the same place.
 // Holds agentMu throughout to prevent TOCTOU: a concurrent runTurn may
 // call SetSessionID on a different striped lock, changing the value
 // between our SessionID() read and the Router.Resolve call that uses it.
-func (d *Dispatcher) resolveSession(in Inbound) string {
+func (d *Dispatcher) resolveSession(in Inbound) (string, error) {
 	d.agentMu.Lock()
 	defer d.agentMu.Unlock()
 
@@ -555,16 +587,16 @@ func (d *Dispatcher) resolveSession(in Inbound) string {
 	}
 	if d.Router != nil {
 		if sid, _ := d.Router.Resolve(in.Channel, in.ChatKey, in.Thread, live); sid != "" {
-			return sid
+			return sid, nil
 		}
 	}
 	sid := NewSessionID(in.Channel)
 	if d.Router != nil {
 		if err := d.Router.Bind(in.Channel, in.ChatKey, in.Thread, sid); err != nil {
-			d.Logger.Printf("dispatch: bind: %v", err)
+			return "", fmt.Errorf("persist session binding: %w", err)
 		}
 	}
-	return sid
+	return sid, nil
 }
 
 // serialize ensures one in-flight turn per session id at a time. The
@@ -599,6 +631,18 @@ func (d *Dispatcher) runTurn(ctx context.Context, in Inbound, reply Reply, sessi
 		return
 	}
 
+	defer func() {
+		if panicValue := recover(); panicValue != nil {
+			d.Logger.Printf("dispatch: turn panic: %v", panicValue)
+			_ = reply.Error(ctx, handle, fmt.Errorf("gateway execution failed"))
+		}
+	}()
+	if d.Router != nil {
+		if err := d.Router.Touch(in.Channel, in.ChatKey, in.Thread); err != nil {
+			_ = reply.Error(ctx, handle, fmt.Errorf("persist session activity: %w", err))
+			return
+		}
+	}
 	var stream <-chan agent.StreamEvent
 	var streamErr error
 	d.serialize(sessionID, func() {
@@ -606,10 +650,18 @@ func (d *Dispatcher) runTurn(ctx context.Context, in Inbound, reply Reply, sessi
 			streamErr = fmt.Errorf("no agent configured")
 			return
 		}
-		d.agentMu.Lock()
-		d.Agent.SetSessionID(sessionID)
-		d.agentMu.Unlock()
-		stream, streamErr = d.Agent.Stream(ctx, text)
+		ag := d.Agent
+		if provider, ok := ag.(SessionAgentProvider); ok {
+			ag, streamErr = provider.AgentForSession(ctx, sessionID)
+			if streamErr != nil {
+				return
+			}
+		} else {
+			d.agentMu.Lock()
+			ag.SetSessionID(sessionID)
+			d.agentMu.Unlock()
+		}
+		stream, streamErr = ag.Stream(ctx, text)
 	})
 	if streamErr != nil {
 		if replyErr := reply.Error(ctx, handle, streamErr); replyErr != nil {
@@ -626,9 +678,6 @@ func (d *Dispatcher) runTurn(ctx context.Context, in Inbound, reply Reply, sessi
 		d.SessionTitler(sessionID, text)
 	}
 	d.streamInto(ctx, reply, handle, stream)
-	if d.Router != nil {
-		d.Router.Touch(in.Channel, in.ChatKey, in.Thread)
-	}
 	// Mark delivered — the provider accepted and streamed a response.
 	if deliveryID > 0 && d.MsgDelivery != nil {
 		d.MsgDelivery.MarkDelivered(ctx, deliveryID)
@@ -770,37 +819,37 @@ func (d *Dispatcher) handleShellShortcut(ctx context.Context, in Inbound, reply 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
-	shellCmd := exec.CommandContext(timeoutCtx, "sh", "-c", cmdStr)
-	var stdout, stderr bytes.Buffer
-	shellCmd.Stdout = &stdout
-	shellCmd.Stderr = &stderr
+	shellCmd := exec.Command("sh", "-c", cmdStr)
+	stdout := processrunner.NewOutputCapture(1024 * 1024)
+	stderr := processrunner.NewOutputCapture(1024 * 1024)
+	shellCmd.Stdout = stdout
+	shellCmd.Stderr = stderr
 
 	start := time.Now()
-	err := shellCmd.Run()
+	err := processrunner.Run(timeoutCtx, shellCmd)
 	elapsed := time.Since(start)
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("`$ %s`\n", cmdStr))
 
-	exitCode := 0
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			b.WriteString(fmt.Sprintf("❌ error: %v\n", err))
-			d.respond(ctx, in, reply, b.String())
-			return
-		}
-	}
-
-	if exitCode != 0 {
-		b.WriteString(fmt.Sprintf("❌ exit %d  ⏱ %s\n", exitCode, elapsed.Round(time.Millisecond)))
+	var exitErr *exec.ExitError
+	if timeoutCtx.Err() != nil {
+		b.WriteString(fmt.Sprintf("❌ canceled: %v  ⏱ %s\n", timeoutCtx.Err(), elapsed.Round(time.Millisecond)))
+	} else if err != nil && errors.As(err, &exitErr) {
+		b.WriteString(fmt.Sprintf("❌ exit %d  ⏱ %s\n", exitErr.ExitCode(), elapsed.Round(time.Millisecond)))
+	} else if err != nil {
+		b.WriteString(fmt.Sprintf("❌ error: %v\n", err))
 	} else {
 		b.WriteString(fmt.Sprintf("✅ ok  ⏱ %s\n", elapsed.Round(time.Millisecond)))
 	}
 
-	out := strings.TrimSpace(stdout.String())
-	errOut := strings.TrimSpace(stderr.String())
+	out, stdoutBytes, stdoutTruncated := stdout.Snapshot()
+	errOut, stderrBytes, stderrTruncated := stderr.Snapshot()
+	out = strings.TrimSpace(out)
+	errOut = strings.TrimSpace(errOut)
+	if stdoutTruncated || stderrTruncated {
+		b.WriteString(fmt.Sprintf("stdout: %d bytes; stderr: %d bytes (capture limited to 1 MiB per stream)\n", stdoutBytes, stderrBytes))
+	}
 
 	if out != "" {
 		b.WriteString("\n```\n")
@@ -821,6 +870,23 @@ func (d *Dispatcher) handleShellShortcut(ctx context.Context, in Inbound, reply 
 // people can still ask it to "do /something".
 func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply, raw string) {
 	cmd, arg := splitCommand(raw)
+	ag := d.Agent
+	switch cmd {
+	case "/help", "/sessions", "/attach", "/follow", "/unfollow", "/new", "/end", "/bm", "/bookmark", "/usage", "/estop":
+	default:
+		if provider, ok := ag.(SessionAgentProvider); ok {
+			sid, err := d.resolveSession(in)
+			if err != nil {
+				d.respond(ctx, in, reply, "session routing failed: "+err.Error())
+				return
+			}
+			ag, err = provider.AgentForSession(ctx, sid)
+			if err != nil {
+				d.respond(ctx, in, reply, "agent unavailable: "+err.Error())
+				return
+			}
+		}
+	}
 	switch cmd {
 	case "/help":
 		d.respond(ctx, in, reply, helpText())
@@ -864,7 +930,8 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			return
 		}
 		if err := d.Router.Follow(in.Channel, in.ChatKey, ""); err != nil {
-			d.Logger.Printf("dispatch: /unfollow: %v", err)
+			d.respond(ctx, in, reply, "unfollow failed: "+err.Error())
+			return
 		}
 		d.respond(ctx, in, reply, "follow cleared")
 	case "/new":
@@ -874,10 +941,12 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			return
 		}
 		if err := d.Router.Bind(in.Channel, in.ChatKey, in.Thread, sid); err != nil {
-			d.Logger.Printf("dispatch: /new bind: %v", err)
+			d.respond(ctx, in, reply, "new session failed: "+err.Error())
+			return
 		}
 		if err := d.Router.Follow(in.Channel, in.ChatKey, ""); err != nil {
-			d.Logger.Printf("dispatch: /new follow: %v", err)
+			d.respond(ctx, in, reply, "new session follow reset failed: "+err.Error())
+			return
 		}
 		d.respond(ctx, in, reply, "new session: "+sid)
 	case "/end":
@@ -886,7 +955,8 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			return
 		}
 		if err := d.Router.Follow(in.Channel, in.ChatKey, ""); err != nil {
-			d.Logger.Printf("dispatch: /end unfollow: %v", err)
+			d.respond(ctx, in, reply, "end failed: "+err.Error())
+			return
 		}
 		d.respond(ctx, in, reply, "follow cleared. binding kept; reply here to keep using this session.")
 	case "/bm", "/bookmark":
@@ -903,7 +973,11 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			d.respond(ctx, in, reply, "usage: /bm <label> — describe what we were talking about")
 			return
 		}
-		sid := d.resolveSession(in)
+		sid, routeErr := d.resolveSession(in)
+		if routeErr != nil {
+			d.respond(ctx, in, reply, "session routing failed: "+routeErr.Error())
+			return
+		}
 		// 10s budget: bookmark stores are typically DB writes
 		// (sub-ms), but allowing more headroom keeps us robust to
 		// network-backed stores users might plug in later.
@@ -916,40 +990,58 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 		}
 		d.respond(ctx, in, reply, "bookmarked: "+label)
 	case "/estop":
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		d.Agent.EStop()
+		if stopper, ok := ag.(SessionStopper); ok {
+			if err := stopper.EmergencyStop(); err != nil {
+				d.respond(ctx, in, reply, "emergency stop failed: "+err.Error())
+				return
+			}
+		} else {
+			ag.EStop()
+		}
 		d.respond(ctx, in, reply, "🛑 emergency stop triggered. all running agent loops halted.")
 	case "/stop":
-		sid := d.resolveSession(in)
+		sid, routeErr := d.resolveSession(in)
+		if routeErr != nil {
+			d.respond(ctx, in, reply, "session routing failed: "+routeErr.Error())
+			return
+		}
 		d.pendingMu.Lock()
 		queueLen := len(d.pending[sid])
 		d.pendingMu.Unlock()
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		d.Agent.Interrupt()
+		if stopper, ok := ag.(SessionStopper); ok {
+			if err := stopper.InterruptSession(); err != nil {
+				d.respond(ctx, in, reply, "stop failed: "+err.Error())
+				return
+			}
+		} else {
+			ag.Interrupt()
+		}
 		if queueLen > 0 {
 			d.respond(context.Background(), in, reply, fmt.Sprintf("⏸️ stopped. %d message(s) queued.", queueLen))
 		} else {
 			d.respond(ctx, in, reply, "⏸️ stopped. nothing queued.")
 		}
 	case "/undo":
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		result, err := d.Agent.Undo()
+		result, err := ag.Undo()
 		if err != nil {
 			d.respond(ctx, in, reply, "undo failed: "+err.Error())
 			return
 		}
 		d.respond(ctx, in, reply, result)
 	case "/retry":
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
@@ -962,7 +1054,7 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 					d.Logger.Printf("dispatch: panic in async retry: %v", r)
 				}
 			}()
-			res, err := d.Agent.Retry(context.Background())
+			res, err := ag.Retry(context.Background())
 			if err != nil {
 				d.respond(context.Background(), in, reply, "retry failed: "+err.Error())
 				return
@@ -970,48 +1062,48 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			d.respond(context.Background(), in, reply, res)
 		}()
 	case "/steer":
-		if d.busyGuard(ctx, in, reply, "steer") {
+		if d.busyGuard(ctx, in, reply, "steer", ag) {
 			return
 		}
 		if arg == "" {
 			d.respond(ctx, in, reply, "usage: /steer <guidance message> — inject mid-run guidance into the agent loop")
 			return
 		}
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		result := d.Agent.Steer(arg)
+		result := ag.Steer(arg)
 		d.respond(ctx, in, reply, result)
 	case "/fork":
-		if d.busyGuard(ctx, in, reply, "fork") {
+		if d.busyGuard(ctx, in, reply, "fork", ag) {
 			return
 		}
 		name := arg
 		if name == "" {
 			name = fmt.Sprintf("fork-%s", time.Now().Format("20060102-150405"))
 		}
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		newSID, err := d.Agent.Fork(name)
+		newSID, err := ag.Fork(name)
 		if err != nil {
 			d.respond(ctx, in, reply, "fork failed: "+err.Error())
 			return
 		}
 		d.respond(context.Background(), in, reply, fmt.Sprintf("🔀 forked to new session: %s (%s)", newSID, name))
 	case "/goal":
-		if d.busyGuard(ctx, in, reply, "goal") {
+		if d.busyGuard(ctx, in, reply, "goal", ag) {
 			return
 		}
 		if arg == "" {
-			if d.Agent == nil {
+			if ag == nil {
 				d.respond(ctx, in, reply, "agent not available")
 				return
 			}
 			gctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			current, err := d.Agent.GetGoal(gctx)
+			current, err := ag.GetGoal(gctx)
 			cancel()
 			if err != nil {
 				d.respond(ctx, in, reply, "goal: "+err.Error())
@@ -1032,12 +1124,12 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 				d.respond(ctx, in, reply, "usage: /goal set <objective>")
 				return
 			}
-			if d.Agent == nil {
+			if ag == nil {
 				d.respond(ctx, in, reply, "agent not available")
 				return
 			}
 			gctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := d.Agent.SetGoal(gctx, goalText)
+			err := ag.SetGoal(gctx, goalText)
 			cancel()
 			if err != nil {
 				d.respond(ctx, in, reply, "goal set failed: "+err.Error())
@@ -1045,12 +1137,12 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			}
 			d.respond(context.Background(), in, reply, fmt.Sprintf("🎯 goal set: %s", goalText))
 		case "pause":
-			if d.Agent == nil {
+			if ag == nil {
 				d.respond(ctx, in, reply, "agent not available")
 				return
 			}
 			gctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := d.Agent.PauseGoal(gctx)
+			err := ag.PauseGoal(gctx)
 			cancel()
 			if err != nil {
 				d.respond(ctx, in, reply, "goal pause failed: "+err.Error())
@@ -1058,12 +1150,12 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			}
 			d.respond(ctx, in, reply, "⏸️ goal paused")
 		case "resume":
-			if d.Agent == nil {
+			if ag == nil {
 				d.respond(ctx, in, reply, "agent not available")
 				return
 			}
 			gctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := d.Agent.ResumeGoal(gctx)
+			err := ag.ResumeGoal(gctx)
 			cancel()
 			if err != nil {
 				d.respond(ctx, in, reply, "goal resume failed: "+err.Error())
@@ -1071,12 +1163,12 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			}
 			d.respond(ctx, in, reply, "▶️ goal resumed")
 		case "clear":
-			if d.Agent == nil {
+			if ag == nil {
 				d.respond(ctx, in, reply, "agent not available")
 				return
 			}
 			gctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := d.Agent.ClearGoal(gctx)
+			err := ag.ClearGoal(gctx)
 			cancel()
 			if err != nil {
 				d.respond(ctx, in, reply, "goal clear failed: "+err.Error())
@@ -1091,11 +1183,11 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 		if name == "" {
 			name = fmt.Sprintf("snap-%s", time.Now().Format("20060102-150405"))
 		}
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		hash, err := d.Agent.Snapshot(name)
+		hash, err := ag.Snapshot(name)
 		if err != nil {
 			d.respond(ctx, in, reply, "snapshot failed: "+err.Error())
 			return
@@ -1106,36 +1198,36 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 		if arg != "" {
 			fmt.Sscanf(arg, "%d", &n)
 		}
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		result, err := d.Agent.Rollback(n)
+		result, err := ag.Rollback(n)
 		if err != nil {
 			d.respond(ctx, in, reply, "rollback failed: "+err.Error())
 			return
 		}
 		d.respond(ctx, in, reply, result)
 	case "/snapshots":
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		result, err := d.Agent.Snapshots()
+		result, err := ag.Snapshots()
 		if err != nil {
 			d.respond(ctx, in, reply, "snapshots: "+err.Error())
 			return
 		}
 		d.respond(ctx, in, reply, result)
 	case "/compact":
-		if d.busyGuard(ctx, in, reply, "compact") {
+		if d.busyGuard(ctx, in, reply, "compact", ag) {
 			return
 		}
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		result, err := d.Agent.Compact(ctx)
+		result, err := ag.Compact(ctx)
 		if err != nil {
 			d.respond(ctx, in, reply, "compact failed: "+err.Error())
 			return
@@ -1153,38 +1245,50 @@ func (d *Dispatcher) handleCommand(ctx context.Context, in Inbound, reply Reply,
 			result.TokensBefore, result.TokensAfter, saved, result.Summary,
 		))
 	case "/think":
-		if d.busyGuard(ctx, in, reply, "think") {
+		if d.busyGuard(ctx, in, reply, "think", ag) {
 			return
 		}
-		if d.Agent == nil {
+		if ag == nil {
 			d.respond(ctx, in, reply, "agent not available")
 			return
 		}
-		current := d.Agent.ThinkingLevel()
+		current := ag.ThinkingLevel()
 		if current == "" || current == "off" {
-			d.Agent.SetThinkingLevel("on")
+			ag.SetThinkingLevel("on")
 			d.respond(ctx, in, reply, "🧠 Thinking on — preambles will stream before tool calls.")
 		} else {
-			d.Agent.SetThinkingLevel("off")
+			ag.SetThinkingLevel("off")
 			d.respond(ctx, in, reply, "🧠 Thinking off — preamble streaming disabled.")
 		}
 	case "/plan":
 		// Delegate to agent stream; StreamWithAttachments parses and
 		// runs DeepPlanner synchronously via handleSlashCommand.
-		sid := d.resolveSession(in)
+		sid, routeErr := d.resolveSession(in)
+		if routeErr != nil {
+			d.respond(ctx, in, reply, "session routing failed: "+routeErr.Error())
+			return
+		}
 		d.runTurn(ctx, in, reply, sid, raw, 0)
 		return
 	case "/build":
 		// Delegate to agent stream; StreamWithAttachments parses and
 		// activates build mode synchronously via handleSlashCommand.
-		sid := d.resolveSession(in)
+		sid, routeErr := d.resolveSession(in)
+		if routeErr != nil {
+			d.respond(ctx, in, reply, "session routing failed: "+routeErr.Error())
+			return
+		}
 		d.runTurn(ctx, in, reply, sid, raw, 0)
 		return
 	case "/usage":
 		d.handleUsage(ctx, in, reply, arg)
 	default:
 		// Unknown slash → treat as agent input.
-		sid := d.resolveSession(in)
+		sid, routeErr := d.resolveSession(in)
+		if routeErr != nil {
+			d.respond(ctx, in, reply, "session routing failed: "+routeErr.Error())
+			return
+		}
 		d.runTurn(ctx, in, reply, sid, raw, 0)
 	}
 }
@@ -1213,7 +1317,11 @@ func (d *Dispatcher) handleUsage(ctx context.Context, in Inbound, reply Reply, a
 		}
 		d.respond(ctx, in, reply, d.formatUsageReport("📊 Lifetime usage", report))
 	default:
-		sid := d.resolveSession(in)
+		sid, routeErr := d.resolveSession(in)
+		if routeErr != nil {
+			d.respond(ctx, in, reply, "session routing failed: "+routeErr.Error())
+			return
+		}
 		report, err := d.CostTracker.Usage(ctx, cost.UsageOptions{SessionID: sid})
 		if err != nil {
 			d.respond(ctx, in, reply, "session usage: "+err.Error())
@@ -1278,11 +1386,11 @@ func (d *Dispatcher) formatUsageReport(title string, r *cost.UsageReport) string
 // busyGuard checks whether the agent is currently running a turn. When busy it
 // replies with a friendly message and returns true (caller should return).
 // Returns false when the agent is idle — safe to proceed.
-func (d *Dispatcher) busyGuard(ctx context.Context, in Inbound, reply Reply, commandName string) bool {
-	if d.Agent == nil {
+func (d *Dispatcher) busyGuard(ctx context.Context, in Inbound, reply Reply, commandName string, ag AgentSender) bool {
+	if ag == nil {
 		return false // no agent to check — let command proceed (will fail on nil check)
 	}
-	if d.Agent.IsBusy() {
+	if ag.IsBusy() {
 		d.respond(context.Background(), in, reply, fmt.Sprintf(
 			"⚠️ Agent is currently working on a turn. Use /stop to interrupt first, then try /%s again.",
 			commandName,

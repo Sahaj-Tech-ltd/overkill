@@ -104,6 +104,15 @@ func (qs *QueueState) UpdateItem(index int, status string, err string, elapsed t
 			qs.Items[i].Status = status
 			qs.Items[i].Error = err
 			qs.Items[i].ElapsedMs = elapsed.Milliseconds()
+			qs.Done, qs.Failed = 0, 0
+			for _, item := range qs.Items {
+				switch item.Status {
+				case "done":
+					qs.Done++
+				case "failed":
+					qs.Failed++
+				}
+			}
 			break
 		}
 	}

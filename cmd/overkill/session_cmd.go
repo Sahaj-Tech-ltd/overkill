@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Sahaj-Tech-ltd/overkill/internal/db"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
@@ -49,18 +48,9 @@ func openSessionDB() (*session.PostgresStore, error) {
 		return nil, fmt.Errorf("DATABASE_URL required for Postgres backend — set it in ~/.overkill/config.toml or the environment")
 	}
 
-	database, err := db.Open(connString)
-	if err != nil {
-		return nil, err
-	}
-	defer database.Close()
-
-	if err := db.Migrate(database); err != nil {
-		database.Close()
-		return nil, err
-	}
-
-	return session.NewPostgresStore(database), nil
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return session.OpenPostgresStore(ctx, connString)
 }
 
 func runSessionList(cmd *cobra.Command, args []string) error {

@@ -115,3 +115,62 @@ func (s *blockingSink) Send(ctx context.Context, _ CompletionEvent) error {
 		return nil
 	}
 }
+
+type panickingSink struct {
+	name       string
+	namePanics bool
+	value      any
+}
+
+func (sink *panickingSink) Name() string {
+	if sink.namePanics {
+		panic(sink.value)
+	}
+	return sink.name
+}
+func (sink *panickingSink) Send(context.Context, CompletionEvent) error { panic(sink.value) }
+
+func TestEmitterAllPanickingSinksFailWithStructuredErrors(t *testing.T) {
+	cause := errors.New("delivery panic")
+	err := NewEmitter(&panickingSink{name: "first", value: cause}, &panickingSink{name: "second", value: "second panic"}).Emit(t.Context(), sampleEvent())
+	if err == nil {
+		t.Fatal("recovery must not count as delivery success")
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("panic cause lost: %v", err)
+	}
+	var panicError *SinkPanicError
+	if !errors.As(err, &panicError) || panicError.Sink != "first" {
+		t.Fatalf("missing sink identity: %v", err)
+	}
+}
+
+func TestEmitterMixedPanickingAndErrorSinksFail(t *testing.T) {
+	cause := errors.New("normal sink error")
+	err := NewEmitter(&panickingSink{name: "panic", value: "boom"}, &stubSink{name: "normal", sendErr: cause}).Emit(t.Context(), sampleEvent())
+	if !errors.Is(err, cause) {
+		t.Fatalf("normal failure lost: %v", err)
+	}
+	var panicError *SinkPanicError
+	if !errors.As(err, &panicError) {
+		t.Fatalf("panic failure lost: %v", err)
+	}
+}
+
+func TestEmitterHealthySinkStillSucceedsAlongsidePanic(t *testing.T) {
+	healthy := &stubSink{name: "healthy"}
+	if err := NewEmitter(&panickingSink{name: "panic", value: "boom"}, healthy).Emit(t.Context(), sampleEvent()); err != nil {
+		t.Fatalf("healthy delivery must succeed: %v", err)
+	}
+	if healthy.calls != 1 {
+		t.Fatalf("healthy sink called %d times", healthy.calls)
+	}
+}
+
+func TestEmitterPanickingSinkNameIsFailure(t *testing.T) {
+	err := NewEmitter(&panickingSink{namePanics: true, value: "name panic"}).Emit(t.Context(), sampleEvent())
+	var panicError *SinkPanicError
+	if !errors.As(err, &panicError) || panicError.Sink != "sink[0]" {
+		t.Fatalf("name panic must retain fallback identity: %v", err)
+	}
+}

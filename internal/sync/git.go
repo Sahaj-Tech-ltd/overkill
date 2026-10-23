@@ -3,14 +3,17 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/processrunner"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 )
 
@@ -66,9 +69,19 @@ func NewGitBackend(cfg config.SyncGitConfig) (*GitBackend, error) {
 func (g *GitBackend) Name() string { return "git" }
 
 func runGit(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	return runGitContext(context.Background(), dir, args...)
+}
+
+func runGitContext(ctx context.Context, dir string, args ...string) (string, error) {
+	if _, bounded := ctx.Deadline(); !bounded {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
+	cmd := exec.Command("git", append([]string{"-c", "protocol.ext.allow=never"}, args...)...)
 	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never")
+	out, err := processrunner.CombinedOutput(ctx, cmd)
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -95,16 +108,19 @@ func safeGitID(id string) error {
 }
 
 func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta SessionMeta) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Validate ID before passing to git.
 	if err := safeGitID(id); err != nil {
 		return err
 	}
 	// Fetch first to reduce conflict risk.
 	if g.remote != "" {
-		if _, err := runGit(g.dir, "fetch", "origin", g.branch); err != nil {
+		if _, err := runGitContext(ctx, g.dir, "fetch", "origin", g.branch); err != nil {
 			return fmt.Errorf("sync/git: fetch: %w", err)
 		}
-		if _, err := runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch); err != nil {
+		if _, err := runGitContext(ctx, g.dir, "merge", "--no-edit", "origin/"+g.branch); err != nil {
 			return fmt.Errorf("sync/git: merge: %w", err)
 		}
 	}
@@ -130,18 +146,18 @@ func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta Sess
 		_ = os.Remove(metaP)
 		return fmt.Errorf("sync/git: write blob: %w", err)
 	}
-	if out, err := runGit(g.dir, "add", id+".json.gz", id+".meta.json"); err != nil {
+	if out, err := runGitContext(ctx, g.dir, "add", id+".json.gz", id+".meta.json"); err != nil {
 		return fmt.Errorf("sync/git: add: %s: %w", out, err)
 	}
-	if out, err := runGit(g.dir, "-c", "user.email=overkill@local", "-c", "user.name=overkill",
-		"commit", "-m", "sync: "+id, "--allow-empty"); err != nil {
+	if out, err := runGitContext(ctx, g.dir, "-c", "user.email=overkill@local", "-c", "user.name=overkill",
+		"commit", "-m", "sync: "+id, "--allow-empty", "--only", "--", id+".json.gz", id+".meta.json"); err != nil {
 		// Ignore "nothing to commit"
 		if !strings.Contains(out, "nothing to commit") && !strings.Contains(out, "nothing added") {
 			return fmt.Errorf("sync/git: commit: %s: %w", out, err)
 		}
 	}
 	if g.remote != "" {
-		if out, err := runGit(g.dir, "push", "-u", "origin", g.branch); err != nil {
+		if out, err := runGitContext(ctx, g.dir, "push", "-u", "origin", g.branch); err != nil {
 			return fmt.Errorf("sync/git: push: %s: %w", out, err)
 		}
 	}
@@ -149,15 +165,18 @@ func (g *GitBackend) Push(ctx context.Context, id string, data []byte, meta Sess
 }
 
 func (g *GitBackend) Pull(ctx context.Context, id string) ([]byte, SessionMeta, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, SessionMeta{}, err
+	}
 	// Validate ID before path construction.
 	if err := safeGitID(id); err != nil {
 		return nil, SessionMeta{}, err
 	}
 	if g.remote != "" {
-		if _, err := runGit(g.dir, "fetch", "origin", g.branch); err != nil {
+		if _, err := runGitContext(ctx, g.dir, "fetch", "origin", g.branch); err != nil {
 			return nil, SessionMeta{}, fmt.Errorf("sync/git: fetch: %w", err)
 		}
-		if _, err := runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch); err != nil {
+		if _, err := runGitContext(ctx, g.dir, "merge", "--no-edit", "origin/"+g.branch); err != nil {
 			return nil, SessionMeta{}, fmt.Errorf("sync/git: merge: %w", err)
 		}
 	}
@@ -186,11 +205,14 @@ func (g *GitBackend) Pull(ctx context.Context, id string) ([]byte, SessionMeta, 
 }
 
 func (g *GitBackend) List(ctx context.Context) ([]SessionMeta, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if g.remote != "" {
-		if _, err := runGit(g.dir, "fetch", "origin", g.branch); err != nil {
+		if _, err := runGitContext(ctx, g.dir, "fetch", "origin", g.branch); err != nil {
 			return nil, fmt.Errorf("sync/git: fetch: %w", err)
 		}
-		if _, err := runGit(g.dir, "merge", "--no-edit", "origin/"+g.branch); err != nil {
+		if _, err := runGitContext(ctx, g.dir, "merge", "--no-edit", "origin/"+g.branch); err != nil {
 			return nil, fmt.Errorf("sync/git: merge: %w", err)
 		}
 	}
@@ -236,6 +258,9 @@ func blockedGitURL(url string) bool {
 }
 
 func (g *GitBackend) Delete(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Validate ID before passing to git.
 	if err := safeGitID(id); err != nil {
 		return err
@@ -248,16 +273,80 @@ func (g *GitBackend) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("sync/git: meta path: %w", err)
 	}
-	bErr := os.Remove(bp)
-	mErr := os.Remove(mp)
-	if bErr != nil && os.IsNotExist(bErr) && mErr != nil && os.IsNotExist(mErr) {
-		return ErrNotFound
+	tracked, err := runGitContext(ctx, g.dir, "ls-files", "-z", "--", id+".json.gz", id+".meta.json")
+	if err != nil {
+		return fmt.Errorf("sync/git: inspect tracked deletion paths: %w", err)
 	}
-	_, _ = runGit(g.dir, "add", "-A")
-	_, _ = runGit(g.dir, "-c", "user.email=overkill@local", "-c", "user.name=overkill",
-		"commit", "-m", "sync: delete "+id)
+	// The index may already contain staged deletions after a failed commit.
+	// HEAD remains the durable source of paths that still need committing.
+	committed := ""
+	head, headErr := runGitContext(ctx, g.dir, "rev-parse", "--verify", "--quiet", "HEAD")
+	if headErr != nil {
+		var exit *exec.ExitError
+		if !errors.As(headErr, &exit) || exit.ExitCode() != 1 {
+			return fmt.Errorf("sync/git: inspect HEAD: %w", headErr)
+		}
+	}
+	if head != "" {
+		tree, err := runGitContext(ctx, g.dir, "ls-tree", "--name-only", "-z", "HEAD", "--", id+".json.gz", id+".meta.json")
+		if err != nil {
+			return fmt.Errorf("sync/git: inspect committed deletion paths: %w", err)
+		}
+		committed = tree
+		if tree != "" {
+			tracked = tree
+		}
+	}
+	removed := false
+	for _, path := range []string{bp, mp} {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("sync/git: remove %s: %w", filepath.Base(path), err)
+			}
+		} else {
+			removed = true
+		}
+	}
+	if !removed && tracked == "" {
+		// A committed deletion whose remote push failed is safe to retry. Use
+		// path-specific history, so unrelated missing IDs still return ErrNotFound.
+		receipt, err := runGitContext(ctx, g.dir, "log", "-1", "--format=%s", "--", id+".json.gz", id+".meta.json")
+		if err != nil || receipt != "sync: delete "+id {
+			return ErrNotFound
+		}
+	}
+	if committed == "" && tracked != "" {
+		// A failed first Push can leave only newly staged files, with no HEAD
+		// version to delete. Clear just those index entries; no deletion commit
+		// is needed for content that was never published.
+		paths := strings.Split(strings.TrimRight(tracked, "\x00"), "\x00")
+		if out, err := runGitContext(ctx, g.dir, append([]string{"rm", "--cached", "--ignore-unmatch", "--"}, paths...)...); err != nil {
+			return fmt.Errorf("sync/git: remove unpublished index paths: %s: %w", out, err)
+		}
+		return nil
+	}
+	if tracked != "" {
+		paths := strings.Split(strings.TrimRight(tracked, "\x00"), "\x00")
+		if head != "" {
+			if out, err := runGitContext(ctx, g.dir, append([]string{"reset", "-q", "HEAD", "--"}, paths...)...); err != nil {
+				return fmt.Errorf("sync/git: prepare deletion retry: %s: %w", out, err)
+			}
+		}
+		if out, err := runGitContext(ctx, g.dir, append([]string{"add", "-u", "--"}, paths...)...); err != nil {
+			return fmt.Errorf("sync/git: stage deletion: %s: %w", out, err)
+		}
+		args := []string{"-c", "user.email=overkill@local", "-c", "user.name=overkill", "commit", "-m", "sync: delete " + id, "--only", "--"}
+		if out, err := runGitContext(ctx, g.dir, append(args, paths...)...); err != nil {
+			return fmt.Errorf("sync/git: commit deletion: %s: %w", out, err)
+		}
+	}
 	if g.remote != "" {
-		_, _ = runGit(g.dir, "push", "origin", g.branch)
+		if out, err := runGitContext(ctx, g.dir, "push", "origin", g.branch); err != nil {
+			return fmt.Errorf("sync/git: push deletion: %s: %w", out, err)
+		}
 	}
 	return nil
 }

@@ -52,7 +52,7 @@ func computeVariantCost(model string, inputTokens, outputTokens int) (float64, s
 //
 // Tools are intentionally not invoked — variants are for model output
 // comparison, not for diverging tool execution.
-func (a *Agent) RunVariants(ctx context.Context, prompt string, models []string) ([]VariantResult, error) {
+func (a *Agent) RunVariants(ctx context.Context, prompt string, models []string) (results []VariantResult, variantErr error) {
 	if len(models) == 0 {
 		return nil, fmt.Errorf("agent: no models supplied")
 	}
@@ -67,7 +67,20 @@ func (a *Agent) RunVariants(ctx context.Context, prompt string, models []string)
 		return nil, fmt.Errorf("agent: no provider configured")
 	}
 
-	results := make([]VariantResult, len(models))
+	goalCtx, goalTurn, err := a.beginGoalTurn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ctx = goalCtx
+	if goalTurn != nil {
+		defer goalTurn.cancel(nil)
+		defer func() {
+			if err := goalTurn.RecordTurnEnd(ctx, 0); err != nil {
+				variantErr = err
+			}
+		}()
+	}
+	results = make([]VariantResult, len(models))
 	var wg sync.WaitGroup
 	for i, model := range models {
 		wg.Add(1)
@@ -78,7 +91,16 @@ func (a *Agent) RunVariants(ctx context.Context, prompt string, models []string)
 					log.Printf("agent: variant goroutine panic: %v\n%s", r, debug.Stack())
 				}
 			}()
-			results[i] = runOneVariant(ctx, prov, sysPrompt, maxTok, model, hist, prompt)
+			outputTokens := maxTok
+			if a.tokenLimits != nil {
+				_, resolved, err := a.tokenLimits(model)
+				if err != nil {
+					results[i] = VariantResult{Model: model, Err: err.Error()}
+					return
+				}
+				outputTokens = resolved
+			}
+			results[i] = runOneVariant(ctx, prov, sysPrompt, outputTokens, model, hist, prompt)
 		}(i, model)
 	}
 	wg.Wait()
@@ -99,17 +121,23 @@ func runOneVariant(
 	msgs = append(msgs, providers.Message{Role: "user", Content: prompt})
 
 	start := time.Now()
+	if err := checkGoalBudget(ctx); err != nil {
+		return VariantResult{Model: model, Err: err.Error()}
+	}
 	resp, err := prov.Complete(ctx, providers.Request{
 		Model:        model,
 		Messages:     msgs,
 		MaxTokens:    maxTokens,
 		SystemPrompt: sysPrompt,
 	})
+	if usageErr := recordProviderUsage(ctx, usageResponseModel(model, resp), resp.Usage, resp.UsageReported); usageErr != nil {
+		err = usageErr
+	}
 	dur := time.Since(start).Seconds()
 	if err != nil {
 		return VariantResult{Model: model, Err: err.Error(), DurationS: dur}
 	}
-	cost, note := computeVariantCost(model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
+	cost, note := computeVariantCost(usageResponseModel(model, resp), resp.Usage.InputTokens, resp.Usage.OutputTokens)
 	return VariantResult{
 		Model:     model,
 		Response:  resp.Content,

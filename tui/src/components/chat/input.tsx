@@ -1,6 +1,6 @@
 import React from "react";
-import { MultilineInput } from "./multiline-input";
-import { useInputHistory } from "../../hooks/useInputHistory";
+import { MultilineInput } from "./multiline-input.tsx";
+import { useInputHistory } from "../../hooks/useInputHistory.ts";
 
 interface ChatInputProps {
   onSubmit: (text: string) => void;

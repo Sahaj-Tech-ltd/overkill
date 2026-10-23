@@ -2,6 +2,8 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -35,8 +37,10 @@ func TestReplay_YieldsAllEntriesInOrder(t *testing.T) {
 		got = append(got, ev)
 	}
 	select {
-	case err := <-errCh:
-		t.Fatalf("unexpected err: %v", err)
+	case err, ok := <-errCh:
+		if ok {
+			t.Fatalf("unexpected err: %v", err)
+		}
 	default:
 	}
 	if len(got) != 4 {
@@ -52,6 +56,75 @@ func TestReplay_YieldsAllEntriesInOrder(t *testing.T) {
 		if got[i].Offset < got[i-1].Offset {
 			t.Errorf("offsets should be monotonic")
 		}
+	}
+}
+
+func TestReplayClosesBothChannelsOnEveryExit(t *testing.T) {
+	for _, scenario := range []string{"empty", "success", "cancelled", "read-error"} {
+		t.Run(scenario, func(t *testing.T) {
+			dir := t.TempDir()
+			recorder := NewFlightRecorder(dir, "session")
+			if scenario != "read-error" {
+				if err := os.Mkdir(filepath.Join(dir, "raw"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario == "success" {
+				if err := recorder.RecordInput("recorded input"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario == "cancelled" {
+				first := Entry{SessionID: "session", Timestamp: time.Now(), Content: "first"}
+				second := first
+				second.Timestamp = first.Timestamp.Add(time.Hour)
+				var lines []byte
+				for _, entry := range []Entry{first, second} {
+					data, err := json.Marshal(entry)
+					if err != nil {
+						t.Fatal(err)
+					}
+					lines = append(append(lines, data...), '\n')
+				}
+				if err := os.WriteFile(filepath.Join(dir, "raw", "fixture.jsonl"), lines, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			replayCtx, stop := context.WithCancel(ctx)
+			defer stop()
+			options := ReplayOptions{}
+			if scenario == "cancelled" {
+				options.Speed = 1
+			}
+			events, errors := recorder.Replay(replayCtx, "session", options)
+			count := 0
+			for events != nil || errors != nil {
+				select {
+				case _, ok := <-events:
+					if !ok {
+						events = nil
+					} else if scenario == "cancelled" {
+						stop()
+					}
+				case err, ok := <-errors:
+					if !ok {
+						errors = nil
+					} else {
+						count++
+						if err == nil {
+							t.Fatal("nil error emitted")
+						}
+					}
+				case <-ctx.Done():
+					t.Fatal("replay did not close both channels")
+				}
+			}
+			if scenario == "read-error" && count != 1 || scenario != "read-error" && count != 0 {
+				t.Fatalf("unexpected error count: %d", count)
+			}
+		})
 	}
 }
 

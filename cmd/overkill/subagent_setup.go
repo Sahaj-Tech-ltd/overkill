@@ -8,7 +8,6 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/routing"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 )
@@ -23,6 +22,13 @@ type subagentInfra struct {
 // from the loaded config. Called once at boot (tui, web, slack).
 func setupSubagentSystem(cfg *config.Config) *subagentInfra {
 	cwd, _ := os.Getwd()
+	return setupSubagentSystemForWorkspace(cfg, cwd)
+}
+
+func setupSubagentSystemForWorkspace(cfg *config.Config, cwd string) *subagentInfra {
+	if cfg == nil {
+		cfg = config.Default()
+	}
 
 	// 1. Build provider model list for the smart router.
 	providerModels := buildProviderModels(cfg)
@@ -70,6 +76,9 @@ func setupSubagentSystem(cfg *config.Config) *subagentInfra {
 	// Wire registry into the manager.
 	manager.SetRegistry(registry)
 
+	// Every child gets a fresh agent history and a contained tool registry.
+	manager.SetWorkerFactory(childWorkerFactory(cfg, cwd))
+
 	return &subagentInfra{
 		Manager:  manager,
 		Registry: registry,
@@ -86,20 +95,7 @@ func buildProviderModels(cfg *config.Config) []routing.ProviderModels {
 		pm := routing.ProviderModels{
 			ProviderName: pc.Name,
 		}
-		for _, mc := range pc.Models {
-			pm.Models = append(pm.Models, providers.Model{
-				ID:           mc.ID,
-				Name:         mc.Name,
-				MaxTokens:    mc.MaxTokens,
-				CostIn:       mc.CostIn,
-				CostOut:      mc.CostOut,
-				CostCacheIn:  mc.CostCacheIn,
-				CostCacheOut: mc.CostCacheOut,
-				// Config doesn't store capabilities — assume common defaults.
-				SupportsTools:  true,
-				SupportsVision: false,
-			})
-		}
+		pm.Models = config.ProviderModels(pc.Models)
 		out = append(out, pm)
 	}
 	return out

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -101,24 +102,51 @@ var configGetCmd = &cobra.Command{
 
 var configInitCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Create default config file",
+	Short: "Create a default config without overwriting an existing file",
+	Args:  cobra.NoArgs,
+	// Initialization must not load/resolve an existing configuration or write
+	// resolved provider credentials back to disk through the root pre-run.
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path := resolvedCfgPath
+		path := cfgPath
 		if path == "" {
-			p, err := config.ConfigPath()
+			var err error
+			path, err = config.ConfigPath()
 			if err != nil {
 				return err
 			}
-			path = p
 		}
-
-		if err := cfg.Save(path); err != nil {
+		if err := initializeDefaultConfig(path); err != nil {
 			return err
 		}
-
-		fmt.Printf("%sConfig initialized at %s%s\n", colorGreen, path, colorReset)
+		fmt.Fprintf(cmd.OutOrStdout(), "Config initialized at %s\n", path)
 		return nil
 	},
+}
+
+func initializeDefaultConfig(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".overkill-config-*")
+	if err != nil {
+		return err
+	}
+	name := temporary.Name()
+	if err := temporary.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	defer os.Remove(name)
+	if err := config.Default().Save(name); err != nil {
+		return err
+	}
+	// Same-directory hard link installs a complete file atomically and fails
+	// if another process created the destination. Existing config is preserved.
+	if err := os.Link(name, path); err != nil {
+		return fmt.Errorf("initialize configuration (existing files are preserved): %w", err)
+	}
+	return nil
 }
 
 var configValidateCmd = &cobra.Command{

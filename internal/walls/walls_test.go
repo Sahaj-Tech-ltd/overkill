@@ -247,7 +247,7 @@ func TestTestQuality_NoTests_WarnOnly(t *testing.T) {
 	}
 }
 
-func TestTestQuality_GoodTests(t *testing.T) {
+func TestTestQuality_GoodSourceHeuristics(t *testing.T) {
 	tests := `package walls_test
 
 func TestFoo(t *testing.T) {
@@ -267,7 +267,7 @@ func TestConcurrent(t *testing.T) {}
 
 	w := NewTestQualityWall(TestQualityConfig{
 		Enabled:     true,
-		MinCoverage: 0.1,
+		MinCoverage: 0, // This checks structure, not execution coverage.
 	})
 	res, err := w.Check(context.Background(), "some code", tests)
 	if err != nil {
@@ -338,8 +338,11 @@ func TestThree(t *testing.T) {}
 	if !a.HasConcurrency {
 		t.Error("expected HasConcurrency (Concurrent)")
 	}
-	if a.Coverage <= 0 || a.Coverage > 1 {
-		t.Errorf("expected coverage in (0,1], got %f", a.Coverage)
+	if a.Coverage != nil {
+		t.Fatal("source analysis must not fabricate measured coverage")
+	}
+	if a.StructuralTestRatio <= 0 || a.StructuralTestRatio > 1 {
+		t.Fatalf("invalid structural ratio %f", a.StructuralTestRatio)
 	}
 }
 

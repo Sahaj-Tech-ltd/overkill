@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.26"
   PYTHON_VERSION: "3.12"
   GOTOOLCHAIN: auto
 
@@ -24,8 +24,6 @@ jobs:
   go-tests:
     name: Go tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -37,9 +35,8 @@ jobs:
         run: go mod download
       - name: Test (no race, hard gate)
         run: go test -count=1 -timeout=5m ./...
-      - name: Test (race + coverage, soft gate)
-        continue-on-error: true
-        run: go test -race -count=1 -timeout=8m -coverprofile=coverage.out ./... || echo "Race tests flaky in CI — passes locally"
+      - name: Test (race + coverage, required)
+        run: go test -race -count=1 -timeout=8m -coverprofile=coverage.out ./...
       - name: Upload Go coverage
         if: always()
         uses: actions/upload-artifact@v4
@@ -48,32 +45,72 @@ jobs:
           path: coverage.out
 
   python-tests:
-    name: Python (pytest + coverage)
+    name: Python wheel and pgvector integration (required)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    services:
+      pgvector:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: overkill_vector_test
+          POSTGRES_PASSWORD: overkill_vector_test
+          POSTGRES_DB: overkill_vector_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U overkill_vector_test -d overkill_vector_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
     env:
-      CI: "true"
+      OVERKILL_VECTOR_TEST_URL: postgres://overkill_vector_test:overkill_vector_test@localhost:5432/overkill_vector_test?sslmode=disable
+      OVERKILL_REQUIRE_VECTOR_DB: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install dependencies
-        run: pip install pytest pytest-cov grpcio protobuf grpcio-health-checking
-      - name: Debug imports
-        run: |
-          cd bridge
-          python -c "
-          import sys; print(f'Python {sys.version}')
-          import grpc; print('grpc OK')
-          import overkill_pb2; print('overkill_pb2 OK')
-          from server import OverkillBridgeServicer; print('server OK')
-          "
-      - name: Run Python tests
-        run: pytest -v --tb=short --cov=. --cov-report=xml
+      - name: Install declared runtime and development dependencies
+        run: pip install './bridge[dev]'
+      - name: Run Python tests with required pgvector integration
+        working-directory: bridge
+        run: python -m pytest tests -v --tb=short --timeout=30 --cov=. --cov-report=xml
+      - name: Install wheel in isolated environment and verify console server
+        run: python scripts/verify_bridge_wheel.py
       - name: Upload Python coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: python-coverage
           path: bridge/coverage.xml
+
+  postgres-integration:
+    name: PostgreSQL integration (required)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: overkill_test
+          POSTGRES_PASSWORD: overkill_test
+          POSTGRES_DB: overkill_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U overkill_test -d overkill_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      DATABASE_URL: postgres://overkill_test:overkill_test@localhost:5432/overkill_test?sslmode=disable
+      PG_TEST_URL: postgres://overkill_test:overkill_test@localhost:5432/overkill_test?sslmode=disable
+      OVERKILL_REQUIRE_TEST_DB: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Database tests with race detection
+        run: go test -race -count=1 -timeout=12m ./...

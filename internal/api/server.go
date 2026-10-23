@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -16,16 +19,17 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/coordination"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/credentials"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/credit"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/extensions"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/features"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
-	bridgegw "github.com/Sahaj-Tech-ltd/overkill/internal/gateway/bridge"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/hotreload"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/mcp"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/plan"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/shadows"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
@@ -33,21 +37,56 @@ import (
 	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools/tts"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/web"
 )
 
 // Server is the JSON-RPC 2.0 HTTP server that wraps the existing internal
 // packages behind a clean API for the Ink TUI to consume.
 type Server struct {
-	mu             sync.RWMutex
-	configCreateMu sync.Mutex // serializes config.create calls to prevent concurrent overwrites (H11)
-	cfg            *config.Config
-	sessionStore   session.Store
-	agents         map[string]*agent.Agent // session ID → agent
-	toolRegistry   *tools.Registry
-	mcpManager     *mcp.Manager // MCP server manager (nil when no servers configured)
-	db             *sql.DB      // shared database pool (opened once at startup)
-	httpServer     *http.Server
-	port           int // set after Start()
+	flowQueue             *agent.FlowQueue
+	flowCancel            context.CancelFunc
+	flowDone              chan struct{}
+	dashboardGoalReader   func(context.Context, string) (*agent.Goal, error)
+	dashboardPlanReader   func(context.Context, string) (*plan.Plan, error)
+	callbackDestinations  map[string]string
+	callbackTransport     http.RoundTripper
+	coordinationStore     *coordination.Store
+	canvasStore           *web.CanvasStore
+	backgroundMu          sync.Mutex
+	backgroundStarted     bool
+	backgroundClosed      bool
+	backgroundCancel      context.CancelFunc
+	backgroundDone        chan struct{}
+	backgroundError       bool
+	presenceMu            sync.Mutex
+	presenceObserver      string
+	presenceContext       context.Context
+	closeOnce             sync.Once
+	admissionMu           sync.Mutex
+	sessionOperations     map[string]bool
+	sessionCancels        map[string]*sessionCancellation
+	mu                    sync.RWMutex
+	configCredentialStore credentials.Store
+	configCreateMu        sync.Mutex // serializes config.create calls to prevent concurrent overwrites (H11)
+	cfg                   *config.Config
+	sessionStore          session.Store
+	agents                map[string]*agent.Agent // session ID → agent
+	toolRegistry          *tools.Registry
+	sessionRuntimeFactory SessionRuntimeFactory
+	sessionRuntimes       map[string]*SessionRuntime
+	mcpCancel             context.CancelFunc
+	mcpDone               chan struct{}
+	mcpManager            *mcp.Manager // MCP server manager (nil when no servers configured)
+	db                    *sql.DB      // shared database pool (opened once at startup)
+	httpServer            *http.Server
+	port                  int // protected by mu
+	address               string
+	bridgeAddress         string
+	bridgeCancel          context.CancelFunc
+	bridgeDone            <-chan error
+	authToken             string
+	initErr               error
+	ready                 chan struct{}
 	// learningStore is wired into every agent created by this server
 	// so the TUI's agent loop can record and retrieve corrections (§6.5).
 	learningStore *learning.Store
@@ -59,7 +98,8 @@ type Server struct {
 	readCache *speculative.ReadCache
 	// pendingQuestions maps session ID → channel that receives the user's
 	// answer. Set by the agent's QuestionFunc, resolved by handleAgentAnswer.
-	pendingQuestions map[string]chan agent.Answer
+	pendingQuestions   map[string]chan agent.Answer
+	pendingQuestionIDs map[string]string // protected by mu; one-shot generation fence
 	// pendingQuestionData stores the question itself for polling.
 	pendingQuestionMu   sync.RWMutex
 	pendingQuestionData map[string]*agent.Question // session → question
@@ -103,12 +143,7 @@ type Server struct {
 	listenAddr string
 
 	// tasksStore powers the todo.* RPC endpoints (§8.3). Optional.
-	tasksStore interface {
-		Add(sessionID, intent string) (*TaskDTO, error)
-		Toggle(id string) (*TaskDTO, error)
-		Remove(id string) error
-		List(sessionID string) ([]TaskDTO, error)
-	}
+	tasksStore TaskStore
 
 	// skillsStore powers the skills.* RPC endpoints. Optional.
 	skillsStore *skillsStore
@@ -142,15 +177,38 @@ func (s *Server) AskUser(ctx context.Context, prompt string, choices []string) (
 // Addr returns the address the server is listening on.
 // Only valid after Start() has been called.
 func (s *Server) Addr() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.address != "" {
+		return s.address
+	}
 	return fmt.Sprintf("http://localhost:%d", s.port)
 }
 
+// Ready closes after the listener and HTTP server are initialized. Callers
+// must also watch Start's result for startup failures.
+func (s *Server) Ready() <-chan struct{} { return s.ready }
+
+// AuthToken is passed only through the launched frontend's environment.
+func (s *Server) AuthToken() string { return s.authToken }
+
 // ServerConfig holds everything the API server needs at startup.
 type ServerConfig struct {
-	Config        *config.Config
-	SessionStore  session.Store
-	Tools         *tools.Registry
-	LearningStore *learning.Store // optional: correction learning store (§6.5)
+	FlowQueue *agent.FlowQueue
+	// ConfigCredentialStore explicitly injects the onboarding vault; nil uses OS credentials.
+	ConfigCredentialStore credentials.Store
+	Canvas                *web.CanvasStore
+	DashboardGoalReader   func(context.Context, string) (*agent.Goal, error)
+	DashboardPlanReader   func(context.Context, string) (*plan.Plan, error)
+	// CoordStore enables durable delivery for explicitly bound peers.
+	CallbackDestinations  map[string]string
+	CallbackTransport     http.RoundTripper // Explicit application/test injection; nil uses protected HTTPS.
+	CoordStore            *coordination.Store
+	Config                *config.Config
+	SessionStore          session.Store
+	Tools                 *tools.Registry
+	SessionRuntimeFactory SessionRuntimeFactory
+	LearningStore         *learning.Store // optional: correction learning store (§6.5)
 	// ListenAddr is the host:port the server binds to (e.g. "127.0.0.1:7777").
 	// When empty, the OS picks a random port on localhost (equivalent to
 	// "localhost:0"). The TUI path leaves this unset to preserve existing behaviour.
@@ -180,12 +238,7 @@ type ServerConfig struct {
 
 	// TasksStore powers the todo.* RPC endpoints (§8.3 todo panel).
 	// Optional — nil-safe, endpoints return empty lists when unset.
-	TasksStore interface {
-		Add(sessionID, intent string) (*TaskDTO, error)
-		Toggle(id string) (*TaskDTO, error)
-		Remove(id string) error
-		List(sessionID string) ([]TaskDTO, error)
-	}
+	TasksStore TaskStore
 
 	// SkillsRegistry powers the skills.* RPC endpoints. Optional — nil-safe.
 	SkillsRegistry *skills.Registry
@@ -197,6 +250,14 @@ type ServerConfig struct {
 
 // NewServer creates a new API server. Call Start to begin listening.
 func NewServer(sc ServerConfig) *Server {
+	token := os.Getenv("OVERKILL_API_TOKEN")
+	var tokenErr error
+	if token == "" {
+		b := make([]byte, 32)
+		if _, tokenErr = rand.Read(b); tokenErr == nil {
+			token = hex.EncodeToString(b)
+		}
+	}
 	reg := sc.Tools
 	if reg == nil {
 		reg = tools.NewRegistry()
@@ -214,41 +275,56 @@ func NewServer(sc ServerConfig) *Server {
 	var mcpMgr *mcp.Manager
 	if sc.Config != nil && len(sc.Config.MCP.Servers) > 0 {
 		mcpMgr = mcp.NewManager(sc.Config.MCP)
-		if err := mcpMgr.Start(context.Background()); err != nil {
-			log.Printf("api: mcp start: %v", err)
-		} else {
-			added := mcpMgr.RescanTools(reg.Has, func(adapter *mcp.ToolAdapter) error {
-				return reg.Register(adapter)
-			})
-			if added > 0 {
-				log.Printf("api: mcp registered %d tools from %d server(s)", added, len(sc.Config.MCP.Servers))
-			}
-		}
+
 	}
 
+	if sc.SkillsRegistry == nil {
+		sc.SkillsRegistry = skills.NewRegistry()
+	}
+	extensionManager := sc.ExtensionsManager.Clone()
+	if sc.ExtensionsManager == nil {
+		home, _ := config.ConfigDir()
+		extensionManager = extensions.NewConfiguredManager(sc.SkillsRegistry, sc.Config, home)
+	}
+	if sc.Config != nil {
+		extensionManager.AddBackend(extensions.NewMCPBackend(sc.Config.MCP, mcpMgr))
+	}
 	return &Server{
-		cfg:                 sc.Config,
-		sessionStore:        sc.SessionStore,
-		agents:              make(map[string]*agent.Agent),
-		toolRegistry:        reg,
-		learningStore:       sc.LearningStore,
-		featureMgr:          sc.FeatureManager,
-		extensionsMgr:       sc.ExtensionsManager,
-		readCache:           sc.ReadCache,
-		pendingQuestions:    make(map[string]chan agent.Answer),
-		pendingQuestionData: make(map[string]*agent.Question),
-		memoEngine:          sc.MemoEngine,
-		creditAnalyzer:      credit.NewAnalyzer(),
-		syncMgr:             sc.SyncManager,
-		syncErrors:          make(map[string]string),
-		hotReloadBus:        sc.HotReloadBus,
-		subagentManager:     sc.SubagentManager,
-		costTracker:         sc.CostTracker,
-		listenAddr:          sc.ListenAddr,
-		tasksStore:          sc.TasksStore,
-		skillsStore:         newSkillsStore(sc.SkillsRegistry),
-		mcpManager:          mcpMgr,
-		db:                  sc.DB,
+		flowQueue:             sc.FlowQueue,
+		dashboardGoalReader:   sc.DashboardGoalReader,
+		dashboardPlanReader:   sc.DashboardPlanReader,
+		callbackDestinations:  sc.CallbackDestinations,
+		callbackTransport:     sc.CallbackTransport,
+		coordinationStore:     sc.CoordStore,
+		canvasStore:           sc.Canvas,
+		cfg:                   sc.Config,
+		configCredentialStore: sc.ConfigCredentialStore,
+		authToken:             token,
+		initErr:               tokenErr,
+		ready:                 make(chan struct{}),
+		sessionStore:          sc.SessionStore,
+		agents:                make(map[string]*agent.Agent),
+		toolRegistry:          reg,
+		sessionRuntimeFactory: sc.SessionRuntimeFactory,
+		sessionRuntimes:       make(map[string]*SessionRuntime),
+		learningStore:         sc.LearningStore,
+		featureMgr:            sc.FeatureManager,
+		extensionsMgr:         extensionManager,
+		readCache:             sc.ReadCache,
+		pendingQuestions:      make(map[string]chan agent.Answer),
+		pendingQuestionData:   make(map[string]*agent.Question),
+		memoEngine:            sc.MemoEngine,
+		creditAnalyzer:        credit.NewAnalyzer(),
+		syncMgr:               sc.SyncManager,
+		syncErrors:            make(map[string]string),
+		hotReloadBus:          sc.HotReloadBus,
+		subagentManager:       sc.SubagentManager,
+		costTracker:           sc.CostTracker,
+		listenAddr:            sc.ListenAddr,
+		tasksStore:            sc.TasksStore,
+		skillsStore:           newSkillsStore(sc.SkillsRegistry),
+		mcpManager:            mcpMgr,
+		db:                    sc.DB,
 	}
 }
 
@@ -256,6 +332,10 @@ func NewServer(sc ServerConfig) *Server {
 // and blocks until the context is cancelled or SIGINT/SIGTERM is received.
 // Graceful shutdown is handled automatically.
 func (s *Server) Start(ctx context.Context) error {
+	defer s.Close()
+	if s.initErr != nil {
+		return fmt.Errorf("api: generate authentication credential: %w", s.initErr)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rpc", s.withMiddleware(s.handleRPC))
 	mux.HandleFunc("/sse", s.withMiddleware(s.handleSSE))
@@ -277,12 +357,26 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	addr := ln.Addr().(*net.TCPAddr)
+	s.mu.Lock()
 	s.port = addr.Port
-	log.Printf("API listening on http://localhost:%d", addr.Port)
+	s.address = "http://" + ln.Addr().String()
+	s.mu.Unlock()
+	log.Printf("API listening on %s", s.Addr())
+
+	if err := s.StartBackground(ctx); err != nil {
+		_ = ln.Close()
+		return err
+	}
+
+	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// ── Bridge gateway: auto-start HTTP webhook if configured ──
-	if s.cfg.Gateways.Bridge.Enabled {
-		s.startBridge(ctx)
+	if s.cfg != nil && s.cfg.Gateways.Bridge.Enabled {
+		if err := s.startBridge(runCtx); err != nil {
+			_ = ln.Close()
+			return err
+		}
 	}
 
 	s.httpServer = &http.Server{
@@ -291,45 +385,39 @@ func (s *Server) Start(ctx context.Context) error {
 		WriteTimeout: 0, // no timeout — SSE streams may be long-lived
 	}
 
-	// Shutdown on context cancellation or OS signal.
-	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	defer shutdownCancel()
-
+	// Own the shutdown goroutine and wait for its drain before returning, so
+	// callers can safely release shared stores after Start returns.
+	serveDone := make(chan struct{})
+	shutdownDone := make(chan struct{})
 	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		defer close(shutdownDone)
 		select {
-		case sig := <-sigCh:
-			log.Printf("received %v, shutting down API server", sig)
-		case <-ctx.Done():
-			log.Printf("context cancelled, shutting down API server")
+		case <-serveDone:
+			return
+		case <-runCtx.Done():
 		}
-		shutdownCancel()
-		// Stop MCP subprocess goroutines before the drain window
-		// so zombie processes don't survive the shutdown.
 		if s.mcpManager != nil {
 			s.mcpManager.Stop()
 		}
-		// Give in-flight requests 5s to finish.
 		sdCtx, sdCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer sdCancel()
-		_ = s.httpServer.Shutdown(sdCtx)
+		if err := s.httpServer.Shutdown(sdCtx); err != nil {
+			_ = s.httpServer.Close()
+		}
 	}()
-
+	close(s.ready)
 	err = s.httpServer.Serve(ln)
+	close(serveDone)
+	<-shutdownDone
+	bridgeErr := s.stopBridge()
+	if bridgeErr != nil && !errors.Is(bridgeErr, context.Canceled) {
+		return bridgeErr
+	}
 	if err == http.ErrServerClosed {
 		return nil
 	}
-	// If the shutdown goroutine closed the listener, Serve returns a
-	// net.ErrClosed wrapped error. Treat that as clean shutdown too.
-	if err != nil {
-		select {
-		case <-shutdownCtx.Done():
-			return nil
-		default:
-		}
-	}
 	return err
+
 }
 
 // ---------------------------------------------------------------------------
@@ -367,12 +455,25 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	resp.ID = req.ID
 
 	switch req.Method {
+	case "coordination.transport.bind", "coordination.transport.clear":
+		result, rpcErr := s.handleCoordinationTransport(ctx, req.Method, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "coordination.reconciliation", "coordination.reconciliation.candidates", "coordination.reconcile":
+		resp.Result, resp.Error = s.handleUsageReconciliation(ctx, req.Method, req.Params)
+	case "canvas.state", "canvas.apply", "canvas.reset":
+		resp.Result, resp.Error = s.handleCanvas(ctx, req.Method, req.Params)
+	case "coordination.callback.rotate", "coordination.callback.subscribe", "coordination.callback.list", "coordination.callback.deliveries", "coordination.callback.cancel", "coordination.callback.retry":
+		resp.Result, resp.Error = s.handleCoordinationCallback(ctx, req.Method, req.Params)
+	case "coordination.review", "coordination.graph", "coordination.register", "coordination.peers", "coordination.messages", "coordination.send", "coordination.cancel", "coordination.events", "coordination.contract", "coordination.escalations", "coordination.usage", "coordination.message":
+		resp.Result, resp.Error = s.handleCoordination(ctx, req.Method, req.Params)
 	case "agent.send":
 		result, rpcErr := s.handleAgentSend(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
 	case "agent.abort":
 		result, rpcErr := s.handleAgentAbort(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
+	case "flow.list":
+		resp.Result, resp.Error = s.handleFlowList(ctx, req.Params)
 	case "agent.undo":
 		result, rpcErr := s.handleAgentUndo(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
@@ -393,6 +494,11 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		resp.Result, resp.Error = result, rpcErr
 	case "models.select":
 		result, rpcErr := s.handleModelsSelect(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "session.audit":
+		resp.Result, resp.Error = s.handleSessionAudit(ctx, req.Params)
+	case "session.messages":
+		result, rpcErr := s.handleSessionMessages(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
 	case "session.load":
 		result, rpcErr := s.handleSessionLoad(ctx, req.Params)
@@ -469,6 +575,9 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	case "todo.add":
 		result, rpcErr := s.handleTodoAdd(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
+	case "todo.update":
+		result, rpcErr := s.handleTodoUpdate(ctx, req.Params)
+		resp.Result, resp.Error = result, rpcErr
 	case "todo.toggle":
 		result, rpcErr := s.handleTodoToggle(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
@@ -481,6 +590,10 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	case "skills.list":
 		result, rpcErr := s.handleSkillsList(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
+	case "evolution.list", "evolution.generate", "evolution.review", "evolution.apply", "evolution.rollback":
+		resp.Result, resp.Error = s.handleEvolution(ctx, req.Method, req.Params)
+	case "extensions.list", "extensions.toggle":
+		resp.Result, resp.Error = s.handleExtensions(ctx, req.Method, req.Params)
 	case "skills.toggle":
 		result, rpcErr := s.handleSkillsToggle(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
@@ -504,13 +617,19 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(r.Context())
+	release, err := s.beginSessionOperation(sessionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	defer release()
+	ctx, cancel := s.bindSessionCancellation(r.Context(), sessionID)
 	defer cancel()
 
 	// Allow the client to abort via POST /rpc with agent.abort, but also
 	// wire the request context so disconnecting the HTTP connection cancels
 	// the agent.
-	a, rpcErr := s.getOrCreateAgent(ctx, sessionID)
+	a, rpcErr := s.getOrCreateAdmittedAgent(ctx, sessionID)
 	if rpcErr != nil {
 		http.Error(w, rpcErr.Message, http.StatusInternalServerError)
 		return
@@ -527,7 +646,9 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	s.consumeStreamEvents(ctx, w, flusher, events)
+	closed := s.consumeStreamEvents(ctx, w, flusher, events, func() error {
+		return s.saveSessionState(context.WithoutCancel(ctx), sessionID, a)
+	})
 
 	// Drain the events channel with a short timeout so the agent
 	// goroutine that may still be writing to it doesn't leak.
@@ -536,7 +657,11 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	s.drainChannel(events)
 
 	// Persist after stream completes.
-	s.saveSessionState(ctx, sessionID, a)
+	if !closed {
+		if err := s.saveSessionState(context.WithoutCancel(ctx), sessionID, a); err != nil {
+			log.Printf("stream persistence failed: %v", err)
+		}
+	}
 
 	// P3: credit assignment after SSE stream completes.
 	s.mu.RLock()
@@ -594,10 +719,16 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(r.Context())
+	release, err := s.beginSessionOperation(sessionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	defer release()
+	ctx, cancel := s.bindSessionCancellation(r.Context(), sessionID)
 	defer cancel()
 
-	a, rpcErr := s.getOrCreateAgent(ctx, sessionID)
+	a, rpcErr := s.getOrCreateAdmittedAgent(ctx, sessionID)
 	if rpcErr != nil {
 		http.Error(w, rpcErr.Message, http.StatusInternalServerError)
 		return
@@ -614,14 +745,20 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	s.consumeStreamEvents(ctx, w, flusher, events)
+	closed := s.consumeStreamEvents(ctx, w, flusher, events, func() error {
+		return s.saveSessionState(context.WithoutCancel(ctx), sessionID, a)
+	})
 
 	// Drain the events channel with a short timeout so the agent
 	// goroutine that may still be writing to it doesn't leak.
 	s.drainChannel(events)
 
 	// Persist after stream completes.
-	s.saveSessionState(ctx, sessionID, a)
+	if !closed {
+		if err := s.saveSessionState(context.WithoutCancel(ctx), sessionID, a); err != nil {
+			log.Printf("stream persistence failed: %v", err)
+		}
+	}
 
 	// P3: credit assignment after SSE stream completes.
 	s.mu.RLock()
@@ -637,8 +774,9 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(HealthResult{
-		Status:  "ok",
-		Version: s.cfg.Version,
+		Coordination: s.CoordinationStatus(),
+		Status:       "ok",
+		Version:      s.cfg.Version,
 	})
 }
 
@@ -648,16 +786,37 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 // consumeStreamEvents reads from the agent's event channel and writes SSE
 // formatted events. It blocks until the channel closes or ctx is done.
-func (s *Server) consumeStreamEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, events <-chan agent.StreamEvent) {
+func (s *Server) consumeStreamEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, events <-chan agent.StreamEvent, persist func() error) bool {
+	var terminal *agent.StreamEvent
+	failed := false
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case evt, ok := <-events:
 			if !ok {
-				fmt.Fprintf(w, "event: done\ndata: {}\n\n")
-				flusher.Flush()
-				return
+				if persist != nil {
+					if err := persist(); err != nil {
+						s.writeSSEEvent(w, flusher, agent.StreamEvent{Type: agent.EventError, Error: err})
+						return true
+					}
+				}
+				if !failed {
+					if terminal != nil {
+						s.writeSSEEvent(w, flusher, *terminal)
+					} else {
+						s.writeSSEEvent(w, flusher, agent.StreamEvent{Type: agent.EventError, Error: fmt.Errorf("agent stream ended without a completion event")})
+					}
+				}
+				return true
+			}
+			if evt.Type == agent.EventDone {
+				copy := evt
+				terminal = &copy
+				continue
+			}
+			if evt.Type == agent.EventError {
+				failed = true
 			}
 			s.writeSSEEvent(w, flusher, evt)
 		}
@@ -721,6 +880,9 @@ func buildSSEData(evt agent.StreamEvent) map[string]interface{} {
 		if evt.Phase != "" {
 			data["phase"] = evt.Phase
 		}
+		if evt.Content != "" {
+			data["content"] = evt.Content
+		}
 	case agent.EventReasoning:
 		if evt.Content != "" {
 			data["content"] = evt.Content
@@ -730,6 +892,12 @@ func buildSSEData(evt agent.StreamEvent) map[string]interface{} {
 			data["content"] = evt.Content
 		}
 	case agent.EventToolStart, agent.EventToolOutput:
+		if evt.Type == agent.EventToolStart {
+			data["phase"] = "start"
+		} else {
+			data["phase"] = "output"
+			data["output"] = evt.ToolOutput
+		}
 		if evt.ToolName != "" {
 			data["name"] = evt.ToolName
 		}
@@ -792,11 +960,34 @@ func buildSSEData(evt agent.StreamEvent) map[string]interface{} {
 // Agent management
 // ---------------------------------------------------------------------------
 
-// getOrCreateAgent returns the agent for a session, creating one if needed.
+// getOrCreateAgent safely resolves a runtime for non-admitted readers. It may
+// rebuild a stale catalogue, so it must never discard an active turn's agent.
 func (s *Server) getOrCreateAgent(ctx context.Context, sessionID string) (*agent.Agent, *RPCError) {
+	release, err := s.beginSessionOperation(sessionID)
+	if err != nil {
+		return nil, &RPCError{Code: InvalidRequest, Message: "Session is busy; retry runtime inspection after its active turn finishes."}
+	}
+	defer release()
+	return s.getOrCreateAdmittedAgent(ctx, sessionID)
+}
+
+// getOrCreateAdmittedAgent requires the caller to hold session admission through
+// execution and persistence. Keeping this distinct prevents recursive admission.
+func (s *Server) getOrCreateAdmittedAgent(ctx context.Context, sessionID string) (*agent.Agent, *RPCError) {
 	s.mu.RLock()
 	a, ok := s.agents[sessionID]
+	runtime := s.sessionRuntimes[sessionID]
 	s.mu.RUnlock()
+	if ok && runtime != nil && runtime.CheckCurrent != nil {
+		current, err := runtime.CheckCurrent(ctx)
+		if err != nil {
+			return nil, &RPCError{Code: InternalError, Message: "Session coordination transport is unavailable."}
+		}
+		if !current {
+			s.discardSessionRuntime(sessionID)
+			ok = false
+		}
+	}
 	if ok {
 		return a, nil
 	}
@@ -818,24 +1009,9 @@ func (s *Server) getOrCreateAgent(ctx context.Context, sessionID string) (*agent
 }
 
 // saveSessionState persists the current agent state into the session store.
-// Best-effort — failures are logged but not returned.
 // PCA-1: Also auto-titles the session on first turn using GenerateTitle.
-func (s *Server) saveSessionState(ctx context.Context, sessionID string, a *agent.Agent) {
-	sess, err := s.sessionStore.Load(ctx, sessionID)
-	if err != nil {
-		return
-	}
-	sess.Model = a.Model()
-	sess.TurnCount = len(a.History())
-
-	// Auto-title on first substantive turn (title is empty, history has content).
-	if sess.Title == "" && sess.TurnCount > 0 {
-		if title, titleErr := a.GenerateTitle(ctx); titleErr == nil && title != "" {
-			sess.Title = title
-		}
-	}
-
-	_ = s.sessionStore.Save(ctx, sess)
+func (s *Server) saveSessionState(ctx context.Context, sessionID string, a *agent.Agent) error {
+	return PersistAgentSession(ctx, s.sessionStore, sessionID, a)
 }
 
 // recordCreditTurn folds per-turn credit actions into the in-memory analyzer.
@@ -891,7 +1067,7 @@ func (s *Server) maybeAutoPush(sessionID string) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) withMiddleware(fn http.HandlerFunc) http.HandlerFunc {
-	return withCORS(withAPIAuth(withPanicRecovery(withRequestLog(fn))))
+	return withCORS(withAPIAuth(s.authToken, withPanicRecovery(withRequestLog(fn))))
 }
 
 // ---------------------------------------------------------------------------
@@ -975,84 +1151,40 @@ func (s *Server) handleMemoLearn(ctx context.Context, params json.RawMessage) (i
 	}, nil
 }
 
-// startBridge auto-starts the HTTP webhook bridge for sidecar gateways.
-// The bridge runs in a background goroutine tied to the server's lifecycle
-// context. When ctx is cancelled, the bridge shuts down gracefully.
-//
-// Uses a simple AgentSender that delegates to getOrCreateAgent for non-streaming
-// turns. Streaming (bridgeReply.Update/Final) works for slash commands only;
-// full streaming agent replies require a persistent agent instance which the
-// per-session TUI model doesn't yet support for the bridge path.
-func (s *Server) startBridge(ctx context.Context) {
-	cfg := s.cfg.Gateways.Bridge
-	listen := cfg.Listen
-	if listen == "" {
-		listen = "127.0.0.1:7799"
+// startBridge uses the same persisted session router as the gateway commands.
+// Configuration/router errors abort startup rather than falling back to memory.
+func (s *Server) startBridge(ctx context.Context) error {
+	bridgeCtx, cancel := context.WithCancel(ctx)
+	b, err := s.newAPIBridge(bridgeCtx)
+	if err != nil {
+		cancel()
+		return err
 	}
-
-	ag := &bridgeAgent{server: s}
-	router := &gateway.SessionRouter{}
-	d := gateway.NewDispatcher(ag, router)
-	b := bridgegw.New(d, cfg.Token, listen)
-
-	go func() {
-		log.Printf("bridge: listening on %s", listen)
-		if err := b.Run(ctx); err != nil && err != context.Canceled {
-			log.Printf("bridge: %v", err)
-		}
-	}()
+	done, err := b.Start(bridgeCtx)
+	if err != nil {
+		cancel()
+		return err
+	}
+	s.mu.Lock()
+	s.bridgeAddress = b.Addr()
+	s.bridgeCancel = cancel
+	s.bridgeDone = done
+	s.mu.Unlock()
+	return nil
 }
 
-// bridgeAgent implements gateway.AgentSender by delegating to the Server's
-// per-session agent pool. Streaming is not supported — Stream() returns a
-// single-event channel wrapping Run().
-type bridgeAgent struct {
-	server *Server
-	sid    string
-}
-
-func (ba *bridgeAgent) Stream(ctx context.Context, in string) (<-chan agent.StreamEvent, error) {
-	// Build a synthetic RPC params to reuse handleAgentSend.
-	params, _ := json.Marshal(SendMessageParams{
-		SessionID: ba.sid,
-		Message:   in,
-	})
-	result, rpcErr := ba.server.handleAgentSend(ctx, params)
-	if rpcErr != nil {
-		return nil, fmt.Errorf("agent send: %s", rpcErr.Message)
+// stopBridge drains accepted bridge work before shared stores/runtimes close.
+func (s *Server) stopBridge() error {
+	s.mu.Lock()
+	cancel, done := s.bridgeCancel, s.bridgeDone
+	s.bridgeCancel = nil
+	s.bridgeDone = nil
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
-	text := ""
-	if m, ok := result.(map[string]interface{}); ok {
-		if t, ok := m["text"].(string); ok {
-			text = t
-		}
+	if done != nil {
+		return <-done
 	}
-	ch := make(chan agent.StreamEvent, 1)
-	ch <- agent.StreamEvent{Type: agent.EventDone, Content: text}
-	close(ch)
-	return ch, nil
+	return nil
 }
-
-func (ba *bridgeAgent) SetSessionID(id string)                                    { ba.sid = id }
-func (ba *bridgeAgent) SessionID() string                                         { return ba.sid }
-func (ba *bridgeAgent) EStop()                                                    {}
-func (ba *bridgeAgent) Interrupt()                                                {}
-func (ba *bridgeAgent) SetQuestionFunc(fn agent.QuestionFunc)                     {}
-func (ba *bridgeAgent) Undo() (string, error)                                     { return "", nil }
-func (ba *bridgeAgent) Retry(ctx context.Context) (string, error)                 { return "", nil }
-func (ba *bridgeAgent) Steer(msg string) string                                   { return "steered" }
-func (ba *bridgeAgent) Fork(name string) (string, error)                          { return "", nil }
-func (ba *bridgeAgent) Snapshot(name string) (string, error)                      { return "", nil }
-func (ba *bridgeAgent) Rollback(n int) (string, error)                            { return "", nil }
-func (ba *bridgeAgent) Snapshots() (string, error)                                { return "", nil }
-func (ba *bridgeAgent) SetGoal(ctx context.Context, text string) error            { return nil }
-func (ba *bridgeAgent) GetGoal(ctx context.Context) (string, error)               { return "", nil }
-func (ba *bridgeAgent) PauseGoal(ctx context.Context) error                       { return nil }
-func (ba *bridgeAgent) ResumeGoal(ctx context.Context) error                      { return nil }
-func (ba *bridgeAgent) ClearGoal(ctx context.Context) error                       { return nil }
-func (ba *bridgeAgent) Compact(ctx context.Context) (*agent.CompactResult, error) { return nil, nil }
-func (ba *bridgeAgent) ExportHistory(path string) (string, error)                 { return "", nil }
-func (ba *bridgeAgent) SetThinkingLevel(level string)                             {}
-func (ba *bridgeAgent) ThinkingLevel() string                                     { return "off" }
-func (ba *bridgeAgent) Mode() string                                              { return "build" }
-func (ba *bridgeAgent) IsBusy() bool                                              { return false }

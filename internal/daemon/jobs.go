@@ -71,7 +71,20 @@ func NewJobStore(db *sql.DB) (*JobStore, error) {
 }
 
 func (s *JobStore) migrate() error {
-	_, err := s.db.Exec(`
+	if s.db == nil {
+		return errors.New("database is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':overkill:daemon', 0))`); err != nil {
+		return fmt.Errorf("lock migration: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS daemon_jobs (
 			id          TEXT PRIMARY KEY,
 			session_id  TEXT NOT NULL DEFAULT '',
@@ -86,10 +99,15 @@ func (s *JobStore) migrate() error {
 		)
 	`)
 	if err != nil {
-		return err
+		return fmt.Errorf("migration statement 1: %w", err)
 	}
-	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_daemon_jobs_status ON daemon_jobs (status)`)
-	return err
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_daemon_jobs_status ON daemon_jobs (status)`); err != nil {
+		return fmt.Errorf("migration statement 2: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration: %w", err)
+	}
+	return nil
 }
 
 // Close is a no-op; the caller owns the DB lifecycle.

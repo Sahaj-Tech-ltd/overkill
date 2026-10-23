@@ -19,10 +19,6 @@ jobs:
   gosec:
     name: gosec
     runs-on: ubuntu-latest
-    defaults:
-      run:
-    defaults:
-      run:
     timeout-minutes: 10
     permissions:
       contents: read

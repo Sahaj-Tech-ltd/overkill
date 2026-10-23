@@ -1,22 +1,29 @@
 package skills
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 )
 
 type Registry struct {
-	mu     sync.RWMutex
-	skills map[string]*Skill
-	index  map[string][]string
+	mu               sync.RWMutex
+	skills           map[string]*Skill
+	index            map[string][]string
+	stateDir         string
+	enabledOverrides map[string]bool
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		skills: make(map[string]*Skill),
-		index:  make(map[string][]string),
+		skills:           make(map[string]*Skill),
+		index:            make(map[string][]string),
+		enabledOverrides: make(map[string]bool),
 	}
 }
 
@@ -38,6 +45,9 @@ func (r *Registry) Register(skill *Skill) error {
 	}
 
 	skillCopy := *skill
+	if enabled, ok := r.enabledOverrides[strings.ToLower(skill.Name)]; ok {
+		skillCopy.Enabled = enabled
+	}
 	r.skills[strings.ToLower(skill.Name)] = &skillCopy
 
 	for _, trigger := range skill.Triggers {
@@ -218,32 +228,80 @@ func (r *Registry) MatchWithContext(input string, ctx MatchContext) []*Skill {
 	return result
 }
 
-func (r *Registry) Enable(name string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	key := strings.ToLower(name)
-	skill, ok := r.skills[key]
-	if !ok {
-		return fmt.Errorf("skills: skill %q not found", name)
+// NewPersistentRegistry loads user enablement overrides. Each skill has its
+// own atomic file so concurrent CLI processes changing different skills cannot
+// overwrite each other's settings. Bundled skill files remain untouched.
+func NewPersistentRegistry(dir string) (*Registry, error) {
+	r := NewRegistry()
+	r.stateDir = dir
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return r, nil
 	}
-
-	skill.Enabled = true
-	return nil
+	if err != nil {
+		return nil, fmt.Errorf("skills: read enablement settings: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".json")
+		if !nameRegex.MatchString(name) {
+			return nil, fmt.Errorf("skills: invalid enablement setting filename %q", entry.Name())
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		var enabled *bool
+		if err = json.Unmarshal(data, &enabled); err != nil {
+			return nil, fmt.Errorf("skills: parse enablement for %s: %w", name, err)
+		}
+		if enabled == nil {
+			return nil, fmt.Errorf("skills: enablement for %s must be true or false", name)
+		}
+		r.enabledOverrides[name] = *enabled
+	}
+	return r, nil
 }
 
-func (r *Registry) Disable(name string) error {
+// UpdateEnabled commits the requested state before changing the executing
+// registry. A nil state toggles atomically; an explicit state is idempotent.
+func (r *Registry) UpdateEnabled(name string, enabled *bool) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	key := strings.ToLower(name)
 	skill, ok := r.skills[key]
 	if !ok {
-		return fmt.Errorf("skills: skill %q not found", name)
+		return false, fmt.Errorf("skills: skill %q not found", name)
 	}
+	next := !skill.Enabled
+	if enabled != nil {
+		next = *enabled
+	}
+	if r.stateDir != "" {
+		if err := os.MkdirAll(r.stateDir, 0750); err != nil {
+			return skill.Enabled, fmt.Errorf("skills: save enablement: %w", err)
+		}
+		data, _ := json.Marshal(next)
+		if err := atomicfile.WriteFile(filepath.Join(r.stateDir, key+".json"), data, 0600); err != nil {
+			return skill.Enabled, fmt.Errorf("skills: save enablement: %w", err)
+		}
+	}
+	skill.Enabled = next
+	r.enabledOverrides[key] = next
+	return next, nil
+}
 
-	skill.Enabled = false
-	return nil
+func (r *Registry) Enable(name string) error {
+	enabled := true
+	_, err := r.UpdateEnabled(name, &enabled)
+	return err
+}
+func (r *Registry) Disable(name string) error {
+	enabled := false
+	_, err := r.UpdateEnabled(name, &enabled)
+	return err
 }
 
 func (r *Registry) Count() int {

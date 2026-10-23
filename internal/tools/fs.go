@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -58,44 +60,6 @@ func (f *FSTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMe
 	}
 }
 
-func (f *FSTool) resolve(path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("fs: path is required")
-	}
-	abs := filepath.Join(f.rootDir, path)
-	abs = filepath.Clean(abs)
-	root, err := filepath.Abs(f.rootDir)
-	if err != nil {
-		return "", fmt.Errorf("fs: %w", err)
-	}
-	root = filepath.Clean(root)
-	// Compare via filepath.Rel: "../" prefix indicates escape, "."
-	// is the root itself (allowed), anything else is a child. The
-	// prior strings.HasPrefix(abs, root) check let "/home/user/wo"
-	// match against "/home/user/work" — classic prefix-without-
-	// separator bug.
-	rel, err := filepath.Rel(root, abs)
-	if err != nil {
-		return "", fmt.Errorf("fs: path traversal rejected: %s", path)
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("fs: path traversal rejected: %s", path)
-	}
-	// Resolve any symlinks in the path (when it exists) and re-check
-	// containment. A symlink INSIDE the workspace pointing OUTSIDE it
-	// would otherwise pass the Rel check (the link itself is in-tree)
-	// while a subsequent read/write follows the link to /etc/whatever.
-	// Best-effort: a missing target is fine for write paths that are
-	// creating a new file.
-	if resolved, lerr := filepath.EvalSymlinks(abs); lerr == nil {
-		relResolved, rerr := filepath.Rel(root, resolved)
-		if rerr != nil || relResolved == ".." || strings.HasPrefix(relResolved, ".."+string(filepath.Separator)) {
-			return "", fmt.Errorf("fs: symlink target outside workspace: %s", path)
-		}
-	}
-	return abs, nil
-}
-
 // largeFileByteThreshold is the master plan §4.4 ">25K tokens" line.
 // ~4 chars per token → 100K bytes. Files at or above this AND opened
 // without explicit Offset/Limit return a disk reference instead of
@@ -113,18 +77,58 @@ const rangedReadLineCap = 1000
 // suggestion to use grep + ranged reads next time. NOT blocking.
 const mediumFileLineThreshold = 200
 
-func (f *FSTool) read(_ context.Context, in *FSInput) (json.RawMessage, error) {
-	resolved, err := f.resolve(in.Path)
-	if err != nil {
-		return nil, err
-	}
+// The byte cap also bounds pathological files containing a single huge line.
+const readOutputByteCap = 100 * 1024
+const readLineByteCap = 4096
 
-	// Open ONCE and reuse the file handle for both the size check and
-	// the actual read. The old Stat-then-ReadFile sequence was a TOCTOU
-	// window — a symlink swap between the two syscalls could route the
-	// read to a different file than the one whose size we approved.
-	// Using a single FD pinned the inode for the duration of the check.
-	fh, err := os.Open(resolved)
+// streamLines retains a bounded prefix of each line, including huge lines.
+// A trailing newline has an empty final line, preserving original numbering.
+func streamLines(ctx context.Context, src io.Reader, visit func(int, string) bool) error {
+	reader := bufio.NewReaderSize(src, 32*1024)
+	line := make([]byte, 0, readLineByteCap)
+	number, truncated := 1, false
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		fragment, err := reader.ReadSlice('\n')
+		finished := err != bufio.ErrBufferFull
+		fragment = bytes.TrimSuffix(fragment, []byte{'\n'})
+		room := readLineByteCap - len(line)
+		if len(fragment) > room {
+			line = append(line, fragment[:room]...)
+			truncated = true
+		} else {
+			line = append(line, fragment...)
+		}
+		if finished {
+			text := string(line)
+			if truncated {
+				text += " … [line truncated]"
+			}
+			if !visit(number, text) {
+				return nil
+			}
+			number++
+			line = line[:0]
+			truncated = false
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil && err != bufio.ErrBufferFull {
+			return err
+		}
+	}
+}
+
+func (f *FSTool) read(ctx context.Context, in *FSInput) (json.RawMessage, error) {
+	root, name, err := openWorkspace(f.rootDir, in.Path)
+	if err != nil {
+		return nil, fmt.Errorf("fs: %w", err)
+	}
+	defer root.Close()
+	fh, err := root.Open(name)
 	if err != nil {
 		return nil, fmt.Errorf("fs read: %w", err)
 	}
@@ -133,115 +137,91 @@ func (f *FSTool) read(_ context.Context, in *FSInput) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs read: %w", err)
 	}
-	// §4.4 large-file disk reference: when no ranged read is requested
-	// and the file is huge, return a structured peek instead of the
-	// whole contents. Agent can then call back with Offset/Limit or
-	// use grep to drill in. Wholesale read on a 50K-line file would
-	// swamp the context window in one tool call.
-	if in.Offset == 0 && in.Limit == 0 && info.Size() >= largeFileByteThreshold {
-		return largeFileReference(resolved, info.Size())
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("fs read: not a regular file")
 	}
-
-	data, err := io.ReadAll(fh)
+	if in.Offset == 0 && in.Limit == 0 && info.Size() >= largeFileByteThreshold {
+		return largeFileReference(ctx, fh, filepath.Join(f.rootDir, name), info.Size())
+	}
+	start := in.Offset
+	if start < 1 {
+		start = 1
+	}
+	limit := in.Limit
+	if limit <= 0 || limit > rangedReadLineCap {
+		limit = rangedReadLineCap
+	}
+	var out strings.Builder
+	selected, total := 0, 0
+	err = streamLines(ctx, fh, func(n int, line string) bool {
+		total = n
+		if n < start {
+			return true
+		}
+		text := fmt.Sprintf("%d: %s\n", n, line)
+		if out.Len()+len(text) > readOutputByteCap {
+			out.WriteString("# output truncated; use Offset/Limit to continue\n")
+			return false
+		}
+		out.WriteString(text)
+		selected++
+		return selected < limit
+	})
 	if err != nil {
 		return nil, fmt.Errorf("fs read: %w", err)
 	}
-
-	lines := strings.Split(string(data), "\n")
-	start := 0
-	end := len(lines)
-
-	if in.Offset > 0 {
-		start = in.Offset - 1
-		if start > len(lines) {
-			start = len(lines)
-		}
+	if in.Offset == 0 && in.Limit == 0 && total > mediumFileLineThreshold {
+		out.WriteString("\n# tip (§4.4): prefer grep + Offset/Limit when looking for something specific\n")
 	}
-	if in.Limit > 0 {
-		e := start + in.Limit
-		if e < end {
-			end = e
-		}
-	}
-	// Hard cap the ranged slice regardless of what the user asked for,
-	// so a careless Limit=999999 doesn't reintroduce the unbounded
-	// read we just guarded against.
-	if end-start > rangedReadLineCap {
-		end = start + rangedReadLineCap
-	}
-
-	selected := lines[start:end]
-	var numbered strings.Builder
-	for i, line := range selected {
-		numbered.WriteString(fmt.Sprintf("%d: %s\n", start+i+1, line))
-	}
-	// §4.4 grep-first nudge: when the user did a full read of a
-	// medium-sized file, hint that grep + ranged would have been
-	// cheaper. Non-blocking; the read still succeeds.
-	if in.Offset == 0 && in.Limit == 0 && len(lines) > mediumFileLineThreshold {
-		numbered.WriteString(fmt.Sprintf(
-			"\n# tip (§4.4): file is %d lines — next time prefer `grep -n` + Offset/Limit when looking for something specific\n",
-			len(lines)))
-	}
-
-	result := ToolResult{Output: numbered.String(), Success: true}
-	raw, _ := json.Marshal(result)
-	return raw, nil
+	return json.Marshal(ToolResult{Output: out.String(), Success: true})
 }
 
-// largeFileReference returns a compact disk-reference payload for
-// files past the size threshold. Includes head/tail peeks so the
-// agent can decide where to drill in without a second read.
-func largeFileReference(path string, size int64) (json.RawMessage, error) {
+// largeFileReference scans the original descriptor with fixed memory: twenty
+// head lines and a twenty-line ring for the tail, each with a byte limit.
+func largeFileReference(ctx context.Context, fh io.Reader, path string, size int64) (json.RawMessage, error) {
 	const peekLines = 20
-	data, err := os.ReadFile(path)
+	head := make([]string, 0, peekLines)
+	var tail [peekLines]string
+	total := 0
+	err := streamLines(ctx, fh, func(n int, line string) bool {
+		total = n
+		if n <= peekLines {
+			head = append(head, line)
+		}
+		tail[(n-1)%peekLines] = line
+		return true
+	})
 	if err != nil {
 		return nil, fmt.Errorf("fs read: large-file peek: %w", err)
 	}
-	lines := strings.Split(string(data), "\n")
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "FILE TOO LARGE FOR INLINE READ — %d bytes, %d lines\n", size, len(lines))
-	fmt.Fprintf(&b, "Path: %s\n", path)
-	b.WriteString("This file exceeds the inline-read threshold (~25K tokens). ")
-	b.WriteString("Call fs.read again with Offset+Limit to drill into a range, ")
-	b.WriteString("or use grep/search tools to find what you need.\n\n")
-
-	head := peekLines
-	if head > len(lines) {
-		head = len(lines)
+	var out strings.Builder
+	fmt.Fprintf(&out, "FILE TOO LARGE FOR INLINE READ — %d bytes, %d lines\nPath: %s\n", size, total, path)
+	out.WriteString("Call fs.read again with Offset+Limit to drill into a range, or use grep/search.\n\n--- head (first 20 lines) ---\n")
+	for i, line := range head {
+		fmt.Fprintf(&out, "%d: %s\n", i+1, line)
 	}
-	b.WriteString("--- head (first 20 lines) ---\n")
-	for i := 0; i < head; i++ {
-		fmt.Fprintf(&b, "%d: %s\n", i+1, lines[i])
-	}
-
-	if len(lines) > 2*peekLines {
-		tailStart := len(lines) - peekLines
-		fmt.Fprintf(&b, "\n... %d lines omitted ...\n\n", tailStart-head)
-		b.WriteString("--- tail (last 20 lines) ---\n")
-		for i := tailStart; i < len(lines); i++ {
-			fmt.Fprintf(&b, "%d: %s\n", i+1, lines[i])
+	if total > 2*peekLines {
+		fmt.Fprintf(&out, "\n... %d lines omitted ...\n\n--- tail (last 20 lines) ---\n", total-2*peekLines)
+		for n := total - peekLines + 1; n <= total; n++ {
+			fmt.Fprintf(&out, "%d: %s\n", n, tail[(n-1)%peekLines])
 		}
 	}
-
-	result := ToolResult{Output: b.String(), Success: true}
-	raw, _ := json.Marshal(result)
-	return raw, nil
+	return json.Marshal(ToolResult{Output: out.String(), Success: true})
 }
 
 func (f *FSTool) write(_ context.Context, in *FSInput) (json.RawMessage, error) {
-	resolved, err := f.resolve(in.Path)
+	root, name, err := openWorkspace(f.rootDir, in.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fs: %w", err)
 	}
+	defer root.Close()
 
-	dir := filepath.Dir(resolved)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	dir := filepath.Dir(name)
+	if err := root.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("fs write: %w", err)
 	}
 
-	if err := os.WriteFile(resolved, []byte(in.Content), 0o600); err != nil {
+	if err := atomicWorkspaceWrite(root, name, []byte(in.Content)); err != nil {
 		return nil, fmt.Errorf("fs write: %w", err)
 	}
 
@@ -251,12 +231,13 @@ func (f *FSTool) write(_ context.Context, in *FSInput) (json.RawMessage, error) 
 }
 
 func (f *FSTool) edit(_ context.Context, in *FSInput) (json.RawMessage, error) {
-	resolved, err := f.resolve(in.Path)
+	root, name, err := openWorkspace(f.rootDir, in.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fs: %w", err)
 	}
+	defer root.Close()
 
-	data, err := os.ReadFile(resolved)
+	data, err := root.ReadFile(name)
 	if err != nil {
 		return nil, fmt.Errorf("fs edit: %w", err)
 	}
@@ -272,7 +253,7 @@ func (f *FSTool) edit(_ context.Context, in *FSInput) (json.RawMessage, error) {
 
 	content = strings.Replace(content, in.Old, in.New, 1)
 
-	if err := os.WriteFile(resolved, []byte(content), 0o600); err != nil {
+	if err := atomicWorkspaceWrite(root, name, []byte(content)); err != nil {
 		return nil, fmt.Errorf("fs edit: %w", err)
 	}
 
@@ -285,52 +266,20 @@ func (f *FSTool) glob(_ context.Context, in *FSInput) (json.RawMessage, error) {
 	if in.Pattern == "" {
 		return nil, fmt.Errorf("fs glob: pattern is required")
 	}
-	// Reject patterns that try to break out of root before even touching
-	// the filesystem. resolve() does the same for plain paths; glob has
-	// its own escape hatches (`..`, absolute paths, symlinks resolved by
-	// filepath.Glob) so we belt-and-braces: cleaned-joined path must stay
-	// under root, AND we re-check each match below.
-	joined := filepath.Clean(filepath.Join(f.rootDir, in.Pattern))
-	root, err := filepath.Abs(f.rootDir)
+	root, pattern, err := openWorkspace(f.rootDir, in.Pattern)
 	if err != nil {
 		return nil, fmt.Errorf("fs glob: %w", err)
 	}
-	root = filepath.Clean(root)
-	// HasPrefix lies when one root is a prefix of another sibling
-	// (e.g. root=/home/user/wo joined=/home/user/work/etc → "wo" prefix
-	// of "work" returns true even though work/etc is outside wo).
-	// filepath.Rel is the only safe containment check.
-	if rel, rerr := filepath.Rel(root, joined); rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("fs glob: path traversal rejected: %s", in.Pattern)
-	}
-	matches, err := filepath.Glob(joined)
+	defer root.Close()
+	matches, err := fs.Glob(root.FS(), filepath.ToSlash(pattern))
 	if err != nil {
 		return nil, fmt.Errorf("fs glob: %w", err)
 	}
-
-	// Filter matches whose resolved absolute path escaped root (e.g. via
-	// a symlink inside the tree pointing outside it). Surface only the
-	// in-root subset. Use EvalSymlinks so a symlink that targets outside
-	// root is rejected even when the link itself lives inside.
 	relPaths := make([]string, 0, len(matches))
-	for _, m := range matches {
-		absM, err := filepath.Abs(m)
-		if err != nil {
-			continue
+	for _, match := range matches {
+		if _, err := root.Stat(match); err == nil {
+			relPaths = append(relPaths, match)
 		}
-		// Resolve symlinks for the containment check. Failure → drop;
-		// the file may have been deleted between Glob and here.
-		resolved, rerr := filepath.EvalSymlinks(absM)
-		if rerr != nil {
-			continue
-		}
-		rel, err := filepath.Rel(root, resolved)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			continue
-		}
-		// Report the cleaned, root-relative form computed from the
-		// resolved path so the output is consistent with the check.
-		relPaths = append(relPaths, rel)
 	}
 
 	out, _ := json.Marshal(relPaths)
@@ -340,12 +289,13 @@ func (f *FSTool) glob(_ context.Context, in *FSInput) (json.RawMessage, error) {
 }
 
 func (f *FSTool) mkdir(_ context.Context, in *FSInput) (json.RawMessage, error) {
-	resolved, err := f.resolve(in.Path)
+	root, name, err := openWorkspace(f.rootDir, in.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fs: %w", err)
 	}
+	defer root.Close()
 
-	if err := os.MkdirAll(resolved, 0o750); err != nil {
+	if err := root.MkdirAll(name, 0o750); err != nil {
 		return nil, fmt.Errorf("fs mkdir: %w", err)
 	}
 
@@ -363,12 +313,13 @@ type statOutput struct {
 }
 
 func (f *FSTool) stat(_ context.Context, in *FSInput) (json.RawMessage, error) {
-	resolved, err := f.resolve(in.Path)
+	root, name, err := openWorkspace(f.rootDir, in.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fs: %w", err)
 	}
+	defer root.Close()
 
-	info, err := os.Stat(resolved)
+	info, err := root.Stat(name)
 	if err != nil {
 		return nil, fmt.Errorf("fs stat: %w", err)
 	}

@@ -39,6 +39,7 @@ func ProviderModelsFromCatalog(cat *models.Catalog) []ProviderModels {
 		return nil
 	}
 	byProvider := make(map[string][]providers.Model)
+	pricingByProvider := make(map[string]map[string]bool)
 	for _, m := range all {
 		providerID := providerOf(m.ID)
 		var costIn, costOut, costCacheIn, costCacheOut float64
@@ -54,6 +55,7 @@ func ProviderModelsFromCatalog(cat *models.Catalog) []ProviderModels {
 			Family:           m.Family,
 			ContextWindow:    m.ContextWindow,
 			DefaultMaxTokens: m.MaxOutputTokens,
+			MaxOutputTokens:  m.MaxOutputTokens,
 			CostIn:           costIn,
 			CostOut:          costOut,
 			CostCacheIn:      costCacheIn,
@@ -69,6 +71,10 @@ func ProviderModelsFromCatalog(cat *models.Catalog) []ProviderModels {
 			flat.Name = m.ID
 		}
 		byProvider[providerID] = append(byProvider[providerID], flat)
+		if pricingByProvider[providerID] == nil {
+			pricingByProvider[providerID] = make(map[string]bool)
+		}
+		pricingByProvider[providerID][m.ID] = m.Cost != nil
 	}
 	out := make([]ProviderModels, 0, len(byProvider))
 	keys := make([]string, 0, len(byProvider))
@@ -77,7 +83,7 @@ func ProviderModelsFromCatalog(cat *models.Catalog) []ProviderModels {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		out = append(out, ProviderModels{ProviderName: k, Models: byProvider[k]})
+		out = append(out, ProviderModels{ProviderName: k, Models: byProvider[k], PricingKnown: pricingByProvider[k]})
 	}
 	return out
 }

@@ -1,40 +1,33 @@
+import argparse
+import ipaddress
 import logging
 import os
 import signal
-import sys
 import threading
-
-sys.path.insert(0, os.path.dirname(__file__))
-
 from concurrent import futures
 
-import grpc  # noqa: E402
+import grpc
 
 # grpc health check — standard health checking protocol
-from grpc_health.v1 import health_pb2, health_pb2_grpc  # noqa: E402
+from grpc_health.v1 import health_pb2, health_pb2_grpc
 
-import overkill_pb2  # noqa: E402
-import overkill_pb2_grpc  # noqa: E402
-from compaction.service import CompactionService  # noqa: E402
-from embeddings.service import EmbeddingService  # noqa: E402
-from memory.service import VectorMemoryService  # noqa: E402
-from reranking.service import RerankingService  # noqa: E402
+import overkill_pb2
+import overkill_pb2_grpc
+from compaction.service import CompactionService
+from embeddings.service import EmbeddingService
+from memory.service import VectorMemoryService
+from model_runtime import ModelUnavailableError
+from reranking.service import RerankingService
 
 logger = logging.getLogger(__name__)
 
-# Default memory backend: "postgres" for persistent storage.
-# Falls back to "inmem" if DATABASE_URL is not set.
 _DEFAULT_BACKEND = os.environ.get("OVERKILL_MEMORY_BACKEND", "postgres")
-if _DEFAULT_BACKEND == "postgres" and not os.environ.get("DATABASE_URL"):
-    logger.warning("DATABASE_URL not set — defaulting memory backend to 'inmem'")
-    _DEFAULT_BACKEND = "inmem"
-
 
 class OverkillBridgeServicer(overkill_pb2_grpc.OverkillBridgeServicer):
-    def __init__(self) -> None:
-        self._embeddings = EmbeddingService()
-        self._reranking = RerankingService()
-        self._memory = VectorMemoryService()
+    def __init__(self, *, allow_mock: bool | None = None, vector_dimension: int | None = None) -> None:
+        self._embeddings = EmbeddingService(allow_mock=allow_mock)
+        self._reranking = RerankingService(allow_mock=allow_mock)
+        self._memory = VectorMemoryService(dimension=vector_dimension)
         self._compaction = CompactionService()
 
     def Ping(self, request: overkill_pb2.PingRequest, context: grpc.ServicerContext) -> overkill_pb2.PongResponse:  # noqa: N802
@@ -50,6 +43,10 @@ class OverkillBridgeServicer(overkill_pb2_grpc.OverkillBridgeServicer):
         try:
             embedding, tokens = self._embeddings.embed(request.text, request.model)
             return overkill_pb2.EmbedResponse(embedding=embedding, tokens=tokens)
+        except ModelUnavailableError as exc:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details(str(exc))
+            return overkill_pb2.EmbedResponse()
         except Exception:
             logger.exception("Embed handler failed")
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -65,6 +62,10 @@ class OverkillBridgeServicer(overkill_pb2_grpc.OverkillBridgeServicer):
                 overkill_pb2.EmbedResult(embedding=emb, tokens=tok) for emb, tok in results
             ]
             return overkill_pb2.EmbedBatchResponse(results=pb_results)
+        except ModelUnavailableError as exc:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details(str(exc))
+            return overkill_pb2.EmbedBatchResponse()
         except Exception:
             logger.exception("EmbedBatch handler failed")
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -79,6 +80,10 @@ class OverkillBridgeServicer(overkill_pb2_grpc.OverkillBridgeServicer):
                 for idx, score, text in results
             ]
             return overkill_pb2.RerankResponse(results=pb_results)
+        except ModelUnavailableError as exc:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details(str(exc))
+            return overkill_pb2.RerankResponse()
         except Exception:
             logger.exception("Rerank handler failed")
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -171,22 +176,45 @@ class OverkillBridgeServicer(overkill_pb2_grpc.OverkillBridgeServicer):
 
 
 class HealthServicer(health_pb2_grpc.HealthServicer):
-    """Standard gRPC health check service."""
+    """Readiness for semantic capabilities; Ping remains a liveness check."""
 
-    def Check(  # noqa: N802
-        self, request: health_pb2.HealthCheckRequest, context: grpc.ServicerContext
-    ) -> health_pb2.HealthCheckResponse:
-        return health_pb2.HealthCheckResponse(status=health_pb2.HealthCheckResponse.SERVING)
+    def __init__(self, bridge: OverkillBridgeServicer) -> None:
+        self._bridge = bridge
 
-    def Watch(  # noqa: N802
-        self, request: health_pb2.HealthCheckRequest, context: grpc.ServicerContext
-    ):
-        # Not implemented — streaming health watch not needed.
+    def Check(self, request, context):  # noqa: N802
+        services = {"embeddings": self._bridge._embeddings, "reranking": self._bridge._reranking}
+        if request.service and request.service not in services:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details("Unknown capability; use embeddings or reranking")
+            return health_pb2.HealthCheckResponse()
+        selected = [services[request.service]] if request.service else list(services.values())
+        ready = all(service.capability_status == "ready" for service in selected)
+        return health_pb2.HealthCheckResponse(
+            status=health_pb2.HealthCheckResponse.SERVING if ready else health_pb2.HealthCheckResponse.NOT_SERVING
+        )
+
+    def Watch(self, request, context):  # noqa: N802
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        return health_pb2.HealthCheckResponse()
+        context.set_details("Use unary Check for readiness")
+        return iter(())
 
 
-def serve(port: int = 50051) -> None:
+def _loopback_host(host: str) -> str:
+    if host == "localhost":
+        return "127.0.0.1"
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return host
+    except ValueError:
+        pass
+    raise ValueError(
+        "Remote bridge binding is unsupported: this server has no TLS/authentication. "
+        "Use a loopback address (127.0.0.1 or ::1); remote exposure requires an authenticated TLS proxy."
+    )
+
+
+def serve(port: int = 50051, host: str = "127.0.0.1") -> None:
+    host = _loopback_host(host)
     logger.info("Starting Overkill bridge server on port %d", port)
 
     # Server options for production readiness.
@@ -204,10 +232,14 @@ def serve(port: int = 50051) -> None:
     server = grpc.server(executor, options=options)
 
     # Register services.
-    overkill_pb2_grpc.add_OverkillBridgeServicer_to_server(OverkillBridgeServicer(), server)
-    health_pb2_grpc.add_HealthServicer_to_server(HealthServicer(), server)
+    bridge = OverkillBridgeServicer()
+    overkill_pb2_grpc.add_OverkillBridgeServicer_to_server(bridge, server)
+    health_pb2_grpc.add_HealthServicer_to_server(HealthServicer(bridge), server)
 
-    server.add_insecure_port(f"[::]:{port}")
+    address = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+    if not server.add_insecure_port(address):
+        executor.shutdown(wait=True)
+        raise RuntimeError(f"Could not bind bridge to {address}")
 
     stop_event = threading.Event()
 
@@ -232,6 +264,20 @@ def serve(port: int = 50051) -> None:
         logger.info("Bridge server stopped")
 
 
-if __name__ == "__main__":
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Local Overkill Python bridge")
+    parser.add_argument("--host", default="127.0.0.1", help="Loopback IP only; remote binding is unsupported")
+    parser.add_argument("--port", type=int, default=50051)
+    args = parser.parse_args()
+    if not 1 <= args.port <= 65535:
+        parser.error("port must be between 1 and 65535")
+    try:
+        _loopback_host(args.host)
+    except ValueError as exc:
+        parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-    serve()
+    serve(args.port, args.host)
+
+
+if __name__ == "__main__":
+    main()

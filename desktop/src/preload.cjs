@@ -1,0 +1,44 @@
+const {contextBridge, ipcRenderer} = require('electron');
+
+contextBridge.exposeInMainWorld('overkill', Object.freeze({
+  usageReconciliation: input => ipcRenderer.invoke('desktop:usage:read',input),
+  usageCandidates: input => ipcRenderer.invoke('desktop:usage:candidates',input),
+  reconcileUsage: input => ipcRenderer.invoke('desktop:usage:write',input),
+  canvasState: input => ipcRenderer.invoke('desktop:canvas:state',input),
+  saveCanvasSnapshot: input => ipcRenderer.invoke('desktop:canvas:saveSnapshot',input),
+  state: () => ipcRenderer.invoke('desktop:state'),
+  saveSettings: settings => ipcRenderer.invoke('desktop:settings', settings),
+  pickWorkspace: () => ipcRenderer.invoke('desktop:workspace'),
+  listSessions: () => ipcRenderer.invoke('desktop:sessions'),
+  createSession: () => ipcRenderer.invoke('desktop:create'),
+  messages: id => ipcRenderer.invoke('desktop:messages', id),
+  flows: id => ipcRenderer.invoke('desktop:flows', id),
+  evolution: input => ipcRenderer.invoke('desktop:evolution', input),
+  send: input => ipcRenderer.invoke('desktop:send', input),
+  clarifyPoll: sessionID => ipcRenderer.invoke('desktop:clarify:poll',sessionID),
+  answerQuestion: input => ipcRenderer.invoke('desktop:clarify:answer',input),
+  emergencyStop: () => ipcRenderer.invoke('desktop:estop'),
+  stop: sessionID => ipcRenderer.invoke('desktop:stop', sessionID),
+  registerAgent: input => ipcRenderer.invoke('desktop:coordination:register', input),
+  peers: input => ipcRenderer.invoke('desktop:coordination:peers', input),
+  correspondence: input => ipcRenderer.invoke('desktop:coordination:messages', input),
+  sendPeer: input => ipcRenderer.invoke('desktop:coordination:send', input),
+  cancelPeer: input => ipcRenderer.invoke('desktop:coordination:cancel', input),
+  peerTask: input => ipcRenderer.invoke('desktop:coordination:message', input),
+  taskGraph: input => ipcRenderer.invoke('desktop:coordination:graph', input),
+  reviewRequest: input => ipcRenderer.invoke('desktop:coordination:review', input),
+  taskUsage: input => ipcRenderer.invoke('desktop:coordination:usage', input),
+  escalations: input => ipcRenderer.invoke('desktop:coordination:escalations', input),
+  contracts: input => ipcRenderer.invoke('desktop:coordination:contracts', input),
+  contractReadiness: input => ipcRenderer.invoke('desktop:coordination:readiness', input),
+  acknowledgeContract: input => ipcRenderer.invoke('desktop:coordination:acknowledge', input),
+  createContract: input => ipcRenderer.invoke('desktop:coordination:createContract', input),
+  updateContract: input => ipcRenderer.invoke('desktop:coordination:updateContract', input),
+  verification: input => ipcRenderer.invoke('desktop:coordination:verification', input),
+  evaluation: input => ipcRenderer.invoke('desktop:coordination:evaluation', input),
+  onEvent: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('desktop:event', listener);
+    return () => ipcRenderer.removeListener('desktop:event', listener);
+  },
+}));

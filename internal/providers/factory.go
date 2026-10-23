@@ -25,6 +25,29 @@ func NewProvider(cfg FactoryConfig) (Provider, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Native protocol providers and compatibility aliases must honor an
+	// explicitly configured endpoint, including private gateways and fixtures.
+	// Vertex/Bedrock use this setting as region metadata in their constructors.
+	if cfg.BaseURL != "" && cfg.Type != "vertex" && cfg.Type != "bedrock" {
+		var base *BaseProvider
+		switch provider := p.(type) {
+		case *OpenAIProvider:
+			base = provider.BaseProvider
+		case *OpenAICompatProvider:
+			base = provider.BaseProvider
+		case *AnthropicProvider:
+			base = provider.BaseProvider
+		case *GeminiProvider:
+			base = provider.BaseProvider
+		}
+		if base != nil {
+			endpoint, err := ResolveBaseURL(cfg.Type, cfg.BaseURL)
+			if err != nil {
+				return nil, err
+			}
+			base.baseURL = endpoint
+		}
+	}
 	if len(cfg.Headers) > 0 {
 		if hs, ok := p.(interface{ SetCustomHeaders(map[string]string) }); ok {
 			hs.SetCustomHeaders(cfg.Headers)

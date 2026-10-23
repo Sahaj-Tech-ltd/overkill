@@ -169,3 +169,14 @@ func TestFileAuditWriter(t *testing.T) {
 		t.Fatalf("path = %q want %q", w.Path(), want)
 	}
 }
+
+func TestEnforcerScopedChildCannotDelegateUnattributedExternalWrites(t *testing.T) {
+	for _, name := range []string{"acp_submit", "acp_cancel", "acp_send"} {
+		inner := &fakeTool{name: name}
+		enforced := NewEnforcedTool(inner, &Contract{Scope: []string{"src"}}, nil, nil)
+		_, err := enforced.Execute(t.Context(), json.RawMessage(`{"peer":"backend"}`))
+		if err == nil || inner.called {
+			t.Fatalf("scoped child delegated unattributed remote mutation %s", name)
+		}
+	}
+}

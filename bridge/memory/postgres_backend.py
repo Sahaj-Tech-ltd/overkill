@@ -13,10 +13,11 @@ import json
 import logging
 import os
 
+from .validation import validate_search, validate_vector, vector_dimension
+
 logger = logging.getLogger(__name__)
 
-_INDEX_MIN_ROWS = 1000
-_schema_ensured = False
+_SCHEMA_LOCK = 0x4F564B564543  # Stable advisory lock serializes first-use DDL across processes.
 
 
 def _dsn() -> str:
@@ -26,22 +27,24 @@ def _dsn() -> str:
     )
 
 
-def _get_conn():
+def _get_conn(dimension: int | None = None):
     """Return a new psycopg2 connection. Lightweight — one per op."""
     import psycopg2
     dsn = _dsn()
-    conn = psycopg2.connect(dsn)
+    conn = psycopg2.connect(dsn, connect_timeout=5)
     conn.autocommit = True
-    _ensure_schema(conn)
+    try:
+        _ensure_schema(conn, vector_dimension(dimension))
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 
-def _ensure_schema(conn) -> None:
-    global _schema_ensured
-    if _schema_ensured:
-        return
+def _ensure_schema(conn, dimension: int) -> None:
     cur = conn.cursor()
     try:
+        cur.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_LOCK,))
         cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
         cur.execute(
             """
@@ -54,12 +57,31 @@ def _ensure_schema(conn) -> None:
             )
             """
         )
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS vector_memory_config (
+                singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+                dimension INTEGER NOT NULL
+            )
+        """)
+        cur.execute("SELECT dimension FROM vector_memory_config WHERE singleton = TRUE")
+        row = cur.fetchone()
+        if row is None:
+            # Validate existing untyped-vector data before establishing its
+            # persistent contract. Do not silently mix embedding dimensions.
+            cur.execute("SELECT DISTINCT vector_dims(embedding) FROM vector_memories")
+            if any(existing[0] != dimension for existing in cur.fetchall()):
+                raise ValueError("Existing vectors use a different dimension; migrate them or use a separate schema")
+            cur.execute("INSERT INTO vector_memory_config (singleton, dimension) VALUES (TRUE, %s)", (dimension,))
+        elif row[0] != dimension:
+            raise ValueError(f"Database vector dimension is {row[0]}, requested {dimension}; use a separate schema")
         from pgvector.psycopg2 import register_vector
         register_vector(conn)
-        _schema_ensured = True
         logger.info("pgvector schema ready")
     finally:
-        cur.close()
+        try:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_LOCK,))
+        finally:
+            cur.close()
 
 
 def store(
@@ -67,8 +89,12 @@ def store(
     embedding: list[float],
     content: str,
     metadata: dict[str, str] | None = None,
+    *, dimension: int | None = None,
 ) -> str:
-    conn = _get_conn()
+    validate_vector(embedding, vector_dimension(dimension))
+    if not entry_id.strip():
+        raise ValueError("Vector ID must not be empty")
+    conn = _get_conn(dimension)
     meta_json = json.dumps(metadata or {}, default=str)
     vec_str = _format_vector(embedding)
     cur = conn.cursor()
@@ -97,8 +123,10 @@ def search(
     top_k: int = 10,
     threshold: float = 0.0,
     filters: dict[str, str] | None = None,
+    *, dimension: int | None = None,
 ) -> list[dict]:
-    conn = _get_conn()
+    validate_search(query_embedding, vector_dimension(dimension), top_k, threshold)
+    conn = _get_conn(dimension)
     vec_str = _format_vector(query_embedding)
     cur = conn.cursor()
     results: list[dict] = []
@@ -143,8 +171,8 @@ def search(
     return results
 
 
-def delete(entry_id: str) -> bool:
-    conn = _get_conn()
+def delete(entry_id: str, *, dimension: int | None = None) -> bool:
+    conn = _get_conn(dimension)
     cur = conn.cursor()
     try:
         cur.execute("DELETE FROM vector_memories WHERE id = %s", (entry_id,))
@@ -155,8 +183,8 @@ def delete(entry_id: str) -> bool:
         conn.close()
 
 
-def count() -> int:
-    conn = _get_conn()
+def count(*, dimension: int | None = None) -> int:
+    conn = _get_conn(dimension)
     cur = conn.cursor()
     try:
         cur.execute("SELECT COUNT(*) FROM vector_memories")
@@ -173,17 +201,20 @@ def _format_vector(vec: list[float]) -> str:
 class PostgresVectorBackend:
     """Compatibility wrapper — delegates to module-level functions."""
 
+    def __init__(self, *, dimension: int | None = None):
+        self.dimension = vector_dimension(dimension)
+
     def store(self, entry_id, embedding, content, metadata=None):
-        return store(entry_id, embedding, content, metadata)
+        return store(entry_id, embedding, content, metadata, dimension=self.dimension)
 
     def search(self, query_embedding, top_k=10, threshold=0.0, filters=None):
-        return search(query_embedding, top_k, threshold, filters)
+        return search(query_embedding, top_k, threshold, filters, dimension=self.dimension)
 
     def delete(self, entry_id):
-        return delete(entry_id)
+        return delete(entry_id, dimension=self.dimension)
 
     def count(self):
-        return count()
+        return count(dimension=self.dimension)
 
     def close(self):
         pass

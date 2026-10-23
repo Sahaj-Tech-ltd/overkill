@@ -17,7 +17,6 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cost"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
 	matrixbot "github.com/Sahaj-Tech-ltd/overkill/internal/gateway/matrix"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
@@ -59,6 +58,7 @@ func runMatrix(cmd *cobra.Command, args []string) error {
 
 	prov, err := providers.NewProvider(providers.FactoryConfig{
 		Name:    providerCfg.Name,
+		Models:  providerCfg.ProviderModels(),
 		Type:    providerCfg.Type,
 		APIKey:  apiKey,
 		BaseURL: providerCfg.BaseURL,
@@ -104,23 +104,35 @@ func runMatrix(cmd *cobra.Command, args []string) error {
 	logger.Printf("provider: %s, model: %s", providerCfg.Name, modelName)
 
 	// Build agent.
+	limits := providers.TokenLimitsFor(prov.Models(), cfg.Agent.MaxOutputTokens)
+	contextWindow, outputTokens, err := limits(modelName)
+	if err != nil {
+		return fmt.Errorf("agent token limits: %w", err)
+	}
+	hookRegistry, err := loadConfiguredHooks()
+	if err != nil {
+		return fmt.Errorf("load user hooks: %w", err)
+	}
 	ag := agent.New(agent.Config{
 		Provider:    prov,
 		Tools:       toolReg,
 		Compressors: tools.NewCompressorRegistry(),
-		Hooks:       hooks.NewRegistry(),
+		Hooks:       hookRegistry,
 		Scanners: []security.Scanner{
 			security.NewCommandScanner(
 				security.WithProjectPath(cwd),
 			),
 			security.NewInjectionScanner(),
 		},
-		Tokenizer:    tokenizer.NewEstimator(),
-		Steering:     agent.NewSteeringQueue(agent.SteeringDrainAll),
-		Model:        modelName,
-		MaxTokens:    200000,
-		SystemPrompt: buildSystemPrompt(cfg),
+		Tokenizer:     tokenizer.NewEstimator(),
+		Steering:      agent.NewSteeringQueue(agent.SteeringDrainAll),
+		Model:         modelName,
+		MaxTokens:     outputTokens,
+		ContextWindow: contextWindow,
+		TokenLimits:   limits,
+		SystemPrompt:  buildSystemPrompt(cfg),
 	})
+	defer ag.Shutdown()
 
 	// Wire goal store and cost tracker with a shared database connection.
 	var sharedDB *sql.DB
@@ -135,7 +147,7 @@ func runMatrix(cmd *cobra.Command, args []string) error {
 				logger.Printf("goal store init failed: %v", gerr)
 			}
 		} else {
-			logger.Printf("database open failed: %v (goal store disabled)", dbErr)
+			return fmt.Errorf("matrix: open configured database: %w", dbErr)
 		}
 	}
 
@@ -152,12 +164,13 @@ func runMatrix(cmd *cobra.Command, args []string) error {
 	disp := gateway.NewDispatcher(ag, router)
 	disp.Logger = logger
 
-	// Wire cost tracker for /usage command (reuses shared DB).
+	// A configured usage database must initialize successfully; only the
+	// deliberate no-database mode may start without a cost tracker.
 	if sharedDB != nil {
 		if ct, cerr := cost.NewPostgresTracker(sharedDB, cfg.Cost); cerr == nil {
 			disp.CostTracker = ct
 		} else {
-			logger.Printf("cost tracker init failed: %v", cerr)
+			return fmt.Errorf("matrix: initialize cost tracker: %w", cerr)
 		}
 	}
 

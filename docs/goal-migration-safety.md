@@ -1,0 +1,11 @@
+# Goal accounting migration safety
+
+Goal-store startup and central bootstrap now use the same goal SQL and schema-specific advisory owner lock. Table creation, legacy column additions, goal-identity defaults, nanosecond accounting backfill and the turn journal table are one bounded PostgreSQL transaction. Standalone constructors use a ten-second context, return no store on migration failure and reject a missing database pool.
+
+Two real pre-fix failures are retained in `.cache/goal-migration-before.log`: malformed legacy seconds caused a late backfill error after earlier columns had committed, and concurrent central/goal constructors collided on PostgreSQL table-type uniqueness. The regression preserves the malformed value and original objective, requires all added columns to roll back, then performs an explicit operator repair. Two subsequent startups preserve the objective, stable goal identity and two billion nanoseconds of historical time; updating budgets does not reset that usage. Concurrent mixed startup creates a usable goal store and journal; reconstruction retains identity. Held-lock cancellation creates no partial table and permits retry after release. Missing pools return errors.
+
+The implementation is `internal/dbschema/goal.go`; the store calls that shared migration rather than maintaining independent DDL. Central bootstrap takes participating owner locks in one fixed order before any DDL. The transaction covers its shared owners and central tables, not every independent application constructor. Older binaries and manual SQL do not participate in these locks.
+
+These cases do not certify every malformed historical schema, PostgreSQL major-version upgrade, unknown same-name index/table definition, invoice reconstruction or crash-safe provider accounting. See the PostgreSQL migration matrix and separate goal/coordination accounting contracts. Original VALIDATE-01 remains broader than this repair.
+
+Verification: `.cache/goal-gateway-migration-focused.log` passes agent, central bootstrap, shared schema and gateway packages under the race detector with required real PostgreSQL. `.cache/goal-migration-repeat.log` passes ten repetitions of the goal failure, mixed-startup, nil-pool and lock-deadline cases.

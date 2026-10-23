@@ -69,6 +69,31 @@ func NewToolInventory() *ToolInventory {
 	}
 }
 
+// NewEnabledToolInventory maps affordance knowledge onto the actual enabled
+// registry. Knowledge of a tool never establishes that it is installed.
+func NewEnabledToolInventory(names []string) *ToolInventory {
+	known := NewToolInventory()
+	enabled := &ToolInventory{Affordances: make(map[string]ToolAffordance)}
+	for _, name := range names {
+		kind := ""
+		switch name {
+		case "tts.speak":
+			kind = "edge_tts"
+		case "vision_describe":
+			kind = "vision"
+		case "browser_open", "browser_text", "browser_snapshot":
+			kind = "browser"
+		case "web", "web_search":
+			kind = "web_search"
+		}
+		if affordance, ok := known.Affordances[kind]; ok {
+			affordance.Name = name
+			enabled.Affordances[name] = affordance
+		}
+	}
+	return enabled
+}
+
 // IsAvailable checks whether a tool is registered in the inventory.
 func (ti *ToolInventory) IsAvailable(toolName string) bool {
 	_, ok := ti.Affordances[toolName]
@@ -89,11 +114,10 @@ func (ti *ToolInventory) BestForType(ct ContentType) []ToolAffordance {
 	}
 	// Sort: put TTS first when it matches (it's the most actionable recommendation).
 	sort.Slice(matches, func(i, j int) bool {
-		if matches[i].Name == "edge_tts" {
-			return true
-		}
-		if matches[j].Name == "edge_tts" {
-			return false
+		leftTTS := matches[i].Name == "edge_tts" || matches[i].Name == "tts.speak"
+		rightTTS := matches[j].Name == "edge_tts" || matches[j].Name == "tts.speak"
+		if leftTTS != rightTTS {
+			return leftTTS
 		}
 		return matches[i].Name < matches[j].Name
 	})
@@ -194,16 +218,16 @@ func decideModality(c Classification, u UserModel, tools []ToolAffordance) (Moda
 	switch c.Type {
 	case ContentResearchDense:
 		// Research + ADHD + TTS available → offer audio.
-		hasTTS := hasTool(tools, "edge_tts")
+		hasTTS := hasTool(tools, "tts.speak") || hasTool(tools, "edge_tts")
 		if hasTTS && u.HasADHD {
 			reasons = append(reasons, "dense research content")
 			reasons = append(reasons, "ADHD user — audio may improve retention")
-			reasons = append(reasons, "Edge TTS available — offer audio version")
+			reasons = append(reasons, "TTS available — offer audio version")
 			return ModalityOfferAudio, strings.Join(reasons, "; ")
 		}
 		if hasTTS {
 			reasons = append(reasons, "dense research content")
-			reasons = append(reasons, "Edge TTS available — offer audio option")
+			reasons = append(reasons, "TTS available — offer audio option")
 			return ModalityOfferAudio, strings.Join(reasons, "; ")
 		}
 		reasons = append(reasons, "dense research content — text only (no TTS available)")
@@ -223,11 +247,11 @@ func decideModality(c Classification, u UserModel, tools []ToolAffordance) (Moda
 
 	case ContentNewsDigest:
 		// Digest on mobile → audio. Digest on desktop → text.
-		hasTTS := hasTool(tools, "edge_tts")
+		hasTTS := hasTool(tools, "tts.speak") || hasTool(tools, "edge_tts")
 		if hasTTS && u.IsOnMobile {
 			reasons = append(reasons, "news digest on mobile")
 			reasons = append(reasons, "scroll fatigue risk — audio is better for mobile")
-			reasons = append(reasons, "Edge TTS available")
+			reasons = append(reasons, "TTS available")
 			return ModalityAudioPrimary, strings.Join(reasons, "; ")
 		}
 		if hasTTS {

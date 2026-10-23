@@ -2,6 +2,7 @@ package bash
 
 import (
 	"fmt"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"regexp"
 	"strings"
 	"unicode"
@@ -288,4 +289,15 @@ var zshGlobQualRE = regexp.MustCompile(`\(e:|\(\+`)
 
 func containsZshGlobQualifiers(ctx ValidationCtx) bool {
 	return zshGlobQualRE.MatchString(ctx.FullyUnquoted)
+}
+
+func validateShellSyntax(ctx ValidationCtx) Result {
+	findings, err := security.ShellSyntaxFindings(ctx.Command)
+	if len(findings) > 0 {
+		return Result{Behavior: Deny, Reason: "dangerous_shell_syntax", Message: findings[0].Description}
+	}
+	if err != nil {
+		return Result{Behavior: Ask, Reason: "unparsed_shell_syntax", Message: "Command syntax could not be inspected safely"}
+	}
+	return Result{Behavior: Passthrough}
 }

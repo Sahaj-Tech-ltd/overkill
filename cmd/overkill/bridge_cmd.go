@@ -15,7 +15,6 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
 	bridgegw "github.com/Sahaj-Tech-ltd/overkill/internal/gateway/bridge"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
@@ -72,6 +71,7 @@ func runBridge(cmd *cobra.Command, args []string) error {
 
 	prov, err := providers.NewProvider(providers.FactoryConfig{
 		Name:    providerCfg.Name,
+		Models:  providerCfg.ProviderModels(),
 		Type:    providerCfg.Type,
 		APIKey:  apiKey,
 		BaseURL: providerCfg.BaseURL,
@@ -87,8 +87,7 @@ func runBridge(cmd *cobra.Command, args []string) error {
 	// Load config (needed for Ouroboros, gateways, system prompt).
 	cfg, err := config.Load("")
 	if err != nil {
-		logger.Printf("warning: config load: %v (continuing with defaults)", err)
-		cfg = &config.Config{}
+		return fmt.Errorf("bridge: config: %w", err)
 	}
 
 	toolReg := tools.NewDefaultRegistry(tools.FactoryDeps{
@@ -125,23 +124,35 @@ func runBridge(cmd *cobra.Command, args []string) error {
 	logger.Printf("provider: %s, model: %s", providerCfg.Name, modelName)
 
 	// Build agent.
+	limits := providers.TokenLimitsFor(prov.Models(), cfg.Agent.MaxOutputTokens)
+	contextWindow, outputTokens, err := limits(modelName)
+	if err != nil {
+		return fmt.Errorf("agent token limits: %w", err)
+	}
+	hookRegistry, err := loadConfiguredHooks()
+	if err != nil {
+		return fmt.Errorf("load user hooks: %w", err)
+	}
 	ag := agent.New(agent.Config{
 		Provider:    prov,
 		Tools:       toolReg,
 		Compressors: tools.NewCompressorRegistry(),
-		Hooks:       hooks.NewRegistry(),
+		Hooks:       hookRegistry,
 		Scanners: []security.Scanner{
 			security.NewCommandScanner(
 				security.WithProjectPath(cwd),
 			),
 			security.NewInjectionScanner(),
 		},
-		Tokenizer:    tokenizer.NewEstimator(),
-		Steering:     agent.NewSteeringQueue(agent.SteeringDrainAll),
-		Model:        modelName,
-		MaxTokens:    200000,
-		SystemPrompt: buildSystemPrompt(cfg),
+		Tokenizer:     tokenizer.NewEstimator(),
+		Steering:      agent.NewSteeringQueue(agent.SteeringDrainAll),
+		Model:         modelName,
+		MaxTokens:     outputTokens,
+		ContextWindow: contextWindow,
+		TokenLimits:   limits,
+		SystemPrompt:  buildSystemPrompt(cfg),
 	})
+	defer ag.Shutdown()
 
 	// Gateway session router.
 	homeDir, _ := config.ConfigDir()

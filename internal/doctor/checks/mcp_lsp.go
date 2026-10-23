@@ -30,7 +30,7 @@ func RegisterMCP(r *doctor.Runner, d Deps) {
 			Category: doctor.CatBackend,
 			Parallel: true,
 			Fn: func(ctx context.Context) doctor.Result {
-				if !s.Enabled {
+				if s.Enabled != nil && !*s.Enabled {
 					return skip("disabled in config")
 				}
 				c := mcp.NewClient(s.Name, s.Command, s.Args, s.Env)

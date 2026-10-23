@@ -947,8 +947,8 @@ func TestAES256GCMInternal(t *testing.T) {
 
 func TestStatusWriter(t *testing.T) {
 	rec := httptest.NewRecorder()
-	sw := &statusWriter{ResponseWriter: rec, code: http.StatusOK}
-	assert.Equal(t, http.StatusOK, sw.code)
+	sw := &statusWriter{ResponseWriter: rec}
+	assert.Zero(t, sw.code)
 
 	sw.WriteHeader(http.StatusNotFound)
 	assert.Equal(t, http.StatusNotFound, sw.code)
@@ -1063,24 +1063,11 @@ func TestWithRequestLog(t *testing.T) {
 	assert.Equal(t, "ok", rec.Body.String())
 }
 
-func TestApiToken(t *testing.T) {
-	t.Run("unset returns empty", func(t *testing.T) {
-		os.Unsetenv("OVERKILL_API_TOKEN")
-		assert.Empty(t, apiToken())
-	})
-
-	t.Run("set returns value", func(t *testing.T) {
-		os.Setenv("OVERKILL_API_TOKEN", "my-secret-token")
-		defer os.Unsetenv("OVERKILL_API_TOKEN")
-		assert.Equal(t, "my-secret-token", apiToken())
-	})
-}
-
 func TestWithAPIAuth(t *testing.T) {
-	t.Run("auto-generates token when none configured", func(t *testing.T) {
+	t.Run("rejects empty credential", func(t *testing.T) {
 		os.Unsetenv("OVERKILL_API_TOKEN")
 
-		handler := withAPIAuth(func(w http.ResponseWriter, r *http.Request) {
+		handler := withAPIAuth(os.Getenv("OVERKILL_API_TOKEN"), func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("ok"))
 		})
@@ -1103,7 +1090,7 @@ func TestWithAPIAuth(t *testing.T) {
 		os.Setenv("OVERKILL_API_TOKEN", "configured-token")
 		defer os.Unsetenv("OVERKILL_API_TOKEN")
 
-		handler := withAPIAuth(func(w http.ResponseWriter, r *http.Request) {
+		handler := withAPIAuth(os.Getenv("OVERKILL_API_TOKEN"), func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("ok"))
 		})
@@ -1127,7 +1114,7 @@ func TestWithAPIAuth(t *testing.T) {
 		os.Setenv("OVERKILL_API_TOKEN", "mytoken")
 		defer os.Unsetenv("OVERKILL_API_TOKEN")
 
-		handler := withAPIAuth(func(w http.ResponseWriter, r *http.Request) {
+		handler := withAPIAuth(os.Getenv("OVERKILL_API_TOKEN"), func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 
@@ -1607,44 +1594,23 @@ func TestHandleModeSetInvalid(t *testing.T) {
 
 func TestHandleSelfEvalStatus(t *testing.T) {
 	_, ts := newTestServer(t)
-
-	resp := doRPC(t, ts, "self.eval.status", nil)
-	r := readRPCResponse(t, resp)
-
-	assert.Nil(t, r.Error)
-	// Should return idle status.
-	resultJSON, _ := json.Marshal(r.Result)
-	var result map[string]interface{}
-	json.Unmarshal(resultJSON, &result)
-	assert.Equal(t, false, result["active"])
-	assert.Equal(t, "idle", result["status"])
+	r := readRPCResponse(t, doRPC(t, ts, "self.eval.status", nil))
+	require.NotNil(t, r.Error)
+	assert.Equal(t, InvalidParams, r.Error.Code)
 }
 
 func TestHandleTestResults(t *testing.T) {
 	_, ts := newTestServer(t)
-
-	resp := doRPC(t, ts, "tests.results", nil)
-	r := readRPCResponse(t, resp)
-
-	assert.Nil(t, r.Error)
-	resultJSON, _ := json.Marshal(r.Result)
-	var result map[string]interface{}
-	json.Unmarshal(resultJSON, &result)
-	assert.Equal(t, false, result["running"])
+	r := readRPCResponse(t, doRPC(t, ts, "tests.results", nil))
+	require.NotNil(t, r.Error)
+	assert.Equal(t, InvalidParams, r.Error.Code)
 }
 
 func TestHandleSequentialQueue(t *testing.T) {
 	_, ts := newTestServer(t)
-
-	resp := doRPC(t, ts, "sequential.queue", nil)
-	r := readRPCResponse(t, resp)
-
-	assert.Nil(t, r.Error)
-	resultJSON, _ := json.Marshal(r.Result)
-	var result map[string]interface{}
-	json.Unmarshal(resultJSON, &result)
-	assert.Equal(t, false, result["active"])
-	assert.Equal(t, float64(0), result["total"])
+	r := readRPCResponse(t, doRPC(t, ts, "sequential.queue", nil))
+	require.NotNil(t, r.Error)
+	assert.Equal(t, InvalidParams, r.Error.Code)
 }
 
 func TestHandleMemoPhraseNoEngine(t *testing.T) {
@@ -1903,10 +1869,10 @@ func TestHandleGoalGet(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	var gr map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&gr)
-	assert.Equal(t, "inactive", gr["status"])
+	assert.Contains(t, gr["error"], "session_id")
 }
 
 func TestHandlePlanGet(t *testing.T) {
@@ -1916,7 +1882,7 @@ func TestHandlePlanGet(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestHandleMemoLearnNoEngine(t *testing.T) {
@@ -2090,7 +2056,7 @@ func TestConsumeStreamEvents(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	s.consumeStreamEvents(ctx, rec, rec, events)
+	s.consumeStreamEvents(ctx, rec, rec, events, nil)
 
 	body := rec.Body.String()
 	assert.Contains(t, body, "event: text")
@@ -2108,7 +2074,7 @@ func TestConsumeStreamEventsContextCancel(t *testing.T) {
 	rec := httptest.NewRecorder()
 	done := make(chan struct{})
 	go func() {
-		s.consumeStreamEvents(ctx, rec, rec, events)
+		s.consumeStreamEvents(ctx, rec, rec, events, nil)
 		close(done)
 	}()
 
@@ -2174,26 +2140,10 @@ func TestHandleSkillsToggleNilStore(t *testing.T) {
 	assert.Contains(t, r.Error.Message, "skills store not configured")
 }
 
-func TestSkillsStoreToggle(t *testing.T) {
-	store := newSkillsStore(nil)
-	// Initially disabled is empty, all skills enabled.
-	assert.False(t, store.disabled["test-skill"])
-
-	// First toggle: becomes disabled, returns false (not enabled).
-	enabled := store.toggle("test-skill")
-	assert.False(t, enabled)
-	assert.True(t, store.disabled["test-skill"])
-
-	// Second toggle: becomes enabled again, returns true.
-	enabled = store.toggle("test-skill")
-	assert.True(t, enabled)
-	assert.False(t, store.disabled["test-skill"])
-}
-
 func TestSkillsStoreListNilRegistry(t *testing.T) {
 	store := newSkillsStore(nil)
 	result := store.list()
-	assert.Nil(t, result)
+	assert.Empty(t, result)
 }
 
 // ============================================================================
@@ -2404,7 +2354,8 @@ func TestHandleAgentAnswerCancelAll(t *testing.T) {
 		cfg:                 cfg,
 		agents:              make(map[string]*agent.Agent),
 		pendingQuestions:    pendingQuestions,
-		pendingQuestionData: make(map[string]*agent.Question),
+		pendingQuestionIDs:  map[string]string{"session-1": "question-1"},
+		pendingQuestionData: map[string]*agent.Question{"session-1": {Prompt: "Fixture?"}},
 		syncErrors:          make(map[string]string),
 	}
 
@@ -2413,10 +2364,12 @@ func TestHandleAgentAnswerCancelAll(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	// Cancel all with session_id="session-1" and index=-1.
+	// Cancel this exact pending question.
 	resp := doRPC(t, ts, "agent.answer", map[string]interface{}{
-		"session_id": "session-1",
-		"index":      -1,
+		"session_id":  "session-1",
+		"question_id": "question-1",
+		"cancel":      true,
+		"index":       -1,
 	})
 	r := readRPCResponse(t, resp)
 

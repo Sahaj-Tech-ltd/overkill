@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"path/filepath"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testsocket"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,7 +12,7 @@ import (
 )
 
 func TestEStopRPC_NoRunningTasksReturnsZero(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	sockPath := testsocket.Path(t)
 	srv := daemon.NewServer(sockPath)
 	b := &daemonEStopBroadcaster{
 		alarmCancelAll: func() int { return 0 },
@@ -38,7 +38,7 @@ func TestEStopRPC_NoRunningTasksReturnsZero(t *testing.T) {
 }
 
 func TestEStopRPC_CountsCancelledTasks(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	sockPath := testsocket.Path(t)
 	srv := daemon.NewServer(sockPath)
 	b := &daemonEStopBroadcaster{
 		alarmCancelAll: func() int { return 3 },
@@ -61,7 +61,7 @@ func TestEStopRPC_CountsCancelledTasks(t *testing.T) {
 }
 
 func TestEStopRPC_NilBroadcasterReturnsZero(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	sockPath := testsocket.Path(t)
 	srv := daemon.NewServer(sockPath)
 	srv.Register("estop", estopHandler(nil))
 	if err := srv.Start(); err != nil {
@@ -126,7 +126,7 @@ func TestEStopRPC_BroadcastCounterRunsOnlyOnce(t *testing.T) {
 			return 5
 		},
 	}
-	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	sockPath := testsocket.Path(t)
 	srv := daemon.NewServer(sockPath)
 	srv.Register("estop", estopHandler(b))
 	if err := srv.Start(); err != nil {

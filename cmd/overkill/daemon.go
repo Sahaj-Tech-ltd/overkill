@@ -22,15 +22,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/api"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/automation"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/cron"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/daemon"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/db"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/doctor/health"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/gateway"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/journal"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 )
 
@@ -130,7 +129,7 @@ func readPID() (int, error) {
 	return strconv.Atoi(string(b))
 }
 
-func runDaemonStart(cmd *cobra.Command, args []string) error {
+func runDaemonStart(cmd *cobra.Command, args []string) (resultErr error) {
 	if pid, _ := readPID(); pid > 0 {
 		if pidIsRunning(pid) {
 			return fmt.Errorf("daemon already running (pid %d) — use 'overkill daemon stop' first", pid)
@@ -146,26 +145,35 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	signalCtx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// Open a single Postgres connection for all subsystems via internal/db.
-	connString := os.Getenv("DATABASE_URL")
-	if connString == "" && cfg != nil {
-		connString = cfg.DatabaseURL
-	}
-	if connString == "" {
-		return fmt.Errorf("daemon: DATABASE_URL must be set for Postgres backend")
-	}
-	database, err := db.Open(connString)
+	databaseOwner, err := openCommandDatabase(signalCtx, cmd, cfg, true)
 	if err != nil {
-		return fmt.Errorf("daemon: open postgres: %w", err)
+		return err
 	}
-	defer database.Close()
-
-	if err := db.Migrate(database); err != nil {
-		return fmt.Errorf("daemon: migrate: %w", err)
+	defer func() { resultErr = errors.Join(resultErr, databaseOwner.Close()) }()
+	ctx := databaseOwner.Context
+	database := databaseOwner.DB
+	home, err := daemonHomeDir()
+	if err != nil {
+		return err
 	}
+	sharedRuntime, err := newRuntimeServices(cfg, database, home)
+	if err != nil {
+		return fmt.Errorf("daemon runtime: %w", err)
+	}
+	resumeSessions, err := session.NewPostgresStore(database)
+	if err != nil {
+		return err
+	}
+	resumeOwner := api.NewServer(sharedRuntime.APIConfig(resumeSessions))
+	if err := resumeOwner.StartBackground(ctx); err != nil {
+		return fmt.Errorf("daemon resume owner: %w", err)
+	}
+	defer resumeOwner.Close()
+	daemonResumeQueue = sharedRuntime.FlowQueue
+	defer func() { daemonResumeQueue = nil; daemonFlowStore = nil }()
 
 	// Health check sweep on boot (§7.1.5.2). Non-blocking — failures
 	// are logged but never prevent daemon startup.
@@ -283,7 +291,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 
 		// Flow store for Task Flow durable resume (§7.1 Layer 7).
 		if fs, ferr := agent.NewPostgresFlowStore(database); ferr == nil {
-			daemonFlowStore = fs
+			daemonFlowStore = &canonicalDaemonFlowStore{services: sharedRuntime, sessions: resumeSessions, legacy: fs}
 		} else {
 			fmt.Fprintf(os.Stderr, "daemon: flow store open failed: %v\n", ferr)
 		}
@@ -294,7 +302,10 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Daily snapshot tick (master plan §4.20). Fire on start, then every 24h.
-	dailySnapshotStore := session.NewPostgresStore(database)
+	dailySnapshotStore, err := session.NewPostgresStore(database)
+	if err != nil {
+		return fmt.Errorf("initialize session store: %w", err)
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -410,36 +421,8 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	// the probe infrastructure is warmed and available.
 	impossibleProbeStart(ctx, &wg)
 
-	// PCA-8: Learning evolution engine — cold-path batch processing.
-	// Clusters turn records, drafts skill improvements, judges success.
-	// Runs every 6 hours. The learning store (hot-path) records every
-	// correction; the engine (cold-path) turns those records into
-	// actionable skill drafts.
-	{
-		homeDir, _ := daemonHomeDir()
-		if homeDir != "" {
-			recordDir := filepath.Join(homeDir, "learning", "records")
-			skillDir := filepath.Join(homeDir, "skills")
-			engine := learning.NewEngine(recordDir, skillDir, nil, nil, nil)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				// Run once on startup, then every 6 hours.
-				learningEvolveTick(ctx, engine)
-				ticker := time.NewTicker(6 * time.Hour)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-ticker.C:
-						learningEvolveTick(ctx, engine)
-					}
-				}
-			}()
-			fmt.Printf("%s✓ learning evolution engine armed%s\n", colorGreen, colorReset)
-		}
-	}
+	// Skill evolution is workspace/session-bound in the shared API runtime.
+	// Draft generation is an explicit authenticated operator action.
 
 	// RPC socket so the TUI / CLI / future webhook receivers can talk
 	// to the running daemon without sharing in-process state. Bind
@@ -457,7 +440,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		sock.Register("ping", pingHandler)
 		if daemonAlarm != nil {
 			registerAlarmHandlers(sock, daemonAlarm)
-			registerFlowHandlers(sock, daemonFlowStore, daemonAlarm)
+			registerFlowHandlers(sock, daemonFlowStore, nil) // shared durable queue owns wake scheduling
 		}
 		if daemonRoutines != nil {
 			registerRoutineHandlers(sock, daemonRoutines)
@@ -710,21 +693,3 @@ func runDaemonInstall(cmd *cobra.Command, args []string) error {
 }
 
 // pidIsRunning is implemented in daemon_unix.go and daemon_windows.go.
-
-// learningEvolveTick fires one cold-path evolution cycle. Best-effort —
-// errors are logged, never fatal. The engine accumulates turn records
-// from the learning store and clusters them into skill drafts.
-func learningEvolveTick(ctx context.Context, engine *learning.Engine) {
-	if engine == nil {
-		return
-	}
-	res, err := engine.RunColdPath(ctx, "", false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "daemon: learning evolve: %v\n", err)
-		return
-	}
-	if res != nil && (res.ClustersFound > 0 || res.CandidateDrafts > 0) {
-		fmt.Fprintf(os.Stderr, "%slearning evolve: %d records, %d clusters, %d candidates%s\n",
-			colorDim, res.RecordsLoaded, res.ClustersFound, res.CandidateDrafts, colorReset)
-	}
-}

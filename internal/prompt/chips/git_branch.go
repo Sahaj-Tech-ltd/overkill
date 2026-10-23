@@ -13,12 +13,17 @@ import (
 // GitBranchChip reports the current git branch name via
 // `git rev-parse --abbrev-ref HEAD`.
 type GitBranchChip struct {
-	enabled bool
+	enabled    bool
+	workingDir string
 }
 
 // NewGitBranchChip returns a GitBranchChip that starts enabled.
-func NewGitBranchChip() *GitBranchChip {
-	return &GitBranchChip{enabled: true}
+func NewGitBranchChip(workingDir ...string) *GitBranchChip {
+	directory := ""
+	if len(workingDir) > 0 {
+		directory = workingDir[0]
+	}
+	return &GitBranchChip{enabled: true, workingDir: directory}
 }
 
 // Kind implements prompt.Chip.
@@ -35,6 +40,7 @@ func (c *GitBranchChip) Value(ctx context.Context) (string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = c.workingDir
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	// Discard stderr — git errors (e.g. no repo) should be silent.

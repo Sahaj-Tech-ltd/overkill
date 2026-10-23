@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { BackendClient } from "../../backend/client.ts";
 import type { TestResultsResult, TestResult } from "../../backend/types.ts";
+import { useSessionStatus } from "../../hooks/use-session-status.ts";
 import { useTheme } from "../../hooks/use-theme.ts";
 
 interface TestPanelProps {
   backend: BackendClient;
+  sessionId: string | null;
 }
 
 function formatDuration(ms?: number): string {
@@ -14,45 +16,11 @@ function formatDuration(ms?: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export function TestPanel({ backend }: TestPanelProps): React.JSX.Element {
+export function TestPanel({ backend, sessionId }: TestPanelProps): React.JSX.Element {
   const { theme } = useTheme();
-  const [results, setResults] = useState<TestResultsResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { value: results, loading, error } = useSessionStatus<TestResultsResult>(backend, sessionId, "tests.results", 3000);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedTestIdx, setSelectedTestIdx] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchResults = useCallback(() => {
-    backend
-      .call<TestResultsResult>("tests.results")
-      .then((result) => {
-        setResults(result);
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if ((err as Error).message !== "AbortError") {
-          setError((err as Error).message);
-        }
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [backend]);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchResults();
-
-    // Poll every 3s when tests are running
-    intervalRef.current = setInterval(fetchResults, 3000);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [fetchResults]);
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -77,7 +45,7 @@ export function TestPanel({ backend }: TestPanelProps): React.JSX.Element {
       {/* Header */}
       <Box paddingX={1}>
         <Text color={theme.accent} bold>
-          Red-Team Tests
+          Verification Checks
         </Text>
       </Box>
 
@@ -94,8 +62,7 @@ export function TestPanel({ backend }: TestPanelProps): React.JSX.Element {
           <Text color={theme.error}>Error: {error}</Text>
           <Box marginTop={1}>
             <Text dimColor>
-              Run tests with `overkill test red-team` or enable auto-test in
-              config.
+              Results describe actual post-write checks in the selected session.
             </Text>
           </Box>
         </Box>
@@ -126,7 +93,7 @@ export function TestPanel({ backend }: TestPanelProps): React.JSX.Element {
           {/* Running indicator */}
           {results.running && (
             <Box marginTop={1}>
-              <Text color={theme.warning}>● Running tests...</Text>
+              <Text color={theme.warning}>● Running verifier...</Text>
             </Box>
           )}
 
@@ -162,15 +129,15 @@ export function TestPanel({ backend }: TestPanelProps): React.JSX.Element {
                 <Text color={i === selectedTestIdx ? "cyan" : undefined}>
                   {i === selectedTestIdx ? "▸ " : "  "}
                 </Text>
-                <Text color={test.passed ? "green" : "red"} bold>
-                  {test.passed ? "✓" : "✕"}
+                <Text color={test.passed ? "green" : test.status === "failed" ? "red" : theme.muted} bold>
+                  {test.passed ? "✓" : test.status === "failed" ? "✕" : "—"}
                 </Text>
                 <Text> </Text>
                 <Text
                   color={expandedId === test.id ? "cyan" : undefined}
                   underline={expandedId === test.id}
                 >
-                  {test.name}
+                  {test.name}{test.status ? ` (${test.status})` : ""}{test.output_truncated ? " [display truncated]" : ""}
                 </Text>
                 {test.duration_ms !== undefined && (
                   <Text dimColor> ({formatDuration(test.duration_ms)})</Text>

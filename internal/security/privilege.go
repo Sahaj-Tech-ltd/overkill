@@ -12,8 +12,6 @@ package security
 import (
 	"encoding/json"
 	"errors"
-	"regexp"
-	"strings"
 	"sync"
 )
 
@@ -63,8 +61,8 @@ func (g *PrivilegeGate) SetMode(m PrivilegeMode) PrivilegeMode {
 }
 
 // Allow reports whether a tool call is permitted under the current mode.
-// Always true in writer mode. In reader mode, returns false for tools known
-// to mutate state (filesystem, git push, network POST without exemption).
+// Always true in writer mode. Reader mode permits only classified observations;
+// opaque commands/adapters and malformed or mutating actions require writer mode.
 func (g *PrivilegeGate) Allow(toolName string, rawInput json.RawMessage) (bool, string) {
 	if g.Mode() == ModeWriter {
 		return true, ""
@@ -72,74 +70,51 @@ func (g *PrivilegeGate) Allow(toolName string, rawInput json.RawMessage) (bool, 
 	if !IsWriteLikeTool(toolName, rawInput) {
 		return true, ""
 	}
-	return false, "tool " + toolName + " mutates state and is blocked in reader mode"
+	return false, "tool " + toolName + " requires writer authority and is blocked in reader mode"
 }
 
-// writeLikeTools enumerates tools that always mutate state. The list mirrors
-// the subagent enforcer; kept independent so neither package depends on the
-// other.
-var writeLikeTools = map[string]bool{
-	"fs_write":            true,
-	"patch":               true,
-	"worktree_add":        true,
-	"worktree_remove":     true,
-	"memory_remember":     true,
-	"memory_forget":       true,
-	"checkpoint_snapshot": true, // technically read-of-files-then-copy, but mutates ~/.overkill
-	"checkpoint_restore":  true,
-	"regression_record":   true,
-	"acp_send":            true,
-	"browser_dev":         true, // can mutate live browser session
-}
-
-// shellWriteRe catches a leading shell verb that suggests a write.
-// Extended to cover destructive verbs the original missed (ln/dd/mkfs/
-// mount/umount/iptables/nft/systemctl/service/kill/pkill/killall/
-// truncate/unlink, plus shutdown family). Anything that mutates the
-// filesystem, devices, network state, or process/system state belongs
-// here so the privilege gate can decide whether a confirmation is
-// needed.
-var shellWriteRe = regexp.MustCompile(`^\s*(rm|mv|cp|ln|dd|mkdir|touch|tee|chmod|chown|chgrp|truncate|unlink|sed\s+-i|>{1,2}\s*\S+|cat\s*>{1,2}|mkfs(\.\S+)?|mount|umount|iptables|nft|systemctl|service|kill|pkill|killall|shutdown|reboot|poweroff|halt|git\s+(push|commit|merge|reset|rebase|checkout|clean))`)
-
-// IsWriteLikeTool classifies a single call. Exported so other layers can
-// share the same heuristic (subagent enforcer, ledger annotations, etc.).
+// Reader mode admits explicitly classified observations. Arbitrary command
+// execution and unknown adapters require writer authority: command text cannot
+// establish absence of redirections, interpreters, hooks or remote side effects.
+// This is tool admission, not an OS sandbox for trusted hooks/plugins.
 func IsWriteLikeTool(name string, raw json.RawMessage) bool {
-	if writeLikeTools[name] {
-		return true
-	}
 	switch name {
-	case "shell", "pty_shell":
-		var sh struct {
-			Command string `json:"command"`
-		}
-		if err := json.Unmarshal(raw, &sh); err != nil {
-			return false
-		}
-		return shellWriteRe.MatchString(sh.Command)
-	case "fs":
-		var f struct {
+	case "grep", "lsp_hover", "lsp_definition", "lsp_references", "lsp_symbols",
+		"ask_user", "acp_status", "acp_await", "acp_sessions", "agent_inbox",
+		"agent_task_status", "agent_task_graph", "agent_await", "get_goal",
+		"plan_status", "task_list", "checkpoint_list", "tag_list",
+		"journal_search", "journal_timeline", "journal_get", "memory_recall", "memory_search", "memory_describe", "memory_expand":
+		return false
+	case "canvas":
+		var in struct {
 			Action string `json:"action"`
 		}
-		if err := json.Unmarshal(raw, &f); err != nil {
-			return false
+		return json.Unmarshal(raw, &in) != nil || in.Action != "state"
+	case "fs":
+		var in struct {
+			Action string `json:"action"`
 		}
-		switch strings.ToLower(f.Action) {
-		case "write", "create", "delete", "remove", "mkdir":
+		if json.Unmarshal(raw, &in) != nil {
 			return true
 		}
-	case "git":
-		var g struct {
-			Subcommand string `json:"subcommand"`
-			Args       string `json:"args"`
-		}
-		if err := json.Unmarshal(raw, &g); err != nil {
+		switch in.Action {
+		case "read", "glob", "stat":
 			return false
 		}
-		sub := strings.ToLower(g.Subcommand)
-		switch sub {
-		case "push", "commit", "merge", "reset", "rebase", "checkout":
+		return true
+	case "agent_contract":
+		var in struct {
+			Action string `json:"action"`
+		}
+		if json.Unmarshal(raw, &in) != nil {
 			return true
 		}
+		switch in.Action {
+		case "get", "list", "readiness":
+			return false
+		}
+		return true
+	default:
+		return true
 	}
-	return false
 }

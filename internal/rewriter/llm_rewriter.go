@@ -13,15 +13,14 @@ type LLMRewriter struct {
 	model      string
 	middleware *Middleware
 	reducer    *SycophancyReducer
+	guard      *antiPatternGuard
+	options    Options
 }
 
 func NewLLMRewriter(provider providers.Provider, model string) *LLMRewriter {
-	return &LLMRewriter{
-		provider:   provider,
-		model:      model,
-		middleware: NewMiddleware(),
-		reducer:    NewSycophancyReducer(),
-	}
+	// Preserve the established constructor's transformation defaults. Runtime
+	// config callers use NewConfiguredRewriter for explicit independent flags.
+	return NewWithOptions(provider, model, Options{Enabled: true, StripSycophancy: true, AntiPatternGuard: true, LLMRewrite: true})
 }
 
 // RewritePrompt is a thin convenience wrapper around Rewrite that returns just
@@ -42,48 +41,49 @@ func (r *LLMRewriter) RewritePrompt(ctx context.Context, input string) (string, 
 }
 
 func (r *LLMRewriter) Rewrite(ctx context.Context, input string) (*RewriteResult, error) {
-	analysis := r.middleware.Analyze(input)
-
-	stripped, strippedItems := r.middleware.Strip(input)
-	injectedStr, injectedItems := r.middleware.InjectSpecificity(stripped)
-
-	result := &RewriteResult{
-		Original:   input,
-		Complexity: analysis.Complexity,
-		Stripped:   strippedItems,
-		Injected:   injectedItems,
-		Confidence: analysis.Confidence,
+	if !r.options.Enabled {
+		return &RewriteResult{Original: input, Rewritten: input, Confidence: 1}, nil
 	}
-
-	switch analysis.Complexity {
-	case ComplexitySimple:
-		result.Rewritten = injectedStr
-		result.Changed = stripped != input || len(injectedItems) > 0
-		return result, nil
-
-	case ComplexityAmbiguous:
-		clarified, err := r.analyzeWithLLM(ctx, stripped, false)
-		if err != nil {
-			return nil, fmt.Errorf("rewriter: ambiguous analysis: %w", err)
-		}
-		result.Rewritten = clarified
-		result.Changed = true
-		return result, nil
-
-	case ComplexityComplex:
-		expanded, err := r.analyzeWithLLM(ctx, stripped, true)
-		if err != nil {
-			return nil, fmt.Errorf("rewriter: complex expansion: %w", err)
-		}
-		result.Rewritten = expanded
-		result.Changed = true
-		return result, nil
-
-	default:
-		result.Rewritten = stripped
-		result.Changed = stripped != input
-		return result, nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
+	local := input
+	var strippedItems, injectedItems []string
+	if r.options.StripSycophancy {
+		local, strippedItems = r.middleware.Strip(local)
+		reduced := local
+		if r.reducer.Check(local).Detected {
+			reduced = r.reducer.Strip(local)
+		}
+		if reduced != local {
+			strippedItems = append(strippedItems, "sycophancy")
+		}
+		local = reduced
+	}
+	analysis := r.middleware.Analyze(local)
+	var guardNotes []string
+	if r.options.AntiPatternGuard {
+		local, injectedItems = r.middleware.InjectSpecificity(local)
+		guardNotes = r.guard.notes(input)
+		local = appendGuardNotes(local, guardNotes)
+		injectedItems = append(injectedItems, guardNotes...)
+	}
+	result := &RewriteResult{Original: input, Rewritten: local, Complexity: analysis.Complexity, Stripped: strippedItems, Injected: injectedItems, Confidence: analysis.Confidence}
+	if r.options.LLMRewrite && analysis.Complexity != ComplexitySimple {
+		if r.provider == nil {
+			return nil, fmt.Errorf("rewriter: LLM rewriting enabled without a provider")
+		}
+		rewritten, err := r.analyzeWithLLM(ctx, local, analysis.Complexity == ComplexityComplex)
+		if err != nil {
+			return nil, fmt.Errorf("rewriter: %s analysis: %w", analysis.Complexity, err)
+		}
+		// An empty remote response is not a meaningful rewrite.
+		if rewritten != "" {
+			result.Rewritten = appendGuardNotes(rewritten, guardNotes)
+		}
+	}
+	result.Changed = result.Rewritten != input
+	return result, nil
 }
 
 func (r *LLMRewriter) analyzeWithLLM(ctx context.Context, input string, expand bool) (string, error) {
@@ -113,6 +113,9 @@ func (r *LLMRewriter) analyzeWithLLM(ctx context.Context, input string, expand b
 		return "", fmt.Errorf("llm call: %w", err)
 	}
 
-	cleaned := r.reducer.Strip(resp.Content)
+	cleaned := resp.Content
+	if r.options.StripSycophancy {
+		cleaned = r.reducer.Strip(cleaned)
+	}
 	return strings.TrimSpace(cleaned), nil
 }

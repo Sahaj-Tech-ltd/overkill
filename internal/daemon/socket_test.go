@@ -4,17 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testsocket"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-// freshSocket returns a unique socket path inside t.TempDir.
+// freshSocket returns a unique path below the platform socket-length limit.
 func freshSocket(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(t.TempDir(), "daemon.sock")
+	return testsocket.Path(t)
 }
 
 // echoServer is a tiny test fixture: handles "echo" + a slow "sleep" op.
@@ -191,5 +191,14 @@ func TestSocketPath_UnderHome(t *testing.T) {
 	}
 	if !strings.HasSuffix(p, ".overkill/daemon.sock") {
 		t.Errorf("socket path not under .overkill: %s", p)
+	}
+}
+
+func TestServerReportsOverlongSocketPathBeforeFilesystemChanges(t *testing.T) {
+	path := "/" + strings.Repeat("x", 120) + "/daemon.sock"
+	server := NewServer(path)
+	err := server.Start()
+	if err == nil || !strings.Contains(err.Error(), "path is") || !strings.Contains(err.Error(), "bytes") {
+		t.Fatalf("expected explicit socket path length error, got %v", err)
 	}
 }

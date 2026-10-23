@@ -20,6 +20,7 @@
 package extensions
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -39,20 +40,23 @@ const (
 // Extension is the unified record returned by Manager.List/Get.
 // Backends translate their native representations into this struct.
 type Extension struct {
-	Kind        Kind   `json:"kind"`
-	ID          string `json:"id"`          // unique within Kind
-	Name        string `json:"name"`        // display name
-	Description string `json:"description"` // one-liner
-	Source      string `json:"source"`      // bundled | user | remote | mcp-server-name
-	Enabled     bool   `json:"enabled"`
+	Kind              Kind   `json:"kind"`
+	ID                string `json:"id"`          // unique within Kind
+	Name              string `json:"name"`        // display name
+	Description       string `json:"description"` // one-liner
+	Source            string `json:"source"`      // bundled | user | remote | mcp-server-name
+	Enabled           bool   `json:"enabled"`
+	CanToggle         bool   `json:"can_toggle"`
+	ToggleScope       string `json:"toggle_scope,omitempty"`
+	UnsupportedReason string `json:"unsupported_reason,omitempty"`
 	// Metadata is free-form per-backend payload (version, tags, etc.).
 	// Consumers (UI) shouldn't depend on specific keys — backend-specific
 	// detail belongs in dedicated dialogs.
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
-// Backend is implemented by each of the four extension systems. Empty
-// returns are fine (a not-yet-wired backend can ship as a stub).
+// Backend is implemented by each of the four extension systems. Empty results
+// mean no entries were discovered; inactive and unsupported entries are explicit.
 type Backend interface {
 	// Kind reports which extension family this backend serves.
 	Kind() Kind
@@ -92,6 +96,21 @@ func NewManager() *Manager {
 	return &Manager{backends: make(map[Kind]Backend)}
 }
 
+// Clone shares backend owners while allowing a session to replace its hooks
+// inventory without changing another session's executing registry.
+func (m *Manager) Clone() *Manager {
+	out := NewManager()
+	if m == nil {
+		return out
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for kind, backend := range m.backends {
+		out.backends[kind] = backend
+	}
+	return out
+}
+
 // AddBackend installs a backend. Calling twice with the same Kind
 // REPLACES the prior backend (last-wins) so the wire-up can be
 // reordered without panic. Nil backend is a no-op.
@@ -123,8 +142,8 @@ func (m *Manager) List() ([]Extension, error) {
 	var firstErr error
 	for _, b := range backends {
 		entries, err := b.List()
-		if err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("backend %s: %w", b.Kind(), err)
+		if err != nil {
+			firstErr = errors.Join(firstErr, fmt.Errorf("backend %s: %w", b.Kind(), err))
 		}
 		all = append(all, entries...)
 	}

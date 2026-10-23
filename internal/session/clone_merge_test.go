@@ -29,7 +29,7 @@ func seedParent(t *testing.T, store *PostgresStore, n int) *Session {
 }
 
 func TestClone_MissingParent(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	if _, err := store.Clone(context.Background(), "nope"); err == nil {
 		t.Error("missing parent should error")
@@ -37,7 +37,7 @@ func TestClone_MissingParent(t *testing.T) {
 }
 
 func TestClone_EmptyParentID(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	if _, err := store.Clone(context.Background(), ""); err == nil {
 		t.Error("empty parentID should error")
@@ -45,7 +45,7 @@ func TestClone_EmptyParentID(t *testing.T) {
 }
 
 func TestClone_CopiesAllMessages(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 4)
 
@@ -68,7 +68,7 @@ func TestClone_CopiesAllMessages(t *testing.T) {
 }
 
 func TestClone_LinksIntoParentChildren(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 	child, _ := store.Clone(context.Background(), parent.ID)
@@ -83,7 +83,7 @@ func TestClone_LinksIntoParentChildren(t *testing.T) {
 }
 
 func TestClone_DivergesFromParent(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 	child, _ := store.Clone(context.Background(), parent.ID)
@@ -100,7 +100,7 @@ func TestClone_DivergesFromParent(t *testing.T) {
 }
 
 func TestMerge_FastForwardsParent(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 
@@ -134,17 +134,25 @@ func TestMerge_FastForwardsParent(t *testing.T) {
 }
 
 func TestMerge_RejectsDivergedParent(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 
 	child, _ := store.Branch(context.Background(), parent.ID, 2)
 	child.Messages = append(child.Messages, providers.Message{Role: "user", Content: "child-tail"})
-	_ = store.Save(context.Background(), child)
+	if err := store.Save(context.Background(), child); err != nil {
+		t.Fatal(err)
+	}
 
-	// Parent continues — diverges.
+	// Branching changes the parent version; continue from the current session.
+	parent, err := store.Load(context.Background(), parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	parent.Messages = append(parent.Messages, providers.Message{Role: "user", Content: "parent-tail"})
-	_ = store.Save(context.Background(), parent)
+	if err := store.Save(context.Background(), parent); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := store.Merge(context.Background(), child.ID); !errors.Is(err, ErrMergeDiverged) {
 		t.Errorf("expected ErrMergeDiverged, got %v", err)
@@ -152,7 +160,7 @@ func TestMerge_RejectsDivergedParent(t *testing.T) {
 }
 
 func TestMerge_NoChangesIsNoOp(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 3)
 	child, _ := store.Branch(context.Background(), parent.ID, 3)
@@ -168,7 +176,7 @@ func TestMerge_NoChangesIsNoOp(t *testing.T) {
 }
 
 func TestMerge_OrphanChildErrors(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	orphan := NewSession("/tmp") // no ParentID
 	if err := store.Create(context.Background(), orphan); err != nil {
@@ -180,7 +188,7 @@ func TestMerge_OrphanChildErrors(t *testing.T) {
 }
 
 func TestMerge_MissingChildErrors(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	if _, err := store.Merge(context.Background(), "nope"); err == nil {
 		t.Error("missing child should error")
@@ -188,7 +196,7 @@ func TestMerge_MissingChildErrors(t *testing.T) {
 }
 
 func TestMerge_EmptyChildIDErrors(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	if _, err := store.Merge(context.Background(), ""); err == nil {
 		t.Error("empty childID should error")
@@ -196,12 +204,14 @@ func TestMerge_EmptyChildIDErrors(t *testing.T) {
 }
 
 func TestMerge_ChildSurvivesUntouched(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 	parent := seedParent(t, store, 2)
 	child, _ := store.Branch(context.Background(), parent.ID, 2)
 	child.Messages = append(child.Messages, providers.Message{Role: "user", Content: "kept"})
-	_ = store.Save(context.Background(), child)
+	if err := store.Save(context.Background(), child); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := store.Merge(context.Background(), child.ID); err != nil {
 		t.Fatal(err)

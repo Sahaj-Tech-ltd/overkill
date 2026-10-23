@@ -1,8 +1,4 @@
-// Package subagent — real LLM-backed worker.
-//
-// Replaces the stub worker with actual Xiaomi API calls.
-// Reads XIAOMI_API_KEY from env, creates an OpenAI-compatible provider,
-// and runs the task through a lightweight agent instance.
+// Package subagent includes a text-only worker using an OpenAI-compatible API.
 package subagent
 
 import (
@@ -20,6 +16,7 @@ const XIAOMI_BASE_URL = "https://token-plan-sgp.xiaomimimo.com/v1"
 
 // RealWorkerConfig configures a real LLM-backed worker.
 type RealWorkerConfig struct {
+	Tools     []string // explicit tool capabilities requested by this task
 	Goal      string
 	Context   string
 	MaxSteps  int
@@ -27,12 +24,12 @@ type RealWorkerConfig struct {
 	Model     string // from SmartRouter.Route().ModelID or fallback "mimo-v2-pro"
 	Provider  string // from SmartRouter.Route().Provider or fallback "xiaomi"
 	TaskIndex int    // index assigned by the manager for result tracking
-	MaxTokens int    // max tokens for the completion; 0 defaults to 16384
+	MaxTokens int    // completion limit override; 0 uses model/provider default
 }
 
-// RealWorker runs a sub-agent task by calling the Xiaomi API directly.
-// It creates its own provider instance (no dependency on the parent agent)
-// and runs a simple ReAct loop: prompt → response → done.
+// RealWorker performs one text-only completion from the supplied context. It
+// cannot inspect the workspace or execute tools; those tasks require a contract
+// StepDriver configured by the application.
 type RealWorker struct {
 	cfg      RealWorkerConfig
 	provider providers.Provider
@@ -111,24 +108,22 @@ func resolveProviderCreds(provider string) (string, string, error) {
 	}
 }
 
-// Run executes the task by calling the LLM and returning the response.
-// Falls through to the stub Worker on provider error so that tests (and
-// production code without a real API key) still get a valid Result with
-// TaskIndex and CostUSD populated.
+// Run executes a text-only task against the configured provider. Errors are
+// returned directly; worker simulation exists only in explicitly injected tests.
 func (w *RealWorker) Run(ctx context.Context) (*Result, error) {
 	start := time.Now()
 
 	systemPrompt := `You are a focused sub-agent. Complete the task below and return ONLY the result.
 Do not ask questions, do not explain — just do the work and return the output.
-You have read-only access: you cannot modify files.
+You have only the context supplied in this request. You cannot read or modify files, call tools, or inspect external state.
+Do not claim to have executed work requiring those capabilities; report the limitation instead.
 Respond with the answer directly.`
 
 	userPrompt := fmt.Sprintf("Goal: %s\n\nContext:\n%s", w.cfg.Goal, w.cfg.Context)
 
-	// Apply MaxTokens default if not explicitly configured.
-	maxTokens := w.cfg.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 16384
+	_, maxTokens, err := providers.ResolveTokenLimits(w.provider.Models(), w.cfg.Model, w.cfg.MaxTokens)
+	if err != nil {
+		return nil, fmt.Errorf("subagent: token limits: %w", err)
 	}
 
 	req := providers.Request{

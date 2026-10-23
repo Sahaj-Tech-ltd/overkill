@@ -3,7 +3,7 @@ package automation
 import (
 	"context"
 	"database/sql"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,48 +11,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	_ "github.com/lib/pq"
 )
 
 func openAutomationDB(t *testing.T) *sql.DB {
 	t.Helper()
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		connStr = os.Getenv("PG_TEST_URL")
-	}
-	if connStr == "" {
-		connStr = "postgres://postgres:***@localhost:5432/overkill_test?sslmode=disable"
-	}
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		t.Skipf("skipping: cannot open postgres: %v", err)
-	}
-	if err := db.Ping(); err != nil {
-		db.Close()
-		t.Skipf("skipping: cannot ping postgres: %v (set PG_TEST_URL or DATABASE_URL)", err)
-	}
-	// Create tables needed for automation tests.
-	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS automation_sops (
-		id TEXT PRIMARY KEY, name TEXT, mode TEXT, steps JSONB, status TEXT,
-		created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
-	)`)
-	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS automation_routines (
-		id TEXT PRIMARY KEY, name TEXT, trigger TEXT, action TEXT,
-		cooldown_ns BIGINT, enabled BOOLEAN, fire_count INTEGER,
-		last_fired TIMESTAMPTZ
-	)`)
-	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS automation_alarms (
-		id TEXT PRIMARY KEY, name TEXT, action TEXT, schedule TEXT,
-		enabled BOOLEAN, created_at TIMESTAMPTZ DEFAULT NOW()
-	)`)
-	t.Cleanup(func() {
-		db.Exec("DELETE FROM automation_sops")
-		db.Exec("DELETE FROM automation_routines")
-		db.Exec("DELETE FROM automation_alarms")
-		db.Close()
-	})
-	return db
+	database, _ := testpg.Open(t)
+	return database
 }
 
 func newTestSOP(id string, steps []Step, mode SOPMode) *SOP {

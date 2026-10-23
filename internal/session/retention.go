@@ -1,48 +1,131 @@
 package session
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"time"
+	"unicode/utf8"
 )
 
-// EnforceMax keeps at most `max` sessions in the store, deleting the
-// oldest by UpdatedAt when the count exceeds the cap. max <= 0 means
-// "no cap" — caller intends unlimited retention (the §4.6 default).
+type atomicRetentionStore interface {
+	enforceMaxSessions(context.Context, int) (int, error)
+}
+type retentionCandidate struct {
+	ID        string
+	UpdatedAt time.Time
+}
+
+// EnforceMax retains the newest max initially top-level sessions. Sub-sessions
+// are excluded from the snapshot and never selected for pruning; deleting a
+// root retains the store's existing family promotion policy. Nonpositive max
+// means unlimited. Concurrent new roots are considered on a later pass.
 //
-// Sub-sessions (those with a non-empty ParentID) are excluded from the
-// count and never pruned by this policy — they're owned by their
-// parent's lifecycle and pruning them out from under a running parent
-// would corrupt the orchestration ledger.
-//
-// Returns the number of deleted sessions.
+// PostgreSQL performs selection/deletion atomically. Generic stores are scanned
+// completely before deletion, with bounded pages and a private ID/version disk
+// spool. Their interface cannot make concurrent writes atomic: changed or
+// missing candidates are skipped and a later pass may still be necessary.
 func EnforceMax(ctx context.Context, store Store, max int) (int, error) {
 	if store == nil || max <= 0 {
 		return 0, nil
 	}
-	// Fetch oldest-first so we prune the stalest sessions.
-	// Limit: fetch generously in case some are sub-sessions (filtered below),
-	// but cap to avoid unbounded loads on very large stores.
-	limit := max * 5
-	sessions, err := store.List(ctx, ListOptions{OldestFirst: true, Limit: limit})
+	if native, ok := store.(atomicRetentionStore); ok {
+		return native.enforceMaxSessions(ctx, max)
+	}
+	// Scan before mutating. Deleting while OFFSET paging would skip records, and
+	// root deletion may promote children which must not enter this snapshot.
+	spool, err := os.CreateTemp("", "overkill-retention-*")
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("session retention snapshot: %w", err)
 	}
-	// Filter out sub-sessions; they're not first-class for retention.
-	top := make([]*Session, 0, len(sessions))
-	for _, s := range sessions {
-		if s == nil || s.ParentID != "" {
-			continue
+	defer os.Remove(spool.Name())
+	defer spool.Close()
+	writer := bufio.NewWriter(spool)
+	encoder := json.NewEncoder(writer)
+	const pageSize = 64
+	roots, offset := 0, 0
+	var previousTime time.Time
+	previousID := ""
+	havePrevious := false
+	for {
+		if err = ctx.Err(); err != nil {
+			return 0, err
 		}
-		top = append(top, s)
+		page, e := store.List(ctx, ListOptions{OldestFirst: true, Limit: pageSize, Offset: offset})
+		if e != nil {
+			return 0, e
+		}
+		if len(page) > pageSize {
+			return 0, fmt.Errorf("session retention: store ignored page bound")
+		}
+		for _, item := range page {
+			if item == nil {
+				continue
+			}
+			if item.ID == "" || !utf8.ValidString(item.ID) {
+				return 0, fmt.Errorf("session retention: invalid candidate identity")
+			}
+			if havePrevious && (item.UpdatedAt.Before(previousTime) || item.UpdatedAt.Equal(previousTime) && item.ID <= previousID) {
+				return 0, fmt.Errorf("session retention: nonmonotonic or duplicate pagination")
+			}
+			previousTime, previousID, havePrevious = item.UpdatedAt, item.ID, true
+			if item.ParentID != "" {
+				continue
+			}
+			if roots == math.MaxInt {
+				return 0, fmt.Errorf("session retention count overflow")
+			}
+			roots++
+			if err = encoder.Encode(retentionCandidate{ID: item.ID, UpdatedAt: item.UpdatedAt}); err != nil {
+				return 0, err
+			}
+		}
+		if len(page) < pageSize {
+			break
+		}
+		if offset > math.MaxInt-len(page) {
+			return 0, fmt.Errorf("session retention offset overflow")
+		}
+		offset += len(page)
 	}
-	if len(top) <= max {
+	if roots <= max {
 		return 0, nil
 	}
-	// Already oldest-first from the query — delete from the head.
-	toDelete := len(top) - max
+	if err = writer.Flush(); err != nil {
+		return 0, err
+	}
+	if _, err = spool.Seek(0, io.SeekStart); err != nil {
+		return 0, err
+	}
+	decoder := json.NewDecoder(bufio.NewReader(spool))
 	deleted := 0
-	for i := 0; i < toDelete; i++ {
-		if err := store.Delete(ctx, top[i].ID); err != nil {
+	for range roots - max {
+		if err = ctx.Err(); err != nil {
 			return deleted, err
+		}
+		var candidate retentionCandidate
+		if err = decoder.Decode(&candidate); err != nil {
+			return deleted, err
+		}
+		current, e := store.Load(ctx, candidate.ID)
+		if errors.Is(e, ErrNotFound) {
+			continue
+		}
+		if e != nil {
+			return deleted, e
+		}
+		if current == nil || current.ParentID != "" || !current.UpdatedAt.Equal(candidate.UpdatedAt) {
+			continue
+		}
+		if e = store.Delete(ctx, candidate.ID); errors.Is(e, ErrNotFound) {
+			continue
+		} else if e != nil {
+			return deleted, e
 		}
 		deleted++
 	}

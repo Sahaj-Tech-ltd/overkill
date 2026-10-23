@@ -10,6 +10,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/Sahaj-Tech-ltd/overkill/internal/atomicfile"
 )
 
 // SessionRouter maps a (channel, chatKey, thread) tuple onto an overkill
@@ -28,11 +30,13 @@ type SessionRouter struct {
 }
 
 type routerFile struct {
-	Bindings map[string]binding `json:"bindings"`
-	Follows  map[string]string  `json:"follows"` // chatKey -> "tui" | sessionID
+	NextSequence uint64             `json:"next_sequence,omitempty"`
+	Bindings     map[string]binding `json:"bindings"`
+	Follows      map[string]string  `json:"follows"` // chatKey -> "tui" | sessionID
 }
 
 type binding struct {
+	Sequence  uint64    `json:"sequence,omitempty"`
 	SessionID string    `json:"session_id"`
 	Channel   string    `json:"channel"`
 	Created   time.Time `json:"created"`
@@ -50,8 +54,9 @@ func NewSessionRouter(path string) (*SessionRouter, error) {
 		return r, nil
 	}
 	if buf, err := os.ReadFile(path); err == nil {
-		// Tolerate partial files; start fresh on corruption.
-		_ = json.Unmarshal(buf, &r.data)
+		if err := json.Unmarshal(buf, &r.data); err != nil {
+			return nil, fmt.Errorf("gateway: decode router: %w", err)
+		}
 		if r.data.Bindings == nil {
 			r.data.Bindings = map[string]binding{}
 		}
@@ -60,6 +65,11 @@ func NewSessionRouter(path string) (*SessionRouter, error) {
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("gateway: load router: %w", err)
+	}
+	for _, entry := range r.data.Bindings {
+		if entry.Sequence > r.data.NextSequence {
+			r.data.NextSequence = entry.Sequence
+		}
 	}
 	return r, nil
 }
@@ -92,7 +102,14 @@ func (r *SessionRouter) Bind(channel, chatKey, thread, sessionID string) error {
 	defer r.mu.Unlock()
 	k := bindKey(channel, chatKey, thread)
 	now := time.Now().UTC()
-	b := r.data.Bindings[k]
+	old, existed := r.data.Bindings[k]
+	oldSequence := r.data.NextSequence
+	if oldSequence == ^uint64(0) {
+		return fmt.Errorf("gateway: recency sequence exhausted")
+	}
+	r.data.NextSequence++
+	b := old
+	b.Sequence = r.data.NextSequence
 	if b.SessionID == "" {
 		b.Created = now
 	}
@@ -100,20 +117,41 @@ func (r *SessionRouter) Bind(channel, chatKey, thread, sessionID string) error {
 	b.Channel = channel
 	b.Updated = now
 	r.data.Bindings[k] = b
-	return r.persistLocked()
+	if err := r.persistLocked(); err != nil {
+		r.data.NextSequence = oldSequence
+		if existed {
+			r.data.Bindings[k] = old
+		} else {
+			delete(r.data.Bindings, k)
+		}
+		return err
+	}
+	return nil
 }
 
 // Touch bumps Updated so /sessions can sort by recency. No-op if
 // unbound.
-func (r *SessionRouter) Touch(channel, chatKey, thread string) {
+func (r *SessionRouter) Touch(channel, chatKey, thread string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := bindKey(channel, chatKey, thread)
 	if b, ok := r.data.Bindings[k]; ok {
+		old := b
+		oldSequence := r.data.NextSequence
+		if oldSequence == ^uint64(0) {
+			return fmt.Errorf("gateway: recency sequence exhausted")
+		}
+		r.data.NextSequence++
+		b.Sequence = r.data.NextSequence
 		b.Updated = time.Now().UTC()
 		r.data.Bindings[k] = b
-		_ = r.persistLocked()
+		if err := r.persistLocked(); err != nil {
+			r.data.NextSequence = oldSequence
+			r.data.Bindings[k] = old
+			return err
+		}
 	}
+	return nil
 }
 
 // Follow puts the chat into follow mode. target = "tui" mirrors the
@@ -125,12 +163,21 @@ func (r *SessionRouter) Follow(channel, chatKey, target string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	fk := followKey(channel, chatKey)
+	old, existed := r.data.Follows[fk]
 	if target == "" {
 		delete(r.data.Follows, fk)
 	} else {
 		r.data.Follows[fk] = target
 	}
-	return r.persistLocked()
+	if err := r.persistLocked(); err != nil {
+		if existed {
+			r.data.Follows[fk] = old
+		} else {
+			delete(r.data.Follows, fk)
+		}
+		return err
+	}
+	return nil
 }
 
 // FollowTarget returns the current follow target for the chat ("",
@@ -143,6 +190,7 @@ func (r *SessionRouter) FollowTarget(channel, chatKey string) string {
 
 // RecentEntry is one row in the /sessions list.
 type RecentEntry struct {
+	sequence  uint64
 	SessionID string
 	Channel   string
 	ChatKey   string
@@ -158,7 +206,7 @@ func (r *SessionRouter) Recent(limit int) []RecentEntry {
 	out := make([]RecentEntry, 0, len(r.data.Bindings))
 	for k, b := range r.data.Bindings {
 		ch, chat, thread := splitKey(k)
-		out = append(out, RecentEntry{
+		out = append(out, RecentEntry{sequence: b.Sequence,
 			SessionID: b.SessionID,
 			Channel:   ch,
 			ChatKey:   chat,
@@ -166,7 +214,21 @@ func (r *SessionRouter) Recent(limit int) []RecentEntry {
 			Updated:   b.Updated,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if !a.Updated.Equal(b.Updated) {
+			return a.Updated.After(b.Updated)
+		}
+		if a.sequence != b.sequence {
+			return a.sequence > b.sequence
+		}
+		// Older files have no sequence. Their ties still require a stable order.
+		ak, bk := bindKey(a.Channel, a.ChatKey, a.Thread), bindKey(b.Channel, b.ChatKey, b.Thread)
+		if ak != bk {
+			return ak < bk
+		}
+		return a.SessionID < b.SessionID
+	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
@@ -188,7 +250,7 @@ func NewSessionID(prefix string) string {
 }
 
 func (r *SessionRouter) snapshotLocked() routerFile {
-	out := routerFile{
+	out := routerFile{NextSequence: r.data.NextSequence,
 		Bindings: make(map[string]binding, len(r.data.Bindings)),
 		Follows:  make(map[string]string, len(r.data.Follows)),
 	}
@@ -212,11 +274,7 @@ func (r *SessionRouter) persist(snap routerFile) error {
 	if err != nil {
 		return err
 	}
-	tmp := r.path + ".tmp"
-	if err := os.WriteFile(tmp, buf, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, r.path)
+	return atomicfile.WriteFile(r.path, buf, 0o600)
 }
 
 // persistLocked persists the current in-memory state. Must be called
@@ -232,11 +290,7 @@ func (r *SessionRouter) persistLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := r.path + ".tmp"
-	if err := os.WriteFile(tmp, buf, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, r.path)
+	return atomicfile.WriteFile(r.path, buf, 0o600)
 }
 
 // followKey returns a namespaced key for the Follows map so that

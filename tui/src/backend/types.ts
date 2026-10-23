@@ -135,6 +135,8 @@ export interface AgentSendResult {
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 
 export interface StreamEvent {
+  /** Authoritative final answer on done, including evaluated revisions. */
+  response?: string;
   type: "status" | "reasoning" | "text" | "tool_call" | "done" | "error";
   phase?: string;
   content?: string;
@@ -202,24 +204,37 @@ export interface WizardQuickSetupResult {
 // --- self-eval ---
 
 export interface SelfEvalStatus {
-  session_id?: string;
-  active?: boolean;
-  phase: string; // "idle" | "planning" | "executing" | "reflecting" | "red_team_check"
-  status?: string;
-  confidence: number; // 0.0 - 1.0
-  reflection_notes?: string;
-  iteration: number;
-  max_iterations: number;
-  red_team_passed?: boolean;
-  red_team_total?: number;
-  red_team_failed?: number;
-  started_at?: string;
-  message?: string;
+  plan_execution?: {title:string;status:string;current:boolean;phases:Array<{title:string;status:string;note?:string}>} | null;
+  session_id: string;
+  source: "post_write_verifier";
+  self_evaluation_available: boolean;
+  iterative_evaluation?: {
+    source: "iterative_self_evaluation";
+    status: string;
+    phase: string;
+    iteration: number;
+    max_iterations: number;
+    started_at: string;
+    completed_at?: string;
+    note?: string;
+  } | null;
+  active: boolean;
+  phase: string;
+  status: string;
+  confidence: number | null;
+  iteration: number | null;
+  max_iterations: number | null;
+  red_team_passed: null;
+  verification: TestResultsResult;
+  message: string;
 }
 
 // --- test pane ---
 
 export interface TestResult {
+  output_truncated?: boolean;
+  status?: string;
+  file?: string;
   id: string;
   name: string;
   passed: boolean;
@@ -229,6 +244,11 @@ export interface TestResult {
 }
 
 export interface TestResultsResult {
+  session_id?: string;
+  source: string;
+  skipped: number;
+  canceled: number;
+  dropped: number;
   tests: TestResult[];
   total: number;
   passed: number;

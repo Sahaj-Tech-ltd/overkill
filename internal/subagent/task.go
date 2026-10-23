@@ -37,8 +37,13 @@ type Task interface {
 
 // ToolEntry records a single tool invocation during task execution.
 type ToolEntry struct {
-	Tool    string `json:"tool"`
-	ArgsLen int    `json:"args_len"`
+	Tool       string `json:"tool"`
+	ArgsLen    int    `json:"args_len"`
+	Path       string `json:"path,omitempty"`
+	Success    bool   `json:"success"`
+	Error      string `json:"error,omitempty"`
+	InputHash  string `json:"input_hash,omitempty"`
+	OutputHash string `json:"output_hash,omitempty"`
 }
 
 // Result captures the outcome of a single sub-agent task execution.

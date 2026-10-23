@@ -5,6 +5,7 @@ import type { SessionInfo } from "../../backend/types.ts";
 import { useTheme } from "../../hooks/use-theme.ts";
 
 interface SessionPanelProps {
+  active?: boolean;
   backend: BackendClient;
   currentSessionId?: string;
   onSessionSelect?: (session: SessionInfo) => void;
@@ -63,6 +64,7 @@ function flattenTree(nodes: TreeNode[]): TreeNode[] {
 
 export function SessionPanel({
   backend,
+  active = true,
   currentSessionId,
   onSessionSelect,
 }: SessionPanelProps): React.JSX.Element {
@@ -96,6 +98,7 @@ export function SessionPanel({
   const flatNodes = flattenTree(tree);
 
   useInput((input, key) => {
+    if (!active) return;
     if (key.upArrow) {
       setSelectedIdx((prev) => Math.max(0, prev - 1));
     } else if (key.downArrow) {

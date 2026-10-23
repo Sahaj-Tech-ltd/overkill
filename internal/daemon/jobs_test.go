@@ -4,28 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/testpg"
 	"testing"
 	"time"
-
-	_ "github.com/lib/pq"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	connStr := os.Getenv("PG_TEST_URL")
-	if connStr == "" {
-		connStr = os.Getenv("DATABASE_URL")
-	}
-	if connStr == "" {
-		t.Skip("skipping: set PG_TEST_URL or DATABASE_URL")
-	}
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		t.Fatalf("open postgres: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	database, _ := testpg.Open(t)
+	return database
 }
 
 func TestJobStore_CreateGet_roundtrip(t *testing.T) {

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .postgres_backend import PostgresVectorBackend
 
+from .validation import validate_search, validate_vector, vector_dimension
+
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_BACKENDS = frozenset({"inmem", "postgres"})
@@ -16,7 +18,8 @@ _SUPPORTED_BACKENDS = frozenset({"inmem", "postgres"})
 class VectorMemoryService:
     _MAX_ENTRIES = 10_000
 
-    def __init__(self) -> None:
+    def __init__(self, *, dimension: int | None = None) -> None:
+        self._dimension = vector_dimension(dimension)
         self._store: dict[str, dict] = {}
         self._mu = threading.RLock()
         self._store_order: list[str] = []
@@ -35,7 +38,7 @@ class VectorMemoryService:
             if self._pg_backend is not None:
                 return self._pg_backend
             from .postgres_backend import PostgresVectorBackend
-            self._pg_backend = PostgresVectorBackend()
+            self._pg_backend = PostgresVectorBackend(dimension=self._dimension)
             return self._pg_backend
 
     # ── Public API ─────────────────────────────────────────────────────
@@ -45,6 +48,9 @@ class VectorMemoryService:
         metadata: dict[str, str], backend: str = "postgres",
     ) -> str:
         self._validate_backend(backend)
+        validate_vector(embedding, self._dimension)
+        if not entry_id.strip():
+            raise ValueError("Vector ID must not be empty")
         if backend == "postgres":
             return self._get_pg().store(entry_id, embedding, content, metadata)
         with self._mu:
@@ -53,8 +59,8 @@ class VectorMemoryService:
                 self._store.pop(oldest, None)
                 logger.warning("Evicted oldest entry %s (store at capacity %d)", oldest, self._MAX_ENTRIES)
             self._store[entry_id] = {
-                "id": entry_id, "embedding": embedding,
-                "content": content, "metadata": metadata,
+                "id": entry_id, "embedding": list(embedding),
+                "content": content, "metadata": dict(metadata),
             }
             if entry_id not in self._store_order:
                 self._store_order.append(entry_id)
@@ -67,6 +73,7 @@ class VectorMemoryService:
         backend: str = "postgres",
     ) -> list[dict]:
         self._validate_backend(backend)
+        validate_search(query_embedding, self._dimension, top_k, threshold)
         if backend == "postgres":
             return self._get_pg().search(query_embedding, top_k, threshold, filters)
         results: list[dict] = []
@@ -80,7 +87,7 @@ class VectorMemoryService:
                 results.append({
                     "id": entry["id"], "score": score,
                     "content": entry["content"],
-                    "metadata": entry.get("metadata", {}),
+                    "metadata": dict(entry.get("metadata", {})),
                 })
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_k]
@@ -110,4 +117,4 @@ class VectorMemoryService:
         norm_b = math.sqrt(sum(x * x for x in b))
         if norm_a == 0 or norm_b == 0:
             return 0.0
-        return dot / (norm_a * norm_b)
+        return max(-1.0, min(1.0, dot / (norm_a * norm_b)))

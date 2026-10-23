@@ -1,0 +1,89 @@
+name: Distribution verification
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop-native:
+    name: macOS arm64 desktop and private database
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install pinned desktop dependencies and vendor runtime
+        run: |
+          npm ci --prefix desktop
+          npm audit --prefix desktop --audit-level=high
+          node desktop/node_modules/electron/install.js
+          node scripts/prepare-desktop.mjs
+      - name: Verify native resource checksums, architecture and loader dependencies
+        run: python3 scripts/audit-desktop-resources.py .cache/desktop-resources > .cache/desktop-resource-inventory.json
+      - name: Create isolated test Keychain for genuine credential encryption
+        run: |
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          keychain="$RUNNER_TEMP/overkill-tests.keychain-db"
+          security create-keychain -p "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -d user -s "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+      - name: Native database ownership, persistence and crash recovery
+        env:
+          OVERKILL_REQUIRE_LOCALDB_TEST: '1'
+        run: OVERKILL_POSTGRES_BIN_DIR="$PWD/.cache/desktop-resources/postgres/bin" go test -race -count=1 -timeout=2m ./internal/localdb
+      - name: Mandatory real desktop setup, file write, cancellation, shutdown and relaunch
+        env:
+          OVERKILL_REQUIRE_DESKTOP_TEST: '1'
+        run: npm test --prefix desktop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-native-evidence
+          path: |
+            .cache/desktop-chat-acceptance.png
+            .cache/desktop-resources/resource-manifest.json
+            .cache/desktop-resource-inventory.json
+  docker-startup:
+    name: Docker image and fresh PostgreSQL startup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image and verify bundled runtime, configuration and authenticated API
+        run: bash scripts/verify-docker.sh
+  windows-installer:
+    name: Windows installer verification
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Native default configuration regression
+        env:
+          CGO_ENABLED: '0'
+        run: go test ./cmd/overkill -run TestInitializeDefaultConfig -count=1
+      - name: Installer checksum fixtures
+        shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+          OVERKILL_INSTALLER_TEST_BINARY: ${{ runner.temp }}/overkill-installer-fixture.exe
+        run: |
+          go build -trimpath -o $env:OVERKILL_INSTALLER_TEST_BINARY ./cmd/overkill
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to build installer fixture application' }
+          ./scripts/tests/test_installer_windows.ps1

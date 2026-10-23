@@ -20,12 +20,7 @@ func TestOpen_EmptyConnString(t *testing.T) {
 }
 
 func TestMigrate_NilDB(t *testing.T) {
-	// Should panic (nil pointer dereference) — this is expected behavior
-	// for a nil *sql.DB. Document this in the test.
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic on nil db")
-		}
-	}()
-	_ = Migrate(nil)
+	if err := Migrate(nil); err == nil {
+		t.Fatal("expected actionable error for nil database")
+	}
 }

@@ -4,13 +4,14 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "dev": "tsx src/entry.tsx",
-    "start": "tsx src/entry.tsx",
+    "start": "node dist/entry.js",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:build": "node --test tests/build.test.mjs tests/panels.test.mjs tests/sandbox-setting.test.mjs tests/coordination.test.mjs tests/chat-completion.test.mjs tests/clarification.test.mjs tests/theme.test.mjs"
   },
   "dependencies": {
     "ink": "^6.8.0",

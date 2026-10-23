@@ -38,15 +38,18 @@ type AgentSender interface {
 // Config drives Server construction. Token is required unless NoAuth is true
 // (only meaningful with a localhost listen address).
 type Config struct {
-	Addr         string
-	Token        string
-	NoAuth       bool
-	Agent        AgentSender            // required for /api/send to work
-	Store        session.Store          // optional; persistence
-	Catalog      *providers.Catalog     // optional; powers the model picker
-	PairingStore *security.PairingStore // optional; powers the /api/pairing/* endpoints
-	Provider     string
-	Version      string
+	Addr             string
+	Token            string
+	NoAuth           bool
+	Agent            AgentSender            // required for /api/send to work
+	Store            session.Store          // optional; persistence
+	Flows            *FlowStore             // optional; durable managed workflow records
+	Canvas           *CanvasStore           // optional; durable canvas state
+	CanvasChromePath string                 // trusted administrator browser executable for snapshots
+	Catalog          *providers.Catalog     // optional; powers the model picker
+	PairingStore     *security.PairingStore // optional; powers the /api/pairing/* endpoints
+	Provider         string
+	Version          string
 }
 
 // Server is the HTTP front for the web UI.
@@ -54,9 +57,12 @@ type Server struct {
 	cfg     Config
 	httpSrv *http.Server
 
-	bus     *eventBus
-	mu      sync.Mutex
-	streams map[string]context.CancelFunc // sessionID -> cancel of in-flight stream
+	bus                   *eventBus
+	mu                    sync.Mutex
+	streams               map[string]context.CancelFunc // sessionID -> cancel of in-flight stream
+	canvasSnapshotSlots   chan struct{}
+	canvasSnapshotContext context.Context
+	canvasSnapshotCancel  context.CancelFunc
 }
 
 // NewServer wires the routes; Start binds the listener.
@@ -67,10 +73,14 @@ func NewServer(cfg Config) *Server {
 	if cfg.Version == "" {
 		cfg.Version = "dev"
 	}
+	snapshotContext, snapshotCancel := context.WithCancel(context.Background())
 	return &Server{
-		cfg:     cfg,
-		bus:     newEventBus(),
-		streams: make(map[string]context.CancelFunc),
+		canvasSnapshotContext: snapshotContext,
+		canvasSnapshotCancel:  snapshotCancel,
+		cfg:                   cfg,
+		bus:                   newEventBus(),
+		streams:               make(map[string]context.CancelFunc),
+		canvasSnapshotSlots:   make(chan struct{}, 2),
 	}
 }
 
@@ -94,14 +104,14 @@ func (s *Server) Handler() http.Handler {
 	// inner json.NewDecoder reads until EOF and would otherwise hold
 	// the full body in memory.
 	mux.HandleFunc("/api/info", s.auth(s.handleInfo))
+	mux.HandleFunc("/api/auth", s.handleBrowserAuth)
 	mux.HandleFunc("/api/sessions", s.auth(limitBody(s.handleSessions)))
 	mux.HandleFunc("/api/sessions/", s.auth(limitBody(s.handleSessionSub)))
 	mux.HandleFunc("/api/send", s.auth(limitBody(s.handleSend)))
 	mux.HandleFunc("/api/cancel", s.auth(limitBody(s.handleCancel)))
 	mux.HandleFunc("/api/models", s.auth(s.handleModels))
 	mux.HandleFunc("/api/events", s.auth(s.handleEvents))
-	// Unified flow system (§7.1.5-7.1.8) — unregistered until task-flow storage is wired.
-	// s.flowRoutes(mux)
+	s.flowRoutes(mux)
 	s.pairingRoutes(mux)
 	s.canvasRoutes(mux)
 	return mux
@@ -137,6 +147,7 @@ func (s *Server) Start() error {
 
 // Shutdown stops the HTTP server and closes any active streams.
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.canvasSnapshotCancel()
 	s.mu.Lock()
 	for _, cancel := range s.streams {
 		cancel()
@@ -177,10 +188,11 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func tokenFromRequest(r *http.Request) string {
-	// Bearer header only. Query-param tokens (`?t=...`) used to be
+	// Direct clients use a bearer header; the browser uses the authenticated
+	// HttpOnly session cookie. Query-param tokens (`?t=...`) used to be
 	// accepted, but URLs are logged by every reverse proxy / browser
 	// history / access log on the path — a query-param bearer is a
-	// guaranteed credential leak. Header-only is the right default.
+	// guaranteed credential leak. They are not credentials.
 	if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
 		return strings.TrimPrefix(a, "Bearer ")
 	}
@@ -247,18 +259,6 @@ func (s *Server) handleIndex(sub fs.FS) http.HandlerFunc {
 		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
 			http.NotFound(w, r)
 			return
-		}
-		// First-load token plumbing: ?t=… sets the cookie only once.
-		// Subsequent ?t= values from the same session are ignored to
-		// prevent cookie-overwrite attacks via crafted links.
-		if t := r.URL.Query().Get("t"); t != "" {
-			if _, err := r.Cookie("overkill-token"); err == http.ErrNoCookie {
-				http.SetCookie(w, &http.Cookie{
-					Name: "overkill-token", Value: t, Path: "/",
-					MaxAge: 60 * 60 * 24 * 365, SameSite: http.SameSiteStrictMode,
-					HttpOnly: true, Secure: true,
-				})
-			}
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -551,6 +551,10 @@ type wsEvent struct {
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if !browserSameOrigin(r) {
+		http.Error(w, "same origin required", http.StatusForbidden)
+		return
+	}
 	conn, err := upgradeWS(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

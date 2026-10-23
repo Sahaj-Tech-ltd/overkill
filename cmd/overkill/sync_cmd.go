@@ -3,10 +3,10 @@ package main
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -105,11 +105,12 @@ func openSyncManager() (*sync.Manager, session.Store, error) {
 	if connString == "" {
 		return nil, nil, fmt.Errorf("sync: DATABASE_URL must be set for Postgres backend")
 	}
-	db, err := sql.Open("postgres", connString)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	store, err := session.OpenPostgresStore(ctx, connString)
 	if err != nil {
-		return nil, nil, fmt.Errorf("sync: open postgres: %w", err)
+		return nil, nil, fmt.Errorf("sync: open session store: %w", err)
 	}
-	store := session.NewPostgresStore(db)
 	return sync.NewManager(store, be), store, nil
 }
 

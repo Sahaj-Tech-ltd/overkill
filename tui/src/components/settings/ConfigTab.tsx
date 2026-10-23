@@ -415,14 +415,9 @@ export function ConfigTab({
       },
       {
         id: "security.sandbox_enabled",
-        label: "Sandbox enabled",
-        type: "boolean" as const,
-        value: security.sandbox_enabled ?? false,
-        onChange: persistBoolean(
-          ["security", "sandbox_enabled"],
-          "Sandbox enabled",
-          security.sandbox_enabled ?? false,
-        ),
+        label: "Execution sandbox",
+        type: "text" as const,
+        value: "Unavailable — tools run on the host",
       },
       {
         id: "session.auto_title",
@@ -736,6 +731,9 @@ export function ConfigTab({
             <Text dimColor>{" ▸"}</Text>
           </Box>
         );
+      }
+      if (setting.type === "text") {
+        return <Text dimColor>{setting.value}</Text>;
       }
       // managedEnum
       return (

@@ -52,7 +52,7 @@ func TestNoAuthBypass(t *testing.T) {
 	}
 }
 
-func TestIndexSetsCookieFromQuery(t *testing.T) {
+func TestIndexDoesNotSetCookieFromQuery(t *testing.T) {
 	srv := NewServer(Config{Token: "shh", Provider: "test", Version: "test"})
 	hs := httptest.NewServer(srv.Handler())
 	defer hs.Close()
@@ -61,14 +61,8 @@ func TestIndexSetsCookieFromQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	res.Body.Close()
-	found := false
-	for _, c := range res.Cookies() {
-		if c.Name == "overkill-token" && c.Value == "shh" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("cookie not set; got %v", res.Cookies())
+	if cookies := res.Cookies(); len(cookies) != 0 {
+		t.Fatalf("URL token must not become a credential: %v", cookies)
 	}
 }
 

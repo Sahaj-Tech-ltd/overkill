@@ -10,8 +10,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Success-path tests inject their runner explicitly. Production defaults must
+// never manufacture a successful delegation when credentials are unavailable.
 func newTestManager() *subagent.Manager {
-	return subagent.NewManager(subagent.Config{MaxDepth: 2, MaxChildren: 5})
+	manager := subagent.NewManager(subagent.Config{MaxDepth: 2, MaxChildren: 5})
+	manager.SetWorkerFactory(func(cfg subagent.RealWorkerConfig) (subagent.WorkerRunner, error) {
+		return delegateTestRunner{cfg: cfg}, nil
+	})
+	return manager
+}
+
+type delegateTestRunner struct{ cfg subagent.RealWorkerConfig }
+
+func (r delegateTestRunner) Run(ctx context.Context) (*subagent.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return &subagent.Result{TaskIndex: r.cfg.TaskIndex, Status: "completed", Summary: r.cfg.Goal, ExitReason: "completed"}, nil
 }
 
 func TestDelegateTool_Name(t *testing.T) {
@@ -47,6 +62,8 @@ func TestDelegateTool_SingleGoal(t *testing.T) {
 	var result subagent.Result
 	require.NoError(t, json.Unmarshal(out, &result))
 	assert.Equal(t, "completed", result.Status)
+	assert.Equal(t, "fix the auth bug", result.Summary)
+	assert.Empty(t, result.FilesWritten)
 }
 
 func TestDelegateTool_BatchTasks(t *testing.T) {
@@ -69,6 +86,8 @@ func TestDelegateTool_BatchTasks(t *testing.T) {
 	require.Len(t, wrapper.Results, 2)
 	for i, r := range wrapper.Results {
 		assert.Equal(t, "completed", r.Status, "task %d status", i)
+		assert.Equal(t, i, r.TaskIndex)
+		assert.Empty(t, r.FilesWritten)
 	}
 }
 
@@ -150,4 +169,41 @@ func (f *fakeStepDriver) CheckOutput(ctx context.Context, _ []subagent.Output) [
 		return f.specs
 	}
 	return nil
+}
+
+func TestDelegateTool_DefaultRequiresToolCapableWorker(t *testing.T) {
+	for _, batch := range []bool{false, true} {
+		manager := subagent.NewManager(subagent.Config{MaxDepth: 2, MaxChildren: 5})
+		tool := NewDelegateTool(manager)
+		input := json.RawMessage(`{"goal":"read and patch a workspace file"}`)
+		expectedCount := 1
+		if batch {
+			input = json.RawMessage(`{"tasks":[{"goal":"first file"},{"goal":"second file"}]}`)
+			expectedCount = 2
+		}
+		out, err := tool.Execute(context.Background(), input)
+		require.ErrorIs(t, err, subagent.ErrUnsupportedCapability)
+		assert.Contains(t, err.Error(), "tool-capable contract driver")
+		assert.Empty(t, out, "unconfigured tools must not return invented completed payloads")
+		assert.Zero(t, manager.ActiveCount())
+		cost := manager.CostSummary()
+		assert.Equal(t, expectedCount, cost.ChildrenCount)
+		assert.Zero(t, cost.TotalIn)
+		assert.Zero(t, cost.TotalOut)
+		assert.Zero(t, cost.TotalCost)
+	}
+}
+
+func TestDelegateTool_DefaultContractRequiresActualDriver(t *testing.T) {
+	manager := subagent.NewManager(subagent.Config{})
+	tool := NewDelegateTool(manager)
+	out, err := tool.Execute(context.Background(), json.RawMessage(`{"wait":true,"contract":{"id":"unsupported-tools","goal":"edit a file","expected_outputs":[{"kind":"file","spec":"out.go"}],"on_context_full":"compact_and_continue"}}`))
+	require.NoError(t, err)
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(out, &response))
+	assert.Contains(t, response["error"], "driver factory")
+	assert.NotContains(t, response, "final_report")
+	assert.NotContains(t, response, "status")
+	assert.Empty(t, manager.AutonomousList())
+	assert.Zero(t, manager.CostSummary().ChildrenCount)
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"sync"
 	"time"
 )
@@ -241,6 +242,8 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 
 	var findings []Finding
 	maxLevel := ThreatNone
+	requiredPatterns := map[string]bool{}
+	nonOverridable := false
 
 	// Length cap (Security.MaxCommandLen). Wired from user config so
 	// a paranoid deployment can refuse pathologically long inputs
@@ -253,6 +256,7 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 			Confidence:  1.0,
 		})
 		maxLevel = ThreatHigh
+		nonOverridable = true
 	}
 
 	for _, p := range s.patterns {
@@ -266,8 +270,34 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 				Match:       match,
 				Confidence:  p.confidence,
 			})
+			if p.level >= ThreatHigh {
+				if p.id == "" {
+					nonOverridable = true
+				} else {
+					requiredPatterns[p.id] = true
+				}
+			}
 			if p.level > maxLevel {
 				maxLevel = p.level
+			}
+		}
+	}
+
+	// AST inspection canonicalizes flag ordering, quoting and pipeline commands.
+	// This scanner also accepts prose; command entry points handle parse errors.
+	if structural, err := ShellSyntaxFindings(input); err == nil {
+		for _, f := range structural {
+			findings = append(findings, f)
+			if f.Level >= ThreatHigh {
+				id := shellFindingPattern(f)
+				if id == "" {
+					nonOverridable = true
+				} else {
+					requiredPatterns[id] = true
+				}
+			}
+			if f.Level > maxLevel {
+				maxLevel = f.Level
 			}
 		}
 	}
@@ -278,6 +308,9 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 	// $(...|base64...), xxd -r | bash) which have no legitimate
 	// purpose in agent traffic. See decode.go for the full rationale.
 	for _, f := range s.decodeAndScan(input) {
+		if f.Level >= ThreatHigh {
+			nonOverridable = true
+		}
 		findings = append(findings, f)
 		if f.Level > maxLevel {
 			maxLevel = f.Level
@@ -304,39 +337,21 @@ func (s *CommandScanner) Scan(input string) (*ScanResult, error) {
 
 	blocked := maxLevel >= ThreatHigh || rateLimited
 
-	if s.permissions != nil && blocked {
-		// Only consult the permission manager for patterns that actually
-		// matched THIS input. Iterating every pattern and checking on its
-		// id (some of which used to be "") meant a single AllowOnce on
-		// the empty key would silently un-block any future scan.
-		matched := make(map[string]bool, len(findings))
-		for _, p := range s.patterns {
-			if p.id == "" {
-				continue
-			}
-			if p.regex.MatchString(input) {
-				matched[p.id] = true
-			}
+	if rateLimited {
+		requiredPatterns["rate_limit"] = true
+	}
+	// An approval applies to its pattern only. A command with multiple hazards
+	// requires all grants; unknown/encoded hazards cannot inherit another grant.
+	if s.permissions != nil && blocked && !nonOverridable && len(requiredPatterns) > 0 {
+		ids := make([]string, 0, len(requiredPatterns))
+		for id := range requiredPatterns {
+			ids = append(ids, id)
 		}
-		// Rate-limit-only blocks have no matching pattern, so the loop
-		// above produces an empty `matched` set and the user has no
-		// path to override. Inject a synthetic pseudo-id so AllowOnce /
-		// AllowProject on "rate_limit" lets a power user re-enable a
-		// command that's been hammering the limiter.
-		if rateLimited {
-			matched["rate_limit"] = true
-		}
-		for id := range matched {
-			status := s.permissions.Check(id, input, s.projectPath)
-			if status.Action == ActionAllowOnce || status.Action == ActionAllowProject {
-				findings = append(findings, Finding{
-					Type:        "permission_override",
-					Level:       ThreatNone,
-					Description: fmt.Sprintf("blocked by %s, but allowed by permission", id),
-					Confidence:  1.0,
-				})
-				blocked = false
-				break
+		sort.Strings(ids)
+		if s.permissions.consumeAll(ids, input, s.projectPath) {
+			blocked = false
+			for _, id := range ids {
+				findings = append(findings, Finding{Type: "permission_override", Level: ThreatNone, Description: fmt.Sprintf("blocked by %s, but allowed by permission", id), Confidence: 1})
 			}
 		}
 	}
@@ -375,4 +390,16 @@ func (s *CommandScanner) checkAndRecord() bool {
 	}
 	s.timestamps = append(valid, now)
 	return false
+}
+
+func shellFindingPattern(f Finding) string {
+	switch f.Description {
+	case "recursive force delete (root/home/current dir)":
+		return "rm_rf_root"
+	case "raw disk write":
+		return "dd_raw_disk"
+	case "direct device write":
+		return "direct_device_write"
+	}
+	return ""
 }

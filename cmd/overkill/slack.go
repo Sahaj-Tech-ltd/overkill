@@ -13,7 +13,6 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/agent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/db"
-	"github.com/Sahaj-Tech-ltd/overkill/internal/hooks"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/slack"
@@ -93,6 +92,7 @@ func runSlack(cmd *cobra.Command, args []string) error {
 
 	prov, err := providers.NewProvider(providers.FactoryConfig{
 		Name:    providerCfg.Name,
+		Models:  providerCfg.ProviderModels(),
 		Type:    providerCfg.Type,
 		APIKey:  apiKey,
 		BaseURL: providerCfg.BaseURL,
@@ -143,23 +143,35 @@ func runSlack(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── Agent ───────────────────────────────────────────────────────
+	limits := providers.TokenLimitsFor(prov.Models(), cfg.Agent.MaxOutputTokens)
+	contextWindow, outputTokens, err := limits(modelName)
+	if err != nil {
+		return fmt.Errorf("agent token limits: %w", err)
+	}
+	hookRegistry, err := loadConfiguredHooks()
+	if err != nil {
+		return fmt.Errorf("load user hooks: %w", err)
+	}
 	ag := agent.New(agent.Config{
 		Provider:    prov,
 		Tools:       toolReg,
 		Compressors: tools.NewCompressorRegistry(),
-		Hooks:       hooks.NewRegistry(),
+		Hooks:       hookRegistry,
 		Scanners: []security.Scanner{
 			security.NewCommandScanner(
 				security.WithProjectPath(cwd),
 			),
 			security.NewInjectionScanner(),
 		},
-		Tokenizer:    tokenizer.NewEstimator(),
-		Steering:     agent.NewSteeringQueue(agent.SteeringDrainAll),
-		Model:        modelName,
-		MaxTokens:    200000,
-		SystemPrompt: sysPrompt,
+		Tokenizer:     tokenizer.NewEstimator(),
+		Steering:      agent.NewSteeringQueue(agent.SteeringDrainAll),
+		Model:         modelName,
+		MaxTokens:     outputTokens,
+		ContextWindow: contextWindow,
+		TokenLimits:   limits,
+		SystemPrompt:  sysPrompt,
 	})
+	defer ag.Shutdown()
 
 	// ── Postgres session store ──────────────────────────────────────
 	connString := os.Getenv("DATABASE_URL")

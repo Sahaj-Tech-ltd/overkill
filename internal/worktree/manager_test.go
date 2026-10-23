@@ -182,3 +182,38 @@ func TestSanitizeBranch(t *testing.T) {
 
 // guarantee filepath import lands once go vet runs.
 var _ = filepath.Join
+
+func TestManager_ReclaimThroughSymlinkedRepo(t *testing.T) {
+	repo := initRepo(t)
+	alias := filepath.Join(t.TempDir(), "repo-alias")
+	if err := os.Symlink(repo, alias); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewManager(alias, "")
+	tree, err := owner.Acquire("recover", AcquireOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Release("recover", ReleaseOptions{Force: true})
+	restored := NewManager(alias, "")
+	if err := restored.Reclaim(); err != nil {
+		t.Fatal(err)
+	}
+	recovered := restored.Get("recover")
+	if recovered == nil {
+		t.Fatal("worktree was not reclaimed via symlinked repo")
+	}
+	expected, err := filepath.EvalSymlinks(tree.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Path != expected {
+		t.Fatalf("got %q want canonical %q", recovered.Path, expected)
+	}
+	if err := restored.Reclaim(); err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.List()) != 1 {
+		t.Fatal("reclaim is not idempotent")
+	}
+}

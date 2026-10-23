@@ -39,6 +39,21 @@ type Sink interface {
 	Send(ctx context.Context, evt CompletionEvent) error
 }
 
+// SinkPanicError identifies a failed sink dispatch without treating recovery as
+// successful delivery. An error-valued panic remains available to errors.Is.
+type SinkPanicError struct {
+	Sink  string
+	Value any
+}
+
+func (err *SinkPanicError) Error() string { return fmt.Sprintf("panic: %v", err.Value) }
+func (err *SinkPanicError) Unwrap() error {
+	if cause, ok := err.Value.(error); ok {
+		return cause
+	}
+	return nil
+}
+
 // Emitter fans CompletionEvents out to a set of Sinks concurrently.
 type Emitter struct {
 	sinks []Sink
@@ -71,14 +86,17 @@ func (e *Emitter) Emit(ctx context.Context, evt CompletionEvent) error {
 		i, s := i, s
 		go func() {
 			defer wg.Done()
+			results[i].name = fmt.Sprintf("sink[%d]", i)
 			defer func() {
 				if r := recover(); r != nil {
+					results[i].err = &SinkPanicError{Sink: results[i].name, Value: r}
 					log.Printf("events: sink dispatch goroutine panic: %v\n%s", r, debug.Stack())
 				}
 			}()
 			sinkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
-			results[i] = result{name: s.Name(), err: s.Send(sinkCtx, evt)}
+			results[i].name = s.Name()
+			results[i].err = s.Send(sinkCtx, evt)
 		}()
 	}
 	wg.Wait()

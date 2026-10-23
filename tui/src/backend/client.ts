@@ -10,6 +10,7 @@ import type {
 const DEFAULT_PORT = 3000;
 
 function getBaseUrl(): string {
+  if (process.env["OVERKILL_API_URL"]) return process.env["OVERKILL_API_URL"];
   const port = process.env["OVERKILL_API_PORT"] ?? String(DEFAULT_PORT);
   return `http://localhost:${port}`;
 }
@@ -21,8 +22,12 @@ export class BackendClient {
   // stream ends. Call cancel() to abort the in-flight fetch.
   private streamAbort: AbortController | null = null;
 
-  constructor(baseUrl?: string) {
+  constructor(baseUrl?: string, private token = process.env["OVERKILL_API_TOKEN"] ?? "") {
     this.baseUrl = baseUrl ?? getBaseUrl();
+  }
+
+  private headers(): Record<string, string> {
+    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
   }
 
   private nextId(): number {
@@ -37,7 +42,7 @@ export class BackendClient {
     }
   }
 
-  async call<T = unknown>(method: string, params?: unknown): Promise<T> {
+  async call<T = unknown>(method: string, params?: unknown, options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<T> {
     const body: JSONRPCRequest = {
       jsonrpc: "2.0",
       method,
@@ -47,7 +52,8 @@ export class BackendClient {
 
     const res = await fetch(`${this.baseUrl}/rpc`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      signal: options?.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 10_000)]) : AbortSignal.timeout(options?.timeoutMs ?? 10_000),
+      headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
 
@@ -82,6 +88,7 @@ export class BackendClient {
       try {
         const res = await fetch(url.toString(), {
           signal: controller.signal,
+          headers: this.headers(),
         });
 
         if (!res.ok) {
@@ -127,7 +134,7 @@ export class BackendClient {
     this.streamAbort = controller;
 
     try {
-      const res = await fetch(url.toString(), { signal: controller.signal });
+      const res = await fetch(url.toString(), { signal: controller.signal, headers: this.headers() });
 
       if (!res.ok) {
         throw new Error(`SSE ${res.status}: ${res.statusText}`);
@@ -196,15 +203,25 @@ export class BackendClient {
     }
   }
 
-  async health(): Promise<boolean> {
+  async get<T>(path: string, params: Record<string, string>, options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<T> {
+    const url = new URL(`${this.baseUrl}${path}`);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    const signal = options?.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 10_000)]) : AbortSignal.timeout(options?.timeoutMs ?? 10_000);
+    const res = await fetch(url, { headers: this.headers(), signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    return await res.json() as T;
+  }
+
+  async health(signal?: AbortSignal, timeoutMs = 3000): Promise<boolean> {
     try {
       const res = await fetch(`${this.baseUrl}/health`, {
-        method: "GET",
+        method: "GET", headers: this.headers(),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
       });
-      return res.ok;
-    } catch {
-      return false;
-    }
+      const ok = res.ok;
+      await res.body?.cancel();
+      return ok;
+    } catch { return false; }
   }
 
   async estop(): Promise<string> {

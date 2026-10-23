@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.26"
   GOLANGCI_LINT_VERSION: "v2.12.1"
   GOTOOLCHAIN: auto
 
@@ -19,12 +19,6 @@ jobs:
   go-lint:
     name: golangci-lint
     runs-on: ubuntu-latest
-    defaults:
-      run:
-    defaults:
-      run:
-    defaults:
-      run:
     timeout-minutes: 10
     # Non-blocking quality gate — golangci-lint version compatibility with
     # bleeding-edge Go toolchains is brittle. go vet is the hard gate.

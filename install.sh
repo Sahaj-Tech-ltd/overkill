@@ -11,17 +11,17 @@
 #   INSTALL_VERBOSE=1              verbose output
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Sahaj-Tech-ltd/overkill/main/prod/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Sahaj-Tech-ltd/overkill/main/install.sh | sh
 #   sh install.sh
 
 set -eu
 
 REPO="Sahaj-Tech-ltd/overkill"
 GO_PKG="github.com/Sahaj-Tech-ltd/overkill/cmd/overkill"
-RELEASE_BASE="https://github.com/${REPO}/releases/latest/download"
+RELEASE_BASE="${OVERKILL_RELEASE_BASE:-https://github.com/${REPO}/releases/latest/download}"
 
 INSTALL_DIR="${OVERKILL_INSTALL_DIR:-${HOME}/.local/bin}"
-OVERKILL_HOME="${HOME}/.overkill"
+OVERKILL_HOME="${OVERKILL_HOME:-${HOME}/.overkill}"
 VERBOSE="${INSTALL_VERBOSE:-0}"
 
 # ---------------------------------------------------------------- helpers
@@ -43,14 +43,14 @@ detect_platform() {
         Darwin) os=darwin ;;
         MINGW*|MSYS*|CYGWIN*)
             die "Native Windows detected. Use the PowerShell installer instead:
-  irm https://raw.githubusercontent.com/Sahaj-Tech-ltd/overkill/main/prod/install.ps1 | iex
+  irm https://raw.githubusercontent.com/Sahaj-Tech-ltd/overkill/main/install.ps1 | iex
 Or use WSL with this installer, or build from source: 'go install ${GO_PKG}@latest'."
             ;;
         *) die "unsupported OS: $uname_s" ;;
     esac
 
     case "$uname_m" in
-        x86_64|amd64) arch=x86_64 ;;
+        x86_64|amd64) arch=amd64 ;;
         arm64|aarch64) arch=arm64 ;;
         *) die "unsupported architecture: $uname_m" ;;
     esac
@@ -122,7 +122,7 @@ step_download_binary() {
     need curl
     asset="overkill-${PLATFORM}-${ARCH}"
     url="${RELEASE_BASE}/${asset}"
-    sha_url="${url}.sha256"
+    sha_url="${RELEASE_BASE}/checksums.txt"
     tmp=$(mktemp -d 2>/dev/null || mktemp -d -t overkill)
     trap 'rm -rf "$tmp"' EXIT
 
@@ -131,22 +131,20 @@ step_download_binary() {
         die "failed to download $url — try OVERKILL_BUILD_FROM_SOURCE=1 with Go on PATH"
     fi
 
-    # SHA256 verify if a sibling .sha256 exists upstream.
-    if curl -fsSL "$sha_url" -o "${tmp}/overkill.sha256" 2>/dev/null; then
-        say "verifying SHA256"
-        expected=$(awk '{print $1}' "${tmp}/overkill.sha256")
-        if command -v sha256sum >/dev/null 2>&1; then
-            actual=$(sha256sum "${tmp}/overkill" | awk '{print $1}')
-        elif command -v shasum >/dev/null 2>&1; then
-            actual=$(shasum -a 256 "${tmp}/overkill" | awk '{print $1}')
-        else
-            say "warning: no sha256sum/shasum available, skipping verification"
-            actual="$expected"
-        fi
-        [ "$actual" = "$expected" ] || die "SHA256 mismatch: expected $expected got $actual"
+    say "verifying SHA256"
+    curl -fsSL "$sha_url" -o "${tmp}/checksums.txt" || die "required checksums.txt download failed"
+    expected=$(awk -v asset="$asset" 'NF == 2 && $2 == asset {print $1}' "${tmp}/checksums.txt")
+    [ "${#expected}" -eq 64 ] || die "missing or ambiguous checksum for $asset"
+    case "$expected" in *[!0-9a-fA-F]*) die "invalid SHA256 checksum for $asset" ;; esac
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "${tmp}/overkill" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        actual=$(shasum -a 256 "${tmp}/overkill" | awk '{print $1}')
     else
-        vsay "no .sha256 sibling found, skipping checksum verification (pre-release)"
+        die "SHA256 verification requires sha256sum or shasum"
     fi
+    expected=$(printf '%s' "$expected" | tr 'A-F' 'a-f')
+    [ "$actual" = "$expected" ] || die "SHA256 mismatch for $asset"
 
     chmod +x "${tmp}/overkill"
     BIN_PATH="${INSTALL_DIR}/overkill"
@@ -194,25 +192,7 @@ step_bootstrap_home() {
 
     cfg="${OVERKILL_HOME}/config.toml"
     if [ ! -f "$cfg" ]; then
-        cat > "$cfg" <<'EOF'
-# overkill config — edit freely. Run `overkill doctor` to validate.
-
-[agent]
-default_model = "anthropic/claude-sonnet-4-5"
-max_tokens    = 8192
-temperature   = 0.2
-
-[providers.anthropic]
-type    = "anthropic"
-api_key = "${ANTHROPIC_API_KEY}"
-
-[providers.openai]
-type    = "openai"
-api_key = "${OPENAI_API_KEY}"
-
-[ui]
-theme = "catppuccin-mocha"
-EOF
+        "$BIN_PATH" --config "$cfg" config init || die "default configuration initialization failed"
         say "wrote default config to $cfg"
     else
         vsay "config already present at $cfg, leaving untouched"
@@ -228,7 +208,7 @@ step_finish() {
         printf '  version : %s\n' "$ver"
     fi
     printf '\nNext steps:\n'
-    printf '  1. run `overkill` to launch the TUI\n'
+    printf '  1. configure PostgreSQL and install frontend assets before interactive mode\n'
     printf '  2. run `overkill doctor` to self-check every subsystem\n'
     printf '  3. run `overkill --help` for the CLI surface\n'
 }
@@ -247,4 +227,4 @@ main() {
     step_finish
 }
 
-main "$@"
+if [ "${OVERKILL_INSTALLER_SOURCE_ONLY:-0}" != 1 ]; then main "$@"; fi

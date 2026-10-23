@@ -29,6 +29,12 @@ import (
 // FlowState is what gets persisted when a task times out. The struct
 // is the on-wire JSON shape — keep fields stable.
 type FlowState struct {
+	Sequential   *SequentialCheckpoint `json:"sequential,omitempty"`
+	LoadedPlan   *LoadedFlowPlan       `json:"loaded_plan,omitempty"`
+	ResumeStatus string                `json:"resume_status,omitempty"`
+	CancelEpoch  int64                 `json:"cancel_epoch,omitempty"`
+	Workspace    string                `json:"workspace,omitempty"`
+	ReadOnly     bool                  `json:"read_only,omitempty"`
 	// ID is the flow's persistence key. Multiple resume attempts share
 	// the same ID so the audit trail is linear.
 	ID string `json:"id"`
@@ -234,7 +240,7 @@ func flowLock(flowID string) *sync.Mutex {
 // Returns the persisted FlowState so the caller can emit it on the
 // stream's final event (which lets the TUI surface "timed out, will
 // resume in N minutes" instead of an opaque error).
-func CheckpointFlow(store FlowStore, flowID, sessionID, userInput, model, provider string, history []providers.Message, step int, reason string) (*FlowState, error) {
+func CheckpointFlow(store FlowStore, flowID, sessionID, userInput, model, provider string, history []providers.Message, step int, reason string, options ...func(*FlowState)) (*FlowState, error) {
 	if store == nil {
 		return nil, fmt.Errorf("flow: store not wired")
 	}
@@ -249,7 +255,8 @@ func CheckpointFlow(store FlowStore, flowID, sessionID, userInput, model, provid
 	// Preserve resume count from any prior checkpoint so MaxResumes
 	// stays accurate across multiple resume attempts.
 	resumes := 0
-	if prior, _ := store.Load(flowID); prior != nil {
+	prior, _ := store.Load(flowID)
+	if prior != nil {
 		resumes = prior.Resumes
 	}
 
@@ -264,6 +271,15 @@ func CheckpointFlow(store FlowStore, flowID, sessionID, userInput, model, provid
 		Reason:    reason,
 		CreatedAt: time.Now().UTC(),
 		Resumes:   resumes,
+	}
+	if prior != nil {
+		state.ResumedAt = append([]time.Time(nil), prior.ResumedAt...)
+		if !prior.CreatedAt.IsZero() {
+			state.CreatedAt = prior.CreatedAt
+		}
+	}
+	for _, option := range options {
+		option(state)
 	}
 	if err := store.Save(state); err != nil {
 		return nil, fmt.Errorf("flow checkpoint: %w", err)

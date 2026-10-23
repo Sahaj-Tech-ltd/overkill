@@ -2,10 +2,13 @@
 package agent
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/dbschema"
 	_ "github.com/lib/pq"
 )
 
@@ -25,19 +28,9 @@ func NewPostgresFlowStore(db *sql.DB) (*PostgresFlowStore, error) {
 }
 
 func (s *PostgresFlowStore) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS flow_states (
-			id          TEXT PRIMARY KEY,
-			session_id  TEXT NOT NULL DEFAULT '',
-			state       JSONB NOT NULL DEFAULT '{}',
-			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_flow_states_session ON flow_states (session_id)`)
-	return err
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return dbschema.FlowStates(ctx, s.db)
 }
 
 // Save serializes state and writes it. Overwrites existing rows.

@@ -68,6 +68,7 @@ func (r *Registry) Unregister(name string) bool {
 }
 
 func (r *Registry) Fire(ctx context.Context, point HookPoint, event Event) (context.Context, error) {
+	event.Point = point
 	r.mu.RLock()
 	hooks := make([]Hook, len(r.hooks[point]))
 	copy(hooks, r.hooks[point])

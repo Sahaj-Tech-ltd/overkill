@@ -15,7 +15,7 @@ import (
 // Best-effort: a provider error returns ("", err) and the caller falls
 // back to the placeholder. Capped at 80 output tokens and a single
 // completion call — this should not be a hot-path cost.
-func (a *Agent) GenerateTitle(ctx context.Context) (string, error) {
+func (a *Agent) GenerateTitle(ctx context.Context) (title string, titleErr error) {
 	a.mu.RLock()
 	hist := make([]providers.Message, 0, len(a.history))
 	for _, m := range a.history {
@@ -32,6 +32,20 @@ func (a *Agent) GenerateTitle(ctx context.Context) (string, error) {
 		return "", nil
 	}
 
+	goalCtx, goalTurn, err := a.beginGoalTurn(ctx)
+	if err != nil {
+		return "", err
+	}
+	ctx = goalCtx
+	if goalTurn != nil {
+		defer goalTurn.cancel(nil)
+		defer func() {
+			if err := goalTurn.RecordTurnEnd(ctx, 0); err != nil {
+				titleErr = err
+			}
+		}()
+	}
+
 	// Trim history to the first two messages — title needs gist, not
 	// the entire transcript. Cheap-model context budget tight by design.
 	if len(hist) > 2 {
@@ -44,11 +58,17 @@ func (a *Agent) GenerateTitle(ctx context.Context) (string, error) {
 		MaxTokens:    80,
 		SystemPrompt: "Output ONLY a 3-7 word title for this conversation. No quotes, no punctuation at the end, no preamble. Just the title.",
 	}
+	if err := checkGoalBudget(ctx); err != nil {
+		return "", err
+	}
 	resp, err := provider.Complete(ctx, req)
+	if usageErr := recordProviderUsage(ctx, usageResponseModel(req.Model, resp), resp.Usage, resp.UsageReported); usageErr != nil {
+		return "", usageErr
+	}
 	if err != nil {
 		return "", err
 	}
-	title := strings.TrimSpace(resp.Content)
+	title = strings.TrimSpace(resp.Content)
 	// Defensive cleanup: strip wrapping quotes / trailing period if the
 	// model ignored the instruction. Truncate to a hard 80-rune cap so
 	// we never persist a runaway title.

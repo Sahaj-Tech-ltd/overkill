@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,14 +106,17 @@ func TestUpdate_UnknownModule(t *testing.T) {
 }
 
 func TestUpdateAll_SkipsDisabled(t *testing.T) {
+	moduleHTTPFixture(t, func(*http.Request) (*http.Response, error) {
+		return moduleResponse(503, []byte("fixture unavailable")), nil
+	})
 	dir := t.TempDir()
 	m, _ := NewManager(dir)
 
 	results, err := m.UpdateAll()
-	// GitHub modules will fail with [NOT IMPLEMENTED] — expected.
+	// The controlled GitHub fixture is unavailable; failures must be reported.
 	// Go-module (postgres) and git (edge-tts) should skip.
 	if err != nil {
-		// This is expected — GitHub-sourced modules return [NOT IMPLEMENTED].
+		// The fixture returns a genuine HTTP failure.
 		// The error shouldn't be empty.
 		if !strings.Contains(err.Error(), "update errors") {
 			t.Fatalf("unexpected error from UpdateAll: %v", err)
@@ -120,7 +124,7 @@ func TestUpdateAll_SkipsDisabled(t *testing.T) {
 	}
 
 	for _, r := range results {
-		// Three valid states: updated, skipped, or errored (GitHub [NOT IMPLEMENTED]).
+		// Three valid states: updated, skipped, or failed.
 		if !r.Skipped && !r.Updated && r.Error == "" {
 			t.Errorf("unexpected result for %s: skipped=%v updated=%v error=%s",
 				r.Module, r.Skipped, r.Updated, r.Error)
@@ -154,14 +158,17 @@ func TestFormatUpdateReport_Empty(t *testing.T) {
 	}
 }
 
-func TestCheckAll_SurfacesNotImplemented(t *testing.T) {
+func TestCheckAll_SurfacesUnavailableReleaseChecks(t *testing.T) {
+	moduleHTTPFixture(t, func(*http.Request) (*http.Response, error) {
+		return moduleResponse(503, []byte("fixture unavailable")), nil
+	})
 	dir := t.TempDir()
 	m, _ := NewManager(dir)
 
-	// superpowers is GitHub-sourced → CheckForUpdates returns [NOT IMPLEMENTED].
+	// A failed release check must be visible, not reported up to date.
 	_, skipped := m.CheckAll()
 	if len(skipped) == 0 {
-		t.Fatal("expected skipped entries for not-yet-implemented GitHub checks")
+		t.Fatal("expected failed release checks in skipped entries")
 	}
 	found := false
 	for _, s := range skipped {

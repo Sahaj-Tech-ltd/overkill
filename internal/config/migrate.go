@@ -114,7 +114,7 @@ func (c *Config) Migrate() (*Config, []string, error) {
 	}
 
 	if len(changes) > 0 {
-		path, err := ConfigPath()
+		path, err := c.PersistencePath()
 		if err != nil {
 			return c, changes, fmt.Errorf("config: getting config path for migration write: %w", err)
 		}

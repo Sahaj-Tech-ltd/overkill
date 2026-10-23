@@ -12,7 +12,7 @@ import (
 )
 
 func TestExport_CreatesFile(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()
@@ -30,7 +30,7 @@ func TestExport_CreatesFile(t *testing.T) {
 }
 
 func TestExport_ContainsSessionInfo(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()
@@ -59,7 +59,7 @@ func TestExport_ContainsSessionInfo(t *testing.T) {
 }
 
 func TestExport_EmptyStore(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()
@@ -77,7 +77,7 @@ func TestExport_EmptyStore(t *testing.T) {
 }
 
 func TestExport_CreatesParentDirs(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()
@@ -100,7 +100,7 @@ func TestExport_CreatesParentDirs(t *testing.T) {
 }
 
 func TestExport_MultipleSessions(t *testing.T) {
-	store := NewPostgresStore(openTestDB(t))
+	store := newTestStore(t, openTestDB(t))
 	defer store.Close()
 
 	ctx := context.Background()

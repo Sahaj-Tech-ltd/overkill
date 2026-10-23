@@ -50,6 +50,7 @@ var pathKeys = map[string]bool{
 // tools take a "path" argument (fs_read) and we'd otherwise verify
 // reads too.
 var WriteToolNames = map[string]bool{
+	"fs":       true, // action-specific; see IsWriteCall
 	"fs_write": true,
 	"fs_edit":  true,
 	"edit":     true,
@@ -60,10 +61,28 @@ var WriteToolNames = map[string]bool{
 	"slice":    true, // overkill's range-write tool
 }
 
-// IsWriteTool reports whether toolName is recognised as a write
-// tool whose output should be verified.
+// IsWriteTool reports whether toolName can write. Multiplexed tools such as
+// fs also require IsWriteCall to distinguish their read and write actions.
 func IsWriteTool(toolName string) bool {
 	return WriteToolNames[strings.ToLower(toolName)]
+}
+
+// IsWriteCall distinguishes mutating actions of multiplexed tools. Merely
+// reading a JSON/Go file must not trigger build checks or write tracking.
+func IsWriteCall(name string, input json.RawMessage) bool {
+	if !IsWriteTool(name) {
+		return false
+	}
+	if strings.EqualFold(name, "fs") {
+		var call struct {
+			Action string `json:"action"`
+		}
+		if json.Unmarshal(input, &call) != nil {
+			return false
+		}
+		return call.Action == "write" || call.Action == "edit"
+	}
+	return true
 }
 
 // ExtractWritePaths scans the tool input JSON for path-typed keys.
@@ -75,7 +94,7 @@ func IsWriteTool(toolName string) bool {
 // Anything that LOOKS like a path under one of pathKeys gets
 // collected.
 func ExtractWritePaths(toolName string, input json.RawMessage) []string {
-	if !IsWriteTool(toolName) || len(input) == 0 {
+	if !IsWriteCall(toolName, input) || len(input) == 0 {
 		return nil
 	}
 	var root any

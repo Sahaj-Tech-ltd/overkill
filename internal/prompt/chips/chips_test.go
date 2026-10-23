@@ -211,3 +211,15 @@ func TestChipConstructionDefaults(t *testing.T) {
 		t.Error("new chips should all be enabled by default")
 	}
 }
+
+func TestDirectoryChipUsesBoundWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	chip := NewDirectoryChip(workspace)
+	actual, err := chip.Value(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual != workspace {
+		t.Fatalf("workspace chip = %q, want %q", actual, workspace)
+	}
+}

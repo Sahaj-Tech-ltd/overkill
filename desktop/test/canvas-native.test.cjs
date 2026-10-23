@@ -1,0 +1,102 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs/promises');
+const path=require('node:path');
+const os=require('node:os');
+const http=require('node:http');
+const {once}=require('node:events');
+const {createHash}=require('node:crypto');
+const {_electron}=require('playwright');
+
+test('native canvas uses persisted RPC state and bundled Electron PNG export', {skip:process.env.OVERKILL_REQUIRE_DESKTOP_TEST!=='1',timeout:90000},async t=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'overkill-canvas-native-'));
+ const profile=path.join(directory,'Profile'),workspace=path.join(directory,'Workspace');await fs.mkdir(workspace);
+ let producerCalls=0;
+ const provider=http.createServer(async(req,res)=>{
+  const chunks=[];for await(const chunk of req)chunks.push(chunk);const body=JSON.parse(Buffer.concat(chunks));
+  assert.equal(req.headers.authorization,'Bearer fake-canvas-fixture-key');
+  const definition=body.tools.find(tool=>tool.function?.name==='canvas');assert.ok(definition,'actual provider receives session-bound canvas tool');
+  assert.equal(definition.function.parameters.additionalProperties,false);assert.equal('session_id' in definition.function.parameters.properties,false);
+  const completed=body.messages.filter(message=>message.role==='tool'&&message.tool_call_id?.startsWith('canvas-producer-')).length;
+  const actions=[{createSurface:{surfaceId:'agent',catalog:'overkill.canvas.v1'}},{surfaceUpdate:{surfaceId:'agent',components:[{id:'agent-root',type:'Text',textPath:'/message'}]}},{dataModelUpdate:{surfaceId:'agent',contents:{message:'Agent-produced durable canvas'}}},{beginRendering:{surfaceId:'agent',root:'agent-root'}}];
+  producerCalls++;
+  const delta=completed<actions.length?{tool_calls:[{index:0,id:`canvas-producer-${completed}`,type:'function',function:{name:'canvas',arguments:JSON.stringify({action:'apply',jsonl:JSON.stringify(actions[completed])})}}]}:{content:'The agent canvas is ready.'};
+  res.writeHead(200,{'Content-Type':'text/event-stream'});res.end(`data: ${JSON.stringify({choices:[{index:0,delta,finish_reason:completed<actions.length?'tool_calls':'stop'}],usage:{prompt_tokens:10,completion_tokens:5}})}\n\ndata: [DONE]\n\n`);
+ });provider.listen(0,'127.0.0.1');await once(provider,'listening');
+ let application;
+ t.after(async()=>{if(application)await application.close();provider.close();await fs.rm(directory,{recursive:true,force:true});});
+ application=await _electron.launch({args:[path.join(__dirname,'fixtures/canvas.cjs'),`--overkill-profile=${profile}`],timeout:30000});
+ const window=await application.firstWindow();await window.locator('dialog[open]').waitFor();
+ await window.locator('#model').fill('canvas-fixture');await window.locator('#base-url').fill(`http://127.0.0.1:${provider.address().port}/v1`);await window.locator('#api-key').fill('fake-canvas-fixture-key');await window.locator('#settings-save').click();await window.locator('dialog[open]').waitFor({state:'hidden',timeout:45000});
+ await application.evaluate(({dialog},folder)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[folder]});},workspace);await window.locator('#workspace').click();await window.locator('#new-session').click();
+ const first=(await window.evaluate(()=>window.overkill.listSessions())).sessions[0];
+ const rpc=(method,params)=>application.evaluate(async(_,{method,params})=>globalThis.workspaceFixtureRPC(method,params),{method,params});
+ const apply=async(sessionID,action,body)=>rpc('canvas.apply',{session_id:sessionID,jsonl:JSON.stringify({[action]:{surfaceId:'main',...body}})});
+ async function scene(sessionID,text){await apply(sessionID,'createSurface',{catalog:'overkill.canvas.v1'});await apply(sessionID,'surfaceUpdate',{components:[{id:'root',type:'Column',children:['title','status']},{id:'title',type:'Heading',text:'Native shared canvas'},{id:'status',type:'Text',textPath:'/status'}]});await apply(sessionID,'dataModelUpdate',{contents:{status:text}});return apply(sessionID,'beginRendering',{root:'root'});}
+ await scene(first.id,'<img src=x onerror="window.canvasInjected=true">');
+ await window.locator('#canvas-toggle').click();await window.locator('#canvas-content[data-canvas-revision="4"]').waitFor();
+ assert.equal(await window.locator('#canvas-content [data-component-id="status"]').textContent(),'<img src=x onerror="window.canvasInjected=true">');assert.equal(await window.locator('#canvas-content img').count(),0);assert.equal(await window.evaluate(()=>window.canvasInjected),undefined);
+ assert.equal(await window.evaluate(()=>typeof window.overkill.call),'undefined');
+ const imageA=path.join(directory,'Canvas With Spaces.png');
+ await application.evaluate(({dialog},filePath)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath});},imageA);
+ await window.locator('#canvas-save').click();await window.locator('#canvas-export-status').filter({hasText:'Saved PNG · revision 4'}).waitFor();
+ const bytesA=await fs.readFile(imageA);assert.equal(bytesA.subarray(1,4).toString(),'PNG');assert.equal(bytesA.readUInt32BE(16),960);assert.equal(bytesA.readUInt32BE(20),640);
+ assert.deepEqual(await application.evaluate(({nativeImage},file)=>nativeImage.createFromPath(file).getSize(),imageA),{width:960,height:640});
+ assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().length),1,'owned capture window closes');
+ await window.locator('#canvas-refresh').click();await window.locator('#canvas-status').filter({hasText:'Revision 4'}).waitFor();assert.match(await window.locator('#canvas-export-status').textContent(),/Saved PNG · revision 4/,'polling does not erase export receipt');
+ await apply(first.id,'dataModelUpdate',{contents:{status:'Updated committed content'}});
+ await assert.rejects(window.evaluate(input=>window.overkill.saveCanvasSnapshot(input),{sessionID:first.id,surfaceID:'main',revision:4}),/Canvas changed/);
+ await window.locator('#canvas-refresh').click();await window.locator('#canvas-content[data-canvas-revision="5"]').waitFor();
+ const imageB=path.join(directory,'Updated.png');await application.evaluate(({dialog},filePath)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath});},imageB);await window.locator('#canvas-save').click();await window.locator('#canvas-export-status').filter({hasText:'Saved PNG · revision 5'}).waitFor();
+ const bytesB=await fs.readFile(imageB);assert.notEqual(createHash('sha256').update(bytesA).digest('hex'),createHash('sha256').update(bytesB).digest('hex'));
+ await application.evaluate(({dialog})=>{dialog.showSaveDialog=async()=>({canceled:true});});await window.locator('#canvas-save').click();await window.locator('#canvas-export-status').filter({hasText:'PNG save cancelled'}).waitFor();
+ await window.locator('#new-session').click();const second=(await window.evaluate(()=>window.overkill.listSessions())).sessions.find(item=>item.id!==first.id);await scene(second.id,'Second chat isolated');await window.locator('#canvas-refresh').click();await window.locator('#canvas-content [data-component-id="status"]').filter({hasText:'Second chat isolated'}).waitFor();
+ await window.locator(`#sessions button[data-session-id="${first.id}"]`).click();await window.locator('#canvas-content [data-component-id="status"]').filter({hasText:'Updated committed content'}).waitFor();
+ // Hold an already-committed second-chat read while first chat becomes active.
+ await window.locator(`#sessions button[data-session-id="${second.id}"]`).click();
+ await window.locator('#canvas-content [data-component-id="status"]').filter({hasText:'Second chat isolated'}).waitFor();
+ await application.evaluate((_,sid)=>{globalThis.canvasFixtureHoldSession=sid;},second.id);
+ await window.locator('#canvas-refresh').click();
+ for(let attempt=0;attempt<100;attempt++){if(await application.evaluate(()=>typeof globalThis.canvasFixtureRelease==='function'))break;await new Promise(resolve=>setTimeout(resolve,10));}
+ assert.equal(await application.evaluate(()=>typeof globalThis.canvasFixtureRelease),'function');
+ await window.locator(`#sessions button[data-session-id="${first.id}"]`).click();
+ await window.locator('#canvas-content [data-component-id="status"]').filter({hasText:'Updated committed content'}).waitFor();
+ await application.evaluate(()=>{globalThis.canvasFixtureRelease();globalThis.canvasFixtureRelease=null;});
+ assert.equal(await window.locator('#canvas-content [data-component-id="status"]').textContent(),'Updated committed content');
+ // Delayed save completion must not attach its status to another selected chat.
+ await application.evaluate(({dialog})=>{dialog.showSaveDialog=()=>new Promise(resolve=>{globalThis.canvasFixtureSaveRelease=()=>resolve({canceled:true});});});
+ await window.locator('#canvas-save').click();
+ for(let attempt=0;attempt<100;attempt++){if(await application.evaluate(()=>typeof globalThis.canvasFixtureSaveRelease==='function'))break;await new Promise(resolve=>setTimeout(resolve,10));}
+ assert.equal(await application.evaluate(()=>typeof globalThis.canvasFixtureSaveRelease),'function');
+ await assert.rejects(window.evaluate(input=>window.overkill.saveCanvasSnapshot(input),{sessionID:first.id,surfaceID:'main',revision:5}),/already running/);
+ await window.locator(`#sessions button[data-session-id="${second.id}"]`).click();
+ await window.locator('#canvas-content [data-component-id="status"]').filter({hasText:'Second chat isolated'}).waitFor();
+ await application.evaluate(()=>globalThis.canvasFixtureSaveRelease());
+ await window.waitForFunction(()=>!document.getElementById('canvas-save').disabled);
+ assert.doesNotMatch(await window.locator('#canvas-export-status').textContent(),/cancelled|Saved PNG/);
+ assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().length),1);
+ // Actual model-produced mutations run inside an admitted API model turn.
+ await window.locator(`#sessions button[data-session-id="${first.id}"]`).click();
+ await window.locator('#message').fill('Draw native canvas via agent.');await window.locator('#send').click();
+ await window.getByText('The agent canvas is ready.',{exact:true}).waitFor({timeout:30000});
+ await window.locator('#stop').waitFor({state:'hidden'});
+ assert.equal(producerCalls,5,'four real model tool iterations then final answer');
+ await window.locator('#canvas-content[data-canvas-revision="9"]').waitFor({timeout:10000});
+ await window.locator('#canvas-surface').selectOption('agent');
+ await window.locator('#canvas-content [data-component-id="agent-root"]').filter({hasText:'Agent-produced durable canvas'}).waitFor();
+ const agentImage=path.join(directory,'Agent Produced.png');await application.evaluate(({dialog},filePath)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath});},agentImage);
+ await window.locator('#canvas-save').click();await window.locator('#canvas-export-status').filter({hasText:'Saved PNG · revision 9'}).waitFor();
+ const agentPNG=await fs.readFile(agentImage);assert.equal(agentPNG.readUInt32BE(16),960);assert.equal(agentPNG.readUInt32BE(20),640);
+ await window.screenshot({path:path.resolve(__dirname,'../../.cache/desktop-canvas-native.png')});
+ await application.close();application=null;
+ application=await _electron.launch({args:[path.join(__dirname,'fixtures/canvas.cjs'),`--overkill-profile=${profile}`],timeout:30000});
+ const restoredWindow=await application.firstWindow();
+ await restoredWindow.locator(`#sessions button[data-session-id="${first.id}"]`).waitFor({timeout:45000});
+ await restoredWindow.locator(`#sessions button[data-session-id="${first.id}"]`).click();
+ await restoredWindow.locator('#canvas-toggle').click();
+ await restoredWindow.locator('#canvas-content[data-canvas-revision="9"]').waitFor();
+ assert.equal(await restoredWindow.locator('#canvas-content [data-component-id="status"]').textContent(),'Updated committed content');
+ await restoredWindow.locator('#canvas-surface').selectOption('agent');assert.equal(await restoredWindow.locator('#canvas-content [data-component-id="agent-root"]').textContent(),'Agent-produced durable canvas');
+ await application.close();application=null;
+ assert.equal((await fs.stat(path.join(profile,'backend/postgres/postmaster.pid')).catch(()=>null)),null,'owned database stops');
+});
