@@ -57,6 +57,9 @@ func TestPostmasterIdentityParserIsBoundedAndStrict(t *testing.T) {
 	got, err := parsePostmaster([]byte(valid), dir)
 	require.NoError(t, err)
 	require.Equal(t, postmaster{PID: 123, DataDir: dir, Started: 456, Port: 5432}, got)
+	fromWindows, err := parsePostmaster([]byte(strings.ReplaceAll(valid, "\n", "\r\n")), dir)
+	require.NoError(t, err)
+	require.Equal(t, got, fromWindows)
 	for _, bad := range []string{"", "123\n", strings.Replace(valid, "123", "0", 1), strings.Replace(valid, "456", "bad", 1), strings.Replace(valid, "5432", "65536", 1), strings.Replace(valid, dir, dir+"-other", 1), valid + strings.Repeat("x", 8193)} {
 		_, err := parsePostmaster([]byte(bad), dir)
 		require.Error(t, err)

@@ -1,3 +1,5 @@
+* text=auto eol=lf
+
 # License inventories hash the exact vendor bytes; preserve them on every host.
 /desktop/notices/** -text
 /scripts/windows-notices/** -text

@@ -459,7 +459,7 @@ var knownFields = map[string]bool{
 }
 
 func parseSkillMarkdown(data []byte) (*Skill, error) {
-	content := string(data)
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 
 	// Only treat --- delimited block as frontmatter when the
 	// opening --- is at position 0 followed by a newline.
@@ -482,7 +482,11 @@ func parseSkillMarkdown(data []byte) (*Skill, error) {
 	}
 
 	fmBytes := []byte(strings.TrimSpace(afterOpen[:end]))
-	body := strings.TrimSpace(afterOpen[end+5:])
+	bodyStart := end + len("\n---")
+	if bodyStart < len(afterOpen) && afterOpen[bodyStart] == '\n' {
+		bodyStart++
+	}
+	body := strings.TrimSpace(afterOpen[bodyStart:])
 
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(fmBytes, &raw); err != nil {

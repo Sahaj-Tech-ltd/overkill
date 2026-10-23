@@ -150,7 +150,7 @@ async function main() {
     let backendError = '';
     try {
       const backendHome = path.join(profile, 'backend');
-      await exec(path.join(install, 'resources/bin/overkill.exe'), ['desktop-server', '--postgres-bin', path.join(install, 'resources/postgres/bin'), '--data-dir', path.join(backendHome, 'postgres')], {cwd: backendHome, env: {...process.env, OVERKILL_HOME: backendHome, OVERKILL_DESKTOP_PROVIDER_KEY: fakeKey}, timeout: 20000, maxBuffer: 1024 * 1024, windowsHide: true});
+      await exec(path.join(install, 'resources/bin/overkill.exe'), ['desktop-server', '--postgres-bin', path.join(install, 'resources/postgres/bin'), '--data-dir', path.join(backendHome, 'postgres')], {cwd: backendHome, env: {...process.env, OVERKILL_HOME: backendHome, OVERKILL_DESKTOP_PROVIDER_KEY: fakeKey}, timeout: 45000, maxBuffer: 1024 * 1024, windowsHide: true});
     } catch (diagnostic) {
       backendError = String(diagnostic.stderr || diagnostic.message).split(fakeKey).join('[redacted]').replace(/postgres(?:ql)?:\/\/[^\s]+/g, '[database URL redacted]').slice(-16000);
     }

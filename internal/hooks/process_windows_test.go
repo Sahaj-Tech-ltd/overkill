@@ -48,6 +48,13 @@ func TestWindowsHookRequiresSafeOwnershipAndDACL(t *testing.T) {
 }
 
 func TestWindowsPowerShellHookReceivesEvent(t *testing.T) {
+	// Warm the Windows PowerShell/.NET runtime before measuring the hook's
+	// fixed five-second execution budget on a shared CI machine.
+	system, err := windows.GetSystemDirectory()
+	require.NoError(t, err)
+	warm, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	require.NoError(t, exec.CommandContext(warm, filepath.Join(system, "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0").Run())
 	root := t.TempDir()
 	dir := filepath.Join(root, "hooks")
 	require.NoError(t, os.Mkdir(dir, 0700))

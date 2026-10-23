@@ -853,3 +853,18 @@ func TestLoader_LoadFile_InjectionInInstructions(t *testing.T) {
 		t.Errorf("expected injection error, got: %v", err)
 	}
 }
+
+func TestMarkdownSkillWindowsNewlinesAndClosingMarkerAtEOF(t *testing.T) {
+	unix, err := parseSkillMarkdown([]byte(validSkillMD))
+	require.NoError(t, err)
+	windows, err := parseSkillMarkdown([]byte(strings.ReplaceAll(validSkillMD, "\n", "\r\n")))
+	require.NoError(t, err)
+	require.Equal(t, unix, windows)
+	frontmatterOnly := strings.SplitN(validSkillMD[4:], "\n---\n", 2)[0]
+	for _, newline := range []string{"\n", "\r\n"} {
+		parsed, err := parseSkillMarkdown([]byte(strings.ReplaceAll("---\n"+frontmatterOnly+"\n---", "\n", newline)))
+		require.NoError(t, err)
+		require.Equal(t, unix.Name, parsed.Name)
+		require.Empty(t, parsed.Instructions)
+	}
+}

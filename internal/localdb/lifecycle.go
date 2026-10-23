@@ -177,7 +177,7 @@ func parsePostmaster(data []byte, dataDir string) (postmaster, error) {
 	if len(data) > 8192 {
 		return result, fmt.Errorf("localdb: postmaster identity file exceeds 8192 bytes")
 	}
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	if len(lines) < 4 {
 		return result, fmt.Errorf("localdb: incomplete postmaster identity file")
 	}
