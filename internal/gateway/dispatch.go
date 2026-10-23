@@ -100,6 +100,11 @@ type Dispatcher struct {
 	// sessions whose IDs collide on hash.
 	lockStripes [64]sync.Mutex
 
+	// Bound adapters may block until a whole turn completes. Their locks use
+	// exact session identities and disappear when no caller holds or awaits them.
+	boundLocksMu sync.Mutex
+	boundLocks   map[string]*boundSessionLock
+
 	// visionSem limits concurrent vision.Describe calls to prevent
 	// unbounded goroutine spawn when processing multi-image messages.
 	visionSem chan struct{}
@@ -602,12 +607,42 @@ func (d *Dispatcher) resolveSession(in Inbound) (string, error) {
 // serialize ensures one in-flight turn per session id at a time. The
 // agent's internal state (history, tool calls) isn't safe to scribble
 // into concurrently, and Slack already learned this the hard way.
-// Uses a striped lock pool — see Dispatcher.lockStripes for the
-// bounded-memory rationale.
+// Legacy adapters use a striped pool. Bound adapters use exact session locks
+// whose entries are released after their last caller completes.
+type boundSessionLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
 func (d *Dispatcher) serialize(sessionID string, fn func()) {
-	mu := d.stripeFor(sessionID)
-	mu.Lock()
-	defer mu.Unlock()
+	if _, bound := d.Agent.(SessionAgentProvider); !bound {
+		mu := d.stripeFor(sessionID)
+		mu.Lock()
+		defer mu.Unlock()
+		fn()
+		return
+	}
+	d.boundLocksMu.Lock()
+	if d.boundLocks == nil {
+		d.boundLocks = make(map[string]*boundSessionLock)
+	}
+	gate := d.boundLocks[sessionID]
+	if gate == nil {
+		gate = &boundSessionLock{}
+		d.boundLocks[sessionID] = gate
+	}
+	gate.refs++
+	d.boundLocksMu.Unlock()
+	gate.mu.Lock()
+	defer func() {
+		gate.mu.Unlock()
+		d.boundLocksMu.Lock()
+		gate.refs--
+		if gate.refs == 0 {
+			delete(d.boundLocks, sessionID)
+		}
+		d.boundLocksMu.Unlock()
+	}()
 	fn()
 }
 
