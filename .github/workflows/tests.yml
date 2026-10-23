@@ -23,10 +23,10 @@ env:
 jobs:
   go-tests:
     name: Go tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -39,14 +39,14 @@ jobs:
         run: go test -race -count=1 -timeout=8m -coverprofile=coverage.out ./...
       - name: Upload Go coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: go-coverage
           path: coverage.out
 
   python-tests:
     name: Python wheel and pgvector integration (required)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     services:
       pgvector:
@@ -66,7 +66,7 @@ jobs:
       OVERKILL_VECTOR_TEST_URL: postgres://overkill_vector_test:overkill_vector_test@localhost:5432/overkill_vector_test?sslmode=disable
       OVERKILL_REQUIRE_VECTOR_DB: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -79,14 +79,14 @@ jobs:
         run: python scripts/verify_bridge_wheel.py
       - name: Upload Python coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-coverage
           path: bridge/coverage.xml
 
   postgres-integration:
     name: PostgreSQL integration (required)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     services:
       postgres:
