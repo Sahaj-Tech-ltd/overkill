@@ -8,9 +8,9 @@ The accompanying [JSON inventory](desktop-dependencies.json) records every file/
 
 - All **986 prepared resource files**, including **118 Mach-O binaries**, PostgreSQL data/extension advertisements, and the current Go backend.
 - All **274 current Electron distribution files**, and all **498 entries** in the actual shipped `LICENSES.chromium.html`.
-- All **76 modules embedded in the Go backend**, with exact versions, Go checksums, origin commits, module ZIP SHA-256 and corresponding notice files. Every collected module notice matches the corresponding ZIP member; no notice or module-checksum mismatch was found.
+- All **78 modules embedded in the Go backend**, with exact versions, Go checksums, origin commits, module ZIP SHA-256 and corresponding notice files. Every collected module notice matches the corresponding ZIP member; no notice or module-checksum mismatch was found.
 - **36 top-level PostgreSQL dylib paths**, including duplicate aliases, and **78 PostgreSQL extension/module paths**. The two non-core EDB add-ons are identified separately below.
-- **209 copied notice/source-evidence files**, each with provenance and SHA-256 in `desktop/notices/manifest.json`.
+- **215 copied notice/source-evidence files**, each with provenance and SHA-256 in `desktop/notices/manifest.json`.
 
 The prepared backend matches the resource manifest's recorded checksum. Electron's cached `electron-v45.0.0-darwin-arm64.zip` matches the official release SHA-256 list. This authenticates the inspected candidate artifact identity; it does not establish final app signing or license completeness. Rebuilds and final app assembly require a fresh hash comparison.
 
@@ -53,7 +53,7 @@ FFmpeg is a concrete source-obligation case. Its shipped credit includes LGPL te
 
 ## Go backend and source obligations
 
-`go version -m` reports Go **1.26.10**, `CGO_ENABLED=0`, Darwin arm64, and 76 dependency modules. The complete per-module table is in the JSON; the copied notices retain module identity/version and nested third-party notices. The Go runtime/toolchain notices are a conservative source-tree notice superset, not a claim that every compiler dependency ships in the backend.
+`go version -m` reports Go **1.26.10**, `CGO_ENABLED=0`, Darwin arm64, and 78 dependency modules. The complete per-module table is in the JSON; the copied notices retain module identity/version and nested third-party notices. The Go runtime/toolchain notices are a conservative source-tree notice superset, not a claim that every compiler dependency ships in the backend.
 
 The binary contains **593 matching libsignal symbols**, including cipher/protocol implementations, in addition to its module metadata. The module is `go.mau.fi/libsignal v0.2.1`, origin commit `6e0a3f2435edc0d16c4c328536eca8b940cfa1be`, and its actual LICENSE is **GNU GPL version 3**. It is not the differently licensed Signal/Rust or unrelated Go implementation. Its exact cached source ZIP and license are retained. This is a substantive combined-backend distribution/source question; top-level application MIT/Apache notices do not resolve it. GPLv3's [source/non-source conveyance sections](https://www.gnu.org/licenses/gpl-3.0.html#section6) are the primary obligation evidence.
 

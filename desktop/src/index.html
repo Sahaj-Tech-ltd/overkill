@@ -60,7 +60,7 @@
   <dialog id="request-agreements" aria-labelledby="request-agreement-title"><h2 id="request-agreement-title">Required agreements</h2><p class="muted">Choose exact revisions for this request. Saved pins stay selected until you explicitly change them.</p><div id="request-agreement-list"></div><p id="request-agreement-error" role="alert"></p><div class="dialog-actions"><button id="request-agreement-cancel" type="button">Cancel</button><button id="request-agreement-apply" type="button">Use selection</button></div></dialog>
   <dialog id="settings">
     <form id="settings-form">
-      <h2>Connect your provider</h2><p class="muted">Your API key is encrypted using macOS Keychain. It is never returned to the chat window.</p>
+      <h2>Connect your provider</h2><p class="muted">Your API key is encrypted using your operating system’s credential store. It is never returned to the chat window.</p>
       <label>Provider<select id="provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="custom">OpenAI compatible</option></select></label>
       <label>Model ID<input id="model" required maxlength="200" placeholder="Your provider's model ID" autocomplete="off"></label>
       <label>API base URL <span class="muted">(optional for native providers)</span><input id="base-url" type="url" placeholder="https://your-provider.example/v1" autocomplete="off"></label>

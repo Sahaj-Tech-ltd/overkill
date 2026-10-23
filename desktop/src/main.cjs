@@ -187,7 +187,7 @@ else {
     Menu.setApplicationMenu(Menu.buildFromTemplate([{label: 'Overkill', submenu: [{role: 'about'}, {type: 'separator'}, {role: 'quit'}]}, {label: 'Edit', submenu: [{role: 'undo'}, {role: 'redo'}, {type: 'separator'}, {role: 'cut'}, {role: 'copy'}, {role: 'paste'}, {role: 'selectAll'}]}, {label: 'Window', submenu: [{role: 'minimize'}, {role: 'zoom'}]}]));
     makeWindow();
     busy = true;
-    void startBackend().catch(error => { backendError = error.message?.startsWith('Keychain did not respond.') ? error.message : 'The backend could not start. Open settings to reconnect.'; }).finally(async () => {
+    void startBackend().catch(error => { backendError = /^(Keychain|Credential store) did not respond\./.test(error.message || '') ? error.message : 'The backend could not start. Open settings to reconnect.'; }).finally(async () => {
       starting = false; busy = false;
       try { emit({type: 'backend_state', state: await state()}); } catch { emit({type: 'backend_exit', message: 'Saved settings could not be read.'}); }
     });

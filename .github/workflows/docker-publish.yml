@@ -21,11 +21,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Container tags
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/sahaj-tech-ltd/overkill
+          tags: |
+            type=raw,value=${{ github.ref_name }}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
       - uses: useblacksmith/build-push-action@v2
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/sahaj-tech-ltd/overkill:${{ github.ref_name }}
-            ghcr.io/sahaj-tech-ltd/overkill:latest
+          tags: ${{ steps.metadata.outputs.tags }}

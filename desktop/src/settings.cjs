@@ -1,6 +1,8 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const credentialStore = process.platform === 'darwin' ? 'Keychain' : 'Credential store';
+const credentialAdvice = process.platform === 'darwin' ? 'Unlock or authorize access in macOS' : 'Unlock or authorize access in your operating system';
 
 const types = new Set(['openai', 'anthropic', 'custom']);
 function validateSettings(input) {
@@ -40,7 +42,7 @@ class SettingsStore {
     try {
       return await Promise.race([
         Promise.resolve().then(() => this.encryption[method](...args)),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Keychain did not respond. Unlock or authorize access in macOS, then reconnect.')), this.keychainTimeoutMs); }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${credentialStore} did not respond. ${credentialAdvice}, then reconnect.`)), this.keychainTimeoutMs); }),
       ]);
     } finally { clearTimeout(timer); }
   }
@@ -62,7 +64,7 @@ class SettingsStore {
     const doc = await this.document();
     if (!doc) return null;
     const settings = validateSettings(doc.settings);
-    if (!await this.keychain('isAsyncEncryptionAvailable')) throw new Error('Unlock the macOS Keychain to access the provider key.');
+    if (!await this.keychain('isAsyncEncryptionAvailable')) throw new Error(`Unlock the ${credentialStore} to access the provider key.`);
     const {result: apiKey, shouldReEncrypt} = await this.keychain('decryptStringAsync', Buffer.from(doc.credential, 'base64'));
     if (shouldReEncrypt) {
       doc.credential = (await this.keychain('encryptStringAsync', apiKey)).toString('base64');
@@ -76,7 +78,7 @@ class SettingsStore {
     const previous = input.apiKey ? null : await this.load();
     const apiKey = input.apiKey || (previous?.provider === settings.provider && previous.baseURL === settings.baseURL ? previous.apiKey : '');
     if (!apiKey) throw new Error('Enter a provider API key.');
-    if (!await this.keychain('isAsyncEncryptionAvailable')) throw new Error('Unlock the macOS Keychain before saving credentials.');
+    if (!await this.keychain('isAsyncEncryptionAvailable')) throw new Error(`Unlock the ${credentialStore} before saving credentials.`);
     const credential = (await this.keychain('encryptStringAsync', apiKey)).toString('base64');
     await atomicWrite(this.file, JSON.stringify({version: 1, settings, credential}));
     return settings;

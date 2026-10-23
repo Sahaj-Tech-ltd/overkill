@@ -1,0 +1,81 @@
+name: Windows desktop installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full source commit SHA to build and test (must match the selected workflow ref)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installed-desktop:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Bind requested source
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          if ($env:EXPECTED_SHA -cnotmatch '^[0-9a-f]{40}$') { throw 'expected_sha must be a full lowercase commit SHA' }
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -cne $env:EXPECTED_SHA -or $actual -cne $env:GITHUB_SHA) { throw 'Workflow ref does not match requested source commit' }
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.26.10'
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install locked Electron and acceptance dependencies
+        run: |
+          npm ci --prefix desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node -e "const p=require('./scripts/windows-desktop-pins.json'); if(process.version!=='v'+p.node)throw Error('Node pin mismatch')"
+      - name: Packaging and mocked storage regression tests
+        run: |
+          node --test scripts/windows-package-desktop.test.mjs scripts/windows-go-notices.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test --test-concurrency=1 desktop/test/settings.test.cjs desktop/test/backend.test.cjs desktop/test/profile.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build native desktop installer with bundled PostgreSQL
+        run: |
+          node scripts/windows-package-desktop.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install, launch, encrypt, persist, replace and uninstall actual desktop
+        run: |
+          $installers = @(Get-ChildItem .cache/windows-desktop/Overkill-*-windows-x64-setup.exe)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one native desktop installer' }
+          node scripts/windows-test-installed.mjs $installers[0].FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload native installer and acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-desktop-installer-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            .cache/windows-desktop/Overkill-*-windows-x64-setup.exe
+            .cache/windows-desktop/SHA256SUMS
+            .cache/windows-desktop/artifact.json
+            .cache/windows-desktop/input-inventory.json
+            .cache/windows-desktop/windows-installed-acceptance.json
+            .cache/windows-desktop/windows-installed-*.png
+            .cache/windows-desktop/installer.log
+            .cache/windows-desktop/uninstaller.log

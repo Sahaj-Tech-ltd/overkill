@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "electron": "45.0.0",
+  "node": "24.22.1",
+  "postgres": {
+    "version": "17.11",
+    "url": "https://repo.maven.apache.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-windows-amd64/17.11.0/embedded-postgres-binaries-windows-amd64-17.11.0.jar",
+    "sha256": "98040fae18dd9633ff95932125b0cecf0a45a1a9312e216e2a33ad03a31d4251",
+    "member": "postgres-windows-x86_64.txz",
+    "checksumSource": "https://repo.maven.apache.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-windows-amd64/17.11.0/embedded-postgres-binaries-windows-amd64-17.11.0.jar.sha256"
+  },
+  "innoSetup": {
+    "version": "6.5.3",
+    "url": "https://github.com/jrsoftware/issrc/releases/download/is-6_5_3/innosetup-6.5.3.exe",
+    "sha256": "9345ee029faa0b7aed0818c3d5b227699ef9a496cce79e20c19eb9d6ef2e2c2d",
+    "checksumSource": "https://github.com/jrsoftware/issrc/releases/download/is-6_5_3/innosetup-6.5.3.exe.issig"
+  }
+}

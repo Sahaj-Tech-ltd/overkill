@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 
 	"github.com/rs/zerolog/log"
@@ -141,7 +142,7 @@ func Load(path string) (*Config, error) {
 	// was silently overridden to true. Defaults-first fixes this.
 	cfg := *Default()
 	cfg.sourcePath = path
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	if err := unmarshalConfig(data, &cfg); err != nil {
 		return nil, fmt.Errorf("config: failed to parse config file %s: %w", path, err)
 	}
 
@@ -165,6 +166,22 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// Enforce the provider collection shape independently of decoder coercions.
+// In particular, an obsolete [providers.name] table must not silently become
+// an empty provider list after a TOML dependency upgrade.
+func unmarshalConfig(data []byte, cfg *Config) error {
+	var shape map[string]any
+	if err := toml.Unmarshal(data, &shape); err != nil {
+		return err
+	}
+	if value, present := shape["providers"]; present {
+		if value == nil || reflect.ValueOf(value).Kind() != reflect.Slice {
+			return fmt.Errorf("providers must be an array of tables using [[providers]]")
+		}
+	}
+	return toml.Unmarshal(data, cfg)
 }
 
 // PersistencePath returns the selected loaded profile, or the default for a new config.

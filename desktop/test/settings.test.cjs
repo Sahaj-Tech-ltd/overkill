@@ -13,7 +13,7 @@ test('settings retain the encrypted key without exposing it in public settings o
   assert.equal((await store.read()).apiKey, 'private-test-key');
   assert.deepEqual(await store.publicSettings(), {provider: 'openai', model: 'model-test', baseURL: '', workspaceInstructions:false, autoMode:false, hasKey: true});
   const disk = await fs.readFile(path.join(home, 'settings.json'), 'utf8'); assert.ok(!disk.includes('private-test-key'));
-  assert.equal((await fs.stat(path.join(home, 'settings.json'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await fs.stat(path.join(home, 'settings.json'))).mode & 0o777, 0o600);
   await store.save({provider: 'openai', model: 'next-test'}); assert.equal((await store.read()).apiKey, 'private-test-key');
   await assert.rejects(store.save({provider: 'anthropic', model: 'next-test'}), /API key/);
   await assert.rejects(store.save({provider: 'openai', model: 'next-test', baseURL: 'https://another.example/v1'}), /API key/);
@@ -22,7 +22,7 @@ test('settings retain the encrypted key without exposing it in public settings o
 test('no plaintext fallback when Keychain is unavailable', async t => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'overkill-settings-')); t.after(() => fs.rm(home, {recursive: true, force: true}));
   const store = new SettingsStore(home, {...encryption, isAsyncEncryptionAvailable: async () => false});
-  await assert.rejects(store.save({provider: 'openai', model: 'test', apiKey: 'private-test'}), /Keychain/);
+  await assert.rejects(store.save({provider: 'openai', model: 'test', apiKey: 'private-test'}), /Keychain|Credential store/);
   await assert.rejects(fs.stat(path.join(home, 'settings.json')), {code: 'ENOENT'});
 });
 test('reject unsafe endpoints and configuration injection', () => {
@@ -37,7 +37,7 @@ test('public settings stay available while Keychain access waits and times out',
   await new SettingsStore(home, encryption).save({provider: 'openai', model: 'saved-model', apiKey: 'fixture-key'});
   let release; let decryptCalls = 0;
   const blocked = new SettingsStore(home, {...encryption, isAsyncEncryptionAvailable: () => new Promise(resolve => { release = resolve; }), decryptStringAsync: () => { decryptCalls++; throw new Error('should not decrypt after timeout'); }}, {keychainTimeoutMs: 25});
-  const rejected = assert.rejects(blocked.read(), /Keychain did not respond/);
+  const rejected = assert.rejects(blocked.read(), /(?:Keychain|Credential store) did not respond/);
   assert.deepEqual(await blocked.publicSettings(), {provider: 'openai', model: 'saved-model', baseURL: '', workspaceInstructions:false, autoMode:false, hasKey: true});
   await rejected;
   release(true); await new Promise(resolve => setImmediate(resolve));
@@ -48,7 +48,7 @@ test('late encryption after timeout never publishes new saved credentials', asyn
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'overkill-keychain-timeout-')); t.after(() => fs.rm(home, {recursive: true, force: true}));
   let release;
   const blocked = new SettingsStore(home, {...encryption, encryptStringAsync: () => new Promise(resolve => { release = resolve; })}, {keychainTimeoutMs: 25});
-  await assert.rejects(blocked.save({provider: 'openai', model: 'fixture', apiKey: 'fixture-key'}), /Keychain did not respond/);
+  await assert.rejects(blocked.save({provider: 'openai', model: 'fixture', apiKey: 'fixture-key'}), /(?:Keychain|Credential store) did not respond/);
   release(Buffer.from('late-encrypted-result')); await new Promise(resolve => setImmediate(resolve));
   await assert.rejects(fs.stat(path.join(home, 'settings.json')), {code: 'ENOENT'});
 });

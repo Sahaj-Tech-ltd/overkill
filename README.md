@@ -16,6 +16,19 @@
 
 Overkill is a Go coding-agent backend with a terminal interface and a development desktop workspace. It supports configurable model providers, PostgreSQL session storage, local workflow files, and optional messaging integrations. Feature availability depends on the entry point and configured services; the development desktop is still being stabilized.
 
+### desktop preview — v0.11.0-beta.1
+
+Download the desktop app from [GitHub Releases](https://github.com/Sahaj-Tech-ltd/overkill/releases/tag/v0.11.0-beta.1):
+
+| Platform | Desktop installer |
+| --- | --- |
+| macOS Apple Silicon | `Overkill-0.11.0-beta.1-development-arm64.dmg` |
+| Windows x64 | `Overkill-0.11.0-beta.1-windows-x64-setup.exe` |
+
+The preview includes chat/workspace UI, a private bundled database, peer-agent messages, automatic checkpoints, durable continuation, DAG memory, reviewed project skills and isolated `/think` items. Provider credentials are configured inside the app. The Mac build is ad-hoc signed and unnotarized; the Windows installer is unsigned. See the release notes and [distribution status](docs/RELEASING.md) for tested platforms and remaining limits. `overkill-windows-amd64.exe` is the separate terminal executable.
+
+### terminal installation
+
 ```sh
 curl -fsSL https://overkill.my/install | sh
 ```
@@ -31,7 +44,7 @@ Or with Go: `go install github.com/Sahaj-Tech-ltd/overkill/cmd/overkill@main`
 - **Configurable personality** — bounded response-style and language instructions, with optional personality subsystems. Automatic long-term relationship tracking remains incomplete.
 - **Messaging integrations** — Telegram, Discord, Slack, Matrix and Mattermost adapters; Signal through an external REST service; WhatsApp cloud and paired-device implementations; and an HTTP bridge for user-supplied sidecars. SMS and iMessage need external integrations; Feishu is not implemented. See the [capability and setup matrix](docs/gateways.md).
 - **Checks and agent coordination** — actual post-write check results, peer messages, task budgets, blockers and contracts. Heuristic confidence is separate from test evidence; the full iterative self-evaluation loop remains unavailable.
-- **Fully open source** — MIT + Apache-2.0. No black box, no telemetry, no "contact sales."
+- **Open application source** — MIT + Apache-2.0. Bundled dependencies have their own licenses and source obligations; see the [dependency inventory](docs/desktop-dependencies.md).
 
 ### what it isn't
 

@@ -1,0 +1,21 @@
+# Native Windows desktop installer
+
+`desktop-windows.yml` is a manually dispatched Windows x64 build and installed-app acceptance gate. Supply a full `expected_sha` equal to the selected workflow ref; the job rejects any mismatch. It uploads `windows-desktop-installer-<commit>` and never publishes a release. The parent release process can attach the tested installer and receipts to its draft release.
+
+The pipeline installs locked npm dependencies, verifies Electron 45.0.0, builds the Go backend natively, downloads checksum-pinned PostgreSQL 17.11 and Inno Setup 6.5.3, and compiles a per-user installer. The installed tree contains the Electron GUI, `resources/bin/overkill.exe`, a private PostgreSQL distribution, source and runtime notices, a backend hash, and a full input inventory. Windows Go module notices are collected from the actual PE build metadata, including Windows-only dependencies such as wincred. Each linked module ZIP checksum must match its binary-reported h1; recursive root/nested notices are extracted as inert files and recorded with archive hashes, member hashes and source URLs. Replacement modules and missing root notices fail the package build. This is a desktop installer, not the standalone command-line executable. Pins are in `windows-desktop-pins.json`; the Go version follows `go.mod`.
+
+The native test silently installs into a directory with spaces and launches that installed executable with a fresh profile. It exercises real Windows Electron asynchronous safeStorage, verifies the fake provider key is encrypted on disk, starts the bundled private database and actual backend, sends a UI request whose controlled HTTP provider must observe selected workspace source bytes, then closes and checks database shutdown. It runs the same installer again, relaunches automatically from encrypted settings, checks persisted history and no provider replay, then silently uninstalls. The disposable profile is intentionally retained by uninstall and removed only by the test's owned temporary-root cleanup. Screenshots, install logs, binary inventory, checksums and JSON receipts are uploaded. Mocked settings/backend/profile unit tests run separately and do not stand in for native encryption acceptance.
+
+Local macOS checks cover Node syntax, archive-path rejection, notice checksum evidence, mocked desktop regressions and Windows Go cross compilation. They do not establish Windows installation, GUI, DPAPI or database behavior. Only a successful native workflow and `windows-installed-acceptance.json` establish those bounded cases for its exact source and installer hash.
+
+The installer is unsigned; Windows SmartScreen reputation and Authenticode are not validated. The runner is Windows Server 2025; minimum Windows 10 is not executed. Same-version replacement is covered, not cross-version migration. No paid model provider is contacted. Inputs are pinned and inventoried; byte-for-byte deterministic installer output across hosts is not asserted.
+
+Windows vendor notices are in `windows-notices/`. The PostgreSQL Maven artifact SHA-256 is verified against its Maven checksum. All 121 native EXE/DLL files match the official EDB 17.11-1 Windows archive byte-for-byte; provenance records the archive hash and each binary hash. Vendor license texts are included. This evidence does not assert complete corresponding-source/replacement compliance, and the older macOS notice snapshot retains its explicit scope. Distribution readiness remains false pending the separate release review.
+
+Primary references:
+
+- [PostgreSQL Windows binaries](https://www.postgresql.org/download/windows/)
+- [Pinned PostgreSQL Maven artifact](https://repo.maven.apache.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-windows-amd64/17.11.0/)
+- [EDB Windows binary archive](https://get.enterprisedb.com/postgresql/postgresql-17.11-1-windows-x64-binaries.zip)
+- [Inno Setup signed checksum record](https://github.com/jrsoftware/issrc/releases/download/is-6_5_3/innosetup-6.5.3.exe.issig)
+- [Electron safeStorage platform semantics](https://www.electronjs.org/docs/latest/api/safe-storage)

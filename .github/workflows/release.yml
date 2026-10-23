@@ -98,8 +98,15 @@ jobs:
           python3 scripts/verify-release-assets.py dist
           prerelease=()
           if [[ "$VERSION" == *-* ]]; then prerelease+=(--prerelease); fi
-          gh release create "$VERSION" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$VERSION" \
-            --generate-notes "${prerelease[@]}" \
-            dist/overkill-* dist/checksums.txt
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # A reviewed desktop preview may already own this release. Upload
+            # CLI assets without publishing its draft or changing its channel.
+            gh release upload "$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
+              dist/overkill-* dist/checksums.txt
+          else
+            gh release create "$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$VERSION" \
+              --generate-notes "${prerelease[@]}" \
+              dist/overkill-* dist/checksums.txt
+          fi
