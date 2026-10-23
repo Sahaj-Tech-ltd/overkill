@@ -157,6 +157,10 @@ step_download_binary() {
 }
 
 step_install() {
+    if [ "${OVERKILL_BUILD_FROM_SOURCE:-}" = "0" ]; then
+        step_download_binary
+        return
+    fi
     if [ "${OVERKILL_BUILD_FROM_SOURCE:-0}" = "1" ]; then
         command -v go >/dev/null 2>&1 || die "OVERKILL_BUILD_FROM_SOURCE=1 set but 'go' not on PATH"
         step_build_from_source

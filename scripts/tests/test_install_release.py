@@ -190,7 +190,7 @@ cp "$FIXTURE_ASSETS/${url##*/}" "$output"
         home.mkdir()
         (home / '.zshrc').write_text('# existing shell settings\n')
         destination = home / 'Local Executables'
-        environment = dict(HOME=str(home), OVERKILL_HOME=str(home / '.overkill'),
+        environment = dict(OVERKILL_BUILD_FROM_SOURCE="0", HOME=str(home), OVERKILL_HOME=str(home / '.overkill'),
                            OVERKILL_INSTALL_DIR=str(destination), FIXTURE_OS=system,
                            FIXTURE_ARCH=machine)
         result = self.shell('main', **environment)
@@ -282,7 +282,7 @@ case "$1" in status) exit 0;; rev-parse) exit 1;; tag) exit 0;; *) exit 1;; esac
         self.assertFalse((repo / 'dist').exists())
         self.assertNotIn('tag ', log.read_text())
 
-    def publication(self, mismatch=False, mutation=None, version='v1.2.3-beta.1'):
+    def publication(self, mismatch=False, mutation=None, version='v1.2.3-beta.1', existing=False):
         import textwrap
         dist = self.work / 'dist'
         dist.mkdir()
@@ -301,12 +301,12 @@ case "$1" in status) exit 0;; rev-parse) exit 1;; tag) exit 0;; *) exit 1;; esac
         (self.work / 'scripts').mkdir()
         shutil.copy(ROOT / 'scripts/verify-release-assets.py', self.work / 'scripts/verify-release-assets.py')
         log = self.work / 'gh-arguments'
-        self.command('gh', 'printf "%s\\n" "$@" > "$GH_FIXTURE_LOG"\n')
+        self.command('gh', 'if [ "$1 $2" = "release view" ]; then exit "${GH_FIXTURE_EXISTS:-1}"; fi\nprintf "%s\\n" "$@" > "$GH_FIXTURE_LOG"\n')
         workflow = (ROOT / '.github/workflows/release.yml').read_text()
         publication = textwrap.dedent(workflow.rsplit('run: |', 1)[1])
         result = subprocess.run(['/bin/bash', '-e', '-c', publication], cwd=self.work,
                                 env=dict(self.env, GITHUB_REF='refs/tags/' + version,
-                                         GITHUB_REPOSITORY='fixture-owner/fixture-repo', GH_FIXTURE_LOG=str(log)),
+                                         GITHUB_REPOSITORY='fixture-owner/fixture-repo', GH_FIXTURE_LOG=str(log), GH_FIXTURE_EXISTS='0' if existing else '1'),
                                 text=True, capture_output=True, timeout=10, check=False)
         return result, log
 
@@ -324,6 +324,16 @@ case "$1" in status) exit 0;; rev-parse) exit 1;; tag) exit 0;; *) exit 1;; esac
         self.assertEqual(set(assets), {'dist/' + name for name in [
             'overkill-linux-amd64', 'overkill-linux-arm64', 'overkill-darwin-amd64',
             'overkill-darwin-arm64', 'overkill-windows-amd64.exe', 'checksums.txt']})
+
+    def test_existing_draft_uploads_without_publishing_or_changing_channel(self):
+        result, log = self.publication(existing=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = log.read_text().splitlines()
+        self.assertEqual(arguments[:2], ['release', 'upload'])
+        self.assertIn('--clobber', arguments)
+        self.assertNotIn('create', arguments)
+        self.assertNotIn('edit', arguments)
+        self.assertNotIn('--draft=false', arguments)
 
     def test_stable_publication_is_not_prerelease(self):
         result, log = self.publication(version='v1.2.3')
