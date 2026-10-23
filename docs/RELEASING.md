@@ -1,6 +1,6 @@
 # Releasing Overkill
 
-Current preview: **v0.11.0-beta.1**. This release adds the desktop workspace, agent coordination, automatic checkpoints, durable resume, DAG memory, reviewed project skill evolution and isolated per-item context. The upstream dependency updates and Blacksmith workflow migration are preserved.
+Current preview: **v0.11.0-beta.2**. This release adds the desktop workspace, agent coordination, automatic checkpoints, durable resume, DAG memory, reviewed project skill evolution and isolated per-item context. The upstream dependency updates and Blacksmith workflow migration are preserved.
 
 Use GitHub Releases for desktop installers, CLI executables, checksum manifests and acceptance evidence. GHCR packages contain container images. Preview tags never move the container `latest` tag.
 

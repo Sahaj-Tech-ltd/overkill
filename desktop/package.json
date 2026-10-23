@@ -1,6 +1,6 @@
 {
   "name": "overkill-desktop",
-  "version": "0.11.0-beta.1",
+  "version": "0.11.0-beta.2",
   "private": true,
   "description": "Native desktop workspace for Overkill",
   "main": "src/main.cjs",

@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "generated_at": "2026-10-23T09:21:35.715989+00:00",
+  "generated_at": "2026-10-23T09:37:29.952860+00:00",
   "purpose": "Factual dependency and license evidence; no legal opinion or distribution certification",
   "distribution_ready": false,
   "snapshot": {
     "target": "darwin-arm64",
     "resource_manifest": {
       "schema": 1,
-      "appVersion": "0.11.0-beta.1",
+      "appVersion": "0.11.0-beta.2",
       "target": "darwin-arm64",
       "postgres": {
         "version": "17.11",
@@ -55,10 +55,10 @@
         ]
       },
       "electron": "45.0.0",
-      "backendSHA256": "0bb4937a56a966e0d0909bb9ce480a24a8627dfd4dce6648cfa80c5a777cc029",
+      "backendSHA256": "432a2729caf4aabd6e566549de5abce86a884031c02a9b92af08e881828b66cb",
       "distributionReady": false
     },
-    "backend_sha256": "0bb4937a56a966e0d0909bb9ce480a24a8627dfd4dce6648cfa80c5a777cc029",
+    "backend_sha256": "432a2729caf4aabd6e566549de5abce86a884031c02a9b92af08e881828b66cb",
     "backend_manifest_matches": true,
     "postgres_jar_sha256": "a1c2786acb0c398f9b2d76806fc52f5dc8b222cbc8e9383a9b9702084daaf3a5",
     "resource_file_count": 986,
@@ -12730,8 +12730,8 @@
     {
       "path": "bin/overkill",
       "kind": "file",
-      "bytes": 68413890,
-      "sha256": "0bb4937a56a966e0d0909bb9ce480a24a8627dfd4dce6648cfa80c5a777cc029",
+      "bytes": 68430402,
+      "sha256": "432a2729caf4aabd6e566549de5abce86a884031c02a9b92af08e881828b66cb",
       "component": "overkill-go-backend"
     },
     {
@@ -19626,7 +19626,7 @@
       "path": "resource-manifest.json",
       "kind": "file",
       "bytes": 2482,
-      "sha256": "c898280ae753c5feff139c601aa5ca9e508a484df5334b9383068e39305718e6",
+      "sha256": "ba124783c3972ab0543b56d20f69440550f6a843e46dd9f078adcb4e09fd4866",
       "component": "resource-manifest"
     }
   ],
@@ -21264,7 +21264,7 @@
   ],
   "linked_copyleft_symbol_evidence": {
     "path": "research/desktop-dependencies/libsignal-linked-symbols.txt",
-    "sha256": "5c2e7d0dc3091103e6e68332e9b5417519d25b1a688fb6d3e40ed5ffed25ec18",
+    "sha256": "b72093f0ed342bf47ec5f8ff070a8eb08593dfe82574b138415d7511740f485c",
     "matched_symbols": 593,
     "observation": "Actual backend symbol table contains libsignal cipher and protocol code, beyond dependency metadata"
   },
@@ -21362,7 +21362,7 @@
   },
   "refresh": {
     "tool": "scripts/refresh-desktop-go-notices.py",
-    "at": "2026-10-23T09:21:35.715989+00:00",
+    "at": "2026-10-23T09:37:29.952860+00:00",
     "scope": "Prepared backend module/notice/hash refresh; prior native and Electron snapshots verified unchanged.",
     "notice_archive_bytes_verified": true,
     "native_inputs_unchanged": true

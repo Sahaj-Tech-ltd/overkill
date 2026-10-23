@@ -16,14 +16,14 @@
 
 Overkill is a Go coding-agent backend with a terminal interface and a development desktop workspace. It supports configurable model providers, PostgreSQL session storage, local workflow files, and optional messaging integrations. Feature availability depends on the entry point and configured services; the development desktop is still being stabilized.
 
-### desktop preview — v0.11.0-beta.1
+### desktop preview — v0.11.0-beta.2
 
-Download the desktop app from [GitHub Releases](https://github.com/Sahaj-Tech-ltd/overkill/releases/tag/v0.11.0-beta.1):
+Download the desktop app from [GitHub Releases](https://github.com/Sahaj-Tech-ltd/overkill/releases/tag/v0.11.0-beta.2):
 
 | Platform | Desktop installer |
 | --- | --- |
-| macOS Apple Silicon | `Overkill-0.11.0-beta.1-development-arm64.dmg` |
-| Windows x64 | `Overkill-0.11.0-beta.1-windows-x64-setup.exe` |
+| macOS Apple Silicon | `Overkill-0.11.0-beta.2-development-arm64.dmg` |
+| Windows x64 | `Overkill-0.11.0-beta.2-windows-x64-setup.exe` |
 
 The preview includes chat/workspace UI, a private bundled database, peer-agent messages, automatic checkpoints, durable continuation, DAG memory, reviewed project skills and isolated `/think` items. Provider credentials are configured inside the app. The Mac build is ad-hoc signed and unnotarized; the Windows installer is unsigned. See the release notes and [distribution status](docs/RELEASING.md) for tested platforms and remaining limits. `overkill-windows-amd64.exe` is the separate terminal executable.
 
