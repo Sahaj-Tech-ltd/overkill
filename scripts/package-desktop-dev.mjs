@@ -2,6 +2,7 @@
 // Experimental preview artifact: ad-hoc signed, never notarized by this script.
 import fs from 'node:fs/promises';
 import {syncDesktopCanvas} from './desktop-canvas-assets.mjs';
+import {syncDesktopTerminal} from './desktop-terminal-assets.mjs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
@@ -27,6 +28,7 @@ async function signNativeTree(directory) {
 }
 async function main() {
   await syncDesktopCanvas(root,{check:true});
+ await syncDesktopTerminal(root,{check:true});
   if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.argv.length !== 2) throw new Error('Run without arguments on macOS arm64 after prepare-desktop.mjs.');
   const metadata = JSON.parse(await fs.readFile(path.join(root, 'desktop/package.json'), 'utf8'));
   const numericVersion = /^(\d+\.\d+\.\d+)(?:-[0-9A-Za-z.-]+)?$/.exec(metadata.version)?.[1];

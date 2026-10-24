@@ -8,14 +8,33 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
 
-func childWorkerFactory(cfg *config.Config, workspace string) subagent.WorkerFactory {
+func childWorkerFactory(cfg *config.Config, workspace string, inherited ...tools.FactoryDeps) subagent.WorkerFactory {
 	factory := childruntime.Factory{Workspace: workspace, Skills: skillRegistry, Resolve: func(provider, model string) (providers.Provider, string, error) {
 		return resolveChildProvider(cfg, provider, model)
 	}}
+	coding := tools.FactoryDeps{CWD: workspace}
+	if len(inherited) > 0 {
+		coding.LSPQuerier = inherited[0].LSPQuerier
+		coding.LSPManager = inherited[0].LSPManager
+		factory.ExecutionGuard = inherited[0].ExecutionGuard
+		factory.Terminals = inherited[0].TerminalManager
+		factory.Messages = inherited[0].WorkerMessages
+		factory.TerminalSession = inherited[0].TerminalOwner.Session
+	}
+	factory.CodingTools = func() []tools.Tool { return tools.NewWorkspaceCodingTools(coding) }
 	if cfg != nil {
+		deny := append([]string(nil), cfg.Security.DenyPatterns...)
+		forbidden := append([]string(nil), cfg.Security.ForbiddenPaths...)
+		maximum := cfg.Security.MaxCommandLen
+		factory.Scanners = func() []security.Scanner {
+			return []security.Scanner{security.NewCommandScanner(security.WithExtraDenyPatterns(deny), security.WithForbiddenPaths(forbidden), security.WithMaxCommandLen(maximum)), security.NewInjectionScanner()}
+		}
+		factory.Autonomy = cfg.Security.AutonomyLevel
 		factory.ReadOnly = cfg.Security.AutonomyLevel == "readonly"
 		factory.Instructions = cfg.Agent.Instructions
 		factory.Personality = personality.Config{Level: personality.ParseLevel(cfg.Personality.Level), Language: cfg.Personality.Language}

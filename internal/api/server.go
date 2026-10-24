@@ -477,6 +477,12 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	case "agent.undo":
 		result, rpcErr := s.handleAgentUndo(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr
+	case "workers.list", "workers.inbox", "workers.send", "workers.acknowledge":
+		result, rpcErr := s.handleWorkers(ctx, req.Method, req.Params)
+		resp.Result, resp.Error = result, rpcErr
+	case "terminal.list", "terminal.read", "terminal.input", "terminal.resize", "terminal.control", "terminal.interrupt", "terminal.close", "terminal.handoff", "terminal.forget":
+		result, rpcErr := s.handleTerminal(ctx, req.Method, req.Params)
+		resp.Result, resp.Error = result, rpcErr
 	case "estop":
 		result, rpcErr := s.handleEStop(ctx, req.Params)
 		resp.Result, resp.Error = result, rpcErr

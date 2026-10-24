@@ -15,6 +15,7 @@ docs/book/
 *.html
 !internal/web/static/index.html
 !desktop/src/index.html
+!desktop/src/terminal-frame.html
 !desktop/notices/electron/LICENSES.chromium.html
 
 # Compiled plugin binaries

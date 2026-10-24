@@ -1,0 +1,211 @@
+{
+  "date": "2026-10-23T23:54:01.026384+00:00",
+  "scope": "Named child-worker messaging, busy-boundary context delivery, correlated human/sibling replies, fresh completed-worker follow-up, registered-parent delegation and inherited command policy. Intermediate progress toward the local-team milestone.",
+  "gitBase": "1839271dfeec89773428e1ebc5c1627ffc1a9a8a",
+  "workingTree": true,
+  "backendSHA256": "75f23702141a555388a63247acc49ef4ff201f48102c5a42da88c8afd98f3663",
+  "distributionReady": false,
+  "sourceSHA256": {
+    "internal/subagent/communication.go": "d5628b9b19bcc7ab91e5c292241fa4e90a7f437453ac6d7554d330e97c653ae7",
+    "internal/subagent/communication_test.go": "9c9dd431ad8dfb96305330957045e436e8b987c90468fd5367f9069e781400dc",
+    "internal/subagent/manager.go": "686b7dadc151decc4541a5a6d0062c24125c59bdbe6eb717f12e3e7c151b227c",
+    "internal/subagent/worker.go": "4de2aaf490932a9ea5dc7b198bba568560a705657d913680635efffc97a43011",
+    "internal/subagent/task.go": "8b82d2150897f17bd52e1f8218d17194eed20b7ab784cbf9e4d364f3fabdcd14",
+    "internal/childruntime/runtime.go": "fff5bbd964e854694873610c8936291d9d1091b3072bdce9950b61a682891baa",
+    "internal/childruntime/inbox.go": "b8e6eb8810572a7b7c56762155f7b313b762820ae76d00489aafe7a703766ed1",
+    "internal/agent/agent.go": "7c78b3eb415d686c5f7c10783cde0f0c530e82e4b63bf442fa7ee321383a26f2",
+    "internal/agent/boundary_inbox.go": "a14ccd09d6aaf4d6811b478ad1467368a2c25619c9e8f3bfaf6241f2efad5fc9",
+    "internal/agent/react.go": "aad223cd087a7844061edbb5d089aea97d72ca59c13552d74752d3a4f61494fb",
+    "internal/agent/stream.go": "197a60dd54efe001cf4e20a48ae11f94f3889fbacffa20378a0539bd6546abf5",
+    "internal/agent/tool_scan.go": "95cb3a5e61dd8668d29c80ac1e79665205d63c5c6d916d2aaa74c3063493915d",
+    "internal/tools/worker_messages.go": "0aa5e5271029e13528aa207e3d873f7bb98e584ddfcc9bdce1c97b91eceaeab3",
+    "internal/tools/worker_followup_test.go": "e35a3fe21d5a74733895c39a62cca7a9fccfeeac3fb2fd99bb570b74fe654992",
+    "internal/tools/delegation_guard_test.go": "e93350e5408d7516d655f55d08c44df80a13e878708b8758f290e8114e3941eb",
+    "internal/tools/coordination_guard.go": "d7811cf0e735251a707e9d792d3fc6a00901acb8e769e6903bd65a942cecfbd5",
+    "internal/tools/delegate.go": "4d802f81efdad7f7fd9dd6d1f5e5d34a3eb041b792ea48ff6b3a00b76c4a7f6b",
+    "internal/tools/factory.go": "860bb4c96c4f57d8d16f0aaf657756b2f881a58c5e36fe68c672831a9045627b",
+    "internal/coordination/contract_guards.go": "7b65e28e058ac9c3d1f4e892ac396e39e737ca9fd28d51190455af9f2cbb7720",
+    "internal/security/privilege.go": "a301ea175545f5eb64b78faa1841b2704a55c9dbb29f4dc1e3b0448fab1b506f",
+    "internal/api/workers.go": "315fa0079431500dcc053b00402529d3bcfc5427ce03fdbf6bae6cacec05df11",
+    "internal/api/workers_test.go": "ca71cb2eef2db66e46ae796f07ee4edb8bee7c66781f169cd5d1746f210118d3",
+    "internal/api/server.go": "afa62a84eae3286a7a4e712478a92a216128d269cfd948ffec7c8be2cc920cd4",
+    "internal/api/runtime.go": "80caf12e84d608c4ad33cffda0285b991c100b1ab81e0dcb89e6c08e8997b156",
+    "internal/api/handlers.go": "ce158e3303698e2309a41296af32a81564fcf4073e3655235ebd58c7f3ec45e7",
+    "cmd/overkill/runtime_setup.go": "81f6cccf6bb07c18d2d2f4c7368ef43ed8f456cec6ad31f9d583571856e9ac8f",
+    "cmd/overkill/child_runtime_setup.go": "a8652d048c150dfd30eecf67026694127ba0864034d7286ddaff4a6076b1fb5d",
+    "cmd/overkill/child_runtime_setup_test.go": "7cdbaae8194dd5ad06f01038d60bf8ffb80c51ee0799accc810a1268fae07ded",
+    "desktop/src/index.html": "77a65ea7315348d9203cb9a3f74acc7801a15432fb51ca130d80e6ebca34f4a1",
+    "desktop/src/main.cjs": "8ff33678a592a462731646307bcc7fc5b2119d234418b05564218ee58e0e5ded",
+    "desktop/src/preload.cjs": "7d14050dceee4c921405e8cebc222a74f24fca16e5777738002dcfb6efc6de3e",
+    "desktop/src/renderer.js": "245045b99e666b9835e60f4d86e73c89477a40fa7bcaf8d5f31d5724986a9756",
+    "desktop/src/worker-input.cjs": "2428dbd7cb04c47c2cad0186716ff88753c026cfb8d1ee040db6a70b4db87ad8",
+    "desktop/src/workers-panel.js": "b3457dfce6b5f74b824f00d12e3cf1afa77ed31ee4f020de1f893587ef365f96",
+    "desktop/src/terminal-panel.js": "58f689b9f823d7b2b5577452cc7fb15f5a8f510cf7f6b0d5c9cb8b116f33918f",
+    "desktop/src/workspace-shell.css": "e63689fa58a50de68bb3716780b2fa609014fc740c38256f2ded61d6b8361bef",
+    "desktop/test/worker-input.test.cjs": "ee5389c29e60913463b9f4bb46de93ab53f3e7ef1ce43738e92ca856876836ae",
+    "desktop/test/worker-messaging-native.test.cjs": "d8094e47b1e072a023192f1552ca5f5bdb653a98be2d4f8a821ec370ab59d210"
+  },
+  "checks": {
+    "fullRequiredGo": {
+      "path": "/Users/abc/Documents/overkill/.cache/workers-full-required-go.log",
+      "sha256": "09c44f4460eb5f0b8ab2a1cce501ceaaeef07eaf0a955115c642c25d193f43d9",
+      "scope": "Full required database/frontend/localdb suite before final scanner inheritance change.",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging\t0.320s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/tts\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/verify\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/vision\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/impossibleprobe\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/mcpshield\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/monitor\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/promptinject\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/truthsource\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/web\t9.735s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/worktree\t(cached)"
+      ]
+    },
+    "finalAffectedGo": {
+      "path": "/Users/abc/Documents/overkill/.cache/workers-security-final-go.log",
+      "sha256": "ab7f390414bfc7a54073fa2c9fa690ada3d672ad9a39b0cf8833501de1c47503",
+      "scope": "Latest scanner inheritance/terminal input scanning code; all affected Go packages rerun with required database.",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/agent\t15.067s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t4.082s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools\t10.779s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/cmd/overkill\t49.524s"
+      ]
+    },
+    "workerRace": {
+      "path": "/Users/abc/Documents/overkill/.cache/workers-race.log",
+      "sha256": "217b705566242786bedc43463570f1a1ff7e570c9ab4c597e5d6db0ffec7463f",
+      "scope": "Worker journal, child/agent loops, tools, API and coordination races; before final scanner change.",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/subagent\t2.472s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t4.690s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/agent\t19.033s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools\t13.002s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/api\t28.475s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/coordination\t22.876s"
+      ]
+    },
+    "finalAffectedRace": {
+      "path": "/Users/abc/Documents/overkill/.cache/workers-security-race.log",
+      "sha256": "73079d9b3206688751ac5ed2a7dd930b7f83b17ece33c1d82af3b957b09a34ca",
+      "scope": "Latest agent and child-runtime scanner changes.",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/agent\t16.672s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t4.768s"
+      ]
+    },
+    "freshFollowupGrantAndDelegationGuard": {
+      "path": "/Users/abc/Documents/overkill/.cache/workers-followup-guards.log",
+      "sha256": "9d29dfe5ad8846d7465d311890aa6c5bcb2fcdae67c3e355ad46112422aa2733",
+      "scope": "Explicit grant/lineage and nested-lock regression scenarios.",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools\t0.501s"
+      ]
+    },
+    "configuredScannerDenial": {
+      "path": "/Users/abc/Documents/overkill/.cache/workers-inherited-scanners.log",
+      "sha256": "6743bc8ee08f3762554d6cc541146e1ba253e2a4c6e9cdfade161c2b711c261b",
+      "scope": "Actual child factory denies configured shell, one-command PTY and persistent-terminal commands before file effects.",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/cmd/overkill\t0.707s"
+      ]
+    },
+    "desktopDefault": {
+      "path": "/Users/abc/Documents/overkill/.cache/workers-desktop-suite.log",
+      "sha256": "6450d422964a8c7398c9d98708805b0f1bd0e49882264e54f27569506639e5fa",
+      "scope": "Latest desktop sources; opt-in native tests run separately.",
+      "tail": [
+        "\u2714 dependency graph explains wait, privacy and truncation and ignores stale replies (0.20625ms)",
+        "\u2714 task agreement blockers distinguish acknowledgement and stale revision from test evidence (0.128958ms)",
+        "\u2714 peer scope labels distinguish explicit repository membership from checkout identities (0.03525ms)",
+        "\u2714 new contract stays disabled until the selected chat contract inventory is loaded (0.119333ms)",
+        "\u2139 tests 107",
+        "\u2139 suites 0",
+        "\u2139 pass 93",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 14",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 3854.679875"
+      ]
+    },
+    "nativeFinal": {
+      "path": "/Users/abc/Documents/overkill/.cache/workers-native-final.log",
+      "sha256": "01d678e99a4585c447552902dce9442192da637d3fac642a680bb20c0812c46a",
+      "scope": "All five workflows with final rebuilt backend and current desktop sources.",
+      "tail": [
+        "\u2714 native controlled coding builds real frontend/backend, clarifies, integrates, cancels and stops all owned work (12939.315ms)",
+        "\u2714 native backend terminal persists across chat turns and supports human ownership and stop (6167.984291ms)",
+        "\u2714 registered desktop team exchanges queued updates at safe boundaries and runs a fresh follow-up (3994.584583ms)",
+        "\u2714 desktop renders real task budgets, blockers, contracts and recorded checks (35570.578167ms)",
+        "\u2139 tests 5",
+        "\u2139 suites 0",
+        "\u2139 pass 5",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 62966.945"
+      ]
+    }
+  },
+  "counts": {
+    "desktopPassed": 93,
+    "desktopSkippedOptInNative": 14,
+    "requiredNativePassed": 5
+  },
+  "nativeWorkerScenario": {
+    "parentCalls": 7,
+    "frontendCalls": 9,
+    "backendCalls": 5,
+    "followupCalls": 3,
+    "cancelledWorkerCalls": 1,
+    "freshFollowupID": "child-e068ecdb-f4dd-42da-bae9-d53d720abe50",
+    "priorWorkerID": "child-0ca43052-34cd-436a-84b9-3ec0db52d568",
+    "cancelledStatus": "interrupted",
+    "realChecks": [
+      "Frontend and backend files written by real child tools",
+      "Persistent child terminal command remains live while sibling/human answers queue",
+      "Answers admitted only at next frontend model boundary",
+      "Actual Node integration check returns exit 0",
+      "Fresh linked follow-up edits file and reruns actual check",
+      "Cancellation kills owned command and leaves unprocessed update queued",
+      "Backend reconnect reads old records without restarting any old worker"
+    ],
+    "provider": "Controlled local HTTP provider",
+    "credentials": "Disposable mock storage, no user Keychain or paid subscription"
+  },
+  "backlog": {
+    "plan": "docs/useful-gaps-plan-2026-10-23.md",
+    "competitors": 20,
+    "featureContracts": 105,
+    "comparisonRows": 902,
+    "statusCountsUnchanged": true
+  },
+  "remaining": [
+    "Terminal input retry receipts and control-generation fences",
+    "Explicit child-to-parent terminal ownership transfer",
+    "Full crash-between-context-admission/history-persistence and contract-revision composition matrix",
+    "Broader child-to-other-chat/harness hierarchy routing; existing registered peer requests remain separate",
+    "Native Windows PTY and other declared platform acceptance",
+    "Installed-release acceptance and publication"
+  ],
+  "claimsNotEstablished": [
+    "Complete local-team milestone",
+    "Atomic worker-context admission and saved chat history",
+    "Exactly-once model processing or arbitrary external effects",
+    "Restart restoration of private child model contexts or terminals",
+    "Native subscription failover",
+    "OS sandboxing",
+    "Native Windows execution",
+    "New DMG/EXE release"
+  ],
+  "artifacts": [
+    "/Users/abc/Documents/overkill/.cache/desktop-workers-busy-inbox.png",
+    "/Users/abc/Documents/overkill/.cache/desktop-workers-history.png"
+  ]
+}

@@ -120,9 +120,22 @@ func (s *Server) handleEStop(ctx context.Context, _ []byte) (interface{}, *RPCEr
 	for _, a := range s.agents {
 		agents = append(agents, a)
 	}
+	runtimes := make([]*SessionRuntime, 0, len(s.sessionRuntimes))
+	for _, runtime := range s.sessionRuntimes {
+		runtimes = append(runtimes, runtime)
+	}
 	s.mu.RUnlock()
 	for _, a := range agents {
 		a.EStop()
+	}
+	var terminalErr error
+	for _, runtime := range runtimes {
+		if runtime.Terminals != nil {
+			terminalErr = errors.Join(terminalErr, runtime.Terminals.Stop())
+		}
+	}
+	if terminalErr != nil {
+		return nil, &RPCError{Code: InternalError, Message: "agents stopped; terminal shutdown is unconfirmed: " + terminalErr.Error()}
 	}
 	if s.flowQueue != nil {
 		if err := s.flowQueue.PauseAll(ctx); err != nil {
@@ -147,6 +160,14 @@ func (s *Server) handleAgentAbort(ctx context.Context, params []byte) (interface
 	s.admissionMu.Unlock()
 	if active != nil {
 		active.cancel()
+	}
+	s.mu.RLock()
+	runtime := s.sessionRuntimes[p.SessionID]
+	s.mu.RUnlock()
+	if runtime != nil && runtime.Terminals != nil {
+		if err := runtime.Terminals.Stop(); err != nil {
+			return nil, &RPCError{Code: InternalError, Message: "current operation cancelled; terminal shutdown is unconfirmed: " + err.Error()}
+		}
 	}
 	if s.flowQueue != nil {
 		if err := s.flowQueue.PauseSession(ctx, p.SessionID); err != nil {
@@ -1184,6 +1205,7 @@ func (s *Server) createAgent(ctx context.Context, sessionID string) (*agent.Agen
 	}
 	registry = boundRegistry
 	a := agent.New(agent.Config{
+		BoundaryInbox:     runtime.BoundaryInbox,
 		Workspace:         sess.Folder,
 		InstructionSource: instructionSource,
 		SystemPrompt:      systemPrompt,

@@ -11,16 +11,19 @@ import (
 
 // delegateInput models the JSON input accepted by the delegate_task tool.
 type delegateInput struct {
-	Goal     string             `json:"goal"`
-	Context  string             `json:"context"`
-	Tasks    []delegateSubTask  `json:"tasks"`
-	Contract *subagent.Contract `json:"contract,omitempty"`
-	Wait     bool               `json:"wait,omitempty"`
-	Workdir  string             `json:"workdir,omitempty"`
+	Name       string             `json:"name,omitempty"`
+	FollowupOf string             `json:"followup_of,omitempty"`
+	Goal       string             `json:"goal"`
+	Context    string             `json:"context"`
+	Tasks      []delegateSubTask  `json:"tasks"`
+	Contract   *subagent.Contract `json:"contract,omitempty"`
+	Wait       bool               `json:"wait,omitempty"`
+	Workdir    string             `json:"workdir,omitempty"`
 }
 
 // delegateSubTask represents a single entry in the tasks array for batch mode.
 type delegateSubTask struct {
+	Name    string `json:"name,omitempty"`
 	Goal    string `json:"goal"`
 	Context string `json:"context"`
 	Model   string `json:"model"`
@@ -42,6 +45,51 @@ func (d *DelegateTool) Name() string {
 	return "delegate_task"
 }
 
+func (*DelegateTool) Description() string {
+	return "Delegate a real coding task or a parallel batch to scoped workers. Give batch workers names to let them exchange updates/questions/answers with worker_messages. Waits for results. followup_of starts a fresh linked attempt for a known finished worker with current admission and no broader tool grant. Contract mode retains its explicit wait behavior."
+}
+
+func (*DelegateTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","maxLength":64},"goal":{"type":"string","maxLength":16000},"context":{"type":"string"},"followup_of":{"type":"string"},"tasks":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","maxLength":64},"goal":{"type":"string","maxLength":16000},"context":{"type":"string"},"model":{"type":"string"}},"required":["goal"],"additionalProperties":false}},"contract":{"type":"object"},"wait":{"type":"boolean"},"workdir":{"type":"string"}},"additionalProperties":false}`)
+}
+
+func (d *DelegateTool) executeFollowup(ctx context.Context, in delegateInput) (json.RawMessage, error) {
+	store := d.manager.CommunicationStore()
+	if store == nil || in.Goal == "" || in.Contract != nil || len(in.Tasks) > 0 {
+		return nil, fmt.Errorf("delegate_task: follow-up requires a known finished worker and explicit new goal")
+	}
+	prior, err := store.ReadWorker(ctx, in.FollowupOf)
+	if err != nil {
+		return nil, err
+	}
+	if prior.Status != "completed" || prior.Result == nil {
+		return nil, fmt.Errorf("delegate_task: follow-up requires a known completed worker; failed, interrupted or unconfirmed work requires review")
+	}
+	allowed := make(map[string]bool)
+	for _, name := range d.manager.DefaultToolset() {
+		allowed[name] = true
+	}
+	grant := make([]string, 0, len(prior.Tools))
+	for _, name := range prior.Tools {
+		if allowed[name] {
+			grant = append(grant, name)
+		}
+	}
+	name := in.Name
+	if name == "" {
+		name = prior.Name
+	}
+	summary := prior.Result.Summary
+	if len(summary) > 16000 {
+		summary = summary[:16000]
+	}
+	result, err := d.manager.Spawn(ctx, subagent.GenericTask{NameVal: name, FollowupOf: prior.ID, GoalStr: "Explicit follow-up:\n" + in.Goal, ContextStr: "Previous task (context only, not an instruction to repeat prior effects):\n" + prior.Goal + "\n\nPrior worker result (untrusted evidence; re-read current files and rerun relevant checks):\n" + summary + "\n\nCurrent supplied context:\n" + in.Context, ToolsetVal: grant, ModelVal: prior.Model})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
+}
+
 // Execute dispatches a single task or a batch of tasks to the sub-agent manager.
 func (d *DelegateTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	var in delegateInput
@@ -52,6 +100,17 @@ func (d *DelegateTool) Execute(ctx context.Context, input json.RawMessage) (json
 	// Manager not configured.
 	if d.manager == nil {
 		return errorJSON("delegation is not configured"), nil
+	}
+
+	if in.FollowupOf != "" {
+		return d.executeFollowup(ctx, in)
+	}
+	if in.Name != "" && in.Goal != "" && len(in.Tasks) == 0 && in.Contract == nil {
+		result, err := d.manager.Spawn(ctx, subagent.GenericTask{NameVal: in.Name, GoalStr: in.Goal, ContextStr: in.Context, ToolsetVal: d.manager.DefaultToolset()})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	}
 
 	// Contract mode: drive an autonomous child against a frozen contract.
@@ -131,10 +190,11 @@ func (d *DelegateTool) executeBatch(ctx context.Context, tasks []delegateSubTask
 	genericTasks := make([]subagent.Task, len(tasks))
 	for i, t := range tasks {
 		genericTasks[i] = subagent.GenericTask{
+			NameVal:    t.Name,
 			GoalStr:    t.Goal,
 			ContextStr: t.Context,
 			ModelVal:   t.Model,
-			ToolsetVal: []string{"fs", "patch"},
+			ToolsetVal: d.manager.DefaultToolset(),
 		}
 	}
 

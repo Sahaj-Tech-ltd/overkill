@@ -86,6 +86,9 @@ func (s *Store) WithOwnedPaths(ctx context.Context, peerID string, paths []strin
 		return err
 	}
 	defer tx.Rollback()
+	if err := workspaceProcessAccess(ctx, tx, p); err != nil {
+		return err
+	}
 	if err := validateExecutionContracts(ctx, tx, p); err != nil {
 		return err
 	}
@@ -115,6 +118,9 @@ func (s *Store) WithUnrestrictedWorkspace(ctx context.Context, peerID string, fn
 		return err
 	}
 	defer tx.Rollback()
+	if err := workspaceProcessAccess(ctx, tx, p); err != nil {
+		return err
+	}
 	if err := validateExecutionContracts(ctx, tx, p); err != nil {
 		return err
 	}
@@ -153,7 +159,7 @@ func (s *Store) WithUnrestrictedWorkspace(ctx context.Context, peerID string, fn
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := fn(ctx); err != nil {
+	if err := fn(context.WithValue(ctx, workspaceProcessTxKey{}, tx)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -170,4 +176,18 @@ func workspaceRootsOverlap(a, b string) bool {
 }
 func (s *Store) CheckOwnedPaths(ctx context.Context, peerID string, paths []string) error {
 	return s.WithOwnedPaths(ctx, peerID, paths, func(context.Context) error { return nil })
+}
+
+// CheckExecutionAdmission validates the live parent request without keeping a
+// workspace lock around nested delegation. Children enforce each real effect.
+func (s *Store) CheckExecutionAdmission(ctx context.Context, peerID string) error {
+	tx, peer, err := s.contractTransaction(ctx, peerID)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = validateExecutionContracts(ctx, tx, peer); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

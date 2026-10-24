@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {syncDesktopCanvas} from './desktop-canvas-assets.mjs';
+import {syncDesktopTerminal} from './desktop-terminal-assets.mjs';
 import {collectGoNotices} from './windows-go-notices.mjs';
 const exec = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,6 +65,7 @@ export async function main() {
   if (process.env.GITHUB_SHA && process.env.GITHUB_SHA !== sourceCommit) throw new Error('Build checkout differs from requested workflow commit.');
   await run('git', ['diff', '--exit-code', 'HEAD']);
   await syncDesktopCanvas(root, {check: true});
+ await syncDesktopTerminal(root,{check:true});
   const electron = path.join(root, 'desktop/node_modules/electron/dist');
   if ((await fs.readFile(path.join(electron, 'version'), 'utf8')).trim() !== pins.electron) throw new Error('Electron installed runtime is not the pinned version.');
   const output = path.join(root, '.cache/windows-desktop');

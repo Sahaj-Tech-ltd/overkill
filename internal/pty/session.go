@@ -1,4 +1,6 @@
-// Package pty wraps github.com/creack/pty to provide a simple Session type
+//go:build !windows
+
+// Package pty wraps native terminal facilities to provide a simple Session type
 // for running interactive commands inside a pseudo-terminal.
 package pty
 
@@ -29,6 +31,13 @@ type Session struct {
 func New() *Session {
 	return &Session{}
 }
+
+func Supported() bool { return true }
+
+// ShellCommand uses the host shell without loading interactive startup files.
+func ShellCommand(command string) *exec.Cmd { return exec.Command("sh", "-c", command) }
+
+func ShellName() string { return "POSIX sh" }
 
 // Start launches cmd inside a freshly allocated PTY. The returned session
 // owns the PTY file descriptor. The caller is responsible for calling
@@ -123,7 +132,7 @@ func (s *Session) Close() error {
 		defer s.mu.Unlock()
 		s.closed = true
 		if s.cmd != nil && s.cmd.Process != nil {
-			_ = s.cmd.Process.Kill()
+			_ = terminateOwned(s.cmd.Process)
 		}
 		if s.pty != nil {
 			err = s.pty.Close()

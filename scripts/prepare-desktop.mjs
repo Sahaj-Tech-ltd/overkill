@@ -3,6 +3,7 @@
 // installed-app acceptance gate and complete dependency/license inventory.
 import fs from 'node:fs/promises';
 import {syncDesktopCanvas} from './desktop-canvas-assets.mjs';
+import {syncDesktopTerminal} from './desktop-terminal-assets.mjs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
@@ -62,6 +63,7 @@ async function main() {
   if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('This desktop resource target currently requires macOS arm64.');
   if (process.argv.length !== 2) throw new Error('Usage: node scripts/prepare-desktop.mjs');
   await syncDesktopCanvas(root);
+ await syncDesktopTerminal(root);
   await fs.mkdir(cache, {recursive: true}); await fs.mkdir(output, {recursive: true});
   const artifact = await pinnedDownload();
   const stage = await fs.mkdtemp(path.join(cache, 'extract-'));

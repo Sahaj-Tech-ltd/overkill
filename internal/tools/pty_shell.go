@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"os/exec"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"time"
 
+	"github.com/Sahaj-Tech-ltd/overkill/internal/processrunner"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/pty"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools/bash"
@@ -60,6 +58,12 @@ func NewPTYShellTool(cwd string, opts ...func(*PTYShellTool)) *PTYShellTool {
 
 func (t *PTYShellTool) Name() string { return "pty_shell" }
 
+func (t *PTYShellTool) Available() bool { return pty.Supported() }
+
+func (t *PTYShellTool) Description() string {
+	return "Run one bounded command with real terminal I/O using " + pty.ShellName() + ". The command is closed when it finishes, times out or is cancelled. Use terminal for work that must survive tool calls."
+}
+
 type ptyShellInput struct {
 	Command        string `json:"command"`
 	Cwd            string `json:"cwd"`
@@ -67,12 +71,20 @@ type ptyShellInput struct {
 }
 
 type ptyShellOutput struct {
-	ExitCode int    `json:"exit_code"`
-	Output   string `json:"output"`
-	TimedOut bool   `json:"timed_out"`
+	OutputBytes     int64  `json:"output_bytes"`
+	OutputTruncated bool   `json:"output_truncated,omitempty"`
+	ExitCode        int    `json:"exit_code"`
+	Output          string `json:"output"`
+	TimedOut        bool   `json:"timed_out"`
 }
 
 func (t *PTYShellTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
+	if !t.Available() {
+		return nil, fmt.Errorf("pty_shell: native interactive terminals are unavailable on this host")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	var in ptyShellInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return nil, fmt.Errorf("pty_shell: %w", err)
@@ -145,7 +157,7 @@ func (t *PTYShellTool) Execute(ctx context.Context, input json.RawMessage) (json
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", in.Command)
+	cmd := pty.ShellCommand(in.Command)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
@@ -160,62 +172,46 @@ func (t *PTYShellTool) Execute(ctx context.Context, input json.RawMessage) (json
 	// COLUMNS produce sensible output.
 	_ = sess.Resize(24, 80)
 
-	type readResult struct {
-		out string
-		err error
-	}
-	rc := make(chan readResult, 1)
+	capture := processrunner.NewOutputCapture(1024 * 1024)
+	readerDone := make(chan struct{})
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("pty_shell: reader goroutine panic: %v\n%s", r, debug.Stack())
-			}
-		}()
-		var sb strings.Builder
+		defer close(readerDone)
 		buf := make([]byte, 4096)
 		for {
 			n, err := sess.Read(buf)
 			if n > 0 {
-				sb.Write(buf[:n])
+				_, _ = capture.Write(buf[:n])
 			}
 			if err != nil {
-				rc <- readResult{out: sb.String(), err: err}
 				return
 			}
 		}
 	}()
-
 	doneCh := make(chan int, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("pty_shell: WaitExit goroutine panic: %v\n%s", r, debug.Stack())
-			}
-		}()
-		code, _ := sess.WaitExit()
-		doneCh <- code
-	}()
-
+	go func() { code, _ := sess.WaitExit(); doneCh <- code }()
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
-
+	code, timedOut := 0, false
 	select {
 	case <-ctx.Done():
-		_ = sess.Close()
-		<-rc
-		return json.Marshal(ptyShellOutput{ExitCode: -1, TimedOut: false, Output: ""})
+		code = -1
 	case <-timer.C:
-		_ = sess.Close()
-		res := <-rc
-		return json.Marshal(ptyShellOutput{ExitCode: -1, TimedOut: true, Output: res.out})
-	case code := <-doneCh:
-		var out string
+		code = -1
+		timedOut = true
+	case code = <-doneCh:
 		select {
-		case res := <-rc:
-			out = res.out
+		case <-readerDone:
 		case <-time.After(500 * time.Millisecond):
-			// Reader didn't see EOF yet (race); accept partial.
 		}
-		return json.Marshal(ptyShellOutput{ExitCode: code, Output: out})
 	}
+	_ = sess.Close()
+	<-readerDone
+	text, total, truncated := capture.Snapshot()
+	output, err := json.Marshal(ptyShellOutput{ExitCode: code, TimedOut: timedOut, Output: text, OutputBytes: total, OutputTruncated: truncated})
+	// Preserve the one-command tool protocol: cancellation is exit -1.
+	// The owning agent still observes its cancelled context.
+	if ctx.Err() != nil {
+		return output, err
+	}
+	return output, err
 }

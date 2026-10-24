@@ -2,6 +2,9 @@ const {app, BrowserWindow, ipcMain, dialog, safeStorage, Menu} = require('electr
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const {allowLocalFiles} = require('./local-files.cjs');
+const {terminalAsset,terminalResponse} = require('./terminal-assets.cjs');
+const {protocol} = require('electron');
+protocol.registerSchemesAsPrivileged([{scheme:'overkill-terminal',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}}]);
 const {Backend} = require('./backend.cjs');
 const {validateCanvas} = require('./canvas.cjs');
 const {validateUsageReconciliation} = require('./usage-reconciliation-input.cjs');
@@ -25,7 +28,7 @@ let stopLatched=false,stopGeneration=0,stopOperation=null;
 function requireWorkAdmission(){if(stopLatched)throw new Error('All agents in this app are stopped. Explicitly reconnect in Provider settings; queued requests may resume.');}
 const documentPath = path.join(__dirname, 'index.html');
 const isDocumentURL = allowLocalFiles([documentPath]);
-const isBundledURL = allowLocalFiles(['index.html','renderer.js','history.js','workspace.js','contract-editor.js','request-review.js','request-agreements.js','style.css','canvas.js','canvas.css','canvas-panel.js','usage-reconciliation.js','clarification.js','flows.js','evolution.js'].map(name => path.join(__dirname, name)));
+const isBundledURL = allowLocalFiles(['index.html','renderer.js','history.js','workspace.js','contract-editor.js','request-review.js','request-agreements.js','style.css','canvas.js','canvas.css','canvas-panel.js','usage-reconciliation.js','clarification.js','flows.js','evolution.js','workspace-shell.js','workspace-shell.css','workers-panel.js','terminal-panel.js','terminal-frame.html','terminal-frame.js','terminal-frame.css','xterm.js','xterm.css','xterm-fit.js'].map(name => path.join(__dirname, name)));
 const emit = value => { if (window && !window.isDestroyed()) window.webContents.send('desktop:event', value); };
 function trusted(event) {
   if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !isDocumentURL(event.senderFrame.url)) throw new Error('Untrusted desktop request.');
@@ -50,14 +53,14 @@ async function state() {
   return {ready: !!backend.credentials&&!stopLatched, starting:starting&&!stopLatched, settings: publicSettings, workspace, stopped:stopLatched, error: backendError};
 }
 function makeWindow() {
-  window = new BrowserWindow({width: 1180, height: 820, minWidth: 840, minHeight: 600, title: 'Overkill', backgroundColor: '#151719', webPreferences: {preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true}});
+  window = new BrowserWindow({width: 1480, height: 920, minWidth: 840, minHeight: 600, title: 'Overkill', backgroundColor: '#151719', webPreferences: {preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true}});
   window.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   window.webContents.session.setPermissionCheckHandler(() => false);
   window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
-    callback({cancel: !isBundledURL(details.url)});
+    callback({cancel: !(isBundledURL(details.url) || terminalAsset(details.url))});
   });
   window.loadFile(documentPath);
 }
@@ -65,6 +68,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
   app.whenReady().then(async () => {
+    protocol.handle('overkill-terminal', terminalResponse);
     const home = app.getPath('userData');
     await fs.mkdir(home, {recursive: true, mode: 0o700});
     settings = new SettingsStore(home, safeStorage);
@@ -96,6 +100,23 @@ else {
       const selection = await dialog.showOpenDialog(window, {title: 'Choose workspace', properties: ['openDirectory', 'createDirectory']});
       if (!selection.canceled) workspace = await fs.realpath(selection.filePaths[0]);
       return workspace;
+    });
+    register('desktop:workspace:status', async id => {
+      const selectedID = sessionID(id);
+      const sessions = await backend.call('session.list', {});
+      const selected = (sessions.sessions || []).find(item => item.id === selectedID);
+      if (!selected?.folder) throw new Error('Choose a chat first.');
+      return require('./workspace-status.cjs').workspaceStatus(selected.folder);
+    });
+    register('desktop:workers', input => {
+      const request=require('./worker-input.cjs').validateWorkers(input);
+      if(['send','acknowledge'].includes(input.operation))requireWorkAdmission();
+      return backend.call(request.method,request.params);
+    });
+    register('desktop:terminal', input => {
+      const request=require('./terminal-input.cjs').validateTerminal(input);
+      if(['input','control','resize','handoff'].includes(input.operation))requireWorkAdmission();
+      return backend.call(request.method,request.params);
     });
     register('desktop:sessions', () => backend.call('session.list', {}));
     register('desktop:create', async () => {

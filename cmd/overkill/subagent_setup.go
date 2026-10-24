@@ -78,6 +78,10 @@ func setupSubagentSystemForWorkspace(cfg *config.Config, cwd string) *subagentIn
 
 	// Every child gets a fresh agent history and a contained tool registry.
 	manager.SetWorkerFactory(childWorkerFactory(cfg, cwd))
+	manager.SetDefaultToolset([]string{"fs", "patch", "grep", "git", "shell", "pty_shell"})
+	if cfg.Security.AutonomyLevel == "readonly" {
+		manager.SetDefaultToolset([]string{"fs", "grep"})
+	}
 
 	return &subagentInfra{
 		Manager:  manager,

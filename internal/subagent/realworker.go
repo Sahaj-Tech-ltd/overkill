@@ -16,6 +16,7 @@ const XIAOMI_BASE_URL = "https://token-plan-sgp.xiaomimimo.com/v1"
 
 // RealWorkerConfig configures a real LLM-backed worker.
 type RealWorkerConfig struct {
+	WorkerID  string   // immutable application identity assigned by Manager, never model input
 	Tools     []string // explicit tool capabilities requested by this task
 	Goal      string
 	Context   string

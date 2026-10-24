@@ -14,6 +14,8 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/learning"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/terminal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
 
@@ -24,6 +26,9 @@ type SessionRuntimeFactory func(context.Context, *session.Session) (*SessionRunt
 // SessionRuntime owns resources used by one agent, never another session.
 // Cleanup must be idempotent; shared stores belong to the application owner.
 type SessionRuntime struct {
+	WorkerMessages          *subagent.CommunicationStore
+	BoundaryInbox           agent.BoundaryInbox
+	Terminals               *terminal.Manager
 	EvolutionFactory        func(providers.Provider) (*learning.Engine, error)
 	HistoryCompactorFactory func(providers.Provider) (agent.HistoryCompactor, bool, error)
 	// CheckCurrent runs under caller session admission before cached agent reuse.

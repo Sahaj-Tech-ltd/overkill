@@ -69,12 +69,33 @@ test('desktop renders real task budgets, blockers, contracts and recorded checks
   await window.getByText('Saved workspace JSON. Final revised answer.',{exact:true}).waitFor({timeout:30000}); await window.locator('#stop').waitFor({state:'hidden'});
   assert.equal(await fs.readFile(path.join(workspace,'project.json'),'utf8'),'{"name":"workspace"}\n');assert.equal(instructionObserved,true,'desktop instruction opt-in reaches actual provider prompt');
   const front = (await window.evaluate(()=>window.overkill.listSessions())).sessions[0];
+  await window.locator('#surface-changes').click();
+  await window.locator('#changes-refresh').click();
+  await window.locator('#changed-files').getByText('project.json',{exact:true}).waitFor();
+  assert.match(await window.locator('#git-status').innerText(), /changed files?/);
+  assert.equal(await window.locator('#surface-changes').getAttribute('aria-selected'),'true');
+  await window.locator('#surface-files').click();
+  await window.locator('#project-files').getByText('AGENTS.md',{exact:true}).waitFor();
+  await window.locator('#surface-browser').click();
+  assert.match(await window.locator('#surface-view-browser').innerText(), /not connected yet/);
+  await window.locator('#terminal-toggle').click();
+  await window.locator('#terminal-dock').waitFor();
+  await window.locator('#terminal-close').click();
+  await window.locator('#surface-team').click();
+
   await window.locator('#agent-name').fill('frontend'); await window.locator('#agent-role').fill('Build UI'); await window.locator('#agent-repository-scope').check(); await window.locator('#agent-register').click(); await window.locator('#agent-identity').filter({hasText:'frontend'}).waitFor();
   await application.evaluate(({dialog},folder)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[folder]});},backendWorkspace);await window.locator('#workspace').click();
   await window.locator('#new-session').click(); const back = (await window.evaluate(()=>window.overkill.listSessions())).sessions.find(item=>item.id!==front.id);
   await window.locator('#agent-name').fill('backend'); await window.locator('#agent-role').fill('Build API'); await window.locator('#agent-repository-scope').check(); await window.locator('#agent-register').click(); await window.locator('#agent-identity').filter({hasText:'backend'}).waitFor();
   await window.locator(`#sessions button[data-session-id="${front.id}"]`).click(); await window.locator('#agent-identity').filter({hasText:'frontend'}).waitFor(); await window.locator('#agent-identity').filter({hasText:'frontend'}).waitFor();
   assert.equal(await window.locator('#peer-scope-heading').innerText(),'REPOSITORY WORKTREES');
+  await window.locator('#sidebar-agents .sidebar-agent').filter({hasText:'backend'}).waitFor();
+  await window.locator('#surface-changes').click();
+  await window.screenshot({path:path.resolve(__dirname,'../../.cache/desktop-new-workspace.png')});
+  await window.locator('#sidebar-agents .sidebar-agent').filter({hasText:'backend'}).click();
+  assert.equal(await window.locator('#surface-team').getAttribute('aria-selected'),'true');
+  assert.equal(await window.locator('#peer-recipient').inputValue(),'backend');
+
   assert.match(await window.locator('.peer-card').filter({hasText:'backend'}).innerText(),/backend-fixture/);
   await window.locator('#peer-message').fill('Implement the users endpoint.'); await window.locator('.request-options summary').click(); await window.locator('#peer-task-name').fill('users-endpoint'); await window.locator('#peer-token-limit').fill('1000'); await window.locator('#peer-send').click();
   await window.locator('.peer-message .state-badge').filter({hasText:'Working'}).waitFor({timeout:15000});
@@ -234,7 +255,7 @@ test('desktop renders real task budgets, blockers, contracts and recorded checks
   assert.match(await window.locator('#peer-reuse-note').innerText(),/Cost limit: \$0.5/);
   assert.equal(await window.locator('#peer-token-limit').isDisabled(),true,'remaining task budget stays bound until explicitly cleared');
     await window.screenshot({path:path.resolve(__dirname,'../../.cache/desktop-workspace-overview.png')});
-  await window.setViewportSize({width:850,height:800}); await window.screenshot({path:path.resolve(__dirname,'../../.cache/desktop-workspace-narrow.png')});
+  await window.setViewportSize({width:850,height:800}); assert.equal(await window.evaluate(()=>document.documentElement.scrollWidth <= innerWidth),true,'workspace fits a narrow desktop window'); await window.screenshot({path:path.resolve(__dirname,'../../.cache/desktop-workspace-narrow.png')});
   assert.equal(await window.locator('#agents-toggle').isVisible(),true);
   const toggleBox=await window.locator('#agents-toggle').boundingBox(),refreshBox=await window.locator('#refresh').boundingBox();
   assert.ok(toggleBox&&refreshBox);assert.ok(refreshBox.x+refreshBox.width<=toggleBox.x || toggleBox.x+toggleBox.width<=refreshBox.x || refreshBox.y+refreshBox.height<=toggleBox.y || toggleBox.y+toggleBox.height<=refreshBox.y,'narrow header controls must not overlap');

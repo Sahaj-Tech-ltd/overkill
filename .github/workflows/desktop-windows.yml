@@ -63,10 +63,23 @@ jobs:
             ~/go/pkg/mod
             ~/AppData/Local/go-build
           key: windows-overkill-go-1.26.10-${{ hashFiles('go.sum') }}
-      - name: Ordinary-user GUI and encryption preflight before installer build
+      - name: Build ordinary-user acceptance launcher
         run: |
           go build -trimpath -o .cache/windows-user-runner.exe ./scripts/windows-user-runner
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Native ConPTY and terminal ownership as an ordinary user
+        run: |
+          New-Item -ItemType Directory -Force .cache/windows-desktop | Out-Null
+          go test -c -o .cache/windows-desktop/pty-native.test.exe ./internal/pty
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -c -o .cache/windows-desktop/terminal-native.test.exe ./internal/terminal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/windows-user-runner/run.ps1 (Join-Path $env:GITHUB_WORKSPACE '.cache/windows-desktop/pty-native.test.exe') '-test.run=^TestWindowsNative' '-test.v' '-test.timeout=90s'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/windows-user-runner/run.ps1 (Join-Path $env:GITHUB_WORKSPACE '.cache/windows-desktop/terminal-native.test.exe') '-test.run=^TestWindowsNative' '-test.v' '-test.timeout=90s'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Ordinary-user encryption preflight
+        run: |
           ./scripts/windows-user-runner/run.ps1 (Get-Command node).Source (Join-Path $env:GITHUB_WORKSPACE 'scripts/windows-user-runner/preflight.mjs')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build native desktop installer with bundled PostgreSQL
@@ -102,8 +115,26 @@ jobs:
             .cache/windows-desktop/artifact.json
             .cache/windows-desktop/input-inventory.json
             .cache/windows-desktop/windows-installed-acceptance.json
+            .cache/windows-desktop/windows-installed-team-acceptance.json
             .cache/windows-desktop/windows-installed-diagnostics.json
             .cache/windows-desktop/windows-installed-*.png
             .cache/windows-desktop/ordinary-user-*.log
             .cache/windows-desktop/installer.log
             .cache/windows-desktop/uninstaller.log
+  native-linux-terminals:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Bind requested source
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          test "$EXPECTED_SHA" = "$(git rev-parse HEAD)"
+          test "$EXPECTED_SHA" = "$GITHUB_SHA"
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.10'
+          cache: true
+      - name: Native POSIX terminal protocol, ownership and cleanup
+        run: go test -race -count=1 -p 4 -v ./internal/pty ./internal/terminal

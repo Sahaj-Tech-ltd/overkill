@@ -63,6 +63,35 @@ func (a *Agent) preToolScan(toolName, args string) (bool, string) {
 // args (better to over-scan than miss a malformed-but-real command).
 func extractScanPayload(toolName, args string) string {
 	switch toolName {
+	case "terminal":
+		var in struct {
+			Operation string `json:"operation"`
+			Command   string `json:"command"`
+			CWD       string `json:"cwd"`
+			Data      string `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(args), &in); err != nil {
+			return strings.TrimSpace(args)
+		}
+		if in.Operation == "start" {
+			return in.Command + " " + in.CWD
+		}
+		if in.Operation == "input" {
+			return in.Data
+		}
+		return ""
+	case "fs":
+		var in struct {
+			Action string `json:"action"`
+			Path   string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(args), &in); err != nil {
+			return ""
+		}
+		if in.Action == "write" || in.Action == "edit" || in.Action == "mkdir" {
+			return in.Path
+		}
+		return ""
 	case "shell", "pty_shell", "execute_command":
 		var v struct {
 			Command    string            `json:"command"`

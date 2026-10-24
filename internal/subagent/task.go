@@ -15,6 +15,7 @@ import (
 
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/terminal"
 )
 
 // Role determines whether a sub-agent is a worker or an orchestrator.
@@ -49,18 +50,20 @@ type ToolEntry struct {
 // Result captures the outcome of a single sub-agent task execution.
 // This is the authoritative definition — cost.go references it.
 type Result struct {
-	TaskIndex    int         `json:"task_index"`
-	Status       string      `json:"status"`
-	Summary      string      `json:"summary"`
-	Error        string      `json:"error,omitempty"`
-	TokensIn     int64       `json:"tokens_in"`
-	TokensOut    int64       `json:"tokens_out"`
-	CostUSD      float64     `json:"cost_usd"`
-	DurationMs   int64       `json:"duration_ms"`
-	ToolTrace    []ToolEntry `json:"tool_trace,omitempty"`
-	FilesRead    []string    `json:"files_read,omitempty"`
-	FilesWritten []string    `json:"files_written,omitempty"`
-	ExitReason   string      `json:"exit_reason"`
+	TerminalHandoffs []terminal.Handoff `json:"terminal_handoffs,omitempty"`
+	WorkerID         string             `json:"worker_id,omitempty"`
+	TaskIndex        int                `json:"task_index"`
+	Status           string             `json:"status"`
+	Summary          string             `json:"summary"`
+	Error            string             `json:"error,omitempty"`
+	TokensIn         int64              `json:"tokens_in"`
+	TokensOut        int64              `json:"tokens_out"`
+	CostUSD          float64            `json:"cost_usd"`
+	DurationMs       int64              `json:"duration_ms"`
+	ToolTrace        []ToolEntry        `json:"tool_trace,omitempty"`
+	FilesRead        []string           `json:"files_read,omitempty"`
+	FilesWritten     []string           `json:"files_written,omitempty"`
+	ExitReason       string             `json:"exit_reason"`
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +191,8 @@ func (t *VisualDebugTask) Validate() error {
 // GenericTask is a general-purpose task that satisfies the Task interface.
 // It is used by the delegate_task tool to spawn arbitrary sub-agent work.
 type GenericTask struct {
+	NameVal     string
+	FollowupOf  string
 	GoalStr     string
 	ContextStr  string
 	ToolsetVal  []string
@@ -195,11 +200,13 @@ type GenericTask struct {
 	MaxStepsVal int
 }
 
-func (t GenericTask) Goal() string       { return t.GoalStr }
-func (t GenericTask) Context() string    { return t.ContextStr }
-func (t GenericTask) Toolset() []string  { return t.ToolsetVal }
-func (t GenericTask) Model() string      { return t.ModelVal }
-func (t GenericTask) MaxIterations() int { return t.MaxStepsVal }
+func (t GenericTask) WorkerLabel() string    { return t.NameVal }
+func (t GenericTask) PreviousWorker() string { return t.FollowupOf }
+func (t GenericTask) Goal() string           { return t.GoalStr }
+func (t GenericTask) Context() string        { return t.ContextStr }
+func (t GenericTask) Toolset() []string      { return t.ToolsetVal }
+func (t GenericTask) Model() string          { return t.ModelVal }
+func (t GenericTask) MaxIterations() int     { return t.MaxStepsVal }
 func (t GenericTask) Validate() error {
 	if t.GoalStr == "" {
 		return fmt.Errorf("goal is required")

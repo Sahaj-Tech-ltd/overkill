@@ -23,5 +23,21 @@ type WorkerFactory func(RealWorkerConfig) (WorkerRunner, error)
 func (m *Manager) SetWorkerFactory(factory WorkerFactory) {
 	m.mu.Lock()
 	m.workerFactory = factory
+	m.guardedWorkers = false
 	m.mu.Unlock()
+}
+
+// SetGuardedWorkerFactory is trusted application wiring: every effectful child
+// adapter must inherit the parent's execution guard. Delegation itself then
+// needs no project-wide lock around its entire nested model/tool loop.
+func (m *Manager) SetGuardedWorkerFactory(factory WorkerFactory) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.workerFactory = factory
+	m.guardedWorkers = factory != nil
+}
+func (m *Manager) GuardsWorkerTools() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.guardedWorkers
 }

@@ -37,6 +37,9 @@ func (a *Agent) step(ctx context.Context) (*StepResult, error) {
 	if prov == nil {
 		return nil, fmt.Errorf("agent: provider not configured (Config.Provider was nil)")
 	}
+	if err := a.drainBoundaryInbox(ctx); err != nil {
+		return nil, err
+	}
 	req := a.buildRequest(ctx)
 
 	resp, err := providers.WithRetryCtx(ctx, func() (*providers.Response, error) {

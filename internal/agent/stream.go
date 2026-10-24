@@ -298,6 +298,10 @@ func (a *Agent) streamWithAttachments(ctx context.Context, userInput string, att
 				sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: fmt.Errorf("agent: provider not configured (Config.Provider was nil)")})
 				return
 			}
+			if err := a.drainBoundaryInbox(ctx); err != nil {
+				sendStreamEvent(ctx, out, StreamEvent{Type: EventError, Error: err})
+				return
+			}
 			req := a.buildRequest(ctx)
 
 			if err := checkGoalBudget(ctx); err != nil {

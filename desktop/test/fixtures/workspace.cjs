@@ -26,6 +26,10 @@ Backend.prototype.start = async function(...args) {
   let result;
   try {result=await originalStart.apply(this,args);} catch(error) {throw new Error(`${error.message}\n${this.publicValue(stderr)}`);} finally {this.spawnProcess=spawn;}
   globalThis.workspaceFixtureRPC = (method, params) => this.call(method, params);
+  globalThis.workspaceFixtureCrashBackend = () => {
+    if (!this.child) throw new Error('No owned test backend to crash.');
+    return {pid: this.child.pid, killed: this.child.kill('SIGKILL')};
+  };
   return result;
 };
 require('../../src/main.cjs');

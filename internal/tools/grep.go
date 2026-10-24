@@ -1,9 +1,11 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -51,7 +53,7 @@ func (g *GrepTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 
 	maxResults := 50
 	if in.MaxResults > 0 {
-		maxResults = in.MaxResults
+		maxResults = min(in.MaxResults, 1000)
 	}
 
 	var includeRe *regexp.Regexp
@@ -62,7 +64,14 @@ func (g *GrepTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 		}
 	}
 
+	root, _, err := openWorkspace(g.rootDir, ".")
+	if err != nil {
+		return nil, fmt.Errorf("grep: %w", err)
+	}
+	defer root.Close()
+
 	var matches []grepMatch
+	retainedBytes := 0
 	exceeded := false
 	err = filepath.WalkDir(g.rootDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -94,20 +103,23 @@ func (g *GrepTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 		}
 
 		info, err := d.Info()
+		// Like rg's default traversal, do not follow file symlinks. Opening via
+		// os.Root also prevents a replacement symlink from escaping the workspace.
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 1024*1024 {
+			return nil
+		}
+		file, err := root.Open(rel)
 		if err != nil {
 			return nil
 		}
-		if info.Size() > 1024*1024 {
+		opened, statErr := file.Stat()
+		if statErr != nil || !opened.Mode().IsRegular() || opened.Size() > 1024*1024 {
+			_ = file.Close()
 			return nil
 		}
-
-		bin, err := isBinaryFile(path)
-		if err != nil || bin {
-			return nil
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
+		data, readErr := io.ReadAll(io.LimitReader(file, 1024*1024+1))
+		_ = file.Close()
+		if readErr != nil || len(data) > 1024*1024 || bytes.IndexByte(data, 0) >= 0 {
 			return nil
 		}
 
@@ -118,10 +130,17 @@ func (g *GrepTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 				break
 			}
 			if re.MatchString(line) {
+				content := boundedGrepLine(line)
+				cost := len(content) + len(rel) + 40
+				if retainedBytes+cost > 64*1024 {
+					exceeded = true
+					break
+				}
+				retainedBytes += cost
 				matches = append(matches, grepMatch{
 					File:    rel,
 					Line:    i + 1,
-					Content: strings.TrimSpace(line),
+					Content: content,
 				})
 			}
 		}
@@ -132,7 +151,10 @@ func (g *GrepTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 	}
 
 	out, _ := json.Marshal(matches)
-	result := ToolResult{Output: string(out), Success: true}
+	result := struct {
+		ToolResult
+		Truncated bool `json:"truncated"`
+	}{ToolResult: ToolResult{Output: string(out), Success: true}, Truncated: exceeded}
 	raw, _ := json.Marshal(result)
 	return raw, nil
 }
@@ -143,4 +165,12 @@ func globToRegex(pattern string) string {
 	p = strings.ReplaceAll(p, `\*`, "[^/]*")
 	p = strings.ReplaceAll(p, `\?`, ".")
 	return "^" + p + "$"
+}
+
+func boundedGrepLine(line string) string {
+	line = strings.TrimSpace(line)
+	if len(line) > 4096 {
+		return line[:4096] + " … [line truncated]"
+	}
+	return line
 }

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,8 +21,10 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/instructions"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/personality"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/security"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/terminal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tokenizer"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	"github.com/google/uuid"
@@ -32,18 +35,27 @@ import (
 type Resolver func(provider, model string) (providers.Provider, string, error)
 
 type Factory struct {
-	Instructions  instructions.Config
-	Workspace     string
-	Resolve       Resolver
-	Skills        *skills.Registry
-	ReadOnly      bool
-	AuditReadOnly bool
-	Personality   personality.Config
+	Scanners        func() []security.Scanner
+	Messages        *subagent.CommunicationStore
+	Terminals       *terminal.Manager
+	TerminalSession string
+	// CodingTools is a trusted application grant. Nil keeps legacy fs/patch.
+	// It must return fresh adapters and cannot be supplied through model input.
+	CodingTools    func() []tools.Tool
+	ExecutionGuard tools.ExecutionGuard
+	Autonomy       string
+	Instructions   instructions.Config
+	Workspace      string
+	Resolve        Resolver
+	Skills         *skills.Registry
+	ReadOnly       bool
+	AuditReadOnly  bool
+	Personality    personality.Config
 }
 
 // Build constructs a fresh provider, history, registry, and receipts per child.
-// Only contained filesystem operations are currently supported. Unsupported
-// tools fail before any provider request or filesystem mutation takes place.
+// The application grants configured coding capabilities. Unsupported tools
+// fail before any provider request or filesystem mutation takes place.
 func (f Factory) Build(cfg subagent.RealWorkerConfig) (subagent.WorkerRunner, error) {
 	if f.Workspace == "" {
 		return nil, fmt.Errorf("child runtime: workspace is required")
@@ -70,16 +82,38 @@ func (f Factory) Build(cfg subagent.RealWorkerConfig) (subagent.WorkerRunner, er
 	if err != nil {
 		return nil, err
 	}
-	selected := make(map[string]bool, len(cfg.Tools))
-	for _, name := range cfg.Tools {
-		if (f.AuditReadOnly && name != "fs" && name != "audit_search" && name != "audit_git") || (!f.AuditReadOnly && name != "fs" && name != "patch") {
-			available := "fs and patch"
-			if f.AuditReadOnly {
-				available = "fs(read/glob/stat), audit_search, and audit_git"
+	available := map[string]tools.Tool{"fs": tools.NewFSTool(workspace), "patch": tools.NewPatchTool(workspace)}
+	if f.CodingTools != nil {
+		available = make(map[string]tools.Tool)
+		for _, tool := range f.CodingTools() {
+			if tool != nil {
+				available[tool.Name()] = tool
 			}
-			return nil, fmt.Errorf("%w: child runtime tool %q; available tools are %s", subagent.ErrUnsupportedCapability, name, available)
+		}
+	}
+	if f.AuditReadOnly {
+		available = map[string]tools.Tool{"fs": &auditReadTool{Tool: tools.NewFSTool(workspace)}, "audit_search": &auditInspectTool{name: "audit_search", workspace: workspace}, "audit_git": &auditInspectTool{name: "audit_git", workspace: workspace}}
+	}
+	workerID := cfg.WorkerID
+	if workerID == "" {
+		workerID = "child-" + uuid.NewString()
+	}
+	owner := terminal.Owner{Session: f.TerminalSession, Worker: workerID}
+	if f.Terminals != nil && terminal.Supported() && owner.Session != "" && !f.AuditReadOnly {
+		available["terminal"] = tools.NewTerminalTool(f.Terminals, owner, workspace)
+	}
+	if f.Messages != nil && !f.AuditReadOnly {
+		available["worker_messages"] = tools.NewWorkerMessageTool(f.Messages, workerID)
+	}
+	selected := make(map[string]bool, len(cfg.Tools))
+	selectedTools := make(map[string]tools.Tool, len(cfg.Tools))
+	for _, name := range cfg.Tools {
+		tool, ok := available[name]
+		if !ok {
+			return nil, fmt.Errorf("%w: child runtime tool %q is not granted by this session", subagent.ErrUnsupportedCapability, name)
 		}
 		selected[name] = true
+		selectedTools[name] = tool
 	}
 	provider, model, err := f.Resolve(cfg.Provider, cfg.Model)
 	if err != nil {
@@ -102,10 +136,26 @@ func (f Factory) Build(cfg subagent.RealWorkerConfig) (subagent.WorkerRunner, er
 	if _, _, err := providers.ResolveTokenLimits(provider.Models(), model, cfg.MaxTokens); err != nil {
 		return nil, fmt.Errorf("child runtime: token limits: %w", err)
 	}
-	return &runner{instructionSource: instructionSource, cfg: cfg, workspace: workspace, provider: provider, selected: selected, skills: f.Skills, auditReadOnly: f.AuditReadOnly, readOnly: f.ReadOnly, personality: f.Personality}, nil
+	if f.Messages != nil && !f.AuditReadOnly {
+		modelCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err := f.Messages.SetModel(modelCtx, workerID, model)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &runner{scanners: f.Scanners, messages: f.Messages, id: workerID, terminals: f.Terminals, terminalOwner: owner, tools: selectedTools, guard: f.ExecutionGuard, autonomy: f.Autonomy, instructionSource: instructionSource, cfg: cfg, workspace: workspace, provider: provider, selected: selected, skills: f.Skills, auditReadOnly: f.AuditReadOnly, readOnly: f.ReadOnly, personality: f.Personality}, nil
 }
 
 type runner struct {
+	scanners          func() []security.Scanner
+	messages          *subagent.CommunicationStore
+	id                string
+	terminals         *terminal.Manager
+	terminalOwner     terminal.Owner
+	tools             map[string]tools.Tool
+	guard             tools.ExecutionGuard
+	autonomy          string
 	instructionSource *instructions.Source
 	cfg               subagent.RealWorkerConfig
 	workspace         string
@@ -119,6 +169,9 @@ type runner struct {
 
 func (r *runner) Run(ctx context.Context) (*subagent.Result, error) {
 	start := time.Now()
+	if r.terminals != nil {
+		defer r.terminals.CloseOwner(r.terminalOwner)
+	}
 	if r.cfg.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, r.cfg.Timeout)
@@ -126,22 +179,13 @@ func (r *runner) Run(ctx context.Context) (*subagent.Result, error) {
 	}
 	state := &runState{read: map[string]bool{}, written: map[string]bool{}}
 	registry := tools.NewRegistry()
-	for _, name := range []string{"fs", "patch", "audit_search", "audit_git"} {
-		if !r.selected[name] {
-			continue
-		}
-		var tool tools.Tool
-		if name == "fs" {
-			tool = tools.NewFSTool(r.workspace)
-			if r.auditReadOnly {
-				tool = &auditReadTool{Tool: tool}
-			}
-		} else if name == "patch" {
-			tool = tools.NewPatchTool(r.workspace)
-		} else {
-			tool = &auditInspectTool{name: name, workspace: r.workspace}
-		}
-		if err := registry.Register(&recordingTool{Tool: tool, workspace: r.workspace, state: state}); err != nil {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if err := registry.Register(&recordingTool{Tool: r.tools[name], guard: r.guard, workspace: r.workspace, state: state}); err != nil {
 			return nil, err
 		}
 	}
@@ -152,16 +196,29 @@ func (r *runner) Run(ctx context.Context) (*subagent.Result, error) {
 		return nil, err
 	}
 	childSystemPrompt := personality.WithPromptStyle("Complete the delegated task using only the tools provided and the supplied context. All filesystem paths are relative to your workspace. Do not claim a filesystem change unless a successful tool invocation made it. Report unsupported requirements explicitly.", r.personality.Level, r.personality.Language)
-	child := agent.New(agent.Config{InstructionSource: r.instructionSource, ContextWindow: contextWindow, TokenLimits: limits, Tokenizer: tokenizer.NewEstimator(), Provider: metered, Tools: registry, Model: r.cfg.Model, MaxTokens: outputTokens, MaxSteps: r.cfg.MaxSteps, SessionID: "child-" + uuid.NewString(), DisableAtMentions: true, SystemPrompt: childSystemPrompt})
+	var inbox agent.BoundaryInbox
+	if r.messages != nil {
+		inbox = WorkerInbox(r.messages, r.id)
+	}
+	var scanners []security.Scanner
+	if r.scanners != nil {
+		scanners = r.scanners()
+	}
+	child := agent.New(agent.Config{Scanners: scanners, BoundaryInbox: inbox, InstructionSource: r.instructionSource, ContextWindow: contextWindow, TokenLimits: limits, Tokenizer: tokenizer.NewEstimator(), Provider: metered, Tools: registry, Model: r.cfg.Model, MaxTokens: outputTokens, MaxSteps: r.cfg.MaxSteps, SessionID: r.id, DisableAtMentions: true, SystemPrompt: childSystemPrompt})
 	if r.readOnly {
 		child.SetAutoMode("readonly")
+	} else if r.autonomy != "" {
+		child.SetAutoMode(r.autonomy)
 	}
 	child.SetSkillRegistry(r.skills)
 	defer child.Shutdown()
 	output, runErr := child.Run(ctx, "Delegated task:\n"+r.cfg.Goal+"\n\nSupplied context:\n"+r.cfg.Context)
+	if r.terminals != nil {
+		runErr = errors.Join(runErr, r.terminals.CloseOwner(r.terminalOwner))
+	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	result := &subagent.Result{TaskIndex: r.cfg.TaskIndex, Status: "completed", ExitReason: "completed", TokensIn: state.in, TokensOut: state.out, CostUSD: state.cost, DurationMs: time.Since(start).Milliseconds(), ToolTrace: append([]subagent.ToolEntry(nil), state.trace...)}
+	result := &subagent.Result{TerminalHandoffs: append([]terminal.Handoff(nil), state.handoffs...), TaskIndex: r.cfg.TaskIndex, Status: "completed", ExitReason: "completed", TokensIn: state.in, TokensOut: state.out, CostUSD: state.cost, DurationMs: time.Since(start).Milliseconds(), ToolTrace: append([]subagent.ToolEntry(nil), state.trace...)}
 	for path := range state.read {
 		result.FilesRead = append(result.FilesRead, path)
 	}
@@ -203,6 +260,7 @@ func (r *runner) Run(ctx context.Context) (*subagent.Result, error) {
 }
 
 type runState struct {
+	handoffs      []terminal.Handoff
 	mu            sync.Mutex
 	in, out       int64
 	cost          float64
@@ -264,6 +322,7 @@ func (p *meteredProvider) Stream(context.Context, providers.Request) (<-chan pro
 
 type recordingTool struct {
 	tools.Tool
+	guard     tools.ExecutionGuard
 	workspace string
 	state     *runState
 }
@@ -284,7 +343,19 @@ func (t *recordingTool) Schema() json.RawMessage {
 }
 
 func (t *recordingTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
-	output, err := t.Tool.Execute(ctx, input)
+	var output json.RawMessage
+	var err error
+	// Native language servers may open absolute files. Bind delegated queries
+	// to canonical workspace bytes before reaching the shared parent service.
+	if strings.HasPrefix(t.Name(), "lsp_") {
+		input, err = scopedLSPInput(t.workspace, input)
+	}
+	if err != nil { // recorded below; do not invoke the adapter
+	} else if t.guard != nil {
+		output, err = t.guard(ctx, t.Tool, input)
+	} else {
+		output, err = t.Tool.Execute(ctx, input)
+	}
 	var args struct{ Action, Path string }
 	_ = json.Unmarshal(input, &args)
 	path := args.Path
@@ -297,11 +368,52 @@ func (t *recordingTool) Execute(ctx context.Context, input json.RawMessage) (jso
 	entry := subagent.ToolEntry{Tool: t.Name(), ArgsLen: len(input), Path: path, InputHash: digest(input), OutputHash: digest(output)}
 	t.state.mu.Lock()
 	defer t.state.mu.Unlock()
+	if t.Name() == "terminal" && err == nil {
+		var transfer terminal.TransferResult
+		if json.Unmarshal(output, &transfer) == nil && transfer.Handoff.ID != "" {
+			t.state.handoffs = append(t.state.handoffs, transfer.Handoff)
+			if !transfer.Success {
+				t.state.fail(fmt.Errorf("child runtime: terminal handoff receipt is unconfirmed"))
+			}
+		}
+	}
 	if err != nil {
 		entry.Error = err.Error()
-		t.state.fail(fmt.Errorf("child runtime: %s failed: %w", t.Name(), err))
+		// Human takeover is a temporary input fence, not failure of the
+		// entire delegated task. Keep the rejected attempt in the trace;
+		// the worker may observe output and resume after control returns.
+		if !errors.Is(err, terminal.ErrHumanControl) && !errors.Is(err, terminal.ErrControlChanged) && !errors.Is(err, terminal.ErrInputOrder) && !errors.Is(err, terminal.ErrOwnershipTransferred) {
+			t.state.fail(fmt.Errorf("child runtime: %s failed: %w", t.Name(), err))
+		}
 	} else {
 		entry.Success = true
+		var outcome struct {
+			Outcome  string `json:"outcome"`
+			ExitCode *int   `json:"exit_code"`
+			TimedOut bool   `json:"timed_out"`
+			Success  *bool  `json:"success"`
+			Error    string `json:"error"`
+		}
+		if json.Unmarshal(output, &outcome) == nil {
+			if t.Name() == "terminal" && outcome.Outcome == "unknown" {
+				t.state.fail(fmt.Errorf("child runtime: terminal input delivery is uncertain; reconcile effects before another attempt"))
+			}
+			if outcome.ExitCode != nil && *outcome.ExitCode != 0 {
+				entry.Success = false
+				entry.Error = fmt.Sprintf("command exited with code %d", *outcome.ExitCode)
+			}
+			if outcome.TimedOut {
+				entry.Success = false
+				entry.Error = "command timed out"
+			}
+			if outcome.Success != nil && !*outcome.Success {
+				entry.Success = false
+				entry.Error = outcome.Error
+				if entry.Error == "" {
+					entry.Error = "tool reported failure"
+				}
+			}
+		}
 		if t.Name() == "patch" || args.Action == "write" || args.Action == "edit" || args.Action == "mkdir" {
 			if path != "" {
 				t.state.written[path] = true
@@ -313,9 +425,46 @@ func (t *recordingTool) Execute(ctx context.Context, input json.RawMessage) (jso
 	t.state.trace = append(t.state.trace, entry)
 	return output, err
 }
+func scopedLSPInput(workspace string, input json.RawMessage) (json.RawMessage, error) {
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(input, &args); err != nil {
+		return input, err
+	}
+	var path string
+	if err := json.Unmarshal(args["file"], &path); err != nil || path == "" {
+		return input, fmt.Errorf("child runtime: LSP file is required")
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(workspace, path)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return input, fmt.Errorf("child runtime: LSP file: %w", err)
+	}
+	relative, err := filepath.Rel(workspace, resolved)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return input, fmt.Errorf("child runtime: LSP file is outside workspace")
+	}
+	args["file"], _ = json.Marshal(resolved)
+	return json.Marshal(args)
+}
+
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 
 func toolDefinition(name string) providers.Tool {
+	schemas := map[string]string{
+		"shell":          `{"type":"object","properties":{"command":{"type":"string"},"working_dir":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":900},"env":{"type":"object","additionalProperties":{"type":"string"}}},"required":["command"],"additionalProperties":false}`,
+		"pty_shell":      `{"type":"object","properties":{"command":{"type":"string"},"cwd":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":900}},"required":["command"],"additionalProperties":false}`,
+		"grep":           `{"type":"object","properties":{"pattern":{"type":"string"},"include":{"type":"string"},"max_results":{"type":"integer","minimum":1,"maximum":1000}},"required":["pattern"],"additionalProperties":false}`,
+		"git":            `{"type":"object","properties":{"action":{"type":"string","enum":["status","diff","log","add","commit","push","reset","stash"]},"staged":{"type":"boolean"},"stat":{"type":"boolean"},"count":{"type":"integer"},"paths":{"type":"array","items":{"type":"string"}},"message":{"type":"string"},"ref":{"type":"string"},"stash_action":{"type":"string"}},"required":["action"],"additionalProperties":false}`,
+		"lsp_hover":      `{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"column":{"type":"integer"}},"required":["file","line","column"],"additionalProperties":false}`,
+		"lsp_definition": `{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"column":{"type":"integer"}},"required":["file","line","column"],"additionalProperties":false}`,
+		"lsp_references": `{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"column":{"type":"integer"}},"required":["file","line","column"],"additionalProperties":false}`,
+		"lsp_symbols":    `{"type":"object","properties":{"file":{"type":"string"}},"required":["file"],"additionalProperties":false}`,
+	}
+	if schema, ok := schemas[name]; ok {
+		return providers.Tool{Name: name, Description: "Use the session's " + name + " capability in the delegated workspace. Shell commands run on the trusted host; they are not OS-sandboxed. Report actual results and exit codes.", Parameters: json.RawMessage(schema)}
+	}
 	if name == "patch" {
 		return providers.Tool{Name: name, Description: "Apply a unified diff to an existing workspace file. Paths must stay inside the workspace.", Parameters: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"patch":{"type":"string"}},"required":["path","patch"],"additionalProperties":false}`)}
 	}

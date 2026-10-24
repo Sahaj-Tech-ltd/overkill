@@ -1,0 +1,525 @@
+{
+  "date": "2026-10-23",
+  "repository": "https://github.com/omnigent-ai/omnigent",
+  "commit": "caa0441fddfcfe407e38be04b55850a128be2dd2",
+  "scope": "Pinned source, caller tracing, upstream test inspection and isolated exact-function probes. No product implementation changes.",
+  "bottomLine": "Multi-harness subscription-backed workers are baseline parity. Deterministic quota-aware cross-harness handoff with task evidence, ownership fencing, explicit spend policy and supervisor rescue was not established in the inspected Omnigent snapshot.",
+  "findings": [
+    {
+      "id": "O01",
+      "behavior": "Use an existing Claude/Codex subscription login",
+      "verdict": "Implemented configuration and native-CLI integration; account billing not live-qualified in this pass",
+      "evidence": [
+        "subscription",
+        "singleSubscription",
+        "nativeWorker"
+      ],
+      "limit": "A subscription is CLI-bound. Setup permits one configured subscription per CLI, not an account-rotation pool."
+    },
+    {
+      "id": "O02",
+      "behavior": "Choose among multiple harnesses and models",
+      "verdict": "Implemented launch/spawn selection and same-harness turn routing",
+      "evidence": [
+        "launchRouting",
+        "turnRouting",
+        "polly"
+      ],
+      "limit": "Task/model compatibility selection is not a response to exhausted subscription quota. A turn router does not switch harness."
+    },
+    {
+      "id": "O03",
+      "behavior": "Fallback when the routing service fails",
+      "verdict": "Implemented and isolated function probe passed",
+      "evidence": [
+        "routerFallback"
+      ],
+      "limit": "External routing service -> local routing judge. Neither leg transfers worker execution or a subscription."
+    },
+    {
+      "id": "O04",
+      "behavior": "Retry a provider request",
+      "verdict": "Bounded retry of the supplied call is implemented",
+      "evidence": [
+        "retry"
+      ],
+      "limit": "execute_with_retry invokes the same call_fn; no alternate worker/account selector is supplied there."
+    },
+    {
+      "id": "O05",
+      "behavior": "Handle a native worker rate/usage failure",
+      "verdict": "Implemented reporting, classification and user retry affordances",
+      "evidence": [
+        "nativeForwarding",
+        "serverFailure",
+        "nativeFailure",
+        "retryUI",
+        "retryUITest"
+      ],
+      "limit": "Some explicit exhausted-credit 429 messages classify as rate_limit_exceeded. Auth and selected gateway-budget errors are distinguished, but this is not a normalized subscription allowance/reset policy."
+    },
+    {
+      "id": "O06",
+      "behavior": "Continue in another harness",
+      "verdict": "Explicit cross-agent/harness fork exists",
+      "evidence": [
+        "fork"
+      ],
+      "limit": "Fork copies conversation items; native transcript reconstruction is qualified by provider family. No quota-triggered caller found in inspected error paths. A fork does not transfer terminal ownership or prove pending effects safe."
+    },
+    {
+      "id": "O07",
+      "behavior": "Recover after a worker result or runner disruption",
+      "verdict": "Durable child result redelivery and parent wake are implemented",
+      "evidence": [
+        "childResult",
+        "childRecovery"
+      ],
+      "limit": "Recovery of result delivery and runner bindings is not automatic subscription failover. A supervisor may replan using tools; that is model-led recovery rather than a deterministic quota controller."
+    },
+    {
+      "id": "O08",
+      "behavior": "Enforce a cost budget",
+      "verdict": "Cost policy provides approval thresholds and expensive-model downgrade gating",
+      "evidence": [
+        "costPolicy"
+      ],
+      "limit": "Its max_cost_usd gate can allow work again on a cheaper model; it is not an absolute task spend ceiling or subscription quota balance."
+    },
+    {
+      "id": "O09",
+      "behavior": "Automatic subscription exhaustion -> alternate harness -> safe task continuation",
+      "verdict": "No explicit end-to-end implementation found in bounded inspected production call paths",
+      "evidence": [
+        "nativeForwarding",
+        "serverFailure",
+        "turnRouting",
+        "fork",
+        "childResult",
+        "providerDefaults"
+      ],
+      "limit": "Not proof of global absence or impossibility through custom agents/extensions. No full app, upstream pytest suite or live subscription test was run."
+    }
+  ],
+  "anchors": {
+    "subscription": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/onboarding/configure_models.py",
+      "repositoryPath": "omnigent/onboarding/configure_models.py",
+      "line": 913,
+      "needle": "def build_subscription_provider_entry",
+      "exactNeedleFound": true,
+      "sha256": "0b4195d2ec5c67634aafe419f691b391ae39ca7754416085c3d8650f6f0b653c",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/onboarding/configure_models.py#L913"
+    },
+    "singleSubscription": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/cli_config.py",
+      "repositoryPath": "omnigent/cli_config.py",
+      "line": 828,
+      "needle": "# A harness has at most ONE subscription.",
+      "exactNeedleFound": true,
+      "sha256": "8b69462412480e3409eee780cb000422c9929a00ca7401f153ad3bd962e4b4b6",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/cli_config.py#L828"
+    },
+    "providerDefaults": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/onboarding/provider_config.py",
+      "repositoryPath": "omnigent/onboarding/provider_config.py",
+      "line": 1371,
+      "needle": "def default_provider_for_harness",
+      "exactNeedleFound": true,
+      "sha256": "eb2d22bcc445e513295e86d4715b3d43472c79e1f6ffab05546675d2720e9ae2",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/onboarding/provider_config.py#L1371"
+    },
+    "launchRouting": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/smart_routing.py",
+      "repositoryPath": "omnigent/server/smart_routing.py",
+      "line": 2022,
+      "needle": "async def route_session_harness",
+      "exactNeedleFound": true,
+      "sha256": "d661facb262ff1db34623ffa13b82a58ec03122927f27a83fecd2f5bfcaa8cd0",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/smart_routing.py#L2022"
+    },
+    "turnRouting": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/smart_routing.py",
+      "repositoryPath": "omnigent/server/smart_routing.py",
+      "line": 2263,
+      "needle": "async def route_turn(",
+      "exactNeedleFound": true,
+      "sha256": "d661facb262ff1db34623ffa13b82a58ec03122927f27a83fecd2f5bfcaa8cd0",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/smart_routing.py#L2263"
+    },
+    "routerFallback": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/routing_backend.py",
+      "repositoryPath": "omnigent/server/routing_backend.py",
+      "line": 129,
+      "needle": "async def route_with_fallback",
+      "exactNeedleFound": true,
+      "sha256": "cf17a8155461223774df6dd5ab01cfb32ed9cd013b1031abcf9e4f27256052df",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/routing_backend.py#L129"
+    },
+    "retry": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/runtime/llm_retry.py",
+      "repositoryPath": "omnigent/runtime/llm_retry.py",
+      "line": 289,
+      "needle": "def execute_with_retry",
+      "exactNeedleFound": true,
+      "sha256": "e88e908f9d5dff39175b1a8a5129ca088e6f87ee8e7f7379ab326c387b987d30",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runtime/llm_retry.py#L289"
+    },
+    "nativeFailure": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/runner/launch_failure.py",
+      "repositoryPath": "omnigent/runner/launch_failure.py",
+      "line": 253,
+      "needle": "def classify_native_turn_error",
+      "exactNeedleFound": true,
+      "sha256": "c73714581ef9fba9b7283d164fc199cdbec26517b867fe97b67ebbd6f27259cb",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runner/launch_failure.py#L253"
+    },
+    "quotaTests": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/tests/runner/test_launch_failure.py",
+      "repositoryPath": "tests/runner/test_launch_failure.py",
+      "line": 176,
+      "needle": "def test_classifies_native_429_and_rate_limit_errors",
+      "exactNeedleFound": true,
+      "sha256": "69694be9afec0943f22840f398361dd3fee44aa4dba0f349a61f32a1ae242755",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/tests/runner/test_launch_failure.py#L176"
+    },
+    "nativeForwarding": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/harnesses/codex_native/forwarder.py",
+      "repositoryPath": "omnigent/harnesses/codex_native/forwarder.py",
+      "line": 7035,
+      "needle": "async def _post_turn_status_edge",
+      "exactNeedleFound": true,
+      "sha256": "254bfe3e69324b3ed88d0add96579c094c7dc593b196707003b7958221c1a648",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/harnesses/codex_native/forwarder.py#L7035"
+    },
+    "serverFailure": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/routes/sessions/routes_events.py",
+      "repositoryPath": "omnigent/server/routes/sessions/routes_events.py",
+      "line": 2221,
+      "needle": "classified_code = classify_native_turn_error",
+      "exactNeedleFound": true,
+      "sha256": "b973505b131ee101a70f0442448d82cdc3a8fd6ae3858cabdab9ffd7546620aa",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/routes/sessions/routes_events.py#L2221"
+    },
+    "retryUI": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/web/src/components/blocks/StatusBlocks.tsx",
+      "repositoryPath": "web/src/components/blocks/StatusBlocks.tsx",
+      "line": 131,
+      "needle": "export const CONTINUE_TURN_ERROR_CODES",
+      "exactNeedleFound": true,
+      "sha256": "504af64e1925c0ea488fa1dd9e77e2112252a9e7b21f0c64a9b149cc855647b3",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/web/src/components/blocks/StatusBlocks.tsx#L131"
+    },
+    "retryUITest": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/web/src/components/blocks/StatusBlocks.test.tsx",
+      "repositoryPath": "web/src/components/blocks/StatusBlocks.test.tsx",
+      "line": 707,
+      "needle": "const retry = screen.getByRole(\"button\", { name: \"Retry\" })",
+      "exactNeedleFound": true,
+      "sha256": "36cab610bbfa747e781461645bc59b63d0cb28ac8af58f856a992d452b842a90",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/web/src/components/blocks/StatusBlocks.test.tsx#L707"
+    },
+    "fork": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/routes/sessions/routes_core.py",
+      "repositoryPath": "omnigent/server/routes/sessions/routes_core.py",
+      "line": 3433,
+      "needle": "async def fork_session(",
+      "exactNeedleFound": true,
+      "sha256": "2a37836e3f693928b7222a1bbdb1f55d04954631b01d8838fa9b394fabdf915e",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/routes/sessions/routes_core.py#L3433"
+    },
+    "childResult": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/runner/subagent_work.py",
+      "repositoryPath": "omnigent/runner/subagent_work.py",
+      "line": 750,
+      "needle": "def _deliver_subagent_completion",
+      "exactNeedleFound": true,
+      "sha256": "80e26684c5f2d0aa8f3c66944cc4e3e610f8e6a06dcdbad8517cdbb286692cbd",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runner/subagent_work.py#L750"
+    },
+    "childRecovery": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/runner/subagent_recovery.py",
+      "repositoryPath": "omnigent/runner/subagent_recovery.py",
+      "line": 53,
+      "needle": "def build_subagent_recovery",
+      "exactNeedleFound": true,
+      "sha256": "4511c0898053083bbc3b2f03c36c1750188580e992d021ea32ac15d4985b2af7",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runner/subagent_recovery.py#L53"
+    },
+    "polly": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/examples/polly/config.yaml",
+      "repositoryPath": "examples/polly/config.yaml",
+      "line": 37,
+      "needle": "prompt: |",
+      "exactNeedleFound": true,
+      "sha256": "bd7afdf9f09fe504e41486e1710e224073c8db5a3a07c1aa055a27f93f216470",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/examples/polly/config.yaml#L37"
+    },
+    "nativeWorker": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/examples/polly/agents/codex/config.yaml",
+      "repositoryPath": "examples/polly/agents/codex/config.yaml",
+      "line": 8,
+      "needle": "harness: codex-native",
+      "exactNeedleFound": true,
+      "sha256": "47384b34c35aa54076aae9397f92904217afea11608073cbe9bc6806deb30700",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/examples/polly/agents/codex/config.yaml#L8"
+    },
+    "terminal": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/terminals/registry.py",
+      "repositoryPath": "omnigent/terminals/registry.py",
+      "line": 191,
+      "needle": "class TerminalRegistry:",
+      "exactNeedleFound": true,
+      "sha256": "83bc2235e72120b2f24307f4b38cabe347babc8b9f0cbe54f3c82d637a2a4031",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/terminals/registry.py#L191"
+    },
+    "terminalControl": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/terminals/control_bridge.py",
+      "repositoryPath": "omnigent/terminals/control_bridge.py",
+      "line": 1,
+      "needle": "Shared tmux control-mode",
+      "exactNeedleFound": true,
+      "sha256": "9e894c6fedc499c2cc0757b07a8ddb3a502ea933b9df19abdcdbaae694975b49",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/terminals/control_bridge.py#L1"
+    },
+    "worktrees": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/host/git_worktree.py",
+      "repositoryPath": "omnigent/host/git_worktree.py",
+      "line": 403,
+      "needle": "def create_worktree(",
+      "exactNeedleFound": true,
+      "sha256": "81d76d0edcd0400f16d01119a345403459d77ef7f66f584de967891b172a1ff9",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/host/git_worktree.py#L403"
+    },
+    "costPolicy": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/policies/builtins/cost.py",
+      "repositoryPath": "omnigent/policies/builtins/cost.py",
+      "line": 1,
+      "needle": "Built-in cost-budget policy.",
+      "exactNeedleFound": true,
+      "sha256": "42bcdf5598aaf89063a3892d05cf90f646db54e349f6a4c47875999713c48b78",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/policies/builtins/cost.py#L1"
+    },
+    "quotaNotification": {
+      "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/inner/codex_executor.py",
+      "repositoryPath": "omnigent/inner/codex_executor.py",
+      "line": 4383,
+      "needle": "\"account/rateLimits/updated\"",
+      "exactNeedleFound": true,
+      "sha256": "bf844e3e86b2d02c203bd918f45e2d429e7e7a796ab520935d4b879731d7658f",
+      "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/inner/codex_executor.py#L4383"
+    }
+  },
+  "isolatedProbes": {
+    "commit": "caa0441fddfcfe407e38be04b55850a128be2dd2",
+    "method": "stdlib AST extraction of exact inspected functions and required constants; no competitor app, dependencies, account or vendor request",
+    "classifierCases": [
+      {
+        "input": "API Error: 429",
+        "classification": "rate_limit_exceeded"
+      },
+      {
+        "input": "API Error: 429 {\"error\":{\"code\":\"insufficient_quota\"}}",
+        "classification": "rate_limit_exceeded"
+      },
+      {
+        "input": "HTTP 429: billing_hard_limit_reached",
+        "classification": "rate_limit_exceeded"
+      },
+      {
+        "input": "HTTP 403: budget has reached its limit",
+        "classification": "budget_exhausted"
+      },
+      {
+        "input": "HTTP 401: unauthorized",
+        "classification": "native_turn_error"
+      },
+      {
+        "input": "API Error: 503 overloaded",
+        "classification": "transient_upstream_error"
+      },
+      {
+        "input": "You've hit your usage limit. Try again tomorrow.",
+        "classification": "native_turn_error"
+      }
+    ],
+    "routerProbe": {
+      "source": "oss-llm",
+      "externalRouterCalls": 1,
+      "localJudgeCalls": 1,
+      "workerInvocations": 0,
+      "meaning": "Router service fallback; does not execute or transfer a worker task."
+    },
+    "limitations": [
+      "Not the upstream pytest suite.",
+      "Not live subscription acceptance.",
+      "No absence or automatic failover claim is established by probes alone; call-path inspection is separate."
+    ],
+    "context": "Classifier cases start from native_turn_error intentionally; native forwarding performs an earlier auth-specific classification. These cases do not claim all 401s stay generic in the full app."
+  },
+  "searchCoverage": {
+    "productionAreas": [
+      "onboarding and provider defaults",
+      "launch/spawn/turn routing",
+      "native Codex failure forwarding",
+      "server native failure events",
+      "request retry",
+      "explicit session forks",
+      "child terminal result delivery and restart recovery",
+      "cost-budget policy",
+      "UI retry actions"
+    ],
+    "searchTerms": [
+      "failover",
+      "subscription",
+      "rate_limit",
+      "usage_limit",
+      "quota",
+      "reset_at",
+      "rateLimits",
+      "fallback_harness"
+    ],
+    "notExhaustive": true
+  },
+  "cautions": [
+    "Existing comments mention a missing _client_executor module and a missing RETRY_ACROSS_HARNESSES design file; those comments were not accepted as proof of a current retry implementation.",
+    "The account/rateLimits/updated event appears in a native progress bookkeeping exclusion; this is not evidence of quota scheduling.",
+    "Generic OAuth in Overkill is not an official native harness subscription worker adapter.",
+    "No comparative task-quality or savings claim is established."
+  ],
+  "isolatedProbeReproductionSource": "import ast, asyncio, dataclasses, json, logging, re, sys, types\nfrom pathlib import Path\nroot=Path('research/harnesses/omnigent/source')\ndef extract(relative,names,ns):\n tree=ast.parse((root/relative).read_text())\n chosen=[]\n for node in tree.body:\n  name=getattr(node,'name',None)\n  if isinstance(node,ast.Assign): name=next((t.id for t in node.targets if isinstance(t,ast.Name)),None)\n  if name in names: chosen.append(node)\n assert len(chosen)==len(names),(relative,set(names)-{getattr(n,'name',None) for n in chosen})\n module=ast.Module(body=[ast.ImportFrom(module='__future__',names=[ast.alias(name='annotations')],level=0),*chosen],type_ignores=[])\n exec(compile(ast.fix_missing_locations(module),str(root/relative),'exec'),ns)\nm=types.ModuleType('omnigent_exact_probe');sys.modules[m.__name__]=m\nns=m.__dict__;ns.update({'re':re,'dataclass':dataclasses.dataclass,'_logger':logging.getLogger('probe')})\nextract('omnigent/llms/errors.py',{'_CONTENT_LENGTH_PHRASE','_REQUEST_LIMIT_PAIR','_APPROX_BYTES_PER_TOKEN','RequestSizeOverflow','detect_request_size_overflow'},ns)\nextract('omnigent/runner/launch_failure.py',{'CODEX_COMPACTION_MODEL_FAILED','_RATE_LIMIT_ERROR','_NATIVE_ERROR_HTTP_STATUS','_BUDGET_EXHAUSTED_FRAGMENTS','_TRANSIENT_UPSTREAM_FRAGMENTS','_TRANSIENT_UPSTREAM_STATUSES','_UPSTREAM_CANCELLED_ENVELOPE','_CLIENT_UPDATE_REQUIRED','classify_native_turn_error'},ns)\ncases=[('API Error: 429','rate_limit_exceeded'),('API Error: 429 {\"error\":{\"code\":\"insufficient_quota\"}}','rate_limit_exceeded'),('HTTP 429: billing_hard_limit_reached','rate_limit_exceeded'),('HTTP 403: budget has reached its limit','budget_exhausted'),('HTTP 401: unauthorized','native_turn_error'),('API Error: 503 overloaded','transient_upstream_error'),(\"You've hit your usage limit. Try again tomorrow.\",'native_turn_error')]\nresults=[]\nfor message,expected in cases:\n actual=ns['classify_native_turn_error']('native_turn_error',message)\n assert actual==expected,(message,actual)\n results.append({'input':message,'classification':actual})\nextract('omnigent/server/routing_backend.py',{'RoutingBackends','usable_external','RouterChoice','select_router','RoutedCall','route_with_fallback'},ns)\nclass Client:\n def __init__(self,fail=False):self.fail=fail;self.calls=[]\n async def route(self,message,models):\n  self.calls.append({'message':message,'models':models})\n  if self.fail:raise RuntimeError('routing service down')\n  return {'harness':'codex','model':'fixture-model'}\nasync def probe():\n external,local=Client(True),Client()\n result=await ns['route_with_fallback'](ns['RoutingBackends'](external,local),'task',{'codex':['fixture-model']},gateway_backed=True)\n assert result.source=='oss-llm' and len(external.calls)==len(local.calls)==1\n return {'source':result.source,'externalRouterCalls':len(external.calls),'localJudgeCalls':len(local.calls),'workerInvocations':0,'meaning':'Router service fallback; does not execute or transfer a worker task.'}\nreceipt={'commit':'caa0441fddfcfe407e38be04b55850a128be2dd2','method':'stdlib AST extraction of exact inspected functions and required constants; no competitor app, dependencies, account or vendor request','classifierCases':results,'routerProbe':asyncio.run(probe()),'limitations':['Not the upstream pytest suite.','Not live subscription acceptance.','No absence or automatic failover claim is established by probes alone; call-path inspection is separate.']}\nPath('.cache/omnigent-review/probe-results.json').write_text(json.dumps(receipt,indent=2)+'\\n')\nprint(json.dumps(receipt,indent=2))\n",
+  "latestUpstreamReview": {
+    "date": "2026-10-23",
+    "observedHead": "60ba4afb1d7624b0f54e2efc653e36f6170cfb29",
+    "pinnedCheckoutRetained": "caa0441fddfcfe407e38be04b55850a128be2dd2",
+    "method": "Fetched exact observed upstream HEAD; reviewed production diff and compared every existing audit anchor file byte-for-byte. Re-ran seven exact classifier cases and router fallback probe on pinned source.",
+    "changedProductionFiles": [
+      "omnigent/host/connect.py",
+      "omnigent/runner/git_providers/__init__.py",
+      "omnigent/runner/git_providers/github_observer.py",
+      "omnigent/runner/git_providers/github_push.py",
+      "omnigent/runner/pr_observer.py",
+      "omnigent/server/routes/sessions/routes_events.py"
+    ],
+    "anchorFileChecks": [
+      {
+        "anchor": "subscription",
+        "repositoryPath": "omnigent/onboarding/configure_models.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "singleSubscription",
+        "repositoryPath": "omnigent/cli_config.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "providerDefaults",
+        "repositoryPath": "omnigent/onboarding/provider_config.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "launchRouting",
+        "repositoryPath": "omnigent/server/smart_routing.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "turnRouting",
+        "repositoryPath": "omnigent/server/smart_routing.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "routerFallback",
+        "repositoryPath": "omnigent/server/routing_backend.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "retry",
+        "repositoryPath": "omnigent/runtime/llm_retry.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "nativeFailure",
+        "repositoryPath": "omnigent/runner/launch_failure.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "quotaTests",
+        "repositoryPath": "tests/runner/test_launch_failure.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "nativeForwarding",
+        "repositoryPath": "omnigent/harnesses/codex_native/forwarder.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "serverFailure",
+        "repositoryPath": "omnigent/server/routes/sessions/routes_events.py",
+        "unchangedAtLatest": false
+      },
+      {
+        "anchor": "retryUI",
+        "repositoryPath": "web/src/components/blocks/StatusBlocks.tsx",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "retryUITest",
+        "repositoryPath": "web/src/components/blocks/StatusBlocks.test.tsx",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "fork",
+        "repositoryPath": "omnigent/server/routes/sessions/routes_core.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "childResult",
+        "repositoryPath": "omnigent/runner/subagent_work.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "childRecovery",
+        "repositoryPath": "omnigent/runner/subagent_recovery.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "polly",
+        "repositoryPath": "examples/polly/config.yaml",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "nativeWorker",
+        "repositoryPath": "examples/polly/agents/codex/config.yaml",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "terminal",
+        "repositoryPath": "omnigent/terminals/registry.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "terminalControl",
+        "repositoryPath": "omnigent/terminals/control_bridge.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "worktrees",
+        "repositoryPath": "omnigent/host/git_worktree.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "costPolicy",
+        "repositoryPath": "omnigent/policies/builtins/cost.py",
+        "unchangedAtLatest": true
+      },
+      {
+        "anchor": "quotaNotification",
+        "repositoryPath": "omnigent/inner/codex_executor.py",
+        "unchangedAtLatest": true
+      }
+    ],
+    "relevantChange": "Native Claude /login and /logout from chat now refuse and direct the user to host setup. Other production changes concern Git push/PR tracking and host connection. No new subscription-quota handoff controller appears in this delta.",
+    "qualification": "routes_events.py changed outside the inspected native failure path; other anchor files unchanged. Latest delta inspection is not a full upstream test or live account run.",
+    "probesPassed": 8
+  }
+}

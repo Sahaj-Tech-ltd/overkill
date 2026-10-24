@@ -91,6 +91,8 @@ type ContractReadiness struct {
 }
 
 var contractDDL = []string{
+	`CREATE TABLE IF NOT EXISTS coordination_workspace_processes(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,peer_id TEXT NOT NULL REFERENCES coordination_peers(id),workspace TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+	`CREATE INDEX IF NOT EXISTS idx_coordination_workspace_processes ON coordination_workspace_processes(project_id)`,
 	`CREATE TABLE IF NOT EXISTS coordination_contracts (
  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, owner_peer_id TEXT NOT NULL REFERENCES coordination_peers(id),
  revision BIGINT NOT NULL CHECK(revision>0), spec JSONB NOT NULL,
@@ -451,6 +453,9 @@ func (s *Store) CreateContract(ctx context.Context, peerID string, spec Contract
 		return Contract{}, err
 	}
 	defer tx.Rollback()
+	if err := rejectProcessContractMutation(ctx, tx, p.ProjectID); err != nil {
+		return Contract{}, err
+	}
 	spec, err = prepareContractSpec(p, spec)
 	if err != nil {
 		return Contract{}, err
@@ -481,6 +486,9 @@ func (s *Store) UpdateContract(ctx context.Context, peerID, id string, expectedR
 		return Contract{}, err
 	}
 	defer tx.Rollback()
+	if err := rejectProcessContractMutation(ctx, tx, p.ProjectID); err != nil {
+		return Contract{}, err
+	}
 	old, err := contractInProject(ctx, tx, p.ProjectID, id)
 	if err != nil {
 		return Contract{}, err
@@ -548,6 +556,9 @@ func (s *Store) DeleteContract(ctx context.Context, peerID, id string, expectedR
 		return err
 	}
 	defer tx.Rollback()
+	if err := rejectProcessContractMutation(ctx, tx, p.ProjectID); err != nil {
+		return err
+	}
 	c, err := contractInProject(ctx, tx, p.ProjectID, id)
 	if err != nil {
 		return err

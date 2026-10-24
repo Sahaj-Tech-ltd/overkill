@@ -22,6 +22,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/multimodal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tags"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/terminal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/vision"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/walls"
 
@@ -36,8 +37,10 @@ type FactoryDeps struct {
 	ACPRemotes map[string]ACPRemote // trusted named destinations/credentials
 
 	// CWD is the working directory for file-system-scoped tools.
-	CWD            string
-	ExecutionGuard ExecutionGuard
+	TerminalManager *terminal.Manager
+	TerminalOwner   terminal.Owner
+	CWD             string
+	ExecutionGuard  ExecutionGuard
 
 	// ── Browser ──────────────────────────────────────────────────────
 	BrowserManager *browser.Manager
@@ -65,6 +68,7 @@ type FactoryDeps struct {
 
 	// ── Subagent ─────────────────────────────────────────────────────
 	SubagentManager *subagent.Manager
+	WorkerMessages  *subagent.CommunicationStore
 
 	// ── Goal ─────────────────────────────────────────────────────────
 	GoalQuerier GoalQuerier
@@ -155,13 +159,10 @@ func NewDefaultRegistry(deps FactoryDeps) *Registry {
 	}
 
 	// ── Core tools (always available) ────────────────────────────────
-	register(NewShellTool(func(s *ShellTool) { s.defaultWorkingDir = deps.CWD }))
-	register(NewFSTool(deps.CWD))
-	register(NewGitTool(deps.CWD))
-	register(NewGrepTool(deps.CWD))
+	for _, tool := range NewWorkspaceCodingTools(deps) {
+		register(tool)
+	}
 	register(NewWebTool())
-	register(NewPatchTool(deps.CWD))
-	register(NewPTYShellTool(deps.CWD))
 	register(NewSliceDecomposeTool())
 	if deps.Canvas != nil {
 		register(NewCanvasTool(deps.Canvas))
@@ -208,16 +209,6 @@ func NewDefaultRegistry(deps FactoryDeps) *Registry {
 		register(NewVisionDescribeTool(deps.VisionDescriber, deps.BrowserManager, deps.BrowserPolicy).WithRootDir(deps.CWD))
 	}
 
-	// ── LSP tools ────────────────────────────────────────────────────
-	if deps.LSPQuerier != nil {
-		register(NewLSPHoverTool(deps.LSPQuerier))
-		register(NewLSPDefinitionTool(deps.LSPQuerier))
-		register(NewLSPReferencesTool(deps.LSPQuerier))
-	}
-	if deps.LSPManager != nil {
-		register(NewLSPSymbolsTool(deps.LSPManager))
-	}
-
 	// ── Memory tools ─────────────────────────────────────────────────
 	if deps.MemoryOrchestrator != nil {
 		register(NewMemoryRememberTool(deps.MemoryOrchestrator))
@@ -243,6 +234,9 @@ func NewDefaultRegistry(deps FactoryDeps) *Registry {
 	// ── Subagent tools ───────────────────────────────────────────────
 	if deps.SubagentManager != nil {
 		register(NewDelegateTool(deps.SubagentManager))
+		if deps.WorkerMessages != nil {
+			register(NewWorkerMessageTool(deps.WorkerMessages, subagent.ParentWorker))
+		}
 		register(NewSubagentStatusTool(deps.SubagentManager))
 		register(NewSubagentWaitTool(deps.SubagentManager))
 	}

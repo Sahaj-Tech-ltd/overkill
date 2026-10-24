@@ -52,8 +52,11 @@ func TestExecutor_Run_AllStages(t *testing.T) {
 		if !sr.Passed {
 			t.Errorf("stage %d: expected passed=true", i)
 		}
-		if sr.Duration == 0 {
-			t.Errorf("stage %d: expected non-zero duration", i)
+		// Immediate mock calls can complete within one clock tick. Timing
+		// lower bounds are covered by TestStageResult_Duration and
+		// TestExecutor_Run_StageDuration, which use measured blocking work.
+		if sr.Duration < 0 {
+			t.Errorf("stage %d: expected non-negative duration", i)
 		}
 	}
 

@@ -1,0 +1,1125 @@
+{
+  "date": "2026-10-24T03:58:41.216956+00:00",
+  "scope": "Bounded worker-message delivery commit recovery and actual abrupt-backend-crash acceptance, layered on the coding/terminal foundation. Local-team milestone remains incomplete.",
+  "gitBase": "1839271dfeec89773428e1ebc5c1627ffc1a9a8a",
+  "workingTree": true,
+  "backendSHA256": "0eccc85851ec83eed990a2b22292d93201a2a538827278dc0774d4460de56944",
+  "distributionReady": false,
+  "implemented": [
+    "A proven delivery rollback removes only that inbox prefix, preserves concurrent human input and allows a later one-copy retry without a provider call on the failed turn.",
+    "A missing COMMIT response is reconciled under the same scope lock against the exact message batch. Confirmed commit retains context; confirmed rollback can retry; unresolved outcome blocks further processing in that runtime pending reconnect/history inspection.",
+    "Incoming correspondence is checked against the model context budget after admission and before provider dispatch.",
+    "The main backend-stopped error remains visible across late response/refresh errors until reconnect.",
+    "SIGKILL of the exact owned backend at queued, context-admitted and acknowledged boundaries preserves the durable message state and original file effect. Reconnect does not revive the old worker; its UI reports outcome unconfirmed and rejects stale-target sends."
+  ],
+  "sourceSHA256": {
+    ".gitignore": "31c490a88125ff6909a97a77b7b5ad95a83b2d7e9969dc77682ae2f9aefd9d51",
+    "cmd/overkill/child_runtime_setup.go": "a8652d048c150dfd30eecf67026694127ba0864034d7286ddaff4a6076b1fb5d",
+    "cmd/overkill/child_runtime_setup_test.go": "7cdbaae8194dd5ad06f01038d60bf8ffb80c51ee0799accc810a1268fae07ded",
+    "cmd/overkill/runtime_setup.go": "e4ea153505699b3619be88fc920cdcd7f367ef4a3f0cf55f24305bb5fdfe4242",
+    "cmd/overkill/subagent_setup.go": "7d432ad147238c377d68c9db8b75338d97faed717deff1912e244a8a6d4dc9aa",
+    "desktop/notices/manifest.json": "99d6ee1057bd511953d33d6dddc072e3c2d3b36e0930879ffaa39fe99c469811",
+    "desktop/notices/xterm-LICENSE.txt": "b569f629d00f2626a8100df2a1798210535621e42164dfd426a6fe5aac7b0ccd",
+    "desktop/notices/xterm-fit-LICENSE.txt": "e256f01188af527e4d06d21d06fbf785ae9c50d4b328bf03cbe0ba7f0aa4228f",
+    "desktop/package-lock.json": "a74c17e414835377eaba75d0e3999bc1439f71e70d9ef13baa852b7cdc77bea5",
+    "desktop/package.json": "19a0541d78e0042cb8e56207fc164f756dc34fd4516dfc6f3b5bbb13679d051d",
+    "desktop/src/index.html": "cf756452923ca99fc4cb95255d35dac4cd66eae2400523373b0573324fbdc31b",
+    "desktop/src/main.cjs": "cc782b98417c3deb488fb13309ea3a8f9bb2e6b2785e859b872b7eb0959c07f5",
+    "desktop/src/preload.cjs": "7d14050dceee4c921405e8cebc222a74f24fca16e5777738002dcfb6efc6de3e",
+    "desktop/src/renderer.js": "d29214d4850d175b808eef1ba95df5f3fe84605b013c6eac5d09527f783d389c",
+    "desktop/src/terminal-assets.cjs": "e07ad96967518db8cc564c89bd81e0d77a6af8a9872443da2e215f5ad1c1edd8",
+    "desktop/src/terminal-frame.css": "04cbfe56e7d70fae1e3a70b6f6d11e4f66544c5529c7c81cc3b2f2cf33c73fae",
+    "desktop/src/terminal-frame.html": "5217c20a58c06135a5109e6066d5492db52ced5fa0ffda002388e19627e72018",
+    "desktop/src/terminal-frame.js": "f117b34b3ec05ebdb7a68bf9ec02afb4b5ede0f04f09090fb694c89d29eabbc5",
+    "desktop/src/terminal-input.cjs": "e0b44fda10dc8b60be3338abe68a7554ad99d0342da267c67a2db9eead54b2f5",
+    "desktop/src/terminal-panel.js": "2d7f91c866090da1154625a99b0df88128a4a4fca29103ff69a8a1abb1a02b38",
+    "desktop/src/worker-input.cjs": "2428dbd7cb04c47c2cad0186716ff88753c026cfb8d1ee040db6a70b4db87ad8",
+    "desktop/src/workers-panel.js": "d8a138d25a09debc5d93ff52e9c52ada59e2cf2d8bdd18551211b6cdb280ba33",
+    "desktop/src/workspace-shell.css": "e63689fa58a50de68bb3716780b2fa609014fc740c38256f2ded61d6b8361bef",
+    "desktop/src/workspace-shell.js": "eb68980ec694f5199c985c61543ddc33d3504eae08d42d0379706d7a51455584",
+    "desktop/src/workspace-status.cjs": "f02151d42da81a4bbfb5b82267b93a8309933845a6dda87cb6c8cb86990812f6",
+    "desktop/src/xterm-fit.js": "ef077e02d85b4f0b610a0b8dd359b55bf00107677cb7cf50faff0f48bfb8e0f9",
+    "desktop/src/xterm.css": "854a7c0fb70e8b1a083c16797ab827299fb18744f5ad34f227b48337e33293c6",
+    "desktop/src/xterm.js": "c32a561d3feb0ecd6439609e62161e4c26c0679d6fc6f6e07334a7d8a03b0d10",
+    "desktop/test/coding-worker-native.test.cjs": "c4e305adc944490c856b5eefe6598e3c33391ac92d6111193223b755b532ebdb",
+    "desktop/test/fixtures/workspace.cjs": "4df96c26bd33a6c2907fac25b7e87fb8bbf1452a5f9bcb1e4a6fe20008619189",
+    "desktop/test/interactive-coding-native.test.cjs": "ba3227ae0fe2d6bd7602c5521a96a68e9163df1905162a85c0099666dde58535",
+    "desktop/test/persistent-terminal-native.test.cjs": "5bd397dc71bf530d61b08d90432dfc75b2b1e11a3870633583598c28a301f1a6",
+    "desktop/test/terminal-assets.test.cjs": "2a6898c45d7ceecefdd32a6b4a0d72d1d3a5bfb00cc48803f6d002b8d793b010",
+    "desktop/test/terminal-handoff-native.test.cjs": "ac658e10f7fa875f27913250b7a9f8b75b06cc94fcf14d04fe85f44835d8711c",
+    "desktop/test/terminal-input.test.cjs": "e99827342adc4d188772d9578d42fd8e187d03c10ac9aad27951e33636dd4a5f",
+    "desktop/test/terminal-panel.test.cjs": "6989cdd84bc8cf414448c844e9b18f4286233db4e1e7b6590a547a0c3e5e4772",
+    "desktop/test/worker-input.test.cjs": "ee5389c29e60913463b9f4bb46de93ab53f3e7ef1ce43738e92ca856876836ae",
+    "desktop/test/worker-messaging-native.test.cjs": "d8094e47b1e072a023192f1552ca5f5bdb653a98be2d4f8a821ec370ab59d210",
+    "desktop/test/worker-recovery-native.test.cjs": "5505005d3b3484ea90ce34cbddf3a96f159656e1e58d6ed74f5934a2c20d2f75",
+    "desktop/test/workspace-native.test.cjs": "598d7741d53a3989834ce9c4b43f93aa8bd921037bc68f59bec0728ece70a44f",
+    "desktop/test/workspace-status.test.cjs": "5ebf4c8151e74d08a006a0ca3115ed70b687fc090d13a7184cb284948bc8ca2d",
+    "go.mod": "baf181a5defce35c7ffc8fccb928a85860b6a565921d7e73bf332184cde87e70",
+    "go.sum": "81f0f70047dbe7ead35155dd7633989d1216eb3147c4c91abf6d6a25eba777b7",
+    "internal/agent/agent.go": "ca2267f4ee8ca12f1baa3833c81db5b8d24d47f29a21e79004d4edbf2bb7729f",
+    "internal/agent/boundary_inbox.go": "821b837db73ff673fd664855e231f23817ca16b7be52660fdb1c19e37c27b125",
+    "internal/agent/boundary_inbox_test.go": "af65da0a619eeec938a57bc751da3a30787b8a371a5ae7a25f171b7670764232",
+    "internal/agent/react.go": "aad223cd087a7844061edbb5d089aea97d72ca59c13552d74752d3a4f61494fb",
+    "internal/agent/stream.go": "197a60dd54efe001cf4e20a48ae11f94f3889fbacffa20378a0539bd6546abf5",
+    "internal/agent/tool_scan.go": "95cb3a5e61dd8668d29c80ac1e79665205d63c5c6d916d2aaa74c3063493915d",
+    "internal/api/coordination_handlers.go": "33295e9ce57b3dde2de3ea811ce2af0cdfce2475a223b74ce65e1062024d2029",
+    "internal/api/handlers.go": "ce158e3303698e2309a41296af32a81564fcf4073e3655235ebd58c7f3ec45e7",
+    "internal/api/runtime.go": "80caf12e84d608c4ad33cffda0285b991c100b1ab81e0dcb89e6c08e8997b156",
+    "internal/api/server.go": "0cadd11f1b0297dfb94f3dd0595e8ca1b7559a378facabfcfb938ccea34c3590",
+    "internal/api/terminal.go": "80a89cfaa2c44e4a3638dbf3c8d452433155cc89c72f7cbe724480fb282d0c30",
+    "internal/api/terminal_test.go": "21b9abc3f921a990d7b2b0b558482e5d2c96401c1657d57e47b88050653440d4",
+    "internal/api/workers.go": "8571af036bbbab294861668b52382401d009889570760bc8792dda92f5507526",
+    "internal/api/workers_test.go": "ca71cb2eef2db66e46ae796f07ee4edb8bee7c66781f169cd5d1746f210118d3",
+    "internal/childruntime/coding_test.go": "913a557ef9742c5270c7ef232b01e88aebe75a30645cc41072e6705a5f4b4ee3",
+    "internal/childruntime/inbox.go": "b8e6eb8810572a7b7c56762155f7b313b762820ae76d00489aafe7a703766ed1",
+    "internal/childruntime/inbox_commit_test.go": "c1df58b320c776258bc2a801fca5c9a34869ad6017e482f1d79675323e458572",
+    "internal/childruntime/runtime.go": "7be64333800d99184557215c719855a4fa800fee8f2fccc471cf367e2c15fd63",
+    "internal/childruntime/terminal_control_test.go": "07aa9288c7fd69334aa6874492b326022d4922449d681317c2a1b5dca4bbd157",
+    "internal/childruntime/uncertain_terminal_test.go": "135a7c643022845c47437e84f0ebb06d1e32828fcf1b39a9c65f38a561960b02",
+    "internal/coordination/contract_guards.go": "7b65e28e058ac9c3d1f4e892ac396e39e737ca9fd28d51190455af9f2cbb7720",
+    "internal/coordination/contracts.go": "fe30d8256c4cca2e2aba124768d0e36f97fc6c443b1e7191cd6ae4bf38df8307",
+    "internal/coordination/workspace_process.go": "03fada4832ef40a3493ec599d7b0b6fde5e4e42cf78858de7d2475f96ba1473d",
+    "internal/coordination/workspace_process_test.go": "1b67ed743d59f983e06d825a18529440f1c87671c6ce0c513c809529cdcce2f6",
+    "internal/pipeline/pipeline_test.go": "abcb188e7723a91c5b4bae00ebba9d5b20de7142ea799bb814b8abed4208418b",
+    "internal/pty/session.go": "3edf7d71fdc8bee79c4ac271c7b7206caafbf2878f4f85f0e3b9b6f35ed70dd3",
+    "internal/pty/session_group_unix_test.go": "968ea3152b5a4028b882df03ec0def3c0a407af4c4f4c5e82ccf62dfe6f35513",
+    "internal/pty/terminate_other.go": "4e7f65a564010ad2ca333c61109ab7b743461d80eed07ecfcc46e044c87d5fb7",
+    "internal/pty/terminate_unix.go": "e6445c97a43488d8d4d40a9e4c17cdbf6a138fc9d8b53c1418177b1f07536387",
+    "internal/security/privilege.go": "a301ea175545f5eb64b78faa1841b2704a55c9dbb29f4dc1e3b0448fab1b506f",
+    "internal/subagent/communication.go": "291258c9ac85159f28ab7ff160950f2929f95429cdecf6b1f441d3b5694c0a91",
+    "internal/subagent/communication_test.go": "0b1cbc62eaf1777d0cc2349016431e8d3380cc3ac49703e617245279a11426f9",
+    "internal/subagent/manager.go": "686b7dadc151decc4541a5a6d0062c24125c59bdbe6eb717f12e3e7c151b227c",
+    "internal/subagent/realworker.go": "09f6717bef86c9ecc43458be87d09a2f38321e38419d2d21aa258b7b6e7db435",
+    "internal/subagent/task.go": "702d9f71f92a45c1a3bc0e929fab886fb74a81e9dfb342a059fa7020c29dc1da",
+    "internal/subagent/terminal_handoffs.go": "48f4145c191090ce0849fd7e943b331a119efd89d357b66429eaebc18701baff",
+    "internal/subagent/terminal_handoffs_test.go": "7d03d84fc50112d8b6cfb6914d56b9af4ebef74c9239b413fe9fd756110a02e0",
+    "internal/subagent/worker.go": "4de2aaf490932a9ea5dc7b198bba568560a705657d913680635efffc97a43011",
+    "internal/terminal/handoff.go": "05b6f1a61b57ec1d00f3d60f3acc124d0f447f064aa3e1172606fd197a5fbba8",
+    "internal/terminal/handoff_unix_test.go": "dc580f0478c70238e3492ffd131df081194d240cb65df51cfa0c863542b0605e",
+    "internal/terminal/input.go": "d7223fb1e554362758f1d571c183a935250b828b188f96ee7d980700842f9aa1",
+    "internal/terminal/input_unix_test.go": "bd8724382d99a8f8a2dcf9802f225a6655a1fcf144a244f0e6591c8fcc01f5cb",
+    "internal/terminal/manager.go": "e01e72b6081ac9bad738542fd18add166233197994880b9d2c3317feaeb3ec06",
+    "internal/terminal/manager_unix_test.go": "86fdf9f399626162e918131fc9cbab59cd5516f67cc5ebbd745f7af069945569",
+    "internal/terminal/reservation.go": "fb401fb5c9ee2fc8ca04bdccbdbc3b649cfee720df171d073d9e62b23ece9dfe",
+    "internal/terminal/reservation_unix_test.go": "ef2e5c966947c68346738f6d798ddd71d49a688e20ae562c7a9e16715ae057c5",
+    "internal/tools/coding_factory.go": "beb2ad85db3e21e4f8c733015c907af2585416d217a69392b39d66a8169c95ff",
+    "internal/tools/coordination_guard.go": "d7811cf0e735251a707e9d792d3fc6a00901acb8e769e6903bd65a942cecfbd5",
+    "internal/tools/delegate.go": "4d802f81efdad7f7fd9dd6d1f5e5d34a3eb041b792ea48ff6b3a00b76c4a7f6b",
+    "internal/tools/delegation_guard_test.go": "e93350e5408d7516d655f55d08c44df80a13e878708b8758f290e8114e3941eb",
+    "internal/tools/factory.go": "860bb4c96c4f57d8d16f0aaf657756b2f881a58c5e36fe68c672831a9045627b",
+    "internal/tools/grep.go": "eb408bf766c2536f26e6d3eb6dd438d647e4911b21ee1ade63ec8fcce8d744ec",
+    "internal/tools/grep_workspace_test.go": "bf59e62510a2b08d2aa59819d77aefa32b01fe769c64a93909888ee5af040726",
+    "internal/tools/pty_bounded_test.go": "372c3cd863196cfaab775ffb90337fee8573ff73a2baff3d97a919f59fbe655d",
+    "internal/tools/pty_shell.go": "d0cbf97a51ace74927310f8f339dd45b2ad5e1d4f92c57479009b11f62236101",
+    "internal/tools/terminal.go": "eefce3046eeea2114e30d43a61806efb8c51f5e0e8a3aca8e0f3d806b67cf0c7",
+    "internal/tools/terminal_test.go": "bd4f72abdfec6c10a63c355e7f5b4f1a4be97428daf6f95dceaaafb49359b2c7",
+    "internal/tools/worker_followup_test.go": "e35a3fe21d5a74733895c39a62cca7a9fccfeeac3fb2fd99bb570b74fe654992",
+    "internal/tools/worker_messages.go": "db7fcf896ece896baa80555af3fed8a075dea6de170a99c2967933632d7c18e5",
+    "scripts/desktop-terminal-assets.mjs": "ba4cc77794ad33f5362fb2ead16cf07d22907f2fdf2cfa9a76f28af1a6a48a63",
+    "scripts/package-desktop-dev.mjs": "651a60d98a574367ee78ae01ab0ab2bc4c6758a091780992e98cc4b34bc94baa",
+    "scripts/prepare-desktop.mjs": "905f98c889fd3603050f8546e9e7575347d70844257c4f2a2c05f0114edcd4ad",
+    "scripts/windows-package-desktop.mjs": "50795bfaf12a1f4b29e5a0e557deb6942a976831cdbcfe6b8eb79b6101b51f5a"
+  },
+  "checks": {
+    "commitFaults": {
+      "path": "/Users/abc/Documents/overkill/.cache/inbox-commit-recovery.log",
+      "sha256": "b5d8274e7826d4c68e950275d45adc06da4631968cdcf06580febfa717c24759",
+      "scope": "Real PostgreSQL deferred COMMIT failure in Run/Stream; one-copy retry; concurrent context injection; unconfirmed-commit latch; context budget after correspondence.",
+      "tail": [
+        "PASS",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/agent\t0.670s",
+        "=== RUN   TestInboxCommitFailureStopsRunAndStreamAndRetriesWithOneCopy",
+        "=== RUN   TestInboxCommitFailureStopsRunAndStreamAndRetriesWithOneCopy/stream=false",
+        "=== RUN   TestInboxCommitFailureStopsRunAndStreamAndRetriesWithOneCopy/stream=true",
+        "--- PASS: TestInboxCommitFailureStopsRunAndStreamAndRetriesWithOneCopy (0.08s)",
+        "    --- PASS: TestInboxCommitFailureStopsRunAndStreamAndRetriesWithOneCopy/stream=false (0.05s)",
+        "    --- PASS: TestInboxCommitFailureStopsRunAndStreamAndRetriesWithOneCopy/stream=true (0.02s)",
+        "PASS",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t0.438s",
+        "=== RUN   TestAdmissionCommitRecoveryDistinguishesCommittedRollbackAndUnresolved",
+        "--- PASS: TestAdmissionCommitRecoveryDistinguishesCommittedRollbackAndUnresolved (0.04s)",
+        "PASS",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/subagent\t0.863s"
+      ]
+    },
+    "fullRequiredGo": {
+      "path": "/Users/abc/Documents/overkill/.cache/inbox-recovery-full-required-go.log",
+      "sha256": "401081a31c21196da2cc873e189724d820bc6ec9293db6be362c02e7fdaabad9",
+      "scope": "Full Go suite with PostgreSQL/frontend/localdb required. Go build/test cache remains enabled.",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/bash\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/imagegen\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging\t1.094s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/tts\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/verify\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/vision\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/impossibleprobe\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/mcpshield\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/monitor\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/promptinject\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/truthsource\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/web\t7.934s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/worktree\t(cached)"
+      ]
+    },
+    "race": {
+      "path": "/Users/abc/Documents/overkill/.cache/inbox-recovery-final-race.log",
+      "sha256": "ee1c531c22b0ec918c534a9d33042081a854f33accb2755daf5b2867bf32c339",
+      "scope": "Agent, child runtime, worker journal and API race suites.",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/agent\t19.222s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t5.192s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/subagent\t2.713s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/api\t31.423s"
+      ]
+    },
+    "desktopDefault": {
+      "path": "/Users/abc/Documents/overkill/.cache/inbox-recovery-desktop-default.log",
+      "sha256": "b85c0d8ca656ed031ba3e8a5a5cd7a92e68992f3db17ecedc16051d63d01a4ad",
+      "scope": "97 desktop checks passed; 19 opt-in native cases skipped in this default run.",
+      "tail": [
+        "\u2714 runtime presence expires and never promotes registration or unknown observers to readiness (0.10825ms)",
+        "\u2714 Checks renders historical failed plan phases without promoting acceptance to test proof (0.137416ms)",
+        "\u2714 dependency graph explains wait, privacy and truncation and ignores stale replies (0.2315ms)",
+        "\u2714 task agreement blockers distinguish acknowledgement and stale revision from test evidence (0.143458ms)",
+        "\u2714 peer scope labels distinguish explicit repository membership from checkout identities (0.041875ms)",
+        "\u2714 new contract stays disabled until the selected chat contract inventory is loaded (0.121334ms)",
+        "\u2139 tests 116",
+        "\u2139 suites 0",
+        "\u2139 pass 97",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 19",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 4530.961792"
+      ]
+    },
+    "native": {
+      "path": "/Users/abc/Documents/overkill/.cache/inbox-recovery-final-native.log",
+      "sha256": "b40eb363277938e511b08a78534fda3b703841f1bf45e20e33b11ccea842ee96",
+      "scope": "Ten separately required native Electron/backend/PostgreSQL workflows, including three exact-backend SIGKILL boundaries; no skipped native cases.",
+      "tail": [
+        "\u2714 child server handoff survives cleanup and stops with the app (human) (5951.698375ms)",
+        "\u2714 registered desktop team exchanges queued updates at safe boundaries and runs a fresh follow-up (3974.129958ms)",
+        "\u2714 actual backend crash preserves accepted worker correspondence without replay (3610.673625ms)",
+        "\u2714 actual backend crash preserves admitted worker correspondence without replay (3607.888792ms)",
+        "\u2714 actual backend crash preserves acknowledged worker correspondence without replay (3589.961334ms)",
+        "\u2714 desktop renders real task budgets, blockers, contracts and recorded checks (35583.351042ms)",
+        "\u2139 tests 10",
+        "\u2139 suites 0",
+        "\u2139 pass 10",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 83910.327916"
+      ]
+    }
+  },
+  "crashReceipts": {
+    "accepted": {
+      "path": "/Users/abc/Documents/overkill/.cache/worker-recovery-accepted-receipt.json",
+      "sha256": "4665c8839dbeb043a2b4ea5feadb181e884f15f76cb02b1f9bedf54e13fadd16",
+      "receipt": {
+        "boundary": "accepted",
+        "backendSHA256": "0eccc85851ec83eed990a2b22292d93201a2a538827278dc0774d4460de56944",
+        "parentCalls": 5,
+        "childCalls": 2,
+        "workerID": "child-c0f13197-33c1-4089-bca2-cf56b14335d0",
+        "messageID": "a8546a7e-d781-4359-acbc-ac88a66d09bd",
+        "killed": {
+          "pid": 61290,
+          "killed": true
+        },
+        "before": {
+          "available": true,
+          "terminal_handoffs": [],
+          "workers": [
+            {
+              "id": "child-c0f13197-33c1-4089-bca2-cf56b14335d0",
+              "name": "recovery-worker",
+              "goal": "Write the one real effect, then inspect updates; wait for further input.",
+              "model": "worker-recovery-fixture",
+              "status": "running",
+              "live": true,
+              "started_at": "2026-10-23T20:55:42.263137-07:00"
+            }
+          ]
+        },
+        "after": {
+          "available": true,
+          "terminal_handoffs": [],
+          "workers": [
+            {
+              "id": "child-c0f13197-33c1-4089-bca2-cf56b14335d0",
+              "name": "recovery-worker",
+              "goal": "Write the one real effect, then inspect updates; wait for further input.",
+              "model": "worker-recovery-fixture",
+              "status": "running",
+              "live": false,
+              "started_at": "2026-10-23T20:55:42.263137-07:00"
+            }
+          ]
+        },
+        "queued": {
+          "has_more": false,
+          "messages": [
+            {
+              "id": "a8546a7e-d781-4359-acbc-ac88a66d09bd",
+              "sequence": 1,
+              "from": "parent",
+              "to": "child-c0f13197-33c1-4089-bca2-cf56b14335d0",
+              "kind": "update",
+              "content": "RECOVERY_UPDATE: inspect the existing effect; do not repeat it.",
+              "state": "accepted",
+              "created_at": "2026-10-23T20:55:42.293235-07:00"
+            }
+          ],
+          "next_cursor": 1
+        },
+        "heldTransportClosed": true,
+        "scope": "Real macOS Electron development app and SIGKILL of its exact owned backend; persisted queued/admitted/acknowledged child messages and one file effect survive reconnect without restarting the child. Controlled local provider and disposable mock credentials. No private-context resume, terminal/broker recovery or installed-release claim."
+      }
+    },
+    "admitted": {
+      "path": "/Users/abc/Documents/overkill/.cache/worker-recovery-admitted-receipt.json",
+      "sha256": "607b4479536c2b2e94ca59370d1bf24bfedb14ef42bf6d5710460befee0252c6",
+      "receipt": {
+        "boundary": "admitted",
+        "backendSHA256": "0eccc85851ec83eed990a2b22292d93201a2a538827278dc0774d4460de56944",
+        "parentCalls": 5,
+        "childCalls": 3,
+        "workerID": "child-05061ec1-4fd9-4c11-928c-790280a02732",
+        "messageID": "fafd306d-ae99-4236-96bc-43a3d745b36c",
+        "killed": {
+          "pid": 61370,
+          "killed": true
+        },
+        "before": {
+          "available": true,
+          "terminal_handoffs": [],
+          "workers": [
+            {
+              "id": "child-05061ec1-4fd9-4c11-928c-790280a02732",
+              "name": "recovery-worker",
+              "goal": "Write the one real effect, then inspect updates; wait for further input.",
+              "model": "worker-recovery-fixture",
+              "status": "running",
+              "live": true,
+              "started_at": "2026-10-23T20:55:45.860914-07:00"
+            }
+          ]
+        },
+        "after": {
+          "available": true,
+          "terminal_handoffs": [],
+          "workers": [
+            {
+              "id": "child-05061ec1-4fd9-4c11-928c-790280a02732",
+              "name": "recovery-worker",
+              "goal": "Write the one real effect, then inspect updates; wait for further input.",
+              "model": "worker-recovery-fixture",
+              "status": "running",
+              "live": false,
+              "started_at": "2026-10-23T20:55:45.860914-07:00"
+            }
+          ]
+        },
+        "queued": {
+          "has_more": false,
+          "messages": [
+            {
+              "id": "fafd306d-ae99-4236-96bc-43a3d745b36c",
+              "sequence": 1,
+              "from": "parent",
+              "to": "child-05061ec1-4fd9-4c11-928c-790280a02732",
+              "kind": "update",
+              "content": "RECOVERY_UPDATE: inspect the existing effect; do not repeat it.",
+              "state": "admitted",
+              "created_at": "2026-10-23T20:55:45.893316-07:00"
+            }
+          ],
+          "next_cursor": 1
+        },
+        "heldTransportClosed": true,
+        "scope": "Real macOS Electron development app and SIGKILL of its exact owned backend; persisted queued/admitted/acknowledged child messages and one file effect survive reconnect without restarting the child. Controlled local provider and disposable mock credentials. No private-context resume, terminal/broker recovery or installed-release claim."
+      }
+    },
+    "acknowledged": {
+      "path": "/Users/abc/Documents/overkill/.cache/worker-recovery-acknowledged-receipt.json",
+      "sha256": "9c4361515ed75a42d57a540144d1622ffd8191a0f7b1ce3156702d03657aa911",
+      "receipt": {
+        "boundary": "acknowledged",
+        "backendSHA256": "0eccc85851ec83eed990a2b22292d93201a2a538827278dc0774d4460de56944",
+        "parentCalls": 5,
+        "childCalls": 4,
+        "workerID": "child-0ac4907a-a096-466d-87fb-f76dee55193a",
+        "messageID": "7055dfcd-fc0f-40e9-bd30-31d2af7fbd18",
+        "killed": {
+          "pid": 61453,
+          "killed": true
+        },
+        "before": {
+          "available": true,
+          "terminal_handoffs": [],
+          "workers": [
+            {
+              "id": "child-0ac4907a-a096-466d-87fb-f76dee55193a",
+              "name": "recovery-worker",
+              "goal": "Write the one real effect, then inspect updates; wait for further input.",
+              "model": "worker-recovery-fixture",
+              "status": "running",
+              "live": true,
+              "started_at": "2026-10-23T20:55:49.465632-07:00"
+            }
+          ]
+        },
+        "after": {
+          "available": true,
+          "terminal_handoffs": [],
+          "workers": [
+            {
+              "id": "child-0ac4907a-a096-466d-87fb-f76dee55193a",
+              "name": "recovery-worker",
+              "goal": "Write the one real effect, then inspect updates; wait for further input.",
+              "model": "worker-recovery-fixture",
+              "status": "running",
+              "live": false,
+              "started_at": "2026-10-23T20:55:49.465632-07:00"
+            }
+          ]
+        },
+        "queued": {
+          "has_more": false,
+          "messages": [
+            {
+              "id": "7055dfcd-fc0f-40e9-bd30-31d2af7fbd18",
+              "sequence": 1,
+              "from": "parent",
+              "to": "child-0ac4907a-a096-466d-87fb-f76dee55193a",
+              "kind": "update",
+              "content": "RECOVERY_UPDATE: inspect the existing effect; do not repeat it.",
+              "state": "acknowledged",
+              "created_at": "2026-10-23T20:55:49.498391-07:00"
+            }
+          ],
+          "next_cursor": 1
+        },
+        "heldTransportClosed": true,
+        "scope": "Real macOS Electron development app and SIGKILL of its exact owned backend; persisted queued/admitted/acknowledged child messages and one file effect survive reconnect without restarting the child. Controlled local provider and disposable mock credentials. No private-context resume, terminal/broker recovery or installed-release claim."
+      }
+    }
+  },
+  "additionalNativeReceipts": {
+    "worker-messaging-native-receipt.json": {
+      "path": "/Users/abc/Documents/overkill/.cache/worker-messaging-native-receipt.json",
+      "sha256": "025775a3528b312e6ae2aacc33059781d6e481a1fff213b9bff8625d28b81c1f",
+      "receipt": {
+        "backendSHA256": "0eccc85851ec83eed990a2b22292d93201a2a538827278dc0774d4460de56944",
+        "parentCalls": 7,
+        "frontCalls": 9,
+        "backCalls": 5,
+        "followCalls": 3,
+        "cancelCalls": 1,
+        "report": {
+          "results": [
+            {
+              "worker_id": "child-97c623b4-dc6b-4b96-aae7-9b9f75fd330b",
+              "task_index": 0,
+              "status": "completed",
+              "summary": "Frontend implemented the actual backend schema and verified integration.",
+              "tokens_in": 360,
+              "tokens_out": 108,
+              "cost_usd": 0,
+              "duration_ms": 494,
+              "tool_trace": [
+                {
+                  "tool": "worker_messages",
+                  "args_len": 126,
+                  "success": true,
+                  "input_hash": "6bcdd19577f35d7f7785978407590ea660d2ea2388109ce667787f242074f1ae",
+                  "output_hash": "9ee8cfb16c4e81c3641089e6802fb7d75c2f60924a5a59dc9ea227000a298af3"
+                },
+                {
+                  "tool": "worker_messages",
+                  "args_len": 134,
+                  "success": true,
+                  "input_hash": "302e4b138bd8d6831251d9682e9e9aa88154933a7d9bd4651596fd2775952a78",
+                  "output_hash": "79d53cbbdf523c520cf2c2c7c24b7b1654163b3b286425883d8411cabe0686b4"
+                },
+                {
+                  "tool": "fs",
+                  "args_len": 89,
+                  "path": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-worker-messages-evDuPO/Workspace/frontend.js",
+                  "success": true,
+                  "input_hash": "44fa4df40ec37491100d83bfb5e3a45b98b604f438c5e665f69cc68a4f9b59a2",
+                  "output_hash": "89682d711fad15b29b938ad46b7adc54674deca8f6eb1adcf877f183443a86b1"
+                },
+                {
+                  "tool": "terminal",
+                  "args_len": 133,
+                  "success": true,
+                  "input_hash": "571c0348526cf9ad35ec5d059bc2edef321da8f11262e4319ed59f3673894709",
+                  "output_hash": "89abc9a96f5c2934c6640b6d07db14d90e37f0e90e7deadd1087dfdff9648fd1"
+                },
+                {
+                  "tool": "terminal",
+                  "args_len": 79,
+                  "success": true,
+                  "input_hash": "78335fa6afadd016e4b707ce3e4f7f30b2d5c9a0cc99f844f504ca0b1cd89f5b",
+                  "output_hash": "1140db938fa44fc2c656ce64c24ee481b769de5adf71275b4fd89a610ff56b9a"
+                },
+                {
+                  "tool": "fs",
+                  "args_len": 72,
+                  "path": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-worker-messages-evDuPO/Workspace/frontend.js",
+                  "success": true,
+                  "input_hash": "599034f8af0317d18114bed91d74b679855a7cfe75b5af573b14dc9fdfb837a3",
+                  "output_hash": "514a85b1e3ceba7a5e23acba8027dc1c345dac2b27c75e3df7c010a2c6617697"
+                },
+                {
+                  "tool": "shell",
+                  "args_len": 139,
+                  "success": true,
+                  "input_hash": "6eb136591cda126b987a6da1b6a5adca2b89973ad228f04547796f10dd880194",
+                  "output_hash": "246540836471d5b40b10b776c26560c4274f3ff37d9e69034632b233c50c0430"
+                },
+                {
+                  "tool": "worker_messages",
+                  "args_len": 149,
+                  "success": true,
+                  "input_hash": "98f4cc97aa6c7dcaafb5bcd50233d226fc5517e25b4de75fe986890a98c2c065",
+                  "output_hash": "067c693a8593c9f7aa4f31cc6d9927625228eb8156ea74376959c6af2410b25e"
+                }
+              ],
+              "files_written": [
+                "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-worker-messages-evDuPO/Workspace/frontend.js"
+              ],
+              "exit_reason": "completed"
+            },
+            {
+              "worker_id": "child-ba1ff1c2-a10c-4fed-b25c-af3f2d4e58b7",
+              "task_index": 1,
+              "status": "completed",
+              "summary": "Backend published the schema and answered frontend.",
+              "tokens_in": 200,
+              "tokens_out": 60,
+              "cost_usd": 0,
+              "duration_ms": 333,
+              "tool_trace": [
+                {
+                  "tool": "worker_messages",
+                  "args_len": 33,
+                  "success": true,
+                  "input_hash": "d133619c20b297915162cf45b38d081c551089fffa10d1ecdaf56a622ff480b9",
+                  "output_hash": "6a44592a877ffa0a568a49f29e3138c7126fe7c3d10da18c81b3ef0feaca4d4d"
+                },
+                {
+                  "tool": "fs",
+                  "args_len": 103,
+                  "path": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-worker-messages-evDuPO/Workspace/backend.json",
+                  "success": true,
+                  "input_hash": "1b4f59f0c885117cb9c2ff9f1b8a18992582ffd68bf1db34017b8d5f60271ce9",
+                  "output_hash": "1c1242aa43761ce0871b3962ec3a5870513f283ee284f96021856e635e0cd824"
+                },
+                {
+                  "tool": "worker_messages",
+                  "args_len": 172,
+                  "success": true,
+                  "input_hash": "52001520cee1bbfe513abb55dc232984f20c92d7b78b55d8733bfa7f7b4dbbd8",
+                  "output_hash": "63a1a2c3c900772b9e52d96804e8f3a6b97067a346cb5d3337727a8a37f50507"
+                },
+                {
+                  "tool": "worker_messages",
+                  "args_len": 120,
+                  "success": true,
+                  "input_hash": "20ab9ecc8bd7a5bb4156556fe33c05743ad6734c32621eef6f391cbf16623075",
+                  "output_hash": "c2d0d01d9c36b416c7bf2ab0f24c5c12ea7cc670a65bdb42f72c1f1f61a24876"
+                }
+              ],
+              "files_written": [
+                "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-worker-messages-evDuPO/Workspace/backend.json"
+              ],
+              "exit_reason": "completed"
+            }
+          ]
+        },
+        "followReport": {
+          "worker_id": "child-1abf3b57-ea95-4869-927c-5a58d2fced6b",
+          "task_index": 0,
+          "status": "completed",
+          "summary": "Fresh follow-up changed the file and reran the actual integration check.",
+          "tokens_in": 120,
+          "tokens_out": 36,
+          "cost_usd": 0,
+          "duration_ms": 43,
+          "tool_trace": [
+            {
+              "tool": "fs",
+              "args_len": 110,
+              "path": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-worker-messages-evDuPO/Workspace/frontend.js",
+              "success": true,
+              "input_hash": "b05a9ec3ccc488ae82fc306f73a3595eb210a1ed847690cf44e6281521649b88",
+              "output_hash": "89682d711fad15b29b938ad46b7adc54674deca8f6eb1adcf877f183443a86b1"
+            },
+            {
+              "tool": "shell",
+              "args_len": 139,
+              "success": true,
+              "input_hash": "6eb136591cda126b987a6da1b6a5adca2b89973ad228f04547796f10dd880194",
+              "output_hash": "251e0811fa96ec73971b6cc3def8c791e82fd2a7e0e8ad5b97154f0478dd5ba3"
+            }
+          ],
+          "files_written": [
+            "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-worker-messages-evDuPO/Workspace/frontend.js"
+          ],
+          "exit_reason": "completed"
+        },
+        "queued": {
+          "has_more": false,
+          "messages": [
+            {
+              "id": "82f959ea-6ef4-4717-8209-3beb14db803b",
+              "sequence": 1,
+              "from": "child-97c623b4-dc6b-4b96-aae7-9b9f75fd330b",
+              "to": "parent",
+              "kind": "question",
+              "content": "Which field should I display?",
+              "state": "accepted",
+              "created_at": "2026-10-23T20:55:38.201989-07:00"
+            },
+            {
+              "id": "84e2bb81-7696-4760-aa06-0d178b21f3f7",
+              "sequence": 2,
+              "from": "child-97c623b4-dc6b-4b96-aae7-9b9f75fd330b",
+              "to": "child-ba1ff1c2-a10c-4fed-b25c-af3f2d4e58b7",
+              "kind": "question",
+              "content": "What fields does GET /users return?",
+              "state": "admitted",
+              "created_at": "2026-10-23T20:55:38.204676-07:00"
+            },
+            {
+              "id": "e3c6b6a0-e122-4221-8031-eae69cdf5783",
+              "sequence": 3,
+              "from": "parent",
+              "to": "child-97c623b4-dc6b-4b96-aae7-9b9f75fd330b",
+              "kind": "answer",
+              "content": "Human keeps scope: display the id field.",
+              "in_reply_to": "82f959ea-6ef4-4717-8209-3beb14db803b",
+              "state": "accepted",
+              "created_at": "2026-10-23T20:55:38.486925-07:00"
+            },
+            {
+              "id": "1a127890-e825-44e7-ac52-42030ff160c1",
+              "sequence": 4,
+              "from": "child-ba1ff1c2-a10c-4fed-b25c-af3f2d4e58b7",
+              "to": "child-97c623b4-dc6b-4b96-aae7-9b9f75fd330b",
+              "kind": "answer",
+              "content": "SCHEMA_READY: id:string",
+              "in_reply_to": "84e2bb81-7696-4760-aa06-0d178b21f3f7",
+              "state": "accepted",
+              "created_at": "2026-10-23T20:55:38.524859-07:00"
+            },
+            {
+              "id": "694c7e93-d9ce-40c1-8250-83babedbb36d",
+              "sequence": 5,
+              "from": "child-ba1ff1c2-a10c-4fed-b25c-af3f2d4e58b7",
+              "to": "parent",
+              "kind": "update",
+              "content": "Backend schema published.",
+              "state": "accepted",
+              "created_at": "2026-10-23T20:55:38.528054-07:00"
+            }
+          ],
+          "next_cursor": 5
+        },
+        "after": {
+          "available": true,
+          "terminal_handoffs": [],
+          "workers": [
+            {
+              "id": "child-1abf3b57-ea95-4869-927c-5a58d2fced6b",
+              "name": "frontend",
+              "goal": "Explicit follow-up:\nAdd a verification comment, preserving the interface, and rerun the real check.",
+              "model": "worker-message-fixture",
+              "status": "completed",
+              "live": true,
+              "followup_of": "child-97c623b4-dc6b-4b96-aae7-9b9f75fd330b",
+              "started_at": "2026-10-23T20:55:38.857771-07:00",
+              "result": {
+                "worker_id": "child-1abf3b57-ea95-4869-927c-5a58d2fced6b",
+                "task_index": 0,
+                "status": "completed",
+                "summary": "Fresh follow-up changed the file and reran the actual integration check.",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost_usd": 0,
+                "duration_ms": 0,
+                "exit_reason": ""
+              },
+              "summary_only": true
+            },
+            {
+              "id": "child-ba1ff1c2-a10c-4fed-b25c-af3f2d4e58b7",
+              "name": "backend",
+              "goal": "BACKEND_WORKER: publish the schema and answer frontend.",
+              "model": "worker-message-fixture",
+              "status": "completed",
+              "live": true,
+              "started_at": "2026-10-23T20:55:38.196941-07:00",
+              "result": {
+                "worker_id": "child-ba1ff1c2-a10c-4fed-b25c-af3f2d4e58b7",
+                "task_index": 0,
+                "status": "completed",
+                "summary": "Backend published the schema and answered frontend.",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost_usd": 0,
+                "duration_ms": 0,
+                "exit_reason": ""
+              },
+              "summary_only": true
+            },
+            {
+              "id": "child-97c623b4-dc6b-4b96-aae7-9b9f75fd330b",
+              "name": "frontend",
+              "goal": "FRONTEND_WORKER: implement the frontend, ask backend for the schema, and run real checks.",
+              "model": "worker-message-fixture",
+              "status": "completed",
+              "live": true,
+              "started_at": "2026-10-23T20:55:38.196523-07:00",
+              "result": {
+                "worker_id": "child-97c623b4-dc6b-4b96-aae7-9b9f75fd330b",
+                "task_index": 0,
+                "status": "completed",
+                "summary": "Frontend implemented the actual backend schema and verified integration.",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost_usd": 0,
+                "duration_ms": 0,
+                "exit_reason": ""
+              },
+              "summary_only": true
+            }
+          ]
+        },
+        "cancelled": {
+          "id": "child-55d400db-e9a6-4556-8d9b-00d6b33eaff8",
+          "name": "cancel-worker",
+          "goal": "CANCEL_WORKER: wait at a cancellable command.",
+          "model": "worker-message-fixture",
+          "status": "interrupted",
+          "live": true,
+          "started_at": "2026-10-23T20:55:39.056102-07:00",
+          "result": {
+            "worker_id": "child-55d400db-e9a6-4556-8d9b-00d6b33eaff8",
+            "task_index": 0,
+            "status": "interrupted",
+            "summary": "Task failed: agent: context cancelled: context canceled",
+            "error": "agent: context cancelled: context canceled",
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "cost_usd": 0,
+            "duration_ms": 0,
+            "exit_reason": ""
+          },
+          "summary_only": true
+        },
+        "scope": "Native macOS development app, real registered parent and coding children, real files/shell checks, queued sibling and human updates, explicit new follow-up attempt, cancellation and backend reconnect. Controlled local provider and disposable mock credential store; no paid subscription or installed-release claim."
+      }
+    },
+    "persistent-terminal-native-receipt.json": {
+      "path": "/Users/abc/Documents/overkill/.cache/persistent-terminal-native-receipt.json",
+      "sha256": "4ad7d3067a94722d4b57e497614275c5f65c3303a86a093a52e074b5ff4f4e99",
+      "receipt": {
+        "calls": 15,
+        "inputRetriesReturnedOriginalReceipt": true,
+        "staleControlRejected": true,
+        "registrationRetiredOwnedProcess": true,
+        "registeredLaunchReserved": true,
+        "foreignWriterBlocked": true,
+        "writeAdmittedAfterCleanup": true,
+        "sessionID": "12f5b1a1-9c6d-49a8-ba4b-775fd1f7658a",
+        "firstID": "cdaccf09-ca44-443a-a751-32bac3a3d77c",
+        "lastID": "366c20ab-8ef5-48ca-ae82-e69083840f5f",
+        "output": {
+          "terminal": {
+            "can_handoff": false,
+            "control_revision": 4,
+            "input_sequence": 6,
+            "id": "cdaccf09-ca44-443a-a751-32bac3a3d77c",
+            "owner": {
+              "session": "12f5b1a1-9c6d-49a8-ba4b-775fd1f7658a",
+              "worker": "main"
+            },
+            "command": "read value; stty size; printf 'NATIVE_PERSISTED:%s\\n' \"$value\"",
+            "cwd": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-live-terminal-PMaXuc/Workspace",
+            "state": "exited",
+            "controller": "human",
+            "exit_code": 0,
+            "started_at": "2026-10-24T03:55:23.00701Z"
+          },
+          "data": "aGVsbG8NCjEyIDgyDQpOQVRJVkVfUEVSU0lTVEVEOmhlbGxvDQo=",
+          "output": "hello\r\n12 82\r\nNATIVE_PERSISTED:hello\r\n",
+          "cursor": 38,
+          "earliest": 0,
+          "truncated": false
+        },
+        "inventory": {
+          "available": true,
+          "terminals": [
+            {
+              "can_handoff": false,
+              "control_revision": 4,
+              "input_sequence": 6,
+              "id": "cdaccf09-ca44-443a-a751-32bac3a3d77c",
+              "owner": {
+                "session": "12f5b1a1-9c6d-49a8-ba4b-775fd1f7658a",
+                "worker": "main"
+              },
+              "command": "read value; stty size; printf 'NATIVE_PERSISTED:%s\\n' \"$value\"",
+              "cwd": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-live-terminal-PMaXuc/Workspace",
+              "state": "exited",
+              "controller": "human",
+              "exit_code": 0,
+              "started_at": "2026-10-24T03:55:23.00701Z"
+            },
+            {
+              "can_handoff": false,
+              "control_revision": 1,
+              "input_sequence": 0,
+              "id": "eccfd00e-1f90-4470-90a7-20ab689d7121",
+              "owner": {
+                "session": "12f5b1a1-9c6d-49a8-ba4b-775fd1f7658a",
+                "worker": "main"
+              },
+              "command": "cat",
+              "cwd": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-live-terminal-PMaXuc/Workspace",
+              "state": "closed",
+              "controller": "agent",
+              "exit_code": -1,
+              "started_at": "2026-10-24T03:55:23.732787Z"
+            },
+            {
+              "can_handoff": false,
+              "control_revision": 1,
+              "input_sequence": 0,
+              "id": "31e76db7-87e8-4450-bc6e-b25c8df19069",
+              "owner": {
+                "session": "12f5b1a1-9c6d-49a8-ba4b-775fd1f7658a",
+                "worker": "main"
+              },
+              "command": "cat",
+              "cwd": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-live-terminal-PMaXuc/Workspace",
+              "state": "closed",
+              "controller": "agent",
+              "exit_code": -1,
+              "started_at": "2026-10-24T03:55:25.651585Z"
+            }
+          ]
+        },
+        "scope": "Native development app and real bundled backend/PostgreSQL/PTY. Controlled provider and disposable mocked credential store. Human takeover/release, actual keyboard input, viewport resize, rendered output and End terminal exercised through the desktop UI. Registered launch reserves the workspace, denies a real competing shell effect and releases only after cleanup. Windows ConPTY and backend restart restoration remain open."
+      }
+    },
+    "terminal-handoff-agent-native-receipt.json": {
+      "path": "/Users/abc/Documents/overkill/.cache/terminal-handoff-agent-native-receipt.json",
+      "sha256": "a1b489d112bed7dce90a0125ef2b6ff99233d7067c9085674900f1fcb3f0b787",
+      "receipt": {
+        "initiator": "agent",
+        "backendSHA256": "0eccc85851ec83eed990a2b22292d93201a2a538827278dc0774d4460de56944",
+        "childCalls": 5,
+        "parentCalls": 7,
+        "terminalID": "1d5bd099-c2a0-4f00-9e6a-27a3950e345e",
+        "receipt": {
+          "initiator": "agent",
+          "id": "e4fa34b7-d2d8-465b-90d6-99cb980ada6b",
+          "terminal_id": "1d5bd099-c2a0-4f00-9e6a-27a3950e345e",
+          "from": {
+            "session": "437598f4-6155-4c53-be89-ba93a55e10c0",
+            "worker": "child-f5fc7066-6a8a-4328-9115-543399e2f6f9"
+          },
+          "to": {
+            "session": "437598f4-6155-4c53-be89-ba93a55e10c0",
+            "worker": "main"
+          },
+          "previous_revision": 1,
+          "control_revision": 2,
+          "cursor": 14,
+          "state": "applied",
+          "created_at": "2026-10-24T03:55:29.638955Z"
+        },
+        "report": {
+          "terminal_handoffs": [
+            {
+              "initiator": "agent",
+              "id": "e4fa34b7-d2d8-465b-90d6-99cb980ada6b",
+              "terminal_id": "1d5bd099-c2a0-4f00-9e6a-27a3950e345e",
+              "from": {
+                "session": "437598f4-6155-4c53-be89-ba93a55e10c0",
+                "worker": "child-f5fc7066-6a8a-4328-9115-543399e2f6f9"
+              },
+              "to": {
+                "session": "437598f4-6155-4c53-be89-ba93a55e10c0",
+                "worker": "main"
+              },
+              "previous_revision": 1,
+              "control_revision": 2,
+              "cursor": 14,
+              "state": "applied",
+              "created_at": "2026-10-24T03:55:29.638955Z"
+            }
+          ],
+          "worker_id": "child-f5fc7066-6a8a-4328-9115-543399e2f6f9",
+          "task_index": 0,
+          "status": "completed",
+          "summary": "Server ownership explicitly transferred to Main chat.",
+          "tokens_in": 150,
+          "tokens_out": 50,
+          "cost_usd": 0,
+          "duration_ms": 53,
+          "tool_trace": [
+            {
+              "tool": "fs",
+              "args_len": 351,
+              "path": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-terminal-handoff-t0Qh3H/Workspace/server.cjs",
+              "success": true,
+              "input_hash": "8df80afb4aa1da191801ddebc7ae10fb30065fa448294e08e7d00a35060d855e",
+              "output_hash": "fb4ccfeeff2432a250f1fa29c86850cb52bf250f96d6c27b3ffcd0a82828af1c"
+            },
+            {
+              "tool": "terminal",
+              "args_len": 128,
+              "success": true,
+              "input_hash": "91e7be70291ba9002ac0f99daf79c409395dc7048afeeb8c4335a2fb9c139ea2",
+              "output_hash": "d01784e875db49d3bdf8e1f7df057c6a0c0c84f0c019fdee0fa9a73bb1843106"
+            },
+            {
+              "tool": "terminal",
+              "args_len": 79,
+              "success": true,
+              "input_hash": "ecdb84886b1699d2b385a0123d5fd965bb3b7cfb48138a8c5557a88aafd5ff8c",
+              "output_hash": "ea1f74b56852cb9c308cc80a8bcb839ad9d8e7ef0c12ed09a6a531450cf9fbff"
+            },
+            {
+              "tool": "terminal",
+              "args_len": 88,
+              "success": true,
+              "input_hash": "80b8b235a58ff9d54f19c4f4b4b8a6952c461578b588e2a51e40c45e0dc8657e",
+              "output_hash": "132f3969d5eced4a8f30a9219d52c10a44f50708c651aab61c02759bde7e2c86"
+            }
+          ],
+          "files_written": [
+            "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-terminal-handoff-t0Qh3H/Workspace/server.cjs"
+          ],
+          "exit_reason": "completed"
+        },
+        "pid": 61072,
+        "port": 62709,
+        "state": {
+          "available": true,
+          "terminal_handoffs": [
+            {
+              "receipt": {
+                "initiator": "agent",
+                "id": "e4fa34b7-d2d8-465b-90d6-99cb980ada6b",
+                "terminal_id": "1d5bd099-c2a0-4f00-9e6a-27a3950e345e",
+                "from": {
+                  "session": "437598f4-6155-4c53-be89-ba93a55e10c0",
+                  "worker": "child-f5fc7066-6a8a-4328-9115-543399e2f6f9"
+                },
+                "to": {
+                  "session": "437598f4-6155-4c53-be89-ba93a55e10c0",
+                  "worker": "main"
+                },
+                "previous_revision": 1,
+                "control_revision": 2,
+                "cursor": 14,
+                "state": "applied",
+                "created_at": "2026-10-24T03:55:29.638955Z"
+              },
+              "current_runtime": true
+            }
+          ],
+          "workers": [
+            {
+              "id": "child-f5fc7066-6a8a-4328-9115-543399e2f6f9",
+              "name": "server-worker",
+              "goal": "SERVER_CHILD: start the real local server, wait for readiness, and explicitly hand it to Main chat so it survives your completion.",
+              "model": "handoff-fixture",
+              "status": "completed",
+              "live": true,
+              "started_at": "2026-10-23T20:55:29.589128-07:00",
+              "result": {
+                "worker_id": "child-f5fc7066-6a8a-4328-9115-543399e2f6f9",
+                "task_index": 0,
+                "status": "completed",
+                "summary": "Server ownership explicitly transferred to Main chat.",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost_usd": 0,
+                "duration_ms": 0,
+                "exit_reason": ""
+              },
+              "summary_only": true
+            }
+          ]
+        },
+        "inventory": {
+          "available": true,
+          "terminals": []
+        },
+        "scope": "Native macOS development app; registered parent/child, real Node HTTP server survives child completion, parent reads/tests same handle/server, stop kills it, reconnect reads history without replay. Controlled local provider and disposable mock credential store."
+      }
+    },
+    "terminal-handoff-human-native-receipt.json": {
+      "path": "/Users/abc/Documents/overkill/.cache/terminal-handoff-human-native-receipt.json",
+      "sha256": "cd1c08c0e78afc3df494df892520306fa570a5df5fd7688aefa6d147f0e56269",
+      "receipt": {
+        "initiator": "human",
+        "backendSHA256": "0eccc85851ec83eed990a2b22292d93201a2a538827278dc0774d4460de56944",
+        "childCalls": 5,
+        "parentCalls": 7,
+        "terminalID": "051ca893-dbff-445e-b41c-d9f80216e777",
+        "receipt": {
+          "initiator": "human",
+          "id": "f812b882-4e33-4acd-9c84-d8451356e078",
+          "terminal_id": "051ca893-dbff-445e-b41c-d9f80216e777",
+          "from": {
+            "session": "7de9d19f-523b-4af0-be4b-1571a9c93554",
+            "worker": "child-fc3994c3-e190-40db-ba38-e46d89ba4db5"
+          },
+          "to": {
+            "session": "7de9d19f-523b-4af0-be4b-1571a9c93554",
+            "worker": "main"
+          },
+          "previous_revision": 1,
+          "control_revision": 2,
+          "cursor": 14,
+          "state": "applied",
+          "created_at": "2026-10-24T03:55:33.805118Z"
+        },
+        "report": {
+          "worker_id": "child-fc3994c3-e190-40db-ba38-e46d89ba4db5",
+          "task_index": 0,
+          "status": "completed",
+          "summary": "Server ownership explicitly transferred to Main chat.",
+          "tokens_in": 150,
+          "tokens_out": 50,
+          "cost_usd": 0,
+          "duration_ms": 1729,
+          "tool_trace": [
+            {
+              "tool": "fs",
+              "args_len": 351,
+              "path": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-terminal-handoff-hT6ykx/Workspace/server.cjs",
+              "success": true,
+              "input_hash": "8df80afb4aa1da191801ddebc7ae10fb30065fa448294e08e7d00a35060d855e",
+              "output_hash": "fb4ccfeeff2432a250f1fa29c86850cb52bf250f96d6c27b3ffcd0a82828af1c"
+            },
+            {
+              "tool": "terminal",
+              "args_len": 128,
+              "success": true,
+              "input_hash": "91e7be70291ba9002ac0f99daf79c409395dc7048afeeb8c4335a2fb9c139ea2",
+              "output_hash": "4603f852a76b8f7455e64d392a2f1ec5b788ef7e0da126a1152166d890e2550a"
+            },
+            {
+              "tool": "terminal",
+              "args_len": 79,
+              "success": true,
+              "input_hash": "3962aed7cf15b171f886cc0b431749bec33b82b950c4a5352da3b570ddc6868f",
+              "output_hash": "d727e821b7c7d0df38716dacb7d62928db92477fc4481668a46143e810b45d0e"
+            },
+            {
+              "tool": "terminal",
+              "args_len": 75,
+              "success": false,
+              "error": "terminal: ownership transferred to the parent; inspect worker updates for the handoff receipt: terminal: handle not found for this owner",
+              "input_hash": "3b053a78839f8581d49ab8e1ca80e8a0ce1191c8345d48ce957bccef279456d4",
+              "output_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          ],
+          "files_written": [
+            "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-terminal-handoff-hT6ykx/Workspace/server.cjs"
+          ],
+          "exit_reason": "completed"
+        },
+        "pid": 61158,
+        "port": 62750,
+        "state": {
+          "available": true,
+          "terminal_handoffs": [
+            {
+              "receipt": {
+                "initiator": "human",
+                "id": "f812b882-4e33-4acd-9c84-d8451356e078",
+                "terminal_id": "051ca893-dbff-445e-b41c-d9f80216e777",
+                "from": {
+                  "session": "7de9d19f-523b-4af0-be4b-1571a9c93554",
+                  "worker": "child-fc3994c3-e190-40db-ba38-e46d89ba4db5"
+                },
+                "to": {
+                  "session": "7de9d19f-523b-4af0-be4b-1571a9c93554",
+                  "worker": "main"
+                },
+                "previous_revision": 1,
+                "control_revision": 2,
+                "cursor": 14,
+                "state": "applied",
+                "created_at": "2026-10-24T03:55:33.805118Z"
+              },
+              "current_runtime": true
+            }
+          ],
+          "workers": [
+            {
+              "id": "child-fc3994c3-e190-40db-ba38-e46d89ba4db5",
+              "name": "server-worker",
+              "goal": "SERVER_CHILD: start the real local server, wait for readiness, and explicitly hand it to Main chat so it survives your completion.",
+              "model": "handoff-fixture",
+              "status": "completed",
+              "live": true,
+              "started_at": "2026-10-23T20:55:32.106148-07:00",
+              "result": {
+                "worker_id": "child-fc3994c3-e190-40db-ba38-e46d89ba4db5",
+                "task_index": 0,
+                "status": "completed",
+                "summary": "Server ownership explicitly transferred to Main chat.",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost_usd": 0,
+                "duration_ms": 0,
+                "exit_reason": ""
+              },
+              "summary_only": true
+            }
+          ]
+        },
+        "inventory": {
+          "available": true,
+          "terminals": []
+        },
+        "scope": "Native macOS development app; registered parent/child, real Node HTTP server survives child completion, parent reads/tests same handle/server, stop kills it, reconnect reads history without replay. Controlled local provider and disposable mock credential store."
+      }
+    }
+  },
+  "screenshots": {
+    "worker-recovery-admitted.png": {
+      "path": "/Users/abc/Documents/overkill/.cache/worker-recovery-admitted.png",
+      "sha256": "11a33d914f6061d7c48540093a51fc9747a3396b79cc66ece520dff28e8b4b0a"
+    },
+    "desktop-terminal-handoff-human.png": {
+      "path": "/Users/abc/Documents/overkill/.cache/desktop-terminal-handoff-human.png",
+      "sha256": "824b2962c5212d4d5ea3ba31e36281d24ce64ec46846b0961ecb51382ba65231"
+    }
+  },
+  "limits": [
+    "Native macOS development app uses controlled local providers and disposable mock credential storage. No paid subscription, native Keychain or installed-release qualification.",
+    "The native crash scenarios stop at provider boundaries after one completed file effect; they do not establish arbitrary mid-tool external-effect recovery.",
+    "Reconciliation branches are tested against actual database states; this is not a PostgreSQL protocol-proxy test of every possible transport failure timing.",
+    "Parent transcript persistence and inbox admission are not one database transaction. Private child contexts are not restart-restored. Old runs remain historical/unconfirmed and are not auto-resumed.",
+    "Contract-revision composition, broader hierarchy/cross-chat routing, terminal/broker crash reconciliation, native Windows/Linux and installed-app gates remain open.",
+    "The full 20-competitor / 105-contract / 902-row backlog is retained."
+  ]
+}

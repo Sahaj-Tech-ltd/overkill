@@ -70,6 +70,8 @@ type SubagentChild struct {
 }
 
 type Agent struct {
+	boundaryInbox         BoundaryInbox
+	boundaryInboxFailure  error
 	mu                    sync.RWMutex
 	evolutionEngine       *learning.Engine
 	provider              providers.Provider
@@ -902,17 +904,18 @@ func (a *Agent) SetRewriter(r PromptRewriter) {
 }
 
 type Config struct {
-	Provider    providers.Provider
-	Tools       *tools.Registry
-	Compressors *tools.CompressorRegistry
-	Hooks       *hooks.Registry
-	Scanners    []security.Scanner
-	Tokenizer   *tokenizer.Estimator
-	Forethinker *Forethinker
-	Steering    *SteeringQueue
-	SpecDriver  *SpecDriver
-	Model       string
-	MaxTokens   int
+	BoundaryInbox BoundaryInbox
+	Provider      providers.Provider
+	Tools         *tools.Registry
+	Compressors   *tools.CompressorRegistry
+	Hooks         *hooks.Registry
+	Scanners      []security.Scanner
+	Tokenizer     *tokenizer.Estimator
+	Forethinker   *Forethinker
+	Steering      *SteeringQueue
+	SpecDriver    *SpecDriver
+	Model         string
+	MaxTokens     int
 	// ContextWindow is the total model context capacity; MaxTokens caps output.
 	// Zero keeps the legacy MaxTokens-based budget estimator behavior.
 	TokenLimits           providers.TokenLimitResolver
@@ -975,6 +978,7 @@ func New(cfg Config) *Agent {
 		budgetEstimator:       budgetEst,
 		forethinker:           forethinker,
 		steering:              cfg.Steering,
+		boundaryInbox:         cfg.BoundaryInbox,
 		specDriver:            specDrv,
 		recovery:              NewErrorRecovery(nil),
 		bus:                   NewEventBus(),

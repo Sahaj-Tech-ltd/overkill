@@ -1,0 +1,153 @@
+{
+  "date": "2026-10-23T23:16:04.622093+00:00",
+  "scope": "Interactive macOS desktop terminals and coordinated lifetime workspace ownership; coding-worker resume after human control. Intermediate progress toward the active local-team goal.",
+  "base": "1839271dfeec89773428e1ebc5c1627ffc1a9a8a",
+  "workingTree": true,
+  "backendSHA256": "0f4a7086561999402a04f8c88388964e6ce740f8e908415fb21acf831bd9824d",
+  "distributionReady": false,
+  "sourceSHA256": {
+    ".gitignore": "31c490a88125ff6909a97a77b7b5ad95a83b2d7e9969dc77682ae2f9aefd9d51",
+    "cmd/overkill/runtime_setup.go": "13339c15784c5ad4ad4678285e4ca5333c455a76ff3ec421ad844084153103bd",
+    "internal/coordination/workspace_process.go": "03fada4832ef40a3493ec599d7b0b6fde5e4e42cf78858de7d2475f96ba1473d",
+    "internal/coordination/workspace_process_test.go": "1b67ed743d59f983e06d825a18529440f1c87671c6ce0c513c809529cdcce2f6",
+    "internal/coordination/contract_guards.go": "76d9fb38fb3a416790ed3a9439bf2a6517197092b35e5035dfa5b64e0ca384b8",
+    "internal/coordination/contracts.go": "fe30d8256c4cca2e2aba124768d0e36f97fc6c443b1e7191cd6ae4bf38df8307",
+    "internal/terminal/manager.go": "fd426bd95137f0bffe77cc3bb059359913c00a9a0c8feb9b133eb25255e3127f",
+    "internal/terminal/reservation.go": "fb401fb5c9ee2fc8ca04bdccbdbc3b649cfee720df171d073d9e62b23ece9dfe",
+    "internal/terminal/reservation_unix_test.go": "ef2e5c966947c68346738f6d798ddd71d49a688e20ae562c7a9e16715ae057c5",
+    "internal/tools/coordination_guard.go": "fbd4f549467b1f39df447086750d6c2dd2c8d8cac32709c60b6d093066507019",
+    "internal/childruntime/runtime.go": "aa079323a67bd89e5623edc572935dfa4a6c3c11135b4282db98f447df91ef7c",
+    "internal/childruntime/terminal_control_test.go": "861eef6c78a3904b5f6795defe24ef6703c716b819cb531c43ffd59ed361bded",
+    "desktop/src/index.html": "ecba3f0cf0870a02065ce6d688d0d32152f2ea9bd49122f5a36383f9ec941f35",
+    "desktop/src/main.cjs": "cfd79cbba098c02dc8b9f449c530ccec0ee95a536a77533e1d8bdc559f35a52b",
+    "desktop/src/preload.cjs": "a91a210a046e593e074a29b4d48e5eca8f2fb2119d8484d119e229029fe2151a",
+    "desktop/src/terminal-assets.cjs": "e07ad96967518db8cc564c89bd81e0d77a6af8a9872443da2e215f5ad1c1edd8",
+    "desktop/src/terminal-input.cjs": "0eb8473d785db1bc2e28fed05a880879c932ea48a6eeeea0648d6e7f2c1a3751",
+    "desktop/src/terminal-panel.js": "19bcb09152ce3659384bff0b469eebbaff8f71f2305ee18bc52313ba2864c012",
+    "desktop/src/terminal-frame.html": "5217c20a58c06135a5109e6066d5492db52ced5fa0ffda002388e19627e72018",
+    "desktop/src/terminal-frame.js": "72d63911735544f61131381a5ec371307294f438add613a188288d206754140b",
+    "desktop/src/terminal-frame.css": "04cbfe56e7d70fae1e3a70b6f6d11e4f66544c5529c7c81cc3b2f2cf33c73fae",
+    "desktop/src/workspace-shell.js": "eb68980ec694f5199c985c61543ddc33d3504eae08d42d0379706d7a51455584",
+    "desktop/src/workspace-shell.css": "7c25607baab68db4b7a2fa27e2a414f0aa3ba472265329de292698414fb0356c",
+    "desktop/src/renderer.js": "40f897f64b329e04ec321dc6f77e513fb8870912580e0ea6f85febd5ea03f4c0",
+    "desktop/test/terminal-panel.test.cjs": "c9857f6ff3f783d85bb96bddf62f3002b4c7b91806cf4a1d256e0e45d66fa2a3",
+    "desktop/test/terminal-assets.test.cjs": "2a6898c45d7ceecefdd32a6b4a0d72d1d3a5bfb00cc48803f6d002b8d793b010",
+    "desktop/test/terminal-input.test.cjs": "f1ca83142da8be63cf83f98a64f02f1ca73df2fa59d1ef9e2e3919e89ce0a974",
+    "desktop/test/persistent-terminal-native.test.cjs": "be076a7745ebbe18df2bf9518e2e8362c5b221bdc501c215ce205342f86f5ba9",
+    "scripts/desktop-terminal-assets.mjs": "ba4cc77794ad33f5362fb2ead16cf07d22907f2fdf2cfa9a76f28af1a6a48a63"
+  },
+  "checks": {
+    "requiredAffectedGo": {
+      "path": "/Users/abc/Documents/overkill/.cache/team-terminal-go.log",
+      "sha256": "f73f80bd14709eb832f34ec0b405333a70fdbdde4cda89ee6efd00a0874c47ec",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/coordination\t18.385s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/terminal\t0.556s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t3.577s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools\t10.040s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/api\t23.843s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/cmd/overkill\t48.989s"
+      ]
+    },
+    "requiredOwnershipRace": {
+      "path": "/Users/abc/Documents/overkill/.cache/terminal-reservation-race.log",
+      "sha256": "b37293b033ae22042db4ece05f5adf1aabc208d686ce133db31ac398a2b057db",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/terminal\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/coordination\t21.000s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t4.317s"
+      ]
+    },
+    "desktopDefault": {
+      "path": "/Users/abc/Documents/overkill/.cache/terminal-ui-desktop-suite.log",
+      "sha256": "cd76a57eff22bdaf3ef1818bf28187c467f9743c9f15469b7b0fd8a1f094c763",
+      "tail": [
+        "\u2714 dependency graph explains wait, privacy and truncation and ignores stale replies (0.194ms)",
+        "\u2714 task agreement blockers distinguish acknowledgement and stale revision from test evidence (0.128417ms)",
+        "\u2714 peer scope labels distinguish explicit repository membership from checkout identities (0.034833ms)",
+        "\u2714 new contract stays disabled until the selected chat contract inventory is loaded (0.117292ms)",
+        "\u2139 tests 104",
+        "\u2139 suites 0",
+        "\u2139 pass 91",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 13",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 3371.430083"
+      ]
+    },
+    "nativeComposedWorkflows": {
+      "path": "/Users/abc/Documents/overkill/.cache/team-terminal-native.log",
+      "sha256": "2011d4fcdb2d27f6e92f984f9d41d6eb9070d041d9a00c482c47feffe44b3d18",
+      "tail": [
+        "\u2714 native controlled coding builds real frontend/backend, clarifies, integrates, cancels and stops all owned work (12866.307417ms)",
+        "Renderer: Pattern attribute value [a-z][a-z0-9_-]{0,63} is not a valid regular expression: Uncaught SyntaxError: Invalid regular expression: /[a-z][a-z0-9_-]{0,63}/v: Invalid character in character class",
+        "\u2714 native backend terminal persists across chat turns and supports human ownership and stop (6180.860875ms)",
+        "\u2714 desktop renders real task budgets, blockers, contracts and recorded checks (36071.796208ms)",
+        "\u2139 tests 4",
+        "\u2139 suites 0",
+        "\u2139 pass 4",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 59156.640292"
+      ]
+    },
+    "nativeFinalWorkerAndTerminal": {
+      "path": "/Users/abc/Documents/overkill/.cache/team-terminal-native-final.log",
+      "sha256": "4650d81acad6e2ebad56fded61c6b5863afe5d4c46501279886da9750c951fe2",
+      "tail": [
+        "\u2714 native desktop delegates a real file edit and build to a tool-capable child (3214.207875ms)",
+        "\u2714 native backend terminal persists across chat turns and supports human ownership and stop (6345.280917ms)",
+        "\u2139 tests 2",
+        "\u2139 suites 0",
+        "\u2139 pass 2",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 9849.58225"
+      ]
+    }
+  },
+  "desktopDefault": {
+    "passed": 91,
+    "skippedOptInNative": 13
+  },
+  "nativeAcceptance": {
+    "earlierComposedWorkflowsPassed": 4,
+    "finalRebuiltWorkerAndTerminalPassed": 2,
+    "provider": "Controlled local responses",
+    "credentials": "Disposable mock-only storage; no user Keychain or paid account",
+    "realEffects": [
+      "Delegated source edit and actual Node check",
+      "Terminal survives completed chat turn and later turn",
+      "UI keyboard input, resize, takeover/release, output and End terminal",
+      "Abort and pre-registration cleanup stop owned processes",
+      "Registered peer launches reserved persistent terminal",
+      "Foreign actual shell effect denied without file creation",
+      "Same write succeeds after reservation cleanup"
+    ]
+  },
+  "remaining": [
+    "Durable addressable child-worker updates and follow-ups; existing registered peer requests/updates remain usable",
+    "Input retry receipts and uncertain-write reporting",
+    "Explicit child-to-parent terminal transfer",
+    "Broker-crash reconciliation and any live-process reattachment",
+    "Native Windows PTY/ConPTY and supported-platform execution gates",
+    "Final composed local-team milestone and installed-app release acceptance"
+  ],
+  "backlogPreserved": "docs/useful-gaps-plan-2026-10-23.md; 20 competitors,105 contracts,902 comparison rows",
+  "claimsNotEstablished": [
+    "Goal completion",
+    "Subscription failover",
+    "OS sandboxing",
+    "Native Windows execution",
+    "New installed DMG/EXE release"
+  ],
+  "artifacts": [
+    "/Users/abc/Documents/overkill/.cache/desktop-persistent-terminal-ui.png",
+    "/Users/abc/Documents/overkill/.cache/desktop-registered-terminal-ui.png"
+  ]
+}

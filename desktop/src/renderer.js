@@ -24,7 +24,8 @@ const sessionEnvelopes=new Map();
 const chatTitle=session=>window.overkillHistory.sessionTitle(session.title||session.name,sessionEnvelopes.get(session.id));
 const activeTools = new Map();
 const readableError = message => String(message || '').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
-function error(message = '') { $('error').textContent = readableError(message); $('error').hidden = !message; }
+let backendFailure = '';
+function error(message = '') { if(!ready&&backendFailure)message=backendFailure; $('error').textContent = readableError(message); $('error').hidden = !message; }
 function controls() {
   evolutionView.controls();
   $('message').disabled = !ready || !current || !!running || loading || evolutionBusy;
@@ -86,6 +87,7 @@ async function select(session) {
     sessionEnvelopes.set(session.id,(history.messages||[]).filter(item=>(item.role??item.Role)==='user').map(item=>window.overkillHistory.parse(item.content??item.Content)).find(Boolean));
     current = session; evolutionView.reset(); flowView.reset(); clarification.reset();void clarification.sync(); canvasPanel.select(); $('chat-title').textContent = chatTitle(session);
     $('workspace-path').textContent = session.folder; $('transcript').replaceChildren();
+    window.overkillShell?.select(session);window.overkillWorkers?.select(session);
     renderSavedHistory(history);
     workspaceView.reset(); agreementPicker.reset(); $('peer-contract-pins').value = ''; clearReusedRequest(); reuseGeneration++;
     agentSelf = null; agentPeers = []; peerPage = null; peerDraft = null; browsingOlder = false;
@@ -96,7 +98,8 @@ async function select(session) {
   } finally { loading = false; controls(); }
 }
 function applyState(state) {
-  const wasReady=ready; ready = state.ready;
+  const wasReady=ready; ready = state.ready; window.overkillTerminals?.connection(ready);window.overkillWorkers?.connection(ready);
+  if(ready||state.starting||state.stopped)backendFailure='';else if(state.error)backendFailure=state.error;
   $('settings-stop-warning').hidden=!state.stopped;$('settings-save').textContent=state.stopped?'Reconnect and allow queued work':'Save and connect';
   if(wasReady!==ready){canvasPanel.connection();if(!ready)clarification.reset();else void clarification.sync();}
   $('connection').textContent = ready ? `${state.settings.provider} · ${state.settings.model} · Local database` : state.starting ? 'Connecting to the local backend…' : 'Connect a provider to begin.';
@@ -157,12 +160,13 @@ $('composer').addEventListener('submit', async event => {
 $('message').addEventListener('keydown', event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); $('composer').requestSubmit(); } });
 api.onEvent(event => {
   if (event.type === 'backend_state') { initialize(event.state).catch(e => error(e.message)); return; }
-  if (event.type === 'backend_exit') { clarification.reset();ready = false; canvasPanel.connection(); running = null; controls(); error(event.message); return; }
+  if (event.type === 'backend_exit') { backendFailure=event.message;window.overkillShell?.finish(); clarification.reset();ready = false; window.overkillTerminals?.connection(false);window.overkillWorkers?.connection(false); canvasPanel.connection(); running = null; $('connection').textContent='Backend stopped · reconnect in Provider settings';controls(); error(event.message); return; }
   if(event.type==='admitted'){if(pendingSend?.id===event.id&&pendingSend.sessionID===event.data?.sessionID)admitSend(pendingSend);return;}
   if (!running || event.id !== running) return;
   const data = event.data || {};
   if (event.type === 'text') { if (!assistant) assistant = message('assistant', ''); assistant.textContent += data.content || ''; scroll(); }
   if (event.type === 'tool_call') {
+    window.overkillShell?.tool(data);
     const name = data.name || 'Tool', pending = activeTools.get(name) || [];
     if (data.phase === 'output' || data.output !== undefined) {
       let tool = pending.shift();
@@ -179,6 +183,7 @@ api.onEvent(event => {
   }
   if (event.type === 'status') $('activity').textContent = data.content || data.phase || 'Working…';
   if (event.type === 'done' || event.type === 'error') {
+    window.overkillShell?.finish();
     if (event.type === 'error') error(data.message || data.error || 'The response failed.');
     else { if (typeof data.response === 'string') { if (assistant) assistant.textContent = data.response; else if (data.response) message('assistant', data.response); } if (data.blocked) error(data.block_reason || 'Agent stopped at a safety limit.'); }
     for (const [name, pending] of activeTools) for (const tool of pending) tool.firstChild.textContent = `${name} · No result received`;
@@ -226,6 +231,7 @@ function agentControls() {
   $('peer-token-limit').disabled = $('peer-send').disabled || !!reusedRequest;
 }
 function renderPeers() {
+  window.overkillShell?.peers(agentPeers, agentSelf, value => window.overkillWorkspace.presenceLabel(ready ? value : null));
   const peerNames=new Map(agentPeers.map(peer=>[peer.id,peer.name]));
   for(const card of $('transcript').querySelectorAll('[data-coordination-id]')){
     card.querySelector('.coordination-route').textContent=window.overkillHistory.route({from:card.dataset.peerFrom,to:card.dataset.peerTo},peerNames);
@@ -320,7 +326,7 @@ async function refreshAgents(older = false) {
     if (refreshPending || current?.id !== sessionID) { refreshPending = false; queueMicrotask(() => refreshAgents()); }
   }
 }
-$('agents-toggle').addEventListener('click', () => { $('agents-panel').hidden = !$('agents-panel').hidden; $('agents-toggle').setAttribute('aria-expanded', String(!$('agents-panel').hidden)); if (!$('agents-panel').hidden) refreshAgents(); });
+$('agents-toggle').addEventListener('click', () => { window.overkillShell?.open($('agents-panel').hidden ? 'team' : 'changes'); if (!$('agents-panel').hidden) refreshAgents(); });
 $('agents-refresh').addEventListener('click', () => { refreshAgents(); workspaceView.refreshReviews(); });
 $('peer-older').addEventListener('click', () => refreshAgents(true));
 $('agent-registration').addEventListener('submit', async event => {
@@ -358,7 +364,7 @@ $('peer-composer').addEventListener('submit', async event => {
 const agreementPicker = window.overkillRequestAgreements.create({api,document,session:()=>current,getPins:()=>$('peer-contract-pins').value,onApply:pins=>{$('peer-contract-pins').value=window.overkillRequestAgreements.formatPins(pins);reuseGeneration++;}});
 $('peer-choose-agreements').addEventListener('click',()=>agreementPicker.open());
 const workspaceView = window.overkillWorkspace.create({api, document, session: () => current, peers: () => agentPeers});
-setInterval(() => { if (ready && current && !$('agents-panel').hidden && !document.hidden && !browsingOlder) refreshAgents(); }, 3000);
+setInterval(() => { if (ready && current && !document.hidden && !browsingOlder) refreshAgents(); }, 3000);
 
 // Update only presence leaves: expiry must remain visible after transport loss,
 // without rebuilding peer controls or discarding a request draft.

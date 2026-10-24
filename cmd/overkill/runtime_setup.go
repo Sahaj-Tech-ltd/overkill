@@ -17,6 +17,7 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/browser"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/browser/devbrowser"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/checkpoint"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/childruntime"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/compaction"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/coordination"
@@ -37,9 +38,11 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/session"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/skills"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/speculative"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
 	syncpkg "github.com/Sahaj-Tech-ltd/overkill/internal/sync"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tags"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tasks"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/terminal"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools/imagegen"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging"
@@ -276,6 +279,7 @@ func (r *runtimeServices) bindSession(ctx context.Context, sess *session.Session
 	}
 
 	var coordinationCurrent func(context.Context) (bool, error)
+	var terminalPeerID string
 	if r.Coordination != nil {
 		peer, err := r.Coordination.PeerForSession(ctx, id)
 		if err != nil && !errors.Is(err, coordination.ErrNotFound) {
@@ -293,6 +297,7 @@ func (r *runtimeServices) bindSession(ctx context.Context, sess *session.Session
 			deps.ExtraTools = append(append([]tools.Tool(nil), deps.ExtraTools...), coordTools...)
 			deps.ExtraTools = append(deps.ExtraTools, tools.NewCoordinationContractTool(r.Coordination, peer.ID))
 			deps.ExecutionGuard = tools.NewCoordinationExecutionGuard(r.Coordination, peer.ID, workspace)
+			terminalPeerID = peer.ID
 		}
 	}
 	if r.Compaction != nil && r.Compaction.Store != nil {
@@ -350,15 +355,75 @@ func (r *runtimeServices) bindSession(ctx context.Context, sess *session.Session
 	options := browser.Options{Headless: r.cfg.Browser.Headless, Visible: !r.cfg.Browser.Headless, ChromePath: r.cfg.Browser.ChromePath, UserAgent: r.cfg.Browser.UserAgent, Timeout: r.cfg.Browser.Timeout}
 	deps.BrowserManager = browser.NewManager(options)
 	deps.DevBrowserManager = devbrowser.NewManager()
+	var terminalMessages *subagent.CommunicationStore
+	terminalOptions := terminal.Options{ParentOwner: terminal.Owner{Session: id, Worker: "main"}}
+	if r.database != nil {
+		terminalOptions.RecordHandoff = func(ctx context.Context, h terminal.Handoff) error {
+			if terminalMessages == nil {
+				return fmt.Errorf("terminal handoff journal unavailable")
+			}
+			return terminalMessages.RecordTerminalHandoff(ctx, h)
+		}
+	}
+	if terminalPeerID != "" {
+		terminalOptions.Reserve = func(ctx context.Context, _ terminal.Owner, handle string) (terminal.Reservation, error) {
+			return r.Coordination.ReserveWorkspaceProcess(ctx, terminalPeerID, handle)
+		}
+	}
+	terminals, err := terminal.New(workspace, terminalOptions)
+	if err != nil {
+		return tools.FactoryDeps{}, nil, err
+	}
+	defer func() {
+		if !boundSuccessfully {
+			_ = terminals.Close()
+		}
+	}()
+	// Registered peers reserve the workspace for the whole process lifetime,
+	// rather than dropping ownership when the launching tool call returns.
+	if r.cfg.Security.AutonomyLevel != "readonly" {
+		deps.TerminalManager = terminals
+		deps.TerminalOwner = terminal.Owner{Session: id, Worker: "main"}
+	}
 	subagents := setupSubagentSystemForWorkspace(r.cfg, workspace)
 	deps.SubagentManager = subagents.Manager
+	var workerInbox agent.BoundaryInbox
+	if r.database != nil {
+		messages, err := subagent.NewCommunicationStore(ctx, r.database, id)
+		if err != nil {
+			return tools.FactoryDeps{}, nil, err
+		}
+		deps.WorkerMessages = messages
+		terminalMessages = messages
+		subagents.Manager.SetCommunicationStore(messages)
+		subagents.Manager.SetDefaultToolset(append(subagents.Manager.DefaultToolset(), "worker_messages"))
+		workerInbox = childruntime.WorkerInbox(messages, subagent.ParentWorker)
+	}
+
+	// Session-bound children inherit the same coordination admission identity
+	// and language-server services; fresh tool adapters keep worker state separate.
+	if deps.ExecutionGuard != nil {
+		subagents.Manager.SetGuardedWorkerFactory(childWorkerFactory(r.cfg, workspace, deps))
+	} else {
+		subagents.Manager.SetWorkerFactory(childWorkerFactory(r.cfg, workspace, deps))
+	}
+	if deps.TerminalManager != nil && terminal.Supported() {
+		subagents.Manager.SetDefaultToolset(append(subagents.Manager.DefaultToolset(), "terminal"))
+	}
+	if deps.LSPQuerier != nil {
+		subagents.Manager.SetDefaultToolset(append(subagents.Manager.DefaultToolset(), "lsp_hover", "lsp_definition", "lsp_references"))
+	}
+	if deps.LSPManager != nil {
+		subagents.Manager.SetDefaultToolset(append(subagents.Manager.DefaultToolset(), "lsp_symbols"))
+	}
 	deps.ExtraTools = append(deps.ExtraTools, tts.New(r.cfg.TTS), messaging.New(r.cfg.Gateways), imagegen.New(r.cfg.ImageGen))
 	completionAuditor, stopAudit := newCompletionAuditor(r.cfg, workspace)
 	sessionExtensions := extensions.NewConfiguredManager(skillRegistry, r.cfg, r.home)
 	sessionExtensions.AddBackend(extensions.NewHooksBackend(hookRegistry))
 	var once sync.Once
-	runtime := &api.SessionRuntime{CheckCurrent: coordinationCurrent, ExtensionsManager: sessionExtensions, CompletionAuditor: completionAuditor, Hooks: hookRegistry, PostWriteVerifier: verifier, CheckpointSnapshotter: &checkpointSnapshotterAdapter{mgr: deps.CheckpointManager}, GoalStore: r.Goals, SubagentManager: &subagentManagerAdapter{mgr: subagents.Manager}, Cleanup: func() {
+	runtime := &api.SessionRuntime{WorkerMessages: deps.WorkerMessages, BoundaryInbox: workerInbox, Terminals: terminals, CheckCurrent: coordinationCurrent, ExtensionsManager: sessionExtensions, CompletionAuditor: completionAuditor, Hooks: hookRegistry, PostWriteVerifier: verifier, CheckpointSnapshotter: &checkpointSnapshotterAdapter{mgr: deps.CheckpointManager}, GoalStore: r.Goals, SubagentManager: &subagentManagerAdapter{mgr: subagents.Manager}, Cleanup: func() {
 		once.Do(func() {
+			_ = terminals.Close()
 			stopAudit()
 			stopVerifier()
 			for _, child := range subagents.Manager.ActiveChildren() {

@@ -12,6 +12,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
+import {WindowsTeamAcceptance} from './windows-team-acceptance.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(path.join(root, 'desktop/package.json'));
 const {_electron} = require('playwright');
@@ -46,6 +47,7 @@ async function main() {
   const source = "export const value = 'WINDOWS_ACTUAL_SOURCE_EVIDENCE_946102';\n";
   await fs.writeFile(path.join(workspace, 'evidence.ts'), source);
   const fakeKey = 'windows-controlled-fake-provider-key';
+  const team = new WindowsTeamAcceptance(workspace,process.execPath);
   let application, providerError, calls = 0, uninstalled = false;
   const pageErrors = [];
   const fixture = http.createServer(async (request, response) => {
@@ -55,16 +57,18 @@ async function main() {
       let bytes = ''; for await (const chunk of request) { bytes += chunk; assert.ok(bytes.length < 2 * 1024 * 1024); }
       const body = JSON.parse(bytes);
       assert.equal(body.model, 'windows-native-fixture');
-      assert.ok(JSON.stringify(body).includes(source.trim()), 'actual installed provider request must include source file bytes');
+      const isTeam=team.matches(body);
+      if(!isTeam)assert.ok(JSON.stringify(body).includes(source.trim()), 'actual installed provider request must include source file bytes');
       calls++;
-      const content = 'Windows installed workspace evidence received.';
+      const message = isTeam?await team.respond(body):{content:'Windows installed workspace evidence received.'};
       const usage = {prompt_tokens: 20, completion_tokens: 6};
       if (body.stream) {
         response.writeHead(200, {'Content-Type': 'text/event-stream'});
-        response.end(`data: ${JSON.stringify({choices: [{index: 0, delta: {content}, finish_reason: 'stop'}], usage})}\n\ndata: [DONE]\n\n`);
+        const delta=message.tool_calls?{tool_calls:message.tool_calls.map((call,index)=>({index,...call}))}:{content:message.content};
+        response.end(`data: ${JSON.stringify({choices: [{index: 0, delta, finish_reason:message.tool_calls?'tool_calls':'stop'}], usage})}\n\ndata: [DONE]\n\n`);
       } else {
         response.writeHead(200, {'Content-Type': 'application/json'});
-        response.end(JSON.stringify({choices: [{message: {role: 'assistant', content}, finish_reason: 'stop'}], usage}));
+        response.end(JSON.stringify({choices: [{message: {role: 'assistant', ...message}, finish_reason:message.tool_calls?'tool_calls':'stop'}], usage}));
       }
     } catch (error) { providerError = error; response.writeHead(500); response.end('Controlled acceptance failed.'); }
   });
@@ -133,6 +137,9 @@ async function main() {
     const sessions = await page.evaluate(() => window.overkill.listSessions());
     const session = sessions.sessions.find(item => item.folder.toLowerCase() === workspace.toLowerCase());
     assert.ok(session);
+    let teamAcceptance;
+    try{teamAcceptance=await team.exercise(page,session,output);}catch(error){throw providerError||error;}
+    const callsBeforeRestart=calls;
     const before = await page.evaluate(id => window.overkill.messages(id), session.id);
     await page.screenshot({path: path.join(output, 'windows-installed-before-restart.png')});
     await closeApp();
@@ -146,7 +153,7 @@ async function main() {
     await page.locator('#transcript').getByText('Windows installed workspace evidence received.', {exact: false}).last().waitFor({timeout: 10000});
     const after = await page.evaluate(id => window.overkill.messages(id), session.id);
     assert.deepEqual(after, before, 'installed relaunch must preserve the session transcript');
-    assert.equal(calls, 1, 'restart must not replay completed provider work');
+    assert.equal(calls, callsBeforeRestart, 'restart must not replay completed provider work');
     assert.equal(await fs.readFile(path.join(workspace, 'evidence.ts'), 'utf8'), source);
     assert.deepEqual(pageErrors, []);
     await page.screenshot({path: path.join(output, 'windows-installed-after-restart.png')});
@@ -158,6 +165,8 @@ async function main() {
     // later removes its own temporary root.
     await fs.access(path.join(profile, 'settings.json'));
     const report = {schema: 1, passed: true, acceptanceToken: process.env.OVERKILL_ACCEPTANCE_TOKEN || 'unspecified-native-user', completedAt: new Date().toISOString(), sourceCommit: artifact.sourceCommit, installer: path.basename(installer), installerSHA256: artifact.installerSHA256, host: {platform: process.platform, architecture: process.arch, release: os.release()}, acceptanceToken: process.env.OVERKILL_ACCEPTANCE_TOKEN, acceptanceUser: process.env.USERNAME, credentialStorage: 'actual installed Electron45 Windows safeStorage; native encrypted roundtrip and automatic relaunch', encryption, providerCalls: calls, cases: ['silent native installer into path with spaces', 'manifest-bound installed backend', 'actual Windows safeStorage with encrypted saved key', 'bundled private PostgreSQL startup/migrations/shutdown', 'actual workspace source in provider HTTP request', 'renderer streamed response', 'same-version replacement', 'automatic encrypted settings startup and persisted history', 'no replay after restart', 'silent uninstall and intentional user-data retention'], limitations: ['controlled local provider; no paid provider', 'unsigned Authenticode; SmartScreen reputation not tested', 'GitHub runner Windows only; minimum Windows version not executed', 'same-version replacement; no cross-version migration', 'native dependency/source redistribution review separate'], distributionReady: false};
+    report.teamAcceptance='windows-installed-team-acceptance.json';report.team=teamAcceptance;
+    report.cases.push('native ConPTY coding children and sibling schema question/answer','actual HTTP integration in one-command ConPTY','persistent child server handoff to parent','real emulator keyboard takeover and return','owned Windows Job Object cleanup');
     await fs.writeFile(path.join(output, 'windows-installed-acceptance.json'), JSON.stringify(report, null, 2) + '\n');
     artifact.installedAcceptance = 'passed: windows-installed-acceptance.json';
     await fs.writeFile(path.join(output, 'artifact.json'), JSON.stringify(artifact, null, 2) + '\n');

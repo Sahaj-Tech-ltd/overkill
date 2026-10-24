@@ -1,0 +1,21 @@
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const {execFileSync} = require('node:child_process');
+const {workspaceStatus} = require('../src/workspace-status.cjs');
+test('workspace inventory preserves unusual names, rename destinations and untracked files', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'overkill-status-'));
+  t.after(() => fs.rm(root, {recursive: true, force: true}));
+  const git = (...args) => execFileSync('git', ['-C', root, '-c', 'core.hooksPath=' + os.devNull, ...args], {stdio:'pipe'});
+  git('init'); await fs.writeFile(path.join(root,'original name'),'one'); git('add','.');
+  git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','base');
+  git('mv','original name','renamed name'); await fs.writeFile(path.join(root,'new\nfile.txt'),'two');
+  const state = await workspaceStatus(root);
+  assert.equal(state.available,true);
+  assert.ok(state.changes.some(item=>item.path==='renamed name' && item.original==='original name'));
+  assert.ok(state.changes.some(item=>item.path==='new\nfile.txt' && item.status==='??'));
+  assert.ok(state.files.includes('new\nfile.txt'));
+  assert.equal((await workspaceStatus(path.join(root,'missing'))).available,false);
+});

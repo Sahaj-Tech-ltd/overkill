@@ -41,7 +41,29 @@ func NewCoordinationExecutionGuard(store *coordination.Store, peerID, workspace 
 			return nil, fmt.Errorf("coordination: authenticated store and peer are required")
 		}
 		var paths []string
-		switch tool.(type) {
+		switch typed := tool.(type) {
+		case *DelegateTool:
+			if typed.manager == nil || !typed.manager.GuardsWorkerTools() {
+				return nil, fmt.Errorf("coordination: delegation requires a factory with inherited child-tool admission")
+			}
+			var in delegateInput
+			if err := json.Unmarshal(input, &in); err != nil {
+				return nil, err
+			}
+			if in.Contract != nil {
+				return nil, fmt.Errorf("coordination: autonomous contract driver is not admitted for this session")
+			}
+			if err := store.CheckExecutionAdmission(ctx, peerID); err != nil {
+				return nil, err
+			}
+			return tool.Execute(ctx, input)
+		case *WorkerMessageTool:
+			return tool.Execute(ctx, input)
+		case *TerminalTool:
+			if !typed.manager.ReservationsEnabled() {
+				return nil, fmt.Errorf("coordination: terminal requires lifetime workspace reservations")
+			}
+			return tool.Execute(ctx, input)
 		case *acpTaskTool:
 			name := tool.Name()
 			if name == "acp_status" || name == "acp_await" || name == "acp_sessions" {

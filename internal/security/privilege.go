@@ -85,6 +85,11 @@ func IsWriteLikeTool(name string, raw json.RawMessage) bool {
 		"plan_status", "task_list", "checkpoint_list", "tag_list",
 		"journal_search", "journal_timeline", "journal_get", "memory_recall", "memory_search", "memory_describe", "memory_expand":
 		return false
+	case "worker_messages":
+		var in struct {
+			Action string `json:"action"`
+		}
+		return json.Unmarshal(raw, &in) != nil || (in.Action != "list" && in.Action != "inbox")
 	case "canvas":
 		var in struct {
 			Action string `json:"action"`

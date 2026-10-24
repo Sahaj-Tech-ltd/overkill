@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,8 @@ type TaskRouter interface {
 
 // Config controls the limits and behaviour of a Manager.
 type Config struct {
+	// DefaultTools is the application-granted coding toolset for ordinary delegation.
+	DefaultTools []string
 	MaxDepth     int
 	MaxChildren  int
 	ChildTimeout time.Duration
@@ -36,6 +39,7 @@ type Config struct {
 
 // ChildRef is a live handle to a spawned sub-agent.
 type ChildRef struct {
+	Name      string
 	ID        string
 	Goal      string
 	Model     string
@@ -50,11 +54,12 @@ type ChildRef struct {
 // Manager coordinates sub-agent spawning with depth/capacity limits and
 // parallel execution. All public methods are safe for concurrent use.
 type Manager struct {
-	mu          sync.RWMutex
-	cfg         Config
-	children    map[string]*ChildRef
-	fileState   *FileStateTracker
-	costTracker *CostRollup
+	communication *CommunicationStore
+	mu            sync.RWMutex
+	cfg           Config
+	children      map[string]*ChildRef
+	fileState     *FileStateTracker
+	costTracker   *CostRollup
 
 	// Contract-based autonomous children, keyed by contract.ID.
 	autonomous map[string]*autonomousEntry
@@ -67,7 +72,8 @@ type Manager struct {
 	// Falls back to the main model when nil or on routing failure.
 	router TaskRouter
 
-	workerFactory WorkerFactory
+	workerFactory  WorkerFactory
+	guardedWorkers bool
 
 	// registry, when set, provides file-based agent discovery and
 	// auto-selection via SelectBest. Set via SetRegistry at boot.
@@ -86,12 +92,40 @@ type HandoffFailureSink interface {
 	OnDelegationFailure(parentSession string, contract *Contract, report *FinalReport, err error)
 }
 
+// SetCommunicationStore binds a durable chat-scoped mailbox before execution.
+func (m *Manager) SetCommunicationStore(store *CommunicationStore) {
+	m.mu.Lock()
+	m.communication = store
+	m.mu.Unlock()
+}
+func (m *Manager) CommunicationStore() *CommunicationStore {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.communication
+}
+
 // SetFailureSink wires a delegation-failure observer (master plan §5.3).
 // Pass nil to clear.
 func (m *Manager) SetFailureSink(s HandoffFailureSink) {
 	m.mu.Lock()
 	m.failureSink = s
 	m.mu.Unlock()
+}
+
+// SetDefaultToolset changes the trusted session defaults. Model input cannot
+// grant a capability: the worker factory independently validates every name.
+func (m *Manager) SetDefaultToolset(names []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cfg.DefaultTools = append([]string{}, names...)
+}
+func (m *Manager) DefaultToolset() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.cfg.DefaultTools == nil {
+		return []string{"fs", "patch"}
+	}
+	return append([]string(nil), m.cfg.DefaultTools...)
 }
 
 // SetRouter wires a task-level model router. Pass nil to clear.
@@ -156,6 +190,9 @@ type autonomousEntry struct {
 //
 // Defaults: MaxDepth=2, MaxChildren=3, ChildTimeout=120s (when <= 0).
 func NewManager(cfg Config) *Manager {
+	if cfg.DefaultTools != nil {
+		cfg.DefaultTools = append([]string{}, cfg.DefaultTools...)
+	}
 	if cfg.MaxDepth <= 0 {
 		cfg.MaxDepth = 2
 	}
@@ -413,6 +450,31 @@ func (m *Manager) reserveChildren(ctx context.Context, tasks []Task) ([]*ChildRe
 		contexts[i] = childCtx
 		m.children[ref.ID] = ref
 	}
+	if m.communication != nil {
+		records := make([]WorkerRecord, len(refs))
+		for i, ref := range refs {
+			name := "worker-" + strings.TrimPrefix(ref.ID, "child-")[:8]
+			previous := ""
+			if named, ok := tasks[i].(interface {
+				WorkerLabel() string
+				PreviousWorker() string
+			}); ok {
+				if named.WorkerLabel() != "" {
+					name = named.WorkerLabel()
+				}
+				previous = named.PreviousWorker()
+			}
+			ref.Name = name
+			records[i] = WorkerRecord{ID: ref.ID, Name: name, Goal: ref.Goal, Model: ref.Model, Tools: append([]string(nil), tasks[i].Toolset()...), FollowupOf: previous}
+		}
+		if err := m.communication.RegisterBatch(ctx, records); err != nil {
+			for _, ref := range refs {
+				ref.Cancel()
+				delete(m.children, ref.ID)
+			}
+			return nil, nil, err
+		}
+	}
 	return refs, contexts, nil
 }
 
@@ -453,6 +515,17 @@ func (m *Manager) runChild(ctx context.Context, task Task, index int, ref *Child
 		}
 		result.TaskIndex = index
 		result.DurationMs = time.Since(start).Milliseconds()
+		result.WorkerID = ref.ID
+		if store := m.CommunicationStore(); store != nil {
+			finishCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			err := store.Finish(finishCtx, ref.ID, result)
+			cancel()
+			if err != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("subagent: persist worker result: %w", err))
+				result.Status = "error"
+				result.Error = runErr.Error()
+			}
+		}
 		ref.Cancel()
 		m.mu.Lock()
 		delete(m.children, ref.ID)
@@ -475,7 +548,7 @@ func (m *Manager) runChild(ctx context.Context, task Task, index int, ref *Child
 			model, provider = mid, prov
 		}
 	}
-	cfg := RealWorkerConfig{Tools: append([]string(nil), task.Toolset()...), Goal: task.Goal(), Context: task.Context(), MaxSteps: task.MaxIterations(), Timeout: m.cfg.ChildTimeout, Model: model, Provider: provider, TaskIndex: index}
+	cfg := RealWorkerConfig{WorkerID: ref.ID, Tools: append([]string(nil), task.Toolset()...), Goal: task.Goal(), Context: task.Context(), MaxSteps: task.MaxIterations(), Timeout: m.cfg.ChildTimeout, Model: model, Provider: provider, TaskIndex: index}
 	var runner WorkerRunner
 	var err error
 	if factory != nil {
@@ -640,7 +713,7 @@ func (m *Manager) SpawnDecomposed(ctx context.Context, goal, contextStr string) 
 
 	if len(items) < 2 {
 		// Single item — fall back to normal spawn.
-		task := GenericTask{GoalStr: goal, ContextStr: contextStr, ToolsetVal: []string{"fs", "patch"}}
+		task := GenericTask{GoalStr: goal, ContextStr: contextStr, ToolsetVal: m.DefaultToolset()}
 		result, err := m.Spawn(ctx, task)
 		if result == nil {
 			return nil, err
@@ -653,7 +726,7 @@ func (m *Manager) SpawnDecomposed(ctx context.Context, goal, contextStr string) 
 		tasks[i] = GenericTask{
 			GoalStr:    desc,
 			ContextStr: contextStr,
-			ToolsetVal: []string{"fs", "patch"},
+			ToolsetVal: m.DefaultToolset(),
 		}
 	}
 	return m.SpawnBatchAutoSplit(ctx, tasks)

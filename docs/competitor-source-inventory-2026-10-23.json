@@ -1,0 +1,852 @@
+{
+  "researchDate": "2026-10-23",
+  "timezone": "America/Los_Angeles",
+  "scope": "20 selected competitors/frameworks, not exhaustive industry coverage",
+  "zipManifest": "/Users/abc/Documents/overkill/.cache/zip-review-inputs/manifest.json",
+  "checkoutCount": 18,
+  "newCheckouts": 10,
+  "repositories": [
+    {
+      "slug": "cline",
+      "commit": "c441897f11f658f978a00678f045670c1ab2b60d",
+      "repository": "https://github.com/cline/cline",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/cline/source",
+      "retrieval": "existing pinned snapshot; not updated in this pass",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [],
+      "priorResearchReport": "/Users/abc/Documents/overkill/docs/harness-research/cline.json",
+      "coverageNote": "Existing detailed report reviewed; readAnchors are not a complete evidence mapping for its feature inventory"
+    },
+    {
+      "slug": "codex",
+      "commit": "0769c6aeeb1a81cec715e496d2486ece6fcef21b",
+      "repository": "https://github.com/openai/codex",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/codex/source",
+      "retrieval": "existing pinned snapshot; not updated in this pass",
+      "boundary": "public CLI/core/app-server; desktop-browser product source not established",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "codex-rs/core/src/tools/handlers/multi_agents_v2.rs",
+          "fileSHA256": "ae414817a043502f54d313c03b1144d5c57fbbe6e69082c2295d99a636489b8a",
+          "excerptStart": 1,
+          "excerptEnd": 67,
+          "url": "https://github.com/openai/codex/blob/0769c6aeeb1a81cec715e496d2486ece6fcef21b/codex-rs/core/src/tools/handlers/multi_agents_v2.rs#L1"
+        }
+      ],
+      "priorResearchReport": "/Users/abc/Documents/overkill/docs/harness-research/codex.json",
+      "coverageNote": "Existing detailed report reviewed; readAnchors are not a complete evidence mapping for its feature inventory"
+    },
+    {
+      "slug": "deepseek-harness",
+      "commit": "22ddee3792402c3e70ec5f86a63c3e3e895a2f60",
+      "repository": "https://github.com/deepseek-ai/deepseek-harness",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/deepseek-harness/source",
+      "retrieval": "2026-10-23 refresh",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "README.md",
+          "fileSHA256": "0f5516be2acde776f05572cbc8c3093c90549afe04ce118e11157d073d5d15f4",
+          "excerptStart": 1,
+          "excerptEnd": 77,
+          "url": "https://github.com/deepseek-ai/deepseek-harness/blob/22ddee3792402c3e70ec5f86a63c3e3e895a2f60/README.md#L1"
+        },
+        {
+          "path": "packages/experimental/agent-team/README.md",
+          "fileSHA256": "42b05f631f3b89d595da0413ad18addd77cb476bef5ed01a1db4a3e141633cdd",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/deepseek-ai/deepseek-harness/blob/22ddee3792402c3e70ec5f86a63c3e3e895a2f60/packages/experimental/agent-team/README.md#L1"
+        },
+        {
+          "path": "packages/experimental/agent-team/src/session-message.ts",
+          "fileSHA256": "1529771db060efad76ca482358285ffb5d5d32f89d8b87d8a1400c724672510c",
+          "excerptStart": 1,
+          "excerptEnd": 31,
+          "url": "https://github.com/deepseek-ai/deepseek-harness/blob/22ddee3792402c3e70ec5f86a63c3e3e895a2f60/packages/experimental/agent-team/src/session-message.ts#L1"
+        }
+      ]
+    },
+    {
+      "slug": "factory",
+      "commit": "db68fa0d6be5788c68deda7da38e21a62cf43a05",
+      "repository": "https://github.com/Factory-AI/factory",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/factory/source",
+      "retrieval": "existing pinned snapshot; not updated in this pass",
+      "boundary": "public documentation/distribution repository; proprietary Droid core not downloaded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "README.md",
+          "fileSHA256": "b445a9acb9197f8802b402256cb6bc9198cb63e302dfeaabec038cfca992a667",
+          "excerptStart": 1,
+          "excerptEnd": 71,
+          "url": "https://github.com/Factory-AI/factory/blob/db68fa0d6be5788c68deda7da38e21a62cf43a05/README.md#L1"
+        }
+      ],
+      "priorResearchReport": "/Users/abc/Documents/overkill/docs/harness-research/factory.json",
+      "coverageNote": "Existing detailed report reviewed; readAnchors are not a complete evidence mapping for its feature inventory"
+    },
+    {
+      "slug": "gemini-cli",
+      "commit": "d968ea0a247b4709e23fc03b782eaa05ce1bf4d4",
+      "repository": "https://github.com/google-gemini/gemini-cli",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/gemini-cli/source",
+      "retrieval": "2026-10-23 refresh",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "README.md",
+          "fileSHA256": "7235196f55461732c246c20ce9996cc56ba2e52641f183ccf4e6493bd93c1c94",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/google-gemini/gemini-cli/blob/d968ea0a247b4709e23fc03b782eaa05ce1bf4d4/README.md#L1"
+        },
+        {
+          "path": "packages/core/src/agents/browser/browserAgentDefinition.ts",
+          "fileSHA256": "154397f3e8cbb3ab2a2029eccbb200acace28e4d3231b571eb940833c19ff152",
+          "excerptStart": 130,
+          "excerptEnd": 180,
+          "url": "https://github.com/google-gemini/gemini-cli/blob/d968ea0a247b4709e23fc03b782eaa05ce1bf4d4/packages/core/src/agents/browser/browserAgentDefinition.ts#L130"
+        }
+      ]
+    },
+    {
+      "slug": "goose",
+      "commit": "c3bfc5f7b0e230180ba3164ec1ee84fd951eaf0d",
+      "repository": "https://github.com/aaif-goose/goose",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/goose/source",
+      "retrieval": "2026-10-23 refresh",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "README.md",
+          "fileSHA256": "0f1df85a0c457caf1f3c4e1c0370f2da3887fffa588d207862cfc298c1d39755",
+          "excerptStart": 1,
+          "excerptEnd": 63,
+          "url": "https://github.com/aaif-goose/goose/blob/c3bfc5f7b0e230180ba3164ec1ee84fd951eaf0d/README.md#L1"
+        },
+        {
+          "path": "crates/goose/src/agents/subagent_handler.rs",
+          "fileSHA256": "c55aaf65666cbf6afa8f5a9aeebfa80ebe1b8e4ce231c2806f6b64af880ec6fc",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/aaif-goose/goose/blob/c3bfc5f7b0e230180ba3164ec1ee84fd951eaf0d/crates/goose/src/agents/subagent_handler.rs#L1"
+        }
+      ]
+    },
+    {
+      "slug": "hermes-agent",
+      "commit": "4e58c721c8cf9b51c46636ea84ea6a5cb540880a",
+      "repository": "https://github.com/NousResearch/hermes-agent",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/hermes-agent/source",
+      "retrieval": "existing pinned snapshot; not updated in this pass",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [],
+      "priorResearchReport": "/Users/abc/Documents/overkill/docs/harness-research/hermes-agent.json",
+      "coverageNote": "Existing detailed report reviewed; readAnchors are not a complete evidence mapping for its feature inventory"
+    },
+    {
+      "slug": "letta-code",
+      "commit": "6c8b08fedfb6f3fb437163ede8320a387151693f",
+      "repository": "https://github.com/letta-ai/letta-code",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/letta-code/source",
+      "retrieval": "2026-10-23 refresh",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "README.md",
+          "fileSHA256": "7543b5df7349bb8fbdbf7f377a161c3163b6ff062a9c6f7b7430a5ca9a3d0abe",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/letta-ai/letta-code/blob/6c8b08fedfb6f3fb437163ede8320a387151693f/README.md#L1"
+        },
+        {
+          "path": "src/agent/subagents/builtin/memory.md",
+          "fileSHA256": "420be11cdec48b2174482ca6fc41fdc2c246780355b515b97596785e13a6454b",
+          "excerptStart": 1,
+          "excerptEnd": 33,
+          "url": "https://github.com/letta-ai/letta-code/blob/6c8b08fedfb6f3fb437163ede8320a387151693f/src/agent/subagents/builtin/memory.md#L1"
+        },
+        {
+          "path": "src/agent/subagents/memory-worker-session.ts",
+          "fileSHA256": "4bc7b3b1d76ee319549f2e0967fa778dce983e4a2e4bbbb1ac0afd097a116505",
+          "excerptStart": 1,
+          "excerptEnd": 12,
+          "url": "https://github.com/letta-ai/letta-code/blob/6c8b08fedfb6f3fb437163ede8320a387151693f/src/agent/subagents/memory-worker-session.ts#L1"
+        }
+      ]
+    },
+    {
+      "slug": "openclaw",
+      "commit": "3f8eee902de1464bbd77f221bd71b32cea9f8e74",
+      "repository": "https://github.com/openclaw/openclaw",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/openclaw/source",
+      "retrieval": "existing pinned snapshot; not updated in this pass",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [],
+      "priorResearchReport": "/Users/abc/Documents/overkill/docs/harness-research/openclaw.json",
+      "coverageNote": "Existing detailed report reviewed; readAnchors are not a complete evidence mapping for its feature inventory"
+    },
+    {
+      "slug": "opencode",
+      "commit": "1b1ad488f833e37af57d903d995a3bdbef752756",
+      "repository": "https://github.com/anomalyco/opencode",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/opencode/source",
+      "retrieval": "existing pinned snapshot; not updated in this pass",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [],
+      "priorResearchReport": "/Users/abc/Documents/overkill/docs/harness-research/opencode.json",
+      "coverageNote": "Existing detailed report reviewed; readAnchors are not a complete evidence mapping for its feature inventory"
+    },
+    {
+      "slug": "openhands-sdk",
+      "commit": "acd96e6fa424c02432304395b9208f99be24b54d",
+      "repository": "https://github.com/OpenHands/software-agent-sdk",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/openhands-sdk/source",
+      "retrieval": "2026-10-23 refresh",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "README.md",
+          "fileSHA256": "95094c9745c7cc58136d4eaa1688fb6038aafefec2be05344293f6df7e55dbf8",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/OpenHands/software-agent-sdk/blob/acd96e6fa424c02432304395b9208f99be24b54d/README.md#L1"
+        },
+        {
+          "path": "openhands-tools/openhands/tools/delegate/impl.py",
+          "fileSHA256": "d4dc38a701f9d79bed2ba87b42e83ac18c55087f6cd5a5340726d8559cdb6fca",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/OpenHands/software-agent-sdk/blob/acd96e6fa424c02432304395b9208f99be24b54d/openhands-tools/openhands/tools/delegate/impl.py#L1"
+        }
+      ]
+    },
+    {
+      "slug": "pi",
+      "commit": "58c0b02ce552adab76014e7ed712ab7981359aa8",
+      "repository": "https://github.com/earendil-works/pi",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/pi/source",
+      "retrieval": "existing pinned snapshot; not updated in this pass",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "packages/coding-agent/README.md",
+          "fileSHA256": "fbc7abec7d0829ac8bc4b217e950794e1ba4d8d1b3e0850f970da318ad72e863",
+          "excerptStart": 1,
+          "excerptEnd": 95,
+          "url": "https://github.com/earendil-works/pi/blob/58c0b02ce552adab76014e7ed712ab7981359aa8/packages/coding-agent/README.md#L1"
+        }
+      ],
+      "priorResearchReport": "/Users/abc/Documents/overkill/docs/harness-research/pi.json",
+      "coverageNote": "Existing detailed report reviewed; readAnchors are not a complete evidence mapping for its feature inventory"
+    },
+    {
+      "slug": "pydantic-ai-harness",
+      "commit": "4399efacd4755ff6feccc727d3180a97428e76cf",
+      "repository": "https://github.com/pydantic/pydantic-ai-harness",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/pydantic-ai-harness/source",
+      "retrieval": "2026-10-23 refresh",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "README.md",
+          "fileSHA256": "2f2b987b9f043208d3695ad10124c8783b2b6f4d37aba87aa420933d6eb317f1",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/pydantic/pydantic-ai-harness/blob/4399efacd4755ff6feccc727d3180a97428e76cf/README.md#L1"
+        },
+        {
+          "path": "pydantic_ai_harness/capability_creation/_toolset.py",
+          "fileSHA256": "0576879110734d4ce575fb8da4d3f683249a9f554b0e24de88ed0e00a732344a",
+          "excerptStart": 1,
+          "excerptEnd": 74,
+          "url": "https://github.com/pydantic/pydantic-ai-harness/blob/4399efacd4755ff6feccc727d3180a97428e76cf/pydantic_ai_harness/capability_creation/_toolset.py#L1"
+        },
+        {
+          "path": "pydantic_ai_harness/subagents/_toolset.py",
+          "fileSHA256": "09e29c4e1cd97af4927aa94970d0ff096ada3072956b63ed4c54cf58358b0d72",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/pydantic/pydantic-ai-harness/blob/4399efacd4755ff6feccc727d3180a97428e76cf/pydantic_ai_harness/subagents/_toolset.py#L1"
+        }
+      ]
+    },
+    {
+      "slug": "qwen-code",
+      "commit": "949a71e29b022c6ccad1c505a49680b3a7ce41b2",
+      "repository": "https://github.com/QwenLM/qwen-code",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/qwen-code/source",
+      "retrieval": "2026-10-23 refresh",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "README.md",
+          "fileSHA256": "4a0ebab59ff1b820bcc4456fa8c44e1c8593d7fef26a6183c7c18aa36c6b1966",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/QwenLM/qwen-code/blob/949a71e29b022c6ccad1c505a49680b3a7ce41b2/README.md#L1"
+        },
+        {
+          "path": "packages/core/src/tools/send-message.ts",
+          "fileSHA256": "7648ca29ae710a9dd82af4f2700a510378d0b9ea0ff8917193df5527c9da43f2",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/QwenLM/qwen-code/blob/949a71e29b022c6ccad1c505a49680b3a7ce41b2/packages/core/src/tools/send-message.ts#L1"
+        }
+      ]
+    },
+    {
+      "slug": "warp",
+      "commit": "f8a9c719f387e750190b5fbc98ec07aedbd48e4c",
+      "repository": "https://github.com/warpdotdev/warp",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/warp/source",
+      "retrieval": "existing pinned snapshot; not updated in this pass",
+      "boundary": "public client; built-in agent harness/cloud service source not established",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [],
+      "priorResearchReport": "/Users/abc/Documents/overkill/docs/harness-research/warp.json",
+      "coverageNote": "Existing detailed report reviewed; readAnchors are not a complete evidence mapping for its feature inventory"
+    },
+    {
+      "slug": "zed",
+      "commit": "9f305aaf88370e8ca39c702242186e3d8f97ecca",
+      "repository": "https://github.com/zed-industries/zed",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/zed/source",
+      "retrieval": "2026-10-23 refresh",
+      "boundary": "public implementation; hosted services excluded",
+      "inspection": "bounded static source/docs review; no dependency installation or runtime execution",
+      "readAnchors": [
+        {
+          "path": "crates/agent/src/tools/spawn_agent_tool.rs",
+          "fileSHA256": "921aa71aa2a4e09f78f1cab74044c07ceeb2996ff1d8b68cfb4f537ca6ef4849",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/zed-industries/zed/blob/9f305aaf88370e8ca39c702242186e3d8f97ecca/crates/agent/src/tools/spawn_agent_tool.rs#L1"
+        }
+      ]
+    },
+    {
+      "slug": "openclaude",
+      "commit": "e36580576278c27223b66ed3e9581186ea699161",
+      "repository": "https://github.com/Twigpine/openclaude",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/openclaude/source",
+      "retrieval": "2026-10-23 refresh; exact user-supplied repository",
+      "boundary": "public implementation; gated code not assumed available in a default build",
+      "inspection": "bounded README, agent/message schemas and tool-registration review; no upstream runtime run",
+      "readAnchors": [
+        {
+          "path": "README.md",
+          "fileSHA256": "114f0cb820c827c1f7e7fa896da8eef2de4e1a2c883b69a4acec73b0de2234a7",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/README.md#L1"
+        },
+        {
+          "path": "src/tools.ts",
+          "fileSHA256": "a0db33b482d907a96e47ff8d901b1aef54d148451de26e8be03ea1307701ecac",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/src/tools.ts#L1"
+        },
+        {
+          "path": "src/tools/SendMessageTool/SendMessageTool.ts",
+          "fileSHA256": "6309a47bb732c1a8fb5839bdfc6446aee5e72700379c93b85042dee38b00decf",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/src/tools/SendMessageTool/SendMessageTool.ts#L1"
+        },
+        {
+          "path": "src/tools/AgentTool/AgentTool.tsx",
+          "fileSHA256": "40c579afc09d645c105bbd9fa347afb64f00535d15af937e66f3842d59b87d45",
+          "excerptStart": 1,
+          "excerptEnd": 110,
+          "url": "https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/src/tools/AgentTool/AgentTool.tsx#L1"
+        }
+      ]
+    },
+    {
+      "slug": "omnigent",
+      "commit": "caa0441fddfcfe407e38be04b55850a128be2dd2",
+      "repository": "https://github.com/omnigent-ai/omnigent",
+      "localPath": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source",
+      "retrieval": "shallow checkout added October 23, 2026; pinned for this audit",
+      "boundary": "public implementation; official native worker CLIs and hosted/account services have separate boundaries",
+      "inspection": "caller trace plus seven isolated classifier and one routing-backend probe; no full app or upstream suite",
+      "readAnchors": [
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/onboarding/configure_models.py",
+          "repositoryPath": "omnigent/onboarding/configure_models.py",
+          "line": 913,
+          "needle": "def build_subscription_provider_entry",
+          "exactNeedleFound": true,
+          "sha256": "0b4195d2ec5c67634aafe419f691b391ae39ca7754416085c3d8650f6f0b653c",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/onboarding/configure_models.py#L913"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/cli_config.py",
+          "repositoryPath": "omnigent/cli_config.py",
+          "line": 828,
+          "needle": "# A harness has at most ONE subscription.",
+          "exactNeedleFound": true,
+          "sha256": "8b69462412480e3409eee780cb000422c9929a00ca7401f153ad3bd962e4b4b6",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/cli_config.py#L828"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/onboarding/provider_config.py",
+          "repositoryPath": "omnigent/onboarding/provider_config.py",
+          "line": 1371,
+          "needle": "def default_provider_for_harness",
+          "exactNeedleFound": true,
+          "sha256": "eb2d22bcc445e513295e86d4715b3d43472c79e1f6ffab05546675d2720e9ae2",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/onboarding/provider_config.py#L1371"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/smart_routing.py",
+          "repositoryPath": "omnigent/server/smart_routing.py",
+          "line": 2022,
+          "needle": "async def route_session_harness",
+          "exactNeedleFound": true,
+          "sha256": "d661facb262ff1db34623ffa13b82a58ec03122927f27a83fecd2f5bfcaa8cd0",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/smart_routing.py#L2022"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/smart_routing.py",
+          "repositoryPath": "omnigent/server/smart_routing.py",
+          "line": 2263,
+          "needle": "async def route_turn(",
+          "exactNeedleFound": true,
+          "sha256": "d661facb262ff1db34623ffa13b82a58ec03122927f27a83fecd2f5bfcaa8cd0",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/smart_routing.py#L2263"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/routing_backend.py",
+          "repositoryPath": "omnigent/server/routing_backend.py",
+          "line": 129,
+          "needle": "async def route_with_fallback",
+          "exactNeedleFound": true,
+          "sha256": "cf17a8155461223774df6dd5ab01cfb32ed9cd013b1031abcf9e4f27256052df",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/routing_backend.py#L129"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/runtime/llm_retry.py",
+          "repositoryPath": "omnigent/runtime/llm_retry.py",
+          "line": 289,
+          "needle": "def execute_with_retry",
+          "exactNeedleFound": true,
+          "sha256": "e88e908f9d5dff39175b1a8a5129ca088e6f87ee8e7f7379ab326c387b987d30",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runtime/llm_retry.py#L289"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/runner/launch_failure.py",
+          "repositoryPath": "omnigent/runner/launch_failure.py",
+          "line": 253,
+          "needle": "def classify_native_turn_error",
+          "exactNeedleFound": true,
+          "sha256": "c73714581ef9fba9b7283d164fc199cdbec26517b867fe97b67ebbd6f27259cb",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runner/launch_failure.py#L253"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/tests/runner/test_launch_failure.py",
+          "repositoryPath": "tests/runner/test_launch_failure.py",
+          "line": 176,
+          "needle": "def test_classifies_native_429_and_rate_limit_errors",
+          "exactNeedleFound": true,
+          "sha256": "69694be9afec0943f22840f398361dd3fee44aa4dba0f349a61f32a1ae242755",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/tests/runner/test_launch_failure.py#L176"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/harnesses/codex_native/forwarder.py",
+          "repositoryPath": "omnigent/harnesses/codex_native/forwarder.py",
+          "line": 7035,
+          "needle": "async def _post_turn_status_edge",
+          "exactNeedleFound": true,
+          "sha256": "254bfe3e69324b3ed88d0add96579c094c7dc593b196707003b7958221c1a648",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/harnesses/codex_native/forwarder.py#L7035"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/routes/sessions/routes_events.py",
+          "repositoryPath": "omnigent/server/routes/sessions/routes_events.py",
+          "line": 2221,
+          "needle": "classified_code = classify_native_turn_error",
+          "exactNeedleFound": true,
+          "sha256": "b973505b131ee101a70f0442448d82cdc3a8fd6ae3858cabdab9ffd7546620aa",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/routes/sessions/routes_events.py#L2221"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/web/src/components/blocks/StatusBlocks.tsx",
+          "repositoryPath": "web/src/components/blocks/StatusBlocks.tsx",
+          "line": 131,
+          "needle": "export const CONTINUE_TURN_ERROR_CODES",
+          "exactNeedleFound": true,
+          "sha256": "504af64e1925c0ea488fa1dd9e77e2112252a9e7b21f0c64a9b149cc855647b3",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/web/src/components/blocks/StatusBlocks.tsx#L131"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/web/src/components/blocks/StatusBlocks.test.tsx",
+          "repositoryPath": "web/src/components/blocks/StatusBlocks.test.tsx",
+          "line": 707,
+          "needle": "const retry = screen.getByRole(\"button\", { name: \"Retry\" })",
+          "exactNeedleFound": true,
+          "sha256": "36cab610bbfa747e781461645bc59b63d0cb28ac8af58f856a992d452b842a90",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/web/src/components/blocks/StatusBlocks.test.tsx#L707"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/server/routes/sessions/routes_core.py",
+          "repositoryPath": "omnigent/server/routes/sessions/routes_core.py",
+          "line": 3433,
+          "needle": "async def fork_session(",
+          "exactNeedleFound": true,
+          "sha256": "2a37836e3f693928b7222a1bbdb1f55d04954631b01d8838fa9b394fabdf915e",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/routes/sessions/routes_core.py#L3433"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/runner/subagent_work.py",
+          "repositoryPath": "omnigent/runner/subagent_work.py",
+          "line": 750,
+          "needle": "def _deliver_subagent_completion",
+          "exactNeedleFound": true,
+          "sha256": "80e26684c5f2d0aa8f3c66944cc4e3e610f8e6a06dcdbad8517cdbb286692cbd",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runner/subagent_work.py#L750"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/runner/subagent_recovery.py",
+          "repositoryPath": "omnigent/runner/subagent_recovery.py",
+          "line": 53,
+          "needle": "def build_subagent_recovery",
+          "exactNeedleFound": true,
+          "sha256": "4511c0898053083bbc3b2f03c36c1750188580e992d021ea32ac15d4985b2af7",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runner/subagent_recovery.py#L53"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/examples/polly/config.yaml",
+          "repositoryPath": "examples/polly/config.yaml",
+          "line": 37,
+          "needle": "prompt: |",
+          "exactNeedleFound": true,
+          "sha256": "bd7afdf9f09fe504e41486e1710e224073c8db5a3a07c1aa055a27f93f216470",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/examples/polly/config.yaml#L37"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/examples/polly/agents/codex/config.yaml",
+          "repositoryPath": "examples/polly/agents/codex/config.yaml",
+          "line": 8,
+          "needle": "harness: codex-native",
+          "exactNeedleFound": true,
+          "sha256": "47384b34c35aa54076aae9397f92904217afea11608073cbe9bc6806deb30700",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/examples/polly/agents/codex/config.yaml#L8"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/terminals/registry.py",
+          "repositoryPath": "omnigent/terminals/registry.py",
+          "line": 191,
+          "needle": "class TerminalRegistry:",
+          "exactNeedleFound": true,
+          "sha256": "83bc2235e72120b2f24307f4b38cabe347babc8b9f0cbe54f3c82d637a2a4031",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/terminals/registry.py#L191"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/terminals/control_bridge.py",
+          "repositoryPath": "omnigent/terminals/control_bridge.py",
+          "line": 1,
+          "needle": "Shared tmux control-mode",
+          "exactNeedleFound": true,
+          "sha256": "9e894c6fedc499c2cc0757b07a8ddb3a502ea933b9df19abdcdbaae694975b49",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/terminals/control_bridge.py#L1"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/host/git_worktree.py",
+          "repositoryPath": "omnigent/host/git_worktree.py",
+          "line": 403,
+          "needle": "def create_worktree(",
+          "exactNeedleFound": true,
+          "sha256": "81d76d0edcd0400f16d01119a345403459d77ef7f66f584de967891b172a1ff9",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/host/git_worktree.py#L403"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/policies/builtins/cost.py",
+          "repositoryPath": "omnigent/policies/builtins/cost.py",
+          "line": 1,
+          "needle": "Built-in cost-budget policy.",
+          "exactNeedleFound": true,
+          "sha256": "42bcdf5598aaf89063a3892d05cf90f646db54e349f6a4c47875999713c48b78",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/policies/builtins/cost.py#L1"
+        },
+        {
+          "path": "/Users/abc/Documents/overkill/research/harnesses/omnigent/source/omnigent/inner/codex_executor.py",
+          "repositoryPath": "omnigent/inner/codex_executor.py",
+          "line": 4383,
+          "needle": "\"account/rateLimits/updated\"",
+          "exactNeedleFound": true,
+          "sha256": "bf844e3e86b2d02c203bd918f45e2d429e7e7a796ab520935d4b879731d7658f",
+          "url": "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/inner/codex_executor.py#L4383"
+        }
+      ],
+      "auditDocument": "/Users/abc/Documents/overkill/docs/omnigent-subscription-failover-2026-10-23.json",
+      "latestUpstreamDeltaReview": {
+        "observedHead": "60ba4afb1d7624b0f54e2efc653e36f6170cfb29",
+        "checkoutStillPinnedAt": "caa0441fddfcfe407e38be04b55850a128be2dd2",
+        "audit": "omnigent-subscription-failover-2026-10-23.json",
+        "verdictChanged": false
+      }
+    }
+  ],
+  "documentationOnlyAgentCores": [
+    "Claude Code",
+    "Amp",
+    "Factory/Droid"
+  ],
+  "products": [
+    {
+      "name": "Hermes Agent",
+      "features": "Telegram and other messaging adapters; persistent profile/session state; searchable conversation history; memory; skill creation and maintenance; shell/background processes; browser tools; delegation; scheduled tasks; MCP; desktop/CLI/ACP/API surfaces.",
+      "distinction": "A persistent assistant reachable from multiple channels, with learning as an explicit workflow. [Skills](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills), [Telegram team guide](https://hermes-agent.nousresearch.com/docs/guides/team-telegram-assistant). Public Python source is downloaded.",
+      "sources": [
+        "https://hermes-agent.nousresearch.com/docs/user-guide/features/skills",
+        "https://hermes-agent.nousresearch.com/docs/guides/team-telegram-assistant"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Warp",
+      "features": "Live interactive terminal control; agents and children; local/cloud handoff; cross-harness orchestration; durable agent inboxes; waking finished agents; rules/skills/MCP; codebase context; plans; inline diff review; browser/computer QA and recordings.",
+      "distinction": "Terminal sessions and coordinated execution are more consequential than simply exposing a shell command. [Agent overview](https://docs.warp.dev/agents/), [orchestration](https://docs.warp.dev/platform/orchestration/), [browser](https://docs.warp.dev/agents/capabilities/computer-use/browser-use/). Client source is public; built-in harness/cloud internals are not established by that checkout.",
+      "sources": [
+        "https://docs.warp.dev/agents/",
+        "https://docs.warp.dev/platform/orchestration/",
+        "https://docs.warp.dev/agents/capabilities/computer-use/browser-use/"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Codex",
+      "features": "Interactive PTY tools; patch edits; subagent spawning, follow-up, messaging, waiting and interruption; skills/MCP/plugins/hooks; compaction; permission and sandbox controls; headless/app-server integration; desktop worktree/review workflows and integrated browser.",
+      "distinction": "Browser is a desktop product capability, not a browser embedded in the public CLI. [Browser availability](https://learn.chatgpt.com/docs/browser), [product features](https://learn.chatgpt.com/docs/features). Public CLI/core source is downloaded; desktop/account services have separate boundaries.",
+      "sources": [
+        "https://learn.chatgpt.com/docs/browser",
+        "https://learn.chatgpt.com/docs/features"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Claude Code",
+      "features": "Explicit file/read/search/edit tools; foreground/background shell work; notebook and LSP tools; custom subagents with scoped tools, models, skills and memory; worktree isolation; hooks/plugins/MCP; tasks; planning; scheduling; agent messaging.",
+      "distinction": "Agent teams add shared tasks and direct teammate communication; teams remain experimental and disabled by default. [Tools](https://code.claude.com/docs/en/tools-reference), [subagents](https://code.claude.com/docs/en/sub-agents), [teams](https://code.claude.com/docs/en/agent-teams), [browser integration](https://code.claude.com/docs/en/chrome). \u201cBest tools\u201d is a hypothesis requiring task-level tests, not a documentation finding.",
+      "sources": [
+        "https://code.claude.com/docs/en/tools-reference",
+        "https://code.claude.com/docs/en/sub-agents",
+        "https://code.claude.com/docs/en/agent-teams",
+        "https://code.claude.com/docs/en/chrome"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Amp",
+      "features": "Task and Read Thread subagents; difficulty modes; cross-thread context; plugins/skills/MCP; configurable provider connections; local runners; cloud Orbs; agent-to-agent instructions and file exchange; scheduled follow-ups; cross-device threads.",
+      "distinction": "Current docs go beyond isolated helper returns: agents can delegate across projects and machines. Workspaces and files remain separate unless transferred. [Subagents](https://ampcode.com/docs/models-and-subagents), [agent-to-agent](https://ampcode.com/docs/orbs/agent-to-agent), [automations](https://ampcode.com/docs/orbs/automations), [connections](https://ampcode.com/docs/customize/model-routing). Proprietary core; docs-backed.",
+      "sources": [
+        "https://ampcode.com/docs/models-and-subagents",
+        "https://ampcode.com/docs/orbs/agent-to-agent",
+        "https://ampcode.com/docs/orbs/automations",
+        "https://ampcode.com/docs/customize/model-routing"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Factory / Droid",
+      "features": "Custom droids; built-in worker/explorer; Missions with planning, milestones, workers and validators; automatic model routing; browser/desktop QA; headless execution; skills/plugins/hooks/MCP; code review; managed policies, sandbox and enterprise integrations.",
+      "distinction": "Structured execution and validation deserve separate comparison from generic delegation. [Missions](https://docs.factory.com/missions/overview), [custom droids](https://docs.factory.com/harness/subagents), [Router](https://docs.factory.com/model-independence/factory-router). Public repo/docs do not expose the proprietary Droid core.",
+      "sources": [
+        "https://docs.factory.com/missions/overview",
+        "https://docs.factory.com/harness/subagents",
+        "https://docs.factory.com/model-independence/factory-router"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "OpenClaw",
+      "features": "Multi-channel gateway; per-agent personas and channel bindings; persistent sessions; session listing/history/send/spawn tools; child sessions and announcements; browser control; memory/search; durable schedules; goals; skills/plugins/MCP; remote control UI.",
+      "distinction": "Gateway-owned routing and policy-controlled inter-session communication are central. [Session tools](https://docs.openclaw.ai/concepts/session-tool), [subagents](https://docs.openclaw.ai/tools/subagents). Public implementation downloaded; capabilities vary with runtime and configuration.",
+      "sources": [
+        "https://docs.openclaw.ai/concepts/session-tool",
+        "https://docs.openclaw.ai/tools/subagents"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Cline",
+      "features": "Plan/Act; workspace read/search/edit and terminal tools; checkpoints; rules/skills/plugins/hooks/MCP; subagents; agent teams with task board/mailboxes; CLI connectors and scheduling; Kanban worktrees; desktop/IDE/CLI surfaces; ACP.",
+      "distinction": "Different clients expose different features. Do not assign every CLI/team/connector capability to the VS Code extension. [CLI and feature navigation](https://docs.cline.bot/usage/cli-overview), [teams](https://docs.cline.bot/cli/agent-teams), [subagents](https://docs.cline.bot/features/subagents). Public source downloaded.",
+      "sources": [
+        "https://docs.cline.bot/usage/cli-overview",
+        "https://docs.cline.bot/cli/agent-teams",
+        "https://docs.cline.bot/features/subagents"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "OpenCode",
+      "features": "Multiple providers/models; Build/Plan primary agents; General/Explore/Scout helpers; agent-specific permissions; shell jobs; edit/patch/read; session history/revert; skills/plugins/hooks/MCP; web fetch/search; LSP integration; desktop/web/TUI/ACP interfaces.",
+      "distinction": "Scout explicitly researches dependencies/external docs; Plan's label alone does not guarantee a read-only shell. [Agents and permission semantics](https://docs.opencode.ai/docs/agents/), [tools](https://docs.opencode.ai/docs/tools/). Public implementation downloaded.",
+      "sources": [
+        "https://docs.opencode.ai/docs/agents/",
+        "https://docs.opencode.ai/docs/tools/"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "OpenClaude (Twigpine)",
+      "features": "Cloud/local provider profiles; per-agent model/provider routing and step limits; Bash/file/search tools; Agent helpers; addressable messages; background sessions/logs/kill; resume/fork; MCP/skills; optional repository maps; VS Code launch integration.",
+      "distinction": "Distinct from OpenCode and official Claude Code. Team/peer/browser behavior has feature gates. Forking a chat does not create filesystem isolation; background `attach` currently points to logs rather than restoring a terminal. [Pinned README](https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/README.md), [registered tools](https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/src/tools.ts), [message schema](https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/src/tools/SendMessageTool/SendMessageTool.ts).",
+      "sources": [
+        "https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/README.md",
+        "https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/src/tools.ts",
+        "https://github.com/Twigpine/openclaude/blob/e36580576278c27223b66ed3e9581186ea699161/src/tools/SendMessageTool/SendMessageTool.ts"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Pi",
+      "features": "Small coding-tool core; multi-provider SDK; extensible TypeScript tools/UI/hooks; branchable JSONL session trees; branch summaries and compaction; steering/follow-up queues; RPC/SDK; packages/skills/themes; Code Mode; deferred tool discovery; MCP.",
+      "distinction": "A toolkit for composing a harness. The inspected coding-agent core does not establish built-in subagents/plan mode; extension or separate durable-package workflows must be labeled separately. [Pinned source/docs](https://github.com/earendil-works/pi/tree/58c0b02ce552adab76014e7ed712ab7981359aa8/packages/coding-agent).",
+      "sources": [
+        "https://github.com/earendil-works/pi/tree/58c0b02ce552adab76014e7ed712ab7981359aa8/packages/coding-agent"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Gemini CLI",
+      "features": "File/shell tools; web search/fetch; GEMINI.md; checkpoints/session resume; policies/sandbox; MCP/extensions/skills; investigator/generalist helpers; local/remote subagent machinery; browser specialist.",
+      "distinction": "Browser is an opt-in experimental agent using bundled Chrome DevTools MCP and a separately available Chrome installation. [Subagents and browser prerequisites](https://geminicli.com/docs/core/subagents/), [core capabilities](https://geminicli.com/docs/core/). Public implementation newly downloaded.",
+      "sources": [
+        "https://geminicli.com/docs/core/subagents/",
+        "https://geminicli.com/docs/core/"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Qwen Code",
+      "features": "Subagents and context forks; team tasks/messages; background-agent continuation; automatic memory/skills; shell/edit/LSP; MCP/hooks; worktrees/approvals; desktop/web/IDE/chat clients; native Claude Code/Codex delegation; computer-use integration.",
+      "distinction": "A much broader competitor than a Qwen-specific terminal wrapper. External executors have their own platform, continuation and permission limits. [Current subagent contracts](https://qwenlm.github.io/qwen-code-docs/en/users/features/sub-agents/), [pinned README](https://github.com/QwenLM/qwen-code/blob/949a71e29b022c6ccad1c505a49680b3a7ce41b2/README.md). Public implementation newly downloaded.",
+      "sources": [
+        "https://qwenlm.github.io/qwen-code-docs/en/users/features/sub-agents/",
+        "https://github.com/QwenLM/qwen-code/blob/949a71e29b022c6ccad1c505a49680b3a7ce41b2/README.md"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "DeepSeek Harness",
+      "features": "Plugin-composed agent loop; terminal/subagents; desktop and local web UI; plugin creation through chat; previews/artifacts; execution traces; browser runtime; experimental teams, shared task board, direct inboxes and scheduling.",
+      "distinction": "This is a distinct public product, not merely using a DeepSeek model in another harness. Team docs explicitly limit cross-process coordination and separate working directories. [Product](https://www.deepseek.com/en/harness/), [pinned team contract](https://github.com/deepseek-ai/deepseek-harness/blob/22ddee3792402c3e70ec5f86a63c3e3e895a2f60/packages/experimental/agent-team/README.md). Public source newly downloaded.",
+      "sources": [
+        "https://www.deepseek.com/en/harness/",
+        "https://github.com/deepseek-ai/deepseek-harness/blob/22ddee3792402c3e70ec5f86a63c3e3e895a2f60/packages/experimental/agent-team/README.md"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Goose",
+      "features": "Local desktop/CLI/API; multiple model providers; MCP extensions; recipes and parameterized workflows; subrecipes; parallel subagents; persistent sessions; coding/general workflow tools; ACP provider integrations.",
+      "distinction": "Recipes and delegated execution are useful integration units; calling Goose \u201cstatic recipes only\u201d misses its agent and subagent runtime. [Pinned source](https://github.com/aaif-goose/goose/tree/c3bfc5f7b0e230180ba3164ec1ee84fd951eaf0d), [subagent tutorial](https://github.com/aaif-goose/goose/blob/c3bfc5f7b0e230180ba3164ec1ee84fd951eaf0d/documentation/docs/tutorials/subagents.md). Newly downloaded.",
+      "sources": [
+        "https://github.com/aaif-goose/goose/tree/c3bfc5f7b0e230180ba3164ec1ee84fd951eaf0d",
+        "https://github.com/aaif-goose/goose/blob/c3bfc5f7b0e230180ba3164ec1ee84fd951eaf0d/documentation/docs/tutorials/subagents.md"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Letta Code",
+      "features": "Stateful agent identity; memory blocks and git-backed MemFS; skill learning; background memory worker; conversation recall; subagents; hooks/mods; messaging channels; heartbeats/crons; remote computers and cloud state.",
+      "distinction": "Memory is an editable, versioned working system. Hosted state/remote-machine services must be separated from local execution. [Memory](https://docs.letta.com/configuration/memory), [pinned feature index](https://github.com/letta-ai/letta-code/blob/6c8b08fedfb6f3fb437163ede8320a387151693f/README.md). Public implementation newly downloaded.",
+      "sources": [
+        "https://docs.letta.com/configuration/memory",
+        "https://github.com/letta-ai/letta-code/blob/6c8b08fedfb6f3fb437163ede8320a387151693f/README.md"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Zed Agent",
+      "features": "Native editor-aware agent; file/terminal tooling; subagent spawn and follow-up by session ID; model selection; profiles/rules/skills/MCP; inline edits and edit prediction; external ACP agents; terminal-backed agent threads.",
+      "distinction": "Zed is both an agent and a host for other agents. An external agent retains its own runtime/auth/tools; its behavior is not automatically a native Zed feature. [AI paths](https://zed.dev/docs/ai/overview), [external agents](https://zed.dev/docs/ai/external-agents), [pinned delegation code](https://github.com/zed-industries/zed/blob/9f305aaf88370e8ca39c702242186e3d8f97ecca/crates/agent/src/tools/spawn_agent_tool.rs). Public editor source newly downloaded.",
+      "sources": [
+        "https://zed.dev/docs/ai/overview",
+        "https://zed.dev/docs/ai/external-agents",
+        "https://github.com/zed-industries/zed/blob/9f305aaf88370e8ca39c702242186e3d8f97ecca/crates/agent/src/tools/spawn_agent_tool.rs"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "OpenHands",
+      "features": "SDK/Agent Server; local or container/Kubernetes workspaces; shell/file/browser tools; delegated conversations; events and persisted state; REST/WebSocket interfaces; skills/plugins/MCP; browser-compatible TypeScript client.",
+      "distinction": "Product UI, execution server, and automation are now distinct repositories. The downloaded SDK owns execution; scheduling/webhooks live in `OpenHands/automation`, which was not cloned in this pass. [Pinned architecture ownership](https://github.com/OpenHands/software-agent-sdk/blob/acd96e6fa424c02432304395b9208f99be24b54d/README.md), [delegation implementation](https://github.com/OpenHands/software-agent-sdk/blob/acd96e6fa424c02432304395b9208f99be24b54d/openhands-tools/openhands/tools/delegate/impl.py).",
+      "sources": [
+        "https://github.com/OpenHands/software-agent-sdk/blob/acd96e6fa424c02432304395b9208f99be24b54d/README.md",
+        "https://github.com/OpenHands/software-agent-sdk/blob/acd96e6fa424c02432304395b9208f99be24b54d/openhands-tools/openhands/tools/delegate/impl.py"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Pydantic AI Harness",
+      "features": "Composable Coder/Researcher capabilities; typed tools and validated results; filesystem/persistent shell; memory; skills; isolated delegation with model menus/budgets; dynamic workflows; compaction; guardrails/judges; step persistence; durable-engine integrations; authored capabilities.",
+      "distinction": "An embeddable framework, not directly the same product as a desktop coding app. Durable execution requires a selected engine; capability creation loads validated model-written code on a later run. [Capability map](https://pydantic.dev/docs/ai/capabilities/overview/), [pinned harness source](https://github.com/pydantic/pydantic-ai-harness/tree/4399efacd4755ff6feccc727d3180a97428e76cf). Newly downloaded.",
+      "sources": [
+        "https://pydantic.dev/docs/ai/capabilities/overview/",
+        "https://github.com/pydantic/pydantic-ai-harness/tree/4399efacd4755ff6feccc727d3180a97428e76cf"
+      ],
+      "runtimeTested": false
+    },
+    {
+      "name": "Omnigent",
+      "features": "Native multi-harness workers, CLI subscription login, Polly orchestration and cross-vendor review, tmux terminals, worktrees, policies, shared sessions and web/native/mobile clients.",
+      "distinction": "No deterministic subscription-quota-triggered cross-harness handoff found in inspected paths; explicit fork, request retry, router-service fallback and supervisor replanning are different behaviors.",
+      "sources": [
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/onboarding/configure_models.py#L913",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/cli_config.py#L828",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/onboarding/provider_config.py#L1371",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/smart_routing.py#L2022",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/smart_routing.py#L2263",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/routing_backend.py#L129",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runtime/llm_retry.py#L289",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runner/launch_failure.py#L253",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/tests/runner/test_launch_failure.py#L176",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/harnesses/codex_native/forwarder.py#L7035",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/routes/sessions/routes_events.py#L2221",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/web/src/components/blocks/StatusBlocks.tsx#L131",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/web/src/components/blocks/StatusBlocks.test.tsx#L707",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/server/routes/sessions/routes_core.py#L3433",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runner/subagent_work.py#L750",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/runner/subagent_recovery.py#L53",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/examples/polly/config.yaml#L37",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/examples/polly/agents/codex/config.yaml#L8",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/terminals/registry.py#L191",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/terminals/control_bridge.py#L1",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/host/git_worktree.py#L403",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/policies/builtins/cost.py#L1",
+        "https://github.com/omnigent-ai/omnigent/blob/caa0441fddfcfe407e38be04b55850a128be2dd2/omnigent/inner/codex_executor.py#L4383"
+      ],
+      "runtimeTested": false,
+      "isolatedFunctionProbesExecuted": true
+    }
+  ],
+  "productImplementationChanged": false,
+  "limitations": [
+    "Source/doc observations do not certify runtime behavior or comparative quality",
+    "Existing pinned snapshots preserved; nine new source snapshots retrieved today",
+    "Factory public checkout contains docs; Warp public client does not expose its hosted harness",
+    "Unverified is not absent; experimental/configuration/platform availability remains qualified"
+  ]
+}

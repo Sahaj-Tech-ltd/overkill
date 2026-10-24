@@ -1,0 +1,253 @@
+{
+  "date": "2026-10-23T22:42:33.817310+00:00",
+  "scope": "Coding-worker core and persistent-terminal backend implementation checkpoint. Full subscription-team/failover objective remains active.",
+  "gitBase": "1839271dfeec89773428e1ebc5c1627ffc1a9a8a",
+  "workingTree": true,
+  "backendSHA256": "408a34c7939d5208a80e5fad61f94b532c3d891388532f4f6bba210df81224c7",
+  "resourcesDistributionReady": false,
+  "sourceSHA256": {
+    "cmd/overkill/child_runtime_setup.go": "6f34d5c13e4b99478b575f4def8c8973c4fed31cc21d279be535d6f6d4c67f04",
+    "cmd/overkill/runtime_setup.go": "f6c108d3589bfdfa5f86401a982b7f2a9dc39d341c90da1a428339db2a68dadf",
+    "cmd/overkill/subagent_setup.go": "7d432ad147238c377d68c9db8b75338d97faed717deff1912e244a8a6d4dc9aa",
+    "internal/childruntime/runtime.go": "786ffb853921ee025df2fb183607a0e24faa4d48f2c0a55093f43df6095b1a3f",
+    "internal/childruntime/coding_test.go": "913a557ef9742c5270c7ef232b01e88aebe75a30645cc41072e6705a5f4b4ee3",
+    "internal/subagent/manager.go": "4f9126079fc573fbcc1f54dda7c5884c9ee22d0bcc2703e412b74b93847023c7",
+    "internal/subagent/realworker.go": "09f6717bef86c9ecc43458be87d09a2f38321e38419d2d21aa258b7b6e7db435",
+    "internal/tools/coding_factory.go": "beb2ad85db3e21e4f8c733015c907af2585416d217a69392b39d66a8169c95ff",
+    "internal/tools/factory.go": "32db898b44a4d7ec6172b9a12ccc39d04ceabaa9c2055746378866b33dff3052",
+    "internal/tools/delegate.go": "d33ca69019e2a96609582478c51a2df75374c3c466253f0bd9006b482b1b0e3a",
+    "internal/tools/grep.go": "eb408bf766c2536f26e6d3eb6dd438d647e4911b21ee1ade63ec8fcce8d744ec",
+    "internal/tools/grep_workspace_test.go": "bf59e62510a2b08d2aa59819d77aefa32b01fe769c64a93909888ee5af040726",
+    "internal/tools/terminal.go": "f81e13c7d5b2b4cae399607d6fef0e6f6284473d444808ac396cfe0d5875345e",
+    "internal/tools/terminal_test.go": "32c413561233cd9ff2f47de468aba9682b7436d4d3072c02c26aff20a398bd44",
+    "internal/tools/pty_shell.go": "d0cbf97a51ace74927310f8f339dd45b2ad5e1d4f92c57479009b11f62236101",
+    "internal/tools/pty_bounded_test.go": "372c3cd863196cfaab775ffb90337fee8573ff73a2baff3d97a919f59fbe655d",
+    "internal/pty/session.go": "3edf7d71fdc8bee79c4ac271c7b7206caafbf2878f4f85f0e3b9b6f35ed70dd3",
+    "internal/pty/session_group_unix_test.go": "968ea3152b5a4028b882df03ec0def3c0a407af4c4f4c5e82ccf62dfe6f35513",
+    "internal/pty/terminate_unix.go": "e6445c97a43488d8d4d40a9e4c17cdbf6a138fc9d8b53c1418177b1f07536387",
+    "internal/pty/terminate_other.go": "4e7f65a564010ad2ca333c61109ab7b743461d80eed07ecfcc46e044c87d5fb7",
+    "internal/terminal/manager.go": "d709034823a62f4100906eee7a1426291c730d9bb3733e65581ecbff3c9b017d",
+    "internal/terminal/manager_unix_test.go": "86fdf9f399626162e918131fc9cbab59cd5516f67cc5ebbd745f7af069945569",
+    "internal/api/terminal.go": "0be0318c14a825f292aa1dba98acb86ba9deb67239fb34b1f849f8152cb7a0e3",
+    "internal/api/terminal_test.go": "c3d92e5efcc641db358230895cfd4b0137a9268fb19c9c3e0900b24b63ff166c",
+    "internal/api/coordination_handlers.go": "33295e9ce57b3dde2de3ea811ce2af0cdfce2475a223b74ce65e1062024d2029",
+    "internal/api/handlers.go": "7ea36eedbcb56b0ce20d1394f2603517b16861c185eb9eb110dc9f1b84a6b026",
+    "internal/api/runtime.go": "fcfbe82bbe07d79d62a946a1912a2dc53bc1c6db493d95a231555f58a6f328c0",
+    "internal/api/server.go": "b4b0a9b2454ee86153896b8683f9cdea089bafb732612528175d6d066898d163",
+    "internal/pipeline/pipeline_test.go": "abcb188e7723a91c5b4bae00ebba9d5b20de7142ea799bb814b8abed4208418b",
+    "desktop/test/coding-worker-native.test.cjs": "c4e305adc944490c856b5eefe6598e3c33391ac92d6111193223b755b532ebdb",
+    "desktop/test/persistent-terminal-native.test.cjs": "61988a5b09662741980481261516568138572182d2ca9a0a32cd5f69b2776671"
+  },
+  "checks": {
+    "requiredGo": {
+      "path": "/Users/abc/Documents/overkill/.cache/coding-terminal-required-go.log",
+      "sha256": "c94531dea8071fb016171d085553aeb4ed8d1e4a89b157981c71b0078b9190e3",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/tts\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/verify\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/vision\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/impossibleprobe\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/mcpshield\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/monitor\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/promptinject\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/truthsource\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/web\t7.607s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/worktree\t(cached)"
+      ]
+    },
+    "defaultGo": {
+      "path": "/Users/abc/Documents/overkill/.cache/coding-terminal-full-go.log",
+      "sha256": "98f3aa82ee4fba7b27869aac3353463d6c33f2d19b1340e477f02344cefdea21",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging\t0.624s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/tts\t0.342s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/verify\t0.562s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/vision\t0.339s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls\t1.680s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/impossibleprobe\t0.414s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/mcpshield\t0.243s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/monitor\t0.486s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/promptinject\t0.588s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/truthsource\t0.608s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/web\t0.920s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/worktree\t4.373s"
+      ]
+    },
+    "ownershipRace": {
+      "path": "/Users/abc/Documents/overkill/.cache/coding-terminal-race.log",
+      "sha256": "061370f13c6cfd8613f8a986b283e9908db07ffbfb1730ed0e9d88e030cc4d2d",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/terminal\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t4.382s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/subagent\t2.222s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/pty\t2.030s"
+      ]
+    },
+    "latestTerminalRace": {
+      "path": "/Users/abc/Documents/overkill/.cache/persistent-terminal-test.log",
+      "sha256": "9d10d6a5f0222c1862af67c594a7647f5155d4cdd4b5c6a5cef00ef900913c0a",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/terminal\t1.396s"
+      ]
+    },
+    "searchAndWorkerTests": {
+      "path": "/Users/abc/Documents/overkill/.cache/coding-grep-tests.log",
+      "sha256": "bb16f01ef205ee7667f6baf067c3b21b7c4d47afa7135dffcaab3cde847ad38b",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools\t9.047s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t3.288s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/pipeline\t(cached)"
+      ]
+    },
+    "desktopDefault": {
+      "path": "/Users/abc/Documents/overkill/.cache/coding-terminal-desktop.log",
+      "sha256": "d98c76610d88d251faafe6067d659a13ed2f956c389e5690096a71914d190e71",
+      "tail": [
+        "✔ dependency graph explains wait, privacy and truncation and ignores stale replies (0.219417ms)",
+        "✔ task agreement blockers distinguish acknowledgement and stale revision from test evidence (0.133208ms)",
+        "✔ peer scope labels distinguish explicit repository membership from checkout identities (0.036709ms)",
+        "✔ new contract stays disabled until the selected chat contract inventory is loaded (0.12225ms)",
+        "ℹ tests 98",
+        "ℹ suites 0",
+        "ℹ pass 85",
+        "ℹ fail 0",
+        "ℹ cancelled 0",
+        "ℹ skipped 13",
+        "ℹ todo 0",
+        "ℹ duration_ms 3601.030958"
+      ]
+    },
+    "nativeDevelopmentApp": {
+      "path": "/Users/abc/Documents/overkill/.cache/coding-terminal-native-final.log",
+      "sha256": "96952d3c2dce853e0e5c358ba9a7f674b14ea9d0853936a8605d9fb2a12a7b8b",
+      "tail": [
+        "✔ native desktop delegates a real file edit and build to a tool-capable child (3792.987625ms)",
+        "✔ native controlled coding builds real frontend/backend, clarifies, integrates, cancels and stops all owned work (15687.033375ms)",
+        "✔ native backend terminal persists across chat turns and supports human ownership and stop (2049.309583ms)",
+        "✔ desktop renders real task budgets, blockers, contracts and recorded checks (42174.021709ms)",
+        "ℹ tests 4",
+        "ℹ suites 0",
+        "ℹ pass 4",
+        "ℹ fail 0",
+        "ℹ cancelled 0",
+        "ℹ skipped 0",
+        "ℹ todo 0",
+        "ℹ duration_ms 64307.717125"
+      ]
+    },
+    "windowsCrossCompile": {
+      "exitCode": 0,
+      "executableSHA256": "1b4a696b5308ec41b1d2714f25acd7df62e6fc3d1b1389eb72ccd83dc4dcaafa",
+      "nativeExecution": false
+    }
+  },
+  "nativeChild": {
+    "backendSHA256": "408a34c7939d5208a80e5fad61f94b532c3d891388532f4f6bba210df81224c7",
+    "childCalls": 3,
+    "parentCalls": 2,
+    "report": {
+      "task_index": 0,
+      "status": "completed",
+      "summary": "Child fixed worker.js and the real Node check passed.",
+      "tokens_in": 90,
+      "tokens_out": 30,
+      "cost_usd": 0,
+      "duration_ms": 67,
+      "tool_trace": [
+        {
+          "tool": "fs",
+          "args_len": 60,
+          "path": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-coding-child-Gb5h04/Workspace/worker.js",
+          "success": true,
+          "input_hash": "5536ffd33a145fcf680eb010b014e6603292a20172793f03eb40d00cfdb23cfd",
+          "output_hash": "2acb9debe06d0a286cf30afdd02cc9248d7c02d9b02063873acff991d93eee6a"
+        },
+        {
+          "tool": "shell",
+          "args_len": 128,
+          "success": true,
+          "input_hash": "db6af5859d592b3bf56c587920990389aecf051354cdd68830a298144cab5ebe",
+          "output_hash": "b0073dc91df361c8a317d2ec42630a8d5f0d486dce3c06ad7e3587cd1e0a7b7c"
+        }
+      ],
+      "files_written": [
+        "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-coding-child-Gb5h04/Workspace/worker.js"
+      ],
+      "exit_reason": "completed"
+    },
+    "scope": "Native development Electron app with bundled backend/PostgreSQL and controlled provider; real child edit and Node test; mock-only disposable credential store; no paid-provider or installed-release claim."
+  },
+  "nativeTerminal": {
+    "calls": 8,
+    "registrationRetiredOwnedProcess": true,
+    "registeredLaunchWithheld": true,
+    "sessionID": "1329df83-ed8d-40d0-93da-6c5e5d3dd4ce",
+    "firstID": "e2ef550e-ca04-4323-843a-5661bc88e1ea",
+    "lastID": "00109f4b-012d-46e5-88b7-1e127357edec",
+    "output": {
+      "terminal": {
+        "id": "e2ef550e-ca04-4323-843a-5661bc88e1ea",
+        "owner": {
+          "session": "1329df83-ed8d-40d0-93da-6c5e5d3dd4ce",
+          "worker": "main"
+        },
+        "command": "read value; printf 'NATIVE_PERSISTED:%s\\n' \"$value\"",
+        "cwd": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-live-terminal-Gu1RCF/Workspace",
+        "state": "exited",
+        "controller": "human",
+        "exit_code": 0,
+        "started_at": "2026-10-23T22:39:38.284284Z"
+      },
+      "data": "aGVsbG8NCk5BVElWRV9QRVJTSVNURUQ6aGVsbG8NCg==",
+      "output": "hello\r\nNATIVE_PERSISTED:hello\r\n",
+      "cursor": 31,
+      "earliest": 0,
+      "truncated": false
+    },
+    "inventory": {
+      "available": true,
+      "terminals": [
+        {
+          "id": "e2ef550e-ca04-4323-843a-5661bc88e1ea",
+          "owner": {
+            "session": "1329df83-ed8d-40d0-93da-6c5e5d3dd4ce",
+            "worker": "main"
+          },
+          "command": "read value; printf 'NATIVE_PERSISTED:%s\\n' \"$value\"",
+          "cwd": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-live-terminal-Gu1RCF/Workspace",
+          "state": "exited",
+          "controller": "human",
+          "exit_code": 0,
+          "started_at": "2026-10-23T22:39:38.284284Z"
+        },
+        {
+          "id": "6284bbdc-0692-4541-af46-d786a8c8064d",
+          "owner": {
+            "session": "1329df83-ed8d-40d0-93da-6c5e5d3dd4ce",
+            "worker": "main"
+          },
+          "command": "cat",
+          "cwd": "/private/var/folders/ln/v3y5vq_x3l10_t42s6k7f9h40000gn/T/overkill-live-terminal-Gu1RCF/Workspace",
+          "state": "closed",
+          "controller": "agent",
+          "exit_code": -1,
+          "started_at": "2026-10-23T22:39:38.484946Z"
+        }
+      ]
+    },
+    "scope": "Native development app and real bundled backend/PostgreSQL/PTY. Controlled provider and disposable mocked credential store. Human control exercised via authenticated backend RPC; terminal UI controls, registered-peer lifetime reservations, Windows ConPTY and backend restart restoration remain open."
+  },
+  "testRepair": "An instantaneous pipeline mock may legitimately measure zero elapsed time. The test now allows zero while existing delayed-provider tests retain positive timing lower bounds. No production pipeline behavior changed.",
+  "additionalScopeFix": "Workspace grep uses descriptor-rooted opens, skips file symlinks, bounds reads/results/lines and reports truncation before it is exposed to full-tool children.",
+  "remaining": [
+    "Terminal UI controls are not connected; authenticated human actions were exercised through backend RPC.",
+    "Registered peers do not receive persistent launch until lifetime workspace reservations exist.",
+    "Native Windows persistent PTY/ConPTY and restart reattachment are unimplemented.",
+    "Browser/MCP child inheritance and durable addressable ordinary-worker updates remain open.",
+    "Official Claude/Codex subscription adapters and account-aware safe failover are unimplemented.",
+    "No live paid-provider/subscription, native credential-store or rebuilt installed-release acceptance was performed."
+  ],
+  "goalComplete": false
+}

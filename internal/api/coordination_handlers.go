@@ -62,6 +62,16 @@ func (s *Server) handleCoordination(ctx context.Context, method string, data []b
 			return nil, &RPCError{Code: InvalidRequest, Message: err.Error()}
 		}
 		defer release()
+		// A background writer must stop before the workspace enters coordinated
+		// ownership. Closing only after registration would leave a write window.
+		s.mu.RLock()
+		runtime := s.sessionRuntimes[p.SessionID]
+		s.mu.RUnlock()
+		if runtime != nil && runtime.Terminals != nil {
+			if err := runtime.Terminals.Stop(); err != nil {
+				return nil, &RPCError{Code: InvalidRequest, Message: "Cannot register while terminal shutdown is unconfirmed: " + err.Error()}
+			}
+		}
 		var peer coordination.Peer
 		if p.RepositoryScope {
 			peer, err = s.coordinationStore.RegisterRepositorySessionPeer(ctx, p.SessionID, p.Name, p.Role)

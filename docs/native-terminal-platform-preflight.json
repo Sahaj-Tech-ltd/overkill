@@ -1,0 +1,141 @@
+{
+  "date": "2026-10-24T04:20:24.112625+00:00",
+  "gitBase": "1839271dfeec89773428e1ebc5c1627ffc1a9a8a",
+  "workingTree": true,
+  "scope": "Native Windows ConPTY implementation and cross-platform ownership/cleanup hardening, before Windows/Linux CI execution. This record is local verification only.",
+  "backendSHA256": "3e16635e0ac60695e17d65000537094a2be2f30cc66e21b0be263a178fa840b3",
+  "distributionReady": false,
+  "nativeWindowsAccepted": false,
+  "nativeLinuxAccepted": false,
+  "implemented": [
+    "Windows ConPTY with real console input/output and resize; process created suspended, assigned to an unnamed kill-on-close Job Object, then resumed.",
+    "Windows PowerShell command syntax is advertised; startup profiles are disabled. Unsupported ConPTY exports withhold the capability instead of substituting redirected pipes.",
+    "Bounded cleanup reports uncertainty and retains workspace reservations when owned process cleanup cannot be confirmed, including failed post-launch setup.",
+    "Retired-child history removal rechecks ownership under the handoff/input lock.",
+    "Native Windows tests cover actual console APIs, Unicode, resize, partial input, exact descendant-handle termination, denied startup, takeover, retry/conflict fences, parent handoff, cleanup/reservation release and Ctrl-C. Test executables cross-compile; native execution is pending.",
+    "Installed Windows acceptance now composes real backend/frontend children, correlated schema messages, a real HTTP integration in ConPTY, server transfer and human keyboard takeover/return/end through the emulator. Shared scenario passed on the macOS development app using POSIX PTY; this is not Windows evidence."
+  ],
+  "sourceSHA256": {
+    "internal/pty/session.go": "1710554014942bf4470274f8284b9cf94dd0bb7cff41f4219411e9e82017f913",
+    "internal/pty/session_windows.go": "eb34cf9b12153039efb74669e8ccbc72efb5eb815db83dc698ca994c4774bf0a",
+    "internal/pty/session_test.go": "d453e6935083fba820148e0faf65b9830324a7cb98e98a2e6268350692e178f2",
+    "internal/pty/session_windows_test.go": "94c14ca29b9824451df9fb69771cfbc9f143c5f98368362ea234844f70716659",
+    "internal/terminal/manager.go": "c9698ed6a5cec006846c443546c60c44427177871fba566879a0d9635472cdea",
+    "internal/terminal/manager_windows_test.go": "0738fde8cb7195a88a79d78a01a775e1e4df0fa76456885957da0505f203f4cc",
+    "internal/terminal/handoff_unix_test.go": "aaf86578352da2f2859a5a01060fb3a16fbe7cfcb3bf8eb68235ec7e77e64b0b",
+    "internal/tools/pty_shell.go": "d45f1079cc6a5902426a8986ca012551c60e68326be0401c93e4eb3708f12dbc",
+    "internal/tools/terminal.go": "9fccf6eaaae889f0134db7f87ba162aab10918a5741e7c8d0a97db8b59e18479",
+    "internal/tools/coding_factory.go": "152bae3b9c940ed50d90c17aebcd8894b9cd0519481626977c5741d5b9ce9178",
+    "scripts/windows-test-installed.mjs": "90965bea4b2ac244ec268821be774a3235cc4ab382ea2d56849eba92276c0a05",
+    "scripts/windows-team-acceptance.mjs": "d033c82f6f7c328c00c9c224bdbe1195974bc05449e919aefab5ad1b5f0d41bc",
+    ".github/workflows/desktop-windows.yml": "57cf644bfe0ae52177d1e23e5415e4f7b902e4aedf669012ea4a0bfc3e10c7d2",
+    "desktop/test/team-install-fixture-native.test.cjs": "bada4bab9e07df994dd9b304439c8472f7b318a70fb2a2be57ea5ce822765ff2"
+  },
+  "checks": {
+    "conpty-shared-final-race.log": {
+      "path": "/Users/abc/Documents/overkill/.cache/conpty-shared-final-race.log",
+      "sha256": "cfbcba6c784a95f4e17056a97cf3918ac7b08bd9fe144b51455d59c1bced8fc4",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/pty\t1.712s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/terminal\t1.783s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/childruntime\t4.406s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools\t11.542s"
+      ]
+    },
+    "conpty-full-required-go.log": {
+      "path": "/Users/abc/Documents/overkill/.cache/conpty-full-required-go.log",
+      "sha256": "5ed6e785263de7f2620f338d085ab71a82f148a26ad7ccace1b0e492f912f295",
+      "tail": [
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/messaging\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/tools/tts\t0.540s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/verify\t0.529s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/vision\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls\t1.204s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/impossibleprobe\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/mcpshield\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/monitor\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/promptinject\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/walls/truthsource\t(cached)",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/web\t7.895s",
+        "ok  \tgithub.com/Sahaj-Tech-ltd/overkill/internal/worktree\t5.844s"
+      ]
+    },
+    "conpty-desktop-default.log": {
+      "path": "/Users/abc/Documents/overkill/.cache/conpty-desktop-default.log",
+      "sha256": "b650414861728e4b0969e68cc671c116d8fa917e2c9e68f2a15c31447ab1e062",
+      "tail": [
+        "\u2714 dependency graph explains wait, privacy and truncation and ignores stale replies (0.214708ms)",
+        "\u2714 task agreement blockers distinguish acknowledgement and stale revision from test evidence (0.134375ms)",
+        "\u2714 peer scope labels distinguish explicit repository membership from checkout identities (0.03625ms)",
+        "\u2714 new contract stays disabled until the selected chat contract inventory is loaded (0.122083ms)",
+        "\u2139 tests 117",
+        "\u2139 suites 0",
+        "\u2139 pass 97",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 20",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 4557.014833"
+      ]
+    },
+    "conpty-packaging-regression.log": {
+      "path": "/Users/abc/Documents/overkill/.cache/conpty-packaging-regression.log",
+      "sha256": "10de6944bff56bd7a5d2ef928bb5c2c28ddf0c895fbb2d7e5cb11722ab998b71",
+      "tail": [
+        "\u2714 actual Windows-linked wincred PE yields exact cached module notices (276.908125ms)",
+        "\u2714 archive inventory rejects Windows and POSIX extraction escapes (0.709625ms)",
+        "\u2714 pinned Windows vendor evidence and notices bind actual bundled binary family (3.121916ms)",
+        "\u2139 tests 3",
+        "\u2139 suites 0",
+        "\u2139 pass 3",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 313.218417"
+      ]
+    },
+    "conpty-shared-fixture-native.log": {
+      "path": "/Users/abc/Documents/overkill/.cache/conpty-shared-fixture-native.log",
+      "sha256": "e626b43b154ffe9f536da0df3b15736a45274554be5044acf267703f14965c60",
+      "tail": [
+        "\u2714 native backend terminal persists across chat turns and supports human ownership and stop (9099.569833ms)",
+        "\u2714 shared installed-team scenario performs real effects in the native development app (2060.898041ms)",
+        "\u2714 child server handoff survives cleanup and stops with the app (agent) (4419.102833ms)",
+        "\u2714 child server handoff survives cleanup and stops with the app (human) (5260.29925ms)",
+        "\u2139 tests 4",
+        "\u2139 suites 0",
+        "\u2139 pass 4",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 21282.718375"
+      ]
+    },
+    "conpty-windows-test-build.log": {
+      "path": "/Users/abc/Documents/overkill/.cache/conpty-windows-test-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tail": []
+    },
+    "conpty-windows-vet.log": {
+      "path": "/Users/abc/Documents/overkill/.cache/conpty-windows-vet.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tail": []
+    }
+  },
+  "windowsTestBinarySHA256": {
+    ".cache/pty-conpty-windows.test.exe": "54edc8c93965095a1471d4d88f87d21c45ef2c19a382c7c04215c73571a31e5b",
+    ".cache/terminal-conpty-windows.test.exe": "8d4398e8a29da2a7e9ad7e9ea5fde9c676212f0856656082e39043f51d0cedd7"
+  },
+  "references": [
+    "https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session",
+    "https://learn.microsoft.com/en-us/windows/console/closepseudoconsole",
+    "https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects"
+  ],
+  "remaining": [
+    "Execute source-pinned Windows unit/installed-app acceptance and native Linux terminal tests.",
+    "Broader messaging contract-revision composition, terminal/broker crash reconciliation and installed macOS acceptance remain open.",
+    "The full 20-competitor backlog remains intact."
+  ]
+}

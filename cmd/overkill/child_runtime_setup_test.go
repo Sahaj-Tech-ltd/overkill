@@ -14,6 +14,8 @@ import (
 	"github.com/Sahaj-Tech-ltd/overkill/internal/config"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/providers"
 	"github.com/Sahaj-Tech-ltd/overkill/internal/subagent"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/terminal"
+	"github.com/Sahaj-Tech-ltd/overkill/internal/tools"
 )
 
 func TestChildProviderUsesConfiguredEndpointHeadersAndModel(t *testing.T) {
@@ -45,6 +47,57 @@ func TestChildProviderUsesConfiguredEndpointHeadersAndModel(t *testing.T) {
 	}
 	if calls.Load() != 1 || result.Summary != "configured response" || result.TokensIn != 8 || result.TokensOut != 4 {
 		t.Fatalf("configured child did not run: %+v calls=%d", result, calls.Load())
+	}
+}
+
+func TestChildInheritsConfiguredCommandDenials(t *testing.T) {
+	for _, tool := range []string{"shell", "pty_shell", "terminal"} {
+		t.Run(tool, func(t *testing.T) {
+			if tool == "terminal" && !terminal.Supported() {
+				t.Skip("native terminal unsupported")
+			}
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				message := map[string]any{"role": "assistant", "content": "The denied command did not execute."}
+				if calls.Add(1) == 1 {
+					input := map[string]any{"command": "printf OVERKILL_DENIED_MARKER > blocked.txt"}
+					if tool == "terminal" {
+						input["operation"] = "start"
+					}
+					raw, _ := json.Marshal(input)
+					message = map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"id": "denied", "type": "function", "function": map[string]any{"name": tool, "arguments": string(raw)}}}}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": message, "finish_reason": "stop"}}, "usage": map[string]int{"prompt_tokens": 8, "completion_tokens": 4}})
+			}))
+			defer server.Close()
+			cfg := config.Default()
+			cfg.Security.DenyPatterns = []string{"OVERKILL_DENIED_MARKER"}
+			cfg.Providers = []config.ProviderConfig{{Name: "configured", Type: "custom", APIKey: "fake-key", BaseURL: server.URL, Models: []config.ModelConfig{{ID: "model"}}}}
+			cfg.Agent.DefaultProvider = "configured"
+			cfg.Agent.DefaultModel = "model"
+			dir := t.TempDir()
+			var inherited []tools.FactoryDeps
+			if tool == "terminal" {
+				m, err := terminal.New(dir, terminal.Options{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer m.Close()
+				inherited = []tools.FactoryDeps{{TerminalManager: m, TerminalOwner: terminal.Owner{Session: "chat"}}}
+			}
+			worker, err := childWorkerFactory(cfg, dir, inherited...)(subagent.RealWorkerConfig{WorkerID: "child-deny", Goal: "Attempt the supplied coding operation", Tools: []string{tool}, MaxSteps: 3})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = worker.Run(t.Context())
+			if calls.Load() != 2 {
+				t.Fatalf("denial was not surfaced to the real child loop: calls=%d", calls.Load())
+			}
+			if _, err := os.Stat(filepath.Join(dir, "blocked.txt")); !os.IsNotExist(err) {
+				t.Fatalf("denied child effect occurred: %v", err)
+			}
+		})
 	}
 }
 
