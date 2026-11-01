@@ -27,7 +27,7 @@ dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.3.1",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.20",
+    "ruff>=0.17.3",
     "mypy>=1.8",
 ]
 qdrant = [
